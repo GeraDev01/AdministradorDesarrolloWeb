@@ -1,0 +1,34 @@
+# ── Salidas de compilación ──────────────────────────────
+[Bb]in/
+[Oo]bj/
+
+# ── Visual Studio / usuario ─────────────────────────────
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# ── Publicación ─────────────────────────────────────────
+dist/
+publish/
+[Pp]ublish/
+
+# ── Recurso con credenciales del build de desarrollador (generado por Deploy\build-app.ps1) ──
+Administrador_Desarrollo_Web/Deploy/devbuild.bin
+
+# ── Respaldos / exportaciones pesadas (NO subir) ────────
+*.zip
+
+# ── Base de datos local SQLite (datos, nunca al repo) ───
+*.db
+*.db-shm
+*.db-wal
+
+# ── Configuración local con la conexión cifrada (por si acaso) ──
+dbprovider.json
+devops-personal.json
+
+# ── Logs ────────────────────────────────────────────────
+*.log
+[Ll]ogs/

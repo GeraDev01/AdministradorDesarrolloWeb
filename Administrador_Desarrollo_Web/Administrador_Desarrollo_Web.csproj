@@ -1,0 +1,60 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <StartupObject />
+    <AssemblyTitle>Administrador de Desarrollo</AssemblyTitle>
+    <Product>Administrador de Desarrollo</Product>
+  </PropertyGroup>
+
+  <!-- El proyecto de pruebas puede ver miembros internal (p. ej. el descifrado de la conexión
+       incrustada, para verificar que la app y Deploy/build-app.ps1 usan el mismo esquema). -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Administrador_Desarrollo_Web.Tests" />
+  </ItemGroup>
+
+  <!-- Publicación con la conexión a la base ya incrustada, para repartir al equipo sin que nadie
+       la capture a mano. Es la MISMA aplicación: el menú sigue dependiendo del rol de la cuenta.
+       Se activa con -p:EmbedDbConnection=true; ver Deploy/build-app.ps1. -->
+  <ItemGroup Condition="'$(EmbedDbConnection)' == 'true'">
+    <EmbeddedResource Include="Deploy\devbuild.bin" LogicalName="EmbeddedDbConnection" />
+  </ItemGroup>
+
+  <Target Name="ValidarRecursoConexion" BeforeTargets="BeforeBuild" Condition="'$(EmbedDbConnection)' == 'true'">
+    <Error Condition="!Exists('Deploy\devbuild.bin')"
+           Text="Falta Deploy\devbuild.bin. Publica con Deploy\build-app.ps1, que genera ese recurso a partir de la conexión configurada." />
+  </Target>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.*" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.*" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.*">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.*" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.*" />
+    <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
+    <PackageReference Include="Serilog" Version="4.1.0" />
+    <PackageReference Include="Serilog.Extensions.Logging" Version="8.0.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+    <PackageReference Include="ClosedXML" Version="0.104.1" />
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.*" />
+    <PackageReference Include="FluentFTP" Version="51.*" />
+    <PackageReference Include="DocumentFormat.OpenXml" Version="3.3.0" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3351.48" />
+    <PackageReference Include="MailKit" Version="4.8.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="Plantillas\Solicitud_Vacaciones_Plantilla.docx">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>
