@@ -180,4 +180,27 @@ public static class AppTheme
         Models.RequirementStatus.Cancelado    => Color.FromArgb(239, 68, 68),
         _                                     => Color.Gray
     };
+
+    /// <summary>
+    /// Color de cada estado de presencia. Vive aquí y no en PresenceService por el mismo motivo
+    /// que <see cref="StatusColor"/>: System.Drawing no entra a la capa de servicios.
+    ///
+    /// Los tonos son más OSCUROS que Success/Warning a propósito: estos se usan como texto sobre
+    /// fondo claro y como fondo con texto blanco encima, y los de la paleta general no alcanzan el
+    /// contraste (Success sobre blanco: 2.3:1, ilegible). Cada elección va con el icono que ya
+    /// tiene el estado: color e icono no pueden contradecirse.
+    /// </summary>
+    public static Color PresenceColor(Models.PresenceState estado) => estado switch
+    {
+        // Verde: lo pidió el usuario, y el icono ya es 🟢.
+        Models.PresenceState.Disponible => Color.FromArgb(21, 128, 61),
+        // Rojo —no ámbar—: es la única señal de «no me interrumpas», y el icono ya es 🔴.
+        Models.PresenceState.Ocupado    => Color.FromArgb(220, 38, 38),
+        Models.PresenceState.EnReunion  => Color.FromArgb(124, 58, 237),
+        Models.PresenceState.Comiendo   => Color.FromArgb(180, 83, 9),
+        Models.PresenceState.Descanso   => SidebarActive,
+        // El mismo gris que ya usa la fila del desconectado: dos grises distintos se leerían
+        // como dos estados distintos.
+        _                               => TextSecondary
+    };
 }
