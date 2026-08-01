@@ -30,6 +30,11 @@
     Requiere WINDOWS POWERSHELL 5.1 (edición Desktop): usa System.Data.SqlClient (prueba de conexión)
     y DPAPI ProtectedData (leer la conexión local), tipos del .NET Framework que PowerShell 7 no trae.
     Ejecútalo con 'powershell.exe', no con 'pwsh'.
+
+    Ese System.Data.SqlClient es el proveedor VIEJO y no entiende todas las palabras clave que
+    escribe el nuevo (Microsoft.Data.SqlClient), que es el que usa la aplicación. La prueba de
+    conexión traduce la cadena antes de abrirla — ver ConvertTo-CadenaDePrueba. Lo que se incrusta
+    en el .exe es siempre la cadena original.
 #>
 #requires -PSEdition Desktop
 [CmdletBinding()]
@@ -37,7 +42,18 @@ param(
     [string] $ConnectionString,
     [string] $OutputDir = "$PSScriptRoot\..\..\dist\desarrollador",
     [switch] $SkipConnectionTest,
-    [switch] $KeepResource
+    [switch] $KeepResource,
+
+    # ── Firma digital (Authenticode) ────────────────────────────────────────────
+    # Es lo ÚNICO que quita de verdad el aviso «Windows protegió su PC». Sin firma, cada
+    # actualización vuelve a empezar de cero en reputación. Ver LEEME.md.
+    #   -SignThumbprint  huella del certificado en el almacén del usuario (lo normal si el
+    #                    certificado está en un token USB o ya importado en Windows)
+    #   -SignPfx         archivo .pfx en disco (+ -SignPfxPassword)
+    [string] $SignThumbprint,
+    [string] $SignPfx,
+    [string] $SignPfxPassword,
+    [string] $TimestampUrl = 'http://timestamp.digicert.com'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -78,9 +94,60 @@ if ($ConnectionString -match '(?i)(^|;)\s*(uid|user\s*id)\s*=\s*(sa|soltum)\s*(;
 }
 
 # ── 2. Probar que la conexión sirve antes de repartirla ─────────────────────────
+
+<#
+.SYNOPSIS
+    Adapta la connection string al proveedor VIEJO de SQL, solo para poder probarla aquí.
+
+.DESCRIPTION
+    La aplicación corre sobre Microsoft.Data.SqlClient (EF Core) y guarda la cadena en la forma
+    canónica de ESE proveedor, que escribe algunas palabras clave separadas: «Trust Server
+    Certificate». Windows PowerShell 5.1 solo trae el System.Data.SqlClient del .NET Framework,
+    donde esa misma opción se llama «TrustServerCertificate» y la forma con espacios se rechaza con
+    «Palabra clave no admitida», sin haber intentado conectar siquiera.
+
+    Por eso cada palabra clave se prueba tal cual y, si el proveedor viejo no la conoce, otra vez
+    sin espacios. Lo que sigue sin reconocer (p. ej. «Command Timeout», que solo existe en el
+    proveedor nuevo) se omite de la PRUEBA: son ajustes que no cambian si el servidor responde.
+
+    Lo que se incrusta en el .exe es siempre la cadena ORIGINAL, sin tocar: esto no la modifica.
+#>
+function ConvertTo-CadenaDePrueba {
+    param([Parameter(Mandatory)] [string] $Cadena)
+
+    # DbConnectionStringBuilder admite cualquier palabra clave (no valida ninguna) y respeta las
+    # comillas, así que parte la cadena sin romper una contraseña que lleve «;» o «=» dentro.
+    #
+    # psbase en cada acceso: estos builders implementan IDictionary y PowerShell antepone el
+    # diccionario a las propiedades reales. Sin psbase, «$b.ConnectionString = ...» crea una ENTRADA
+    # llamada ConnectionString en lugar de asignar la propiedad, y la cadena resultante sale vacía.
+    $origen = New-Object System.Data.Common.DbConnectionStringBuilder
+    try { $origen.psbase.ConnectionString = $Cadena }
+    catch { throw "La connection string no tiene un formato válido: $($_.Exception.Message)" }
+
+    $destino = New-Object System.Data.SqlClient.SqlConnectionStringBuilder
+    $omitidas = @()
+    foreach ($clave in @($origen.psbase.Keys)) {
+        $valor = $origen.psbase.Item($clave)
+        $puesta = $false
+        foreach ($variante in @($clave, ($clave -replace '\s', ''))) {
+            try { $destino.psbase.Item($variante) = $valor; $puesta = $true; break } catch { }
+        }
+        if (-not $puesta) { $omitidas += $clave }
+    }
+
+    [pscustomobject]@{ Cadena = $destino.psbase.ConnectionString; Omitidas = @($omitidas) }
+}
+
 if (-not $SkipConnectionTest) {
     Write-Paso 'Probando la conexión'
-    $conn = New-Object System.Data.SqlClient.SqlConnection $ConnectionString
+
+    $prueba = ConvertTo-CadenaDePrueba -Cadena $ConnectionString
+    if ($prueba.Omitidas.Count -gt 0) {
+        Write-Host "  (solo para esta prueba se omiten, por ser del proveedor nuevo: $($prueba.Omitidas -join ', '))" -ForegroundColor DarkGray
+    }
+
+    $conn = New-Object System.Data.SqlClient.SqlConnection $prueba.Cadena
     try {
         $conn.Open()
         $cmd = $conn.CreateCommand()
@@ -146,8 +213,50 @@ finally {
     }
 }
 
-# ── 5. Resultado ───────────────────────────────────────────────────────────────
 $exe = Get-ChildItem $OutputDir -Filter '*.exe' | Select-Object -First 1
+
+# ── 5. Firmar ──────────────────────────────────────────────────────────────────
+# Sin firma el .exe funciona igual, así que esto es opcional a propósito: quien no tenga
+# certificado sigue pudiendo publicar. Pero mientras no se firme, cada equipo que lo descargue
+# verá el aviso de SmartScreen y algunos antivirus lo pondrán en cuarentena.
+if ($SignThumbprint -or $SignPfx) {
+    Write-Paso 'Firmando el ejecutable'
+
+    # signtool.exe viene con el Windows SDK y no está en el PATH. Se toma la versión más nueva.
+    $signtool = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Recurse -Filter 'signtool.exe' -ErrorAction SilentlyContinue |
+                Where-Object { $_.FullName -match '\\x64\\' } |
+                Sort-Object FullName -Descending | Select-Object -First 1
+    if (-not $signtool) {
+        throw "No se encontró signtool.exe. Instala el Windows SDK (componente 'Windows SDK Signing Tools')."
+    }
+
+    # /fd y /td sha256: SHA-1 lleva años sin ser aceptado.
+    # /tr (sello de tiempo): sin él, la firma deja de valer el día que expire el certificado, y
+    # con ella los .exe ya repartidos empezarían a marcarse como no firmados.
+    $firmaArgs = @('sign', '/fd', 'sha256', '/tr', $TimestampUrl, '/td', 'sha256')
+    if ($SignThumbprint) {
+        $firmaArgs += @('/sha1', $SignThumbprint)
+    } else {
+        if (-not (Test-Path $SignPfx)) { throw "No existe el .pfx: $SignPfx" }
+        $firmaArgs += @('/f', $SignPfx)
+        if ($SignPfxPassword) { $firmaArgs += @('/p', $SignPfxPassword) }
+    }
+    $firmaArgs += $exe.FullName
+
+    & $signtool.FullName @firmaArgs
+    if ($LASTEXITCODE -ne 0) { throw "signtool devolvió $LASTEXITCODE" }
+
+    # Que quede constancia de que la firma es verificable, no solo de que signtool no falló.
+    $firma = Get-AuthenticodeSignature $exe.FullName
+    if ($firma.Status -ne 'Valid') { throw "La firma quedó en estado '$($firma.Status)'." }
+    Write-Host "  Firmado por: $($firma.SignerCertificate.Subject)" -ForegroundColor Green
+}
+else {
+    Write-Host "`n  AVISO: el .exe NO va firmado. Windows mostrará 'Windows protegió su PC'" -ForegroundColor Yellow
+    Write-Host "  la primera vez que cada quien lo abra. Ver Deploy\LEEME.md." -ForegroundColor Yellow
+}
+
+# ── 6. Resultado ───────────────────────────────────────────────────────────────
 Write-Paso 'Listo'
 Write-Host "  $($exe.FullName)"
 Write-Host "  $([Math]::Round($exe.Length / 1MB, 1)) MB — un solo archivo, sin instalación ni configuración."

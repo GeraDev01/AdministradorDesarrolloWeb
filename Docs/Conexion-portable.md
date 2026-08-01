@@ -4,11 +4,22 @@ La aplicación decide su base de datos en este orden:
 
 1. **Configuración local de ese equipo** (`%AppData%\AdministradorDesarrolloWeb\dbprovider.json`), capturada en *Configuración → Base de datos*.
 2. **Conexión incrustada** en el ejecutable (si se publicó con ella).
-3. **SQLite local** (`%AppData%\AdministradorDesarrolloWeb\app.db`), como último recurso.
+
+No hay tercera opción: **sin ninguna de las dos, la app no abre ninguna base**. La pantalla de inicio de sesión muestra un ● **rojo** con el motivo y no deja entrar. Cuando conecta, el ● se pone **verde**.
+
+El indicador solo dice si hay conexión o no: esa pantalla se ve antes de autenticarse, así que no muestra servidor, base ni usuario.
+
+## Cómo saber contra qué base está una PC
+
+En el log de ese equipo:
+
+```powershell
+Get-Content "$env:APPDATA\AdministradorDesarrolloWeb\logs\app-*.log" | Select-String "BD inicializada"
+```
 
 ## Por qué copiar `dbprovider.json` NO funciona
 
-Ese archivo cifra la cadena con **DPAPI atado a la cuenta de Windows** que la guardó. En otra PC (u otra cuenta) no se puede descifrar: la app lo detecta, avisa y cae a SQLite con una base vacía. Es decir, **el archivo de configuración no es portable a propósito**.
+Ese archivo cifra la cadena con **DPAPI atado a la cuenta de Windows** que la guardó. En otra PC (u otra cuenta) no se puede descifrar: la app lo detecta y avisa. Es decir, **el archivo de configuración no es portable a propósito**. Antes, además, seguía adelante con una base SQLite vacía en la que nadie podía iniciar sesión; ahora se queda en rojo diciendo qué pasó.
 
 ## La forma correcta: publicar con la conexión incrustada
 
@@ -33,6 +44,10 @@ El script:
 - deja el ejecutable en `dist\desarrollador\` (`-OutputDir` para cambiarlo).
 
 Copias ese `.exe` a la otra PC y listo. El menú y los permisos siguen dependiendo del rol de la cuenta con la que cada quien inicia sesión: es la misma aplicación para todos.
+
+> **Córrelo con `powershell.exe`, no con `pwsh`.** El script necesita DPAPI (para leer tu conexión local) y `System.Data.SqlClient` (para probarla), que son del .NET Framework y PowerShell 7 no trae.
+>
+> Ese `System.Data.SqlClient` es el proveedor **viejo** y no entiende todas las palabras clave que escribe el nuevo (`Microsoft.Data.SqlClient`), que es el que usa la aplicación: por ejemplo `Trust Server Certificate` separado, que allá solo existe como `TrustServerCertificate`. El script **traduce** la cadena antes de abrirla para la prueba; lo que se incrusta en el `.exe` es siempre la cadena original. Si alguna vez ves *«Palabra clave no admitida»* en el paso *Probando la conexión*, es esto y no un problema de tu conexión.
 
 ## Seguridad — leer antes de repartir
 

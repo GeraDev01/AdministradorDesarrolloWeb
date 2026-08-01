@@ -237,7 +237,39 @@ public static class SqlConnectionStringHelper
         return Synonyms.TryGetValue(compact, out var canonical) ? canonical : key;
     }
 
-    /// <summary>Traduce fallos típicos de SQL Server a una explicación accionable en español.</summary>
+    /// <summary>
+    /// Motivo en una línea, apto para la pantalla de inicio de sesión: SOLO la explicación accionable,
+    /// nunca el mensaje crudo del servidor. El mensaje crudo trae el host y el nombre de la base, y esa
+    /// pantalla la ve cualquiera que pase frente al equipo. El detalle completo va al log.
+    /// </summary>
+    public static string ExplainBrief(Exception ex)
+    {
+        switch (ex)
+        {
+            case AggregateException agg when agg.InnerException is not null:
+                return ExplainBrief(agg.InnerException);
+
+            case SqlException sql:
+                return sql.Number switch
+                {
+                    18456 => "El usuario o la contraseña de la base de datos no son válidos, o no tienen acceso a ella.",
+                    4060 or 911 => "El servidor respondió, pero no se pudo abrir la base de datos.",
+                    40615 or 40532 => "El firewall del servidor está bloqueando la IP de este equipo.",
+                    40613 => "La base de datos está despertando. Reintenta en unos segundos.",
+                    53 or 10060 or 10061 => "No se alcanzó el servidor. Revisa tu red o la VPN.",
+                    -2 => "Se agotó el tiempo de espera al conectar con el servidor.",
+                    _ => "El servidor rechazó la conexión. El motivo completo quedó en el log."
+                };
+
+            default:
+                return "Revisa tu red o la VPN. El motivo completo quedó en el log.";
+        }
+    }
+
+    /// <summary>
+    /// Traduce fallos típicos de SQL Server a una explicación accionable en español, con el detalle
+    /// técnico incluido. Para lo que se muestra ANTES de iniciar sesión usa <see cref="ExplainBrief"/>.
+    /// </summary>
     public static string Explain(Exception ex)
     {
         switch (ex)
