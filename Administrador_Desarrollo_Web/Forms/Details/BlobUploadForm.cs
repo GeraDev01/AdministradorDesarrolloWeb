@@ -6,7 +6,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// Sube uno o varios archivos a una carpeta del contenedor, con barra de progreso (por bytes) y una
 /// bitácora en vivo, al estilo de Blobup. Se puede cancelar; lo ya subido se conserva.
 /// </summary>
-public class BlobUploadForm : Form
+public class BlobUploadForm : ResponsiveForm
 {
     private readonly BlobStorageService _blob;
     private readonly string _carpeta;

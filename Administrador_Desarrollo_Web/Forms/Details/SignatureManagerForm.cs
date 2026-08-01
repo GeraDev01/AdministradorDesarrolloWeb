@@ -8,7 +8,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// Gestor de firmas preguardadas: dibujar, importar imagen, marcar predeterminada
 /// y eliminar. Alcance actual: firmas compartidas / del gerente (OwnerDeveloperId = null).
 /// </summary>
-public class SignatureManagerForm : Form
+public class SignatureManagerForm : ResponsiveForm
 {
     private readonly SignatureService _sig;
     private DataGridView _grid = null!;

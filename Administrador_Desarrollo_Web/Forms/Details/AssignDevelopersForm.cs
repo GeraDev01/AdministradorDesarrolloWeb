@@ -3,7 +3,7 @@ using Administrador_Desarrollo_Web.Forms;
 
 namespace Administrador_Desarrollo_Web.Forms.Details;
 
-public class AssignDevelopersForm : Form
+public class AssignDevelopersForm : ResponsiveForm
 {
     private CheckedListBox _lstDevs = null!;
     private readonly List<Developer> _allDevs;

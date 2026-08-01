@@ -2,7 +2,7 @@ using Administrador_Desarrollo_Web.Models;
 
 namespace Administrador_Desarrollo_Web.Forms.Details;
 
-public class SoftwareDetailForm : Form
+public class SoftwareDetailForm : ResponsiveForm
 {
     private TextBox _txtName = null!;
     private ComboBox _cbxCategory = null!;

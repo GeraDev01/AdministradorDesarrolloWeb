@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Administrador_Desarrollo_Web.Forms.Details;
 
-public class MinuteDetailForm : Form
+public class MinuteDetailForm : ResponsiveForm
 {
     private readonly AppDbContext _db;
     private readonly List<Developer> _devs;

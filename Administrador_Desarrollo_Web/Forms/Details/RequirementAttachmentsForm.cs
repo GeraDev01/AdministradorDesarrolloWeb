@@ -9,7 +9,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// Gestiona los documentos adjuntos de un requerimiento: adjuntar el documento
 /// de requerimiento y el de estimación, abrirlos, guardarlos y eliminarlos.
 /// </summary>
-public class RequirementAttachmentsForm : Form
+public class RequirementAttachmentsForm : ResponsiveForm
 {
     private readonly RequirementAttachmentService _svc;
     private readonly int _requirementId;

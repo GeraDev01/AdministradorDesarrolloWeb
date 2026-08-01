@@ -4,7 +4,7 @@ using Administrador_Desarrollo_Web.Models;
 namespace Administrador_Desarrollo_Web.Forms.Details;
 
 /// <summary>Alta/edición de un contacto (correo y/o enlace de Teams).</summary>
-public class ContactDetailForm : Form
+public class ContactDetailForm : ResponsiveForm
 {
     private TextBox _txtName = null!, _txtTitle = null!, _txtCompany = null!, _txtEmail = null!, _txtTeams = null!, _txtPhone = null!, _txtNotes = null!;
 

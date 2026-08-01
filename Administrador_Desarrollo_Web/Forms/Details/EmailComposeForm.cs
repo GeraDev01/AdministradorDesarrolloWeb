@@ -4,7 +4,7 @@ using Administrador_Desarrollo_Web.Services;
 namespace Administrador_Desarrollo_Web.Forms.Details;
 
 /// <summary>Redacta y envía un correo (SMTP) opcionalmente con un adjunto.</summary>
-public class EmailComposeForm : Form
+public class EmailComposeForm : ResponsiveForm
 {
     private readonly EmailService _email;
     private TextBox _txtTo = null!, _txtSubject = null!, _txtBody = null!;

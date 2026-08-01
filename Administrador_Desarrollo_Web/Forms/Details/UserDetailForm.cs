@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Administrador_Desarrollo_Web.Forms.Details;
 
-public class UserDetailForm : Form
+public class UserDetailForm : ResponsiveForm
 {
     private TextBox _txtUsername   = null!;
     private TextBox _txtFullName   = null!;

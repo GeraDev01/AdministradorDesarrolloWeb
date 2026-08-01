@@ -6,7 +6,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// Diálogo para elegir la prioridad (1..4) de un work item de Azure DevOps, donde 1 es la más alta.
 /// Devuelve la prioridad seleccionada en <see cref="SelectedPriority"/>.
 /// </summary>
-public class PriorityPickerForm : Form
+public class PriorityPickerForm : ResponsiveForm
 {
     private ComboBox _cbx = null!;
 

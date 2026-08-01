@@ -9,7 +9,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// y el equipo destino (o "Sin equipo"). El control aplica los movimientos y los
 /// registra en el historial de rotaciones.
 /// </summary>
-public class TeamRotationForm : Form
+public class TeamRotationForm : ResponsiveForm
 {
     private readonly List<(int Id, string Label)> _devs;
     private readonly List<Team> _teams;

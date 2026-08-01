@@ -7,7 +7,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// porque en Azure la "carpeta" es literalmente el prefijo del nombre del archivo y conviene ver
 /// exactamente dónde va a quedar antes de crearla.
 /// </summary>
-public class NuevaCarpetaBlobForm : Form
+public class NuevaCarpetaBlobForm : ResponsiveForm
 {
     private readonly string _padre;
     private TextBox _txtNombre = null!;

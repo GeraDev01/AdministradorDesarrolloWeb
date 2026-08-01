@@ -5,7 +5,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// la persona: se ofrece un borrador con el tiempo dedicado, pero nadie publica en el ticket del
 /// cliente sin haberlo leído.
 /// </summary>
-public class SlaCommentForm : Form
+public class SlaCommentForm : ResponsiveForm
 {
     private TextBox _txt = null!;
     private Label _lblAttach = null!;

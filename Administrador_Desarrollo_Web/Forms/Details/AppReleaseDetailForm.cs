@@ -9,7 +9,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 ///  · <b>Tomar un archivo ya existente en Blob Storage</b> → no se comprime ni se re-sube; se
 ///    registra ese blob como paquete de la versión (lo que pidió el flujo centrado en el blob).
 /// </summary>
-public class AppReleaseDetailForm : Form
+public class AppReleaseDetailForm : ResponsiveForm
 {
     private readonly AppSystem _system;
     private readonly IReadOnlyList<string> _carpetas;

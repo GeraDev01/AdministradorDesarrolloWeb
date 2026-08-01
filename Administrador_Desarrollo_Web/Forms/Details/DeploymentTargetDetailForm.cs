@@ -3,7 +3,7 @@ using Administrador_Desarrollo_Web.Security;
 
 namespace Administrador_Desarrollo_Web.Forms.Details;
 
-public class DeploymentTargetDetailForm : Form
+public class DeploymentTargetDetailForm : ResponsiveForm
 {
     private TextBox _txtNombre = null!, _txtHost = null!, _txtUser = null!, _txtPass = null!, _txtRemote = null!, _txtUrl = null!;
     private NumericUpDown _nudPort = null!;

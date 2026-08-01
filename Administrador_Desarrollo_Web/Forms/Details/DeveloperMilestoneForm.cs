@@ -3,7 +3,7 @@ using Administrador_Desarrollo_Web.Models;
 namespace Administrador_Desarrollo_Web.Forms.Details;
 
 /// <summary>Alta/edición de un hito de un desarrollador (logro, proyecto, certificación…).</summary>
-public class DeveloperMilestoneForm : Form
+public class DeveloperMilestoneForm : ResponsiveForm
 {
     private DateTimePicker _dtp = null!;
     private ComboBox _cbKind = null!;

@@ -2,7 +2,7 @@ using Administrador_Desarrollo_Web.Forms;
 
 namespace Administrador_Desarrollo_Web.Forms.Details;
 
-public class ChangePasswordForm : Form
+public class ChangePasswordForm : ResponsiveForm
 {
     private TextBox _txtNew = null!;
     private TextBox _txtConfirm = null!;

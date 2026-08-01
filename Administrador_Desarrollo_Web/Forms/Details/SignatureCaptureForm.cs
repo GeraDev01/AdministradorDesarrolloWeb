@@ -7,7 +7,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// Diálogo para dibujar una firma nueva con el mouse y nombrarla.
 /// Devuelve el PNG transparente ya recortado.
 /// </summary>
-public class SignatureCaptureForm : Form
+public class SignatureCaptureForm : ResponsiveForm
 {
     private SignatureCaptureControl _pad = null!;
     private TextBox _txtName = null!;

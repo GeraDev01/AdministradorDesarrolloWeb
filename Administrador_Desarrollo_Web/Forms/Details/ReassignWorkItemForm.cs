@@ -7,7 +7,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// correo de CUALQUIER usuario de DevOps (aunque no esté registrado en la app), o quitar la
 /// asignación. El correo es lo que DevOps entiende como identidad.
 /// </summary>
-public class ReassignWorkItemForm : Form
+public class ReassignWorkItemForm : ResponsiveForm
 {
     private ComboBox _cbo = null!;
     private CheckBox _chkQuitar = null!;

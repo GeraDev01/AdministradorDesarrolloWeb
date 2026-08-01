@@ -8,7 +8,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// traer miles de items y que la sync sea rápida. Sin nada marcado equivale a traer todo (menos los
 /// Removed). Los filtros se combinan con Y (tipos Y estados Y personas).
 /// </summary>
-public class DevOpsSyncOptionsForm : Form
+public class DevOpsSyncOptionsForm : ResponsiveForm
 {
     private CheckedListBox _clbTypes = null!;
     private CheckedListBox _clbStates = null!;

@@ -9,7 +9,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// Asignación de un SLA: objetivo (requerimiento o actividad), responsable, fecha límite,
 /// cadencia de recordatorio y ticket de Azure DevOps que hay que comentar.
 /// </summary>
-public class SlaAssignForm : Form
+public class SlaAssignForm : ResponsiveForm
 {
     private readonly AppDbContext _db;
 

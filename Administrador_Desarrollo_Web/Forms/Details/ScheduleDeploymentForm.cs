@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Administrador_Desarrollo_Web.Forms.Details;
 
 /// <summary>Agenda un despliegue: versión, perfil, hora y cuánto se tolera arrancar tarde.</summary>
-public class ScheduleDeploymentForm : Form
+public class ScheduleDeploymentForm : ResponsiveForm
 {
     private readonly AppDbContext _db;
     private readonly ICurrentUser _currentUser;

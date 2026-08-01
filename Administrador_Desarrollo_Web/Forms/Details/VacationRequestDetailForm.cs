@@ -3,7 +3,7 @@ using Administrador_Desarrollo_Web.Data;
 
 namespace Administrador_Desarrollo_Web.Forms.Details;
 
-public class VacationRequestDetailForm : Form
+public class VacationRequestDetailForm : ResponsiveForm
 {
     private readonly AppDbContext _db;
     private readonly List<Developer> _devs;

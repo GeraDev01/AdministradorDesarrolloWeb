@@ -7,7 +7,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// changelog. No re-sube ni mueve el paquete: solo cambia la ficha de la versión. Para cambiar el
 /// contenido del paquete se crea una versión nueva.
 /// </summary>
-public class AppReleaseEditForm : Form
+public class AppReleaseEditForm : ResponsiveForm
 {
     private readonly AppRelease _release;
     private readonly bool _versionBloqueada;

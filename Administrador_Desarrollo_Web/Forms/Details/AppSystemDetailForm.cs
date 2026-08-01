@@ -2,7 +2,7 @@ using Administrador_Desarrollo_Web.Models;
 
 namespace Administrador_Desarrollo_Web.Forms.Details;
 
-public class AppSystemDetailForm : Form
+public class AppSystemDetailForm : ResponsiveForm
 {
     private TextBox _txtName = null!;
     private TextBox _txtDesc = null!;

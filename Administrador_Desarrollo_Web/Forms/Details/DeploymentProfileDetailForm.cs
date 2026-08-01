@@ -3,7 +3,7 @@ using Administrador_Desarrollo_Web.Data;
 
 namespace Administrador_Desarrollo_Web.Forms.Details;
 
-public class DeploymentProfileDetailForm : Form
+public class DeploymentProfileDetailForm : ResponsiveForm
 {
     private readonly List<DeploymentTarget> _allTargets;
     private TextBox _txtName = null!, _txtDesc = null!;

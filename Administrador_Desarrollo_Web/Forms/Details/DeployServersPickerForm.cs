@@ -7,7 +7,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// incluye en el despliegue y, por separado, si se respalda antes (el respaldo es POR SERVIDOR).
 /// Opcionalmente se precargan los servidores de un perfil existente.
 /// </summary>
-public class DeployServersPickerForm : Form
+public class DeployServersPickerForm : ResponsiveForm
 {
     private readonly List<DeploymentTarget> _servers;
     private readonly HashSet<int> _incluir;

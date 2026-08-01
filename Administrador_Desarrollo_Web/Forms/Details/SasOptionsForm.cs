@@ -4,7 +4,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// Vigencia del enlace temporal de descarga (SAS). Mismo criterio que la herramienta Blobup que ya
 /// usa el equipo: horas, con 24 por omisión.
 /// </summary>
-public class SasOptionsForm : Form
+public class SasOptionsForm : ResponsiveForm
 {
     private NumericUpDown _numHoras = null!;
     public double Horas { get; private set; } = 24;

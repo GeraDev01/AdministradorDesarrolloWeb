@@ -3,7 +3,7 @@ using Administrador_Desarrollo_Web.Forms;
 
 namespace Administrador_Desarrollo_Web.Forms.Details;
 
-public class RequirementDetailForm : Form
+public class RequirementDetailForm : ResponsiveForm
 {
     private TextBox _txtTitle = null!;
     private TextBox _txtDesc = null!;

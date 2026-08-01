@@ -5,7 +5,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 
 /// <summary>Alta/edición de un equipo: nombre, descripción y color.
 /// El líder se asigna con el rol "Líder" desde el tablero de equipos.</summary>
-public class TeamDetailForm : Form
+public class TeamDetailForm : ResponsiveForm
 {
     private TextBox _txtName = null!;
     private TextBox _txtDesc = null!;

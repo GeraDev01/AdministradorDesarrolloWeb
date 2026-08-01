@@ -12,7 +12,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// equipo, borrables) y el aporte individual de cada integrante (solo lectura).
 /// Total = aporte de integrantes + puntos propios del equipo.
 /// </summary>
-public class TeamPointsDetailForm : Form
+public class TeamPointsDetailForm : ResponsiveForm
 {
     private static readonly string[] Months =
         ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];

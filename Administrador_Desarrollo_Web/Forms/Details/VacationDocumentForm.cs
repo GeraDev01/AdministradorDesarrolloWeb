@@ -13,7 +13,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// como PDF (WebView2), permite firmarlo con una firma preguardada del gerente y
 /// exportar el PDF firmado.
 /// </summary>
-public class VacationDocumentForm : Form
+public class VacationDocumentForm : ResponsiveForm
 {
     private readonly AppDbContext _db;
     private readonly VacationDocumentService _docSvc;

@@ -7,7 +7,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// jefe se las entregue al desarrollador. La contraseña es temporal: el usuario
 /// deberá cambiarla en su primer inicio de sesión.
 /// </summary>
-public class AccountCredentialsForm : Form
+public class AccountCredentialsForm : ResponsiveForm
 {
     public AccountCredentialsForm(string devName, string username, string tempPassword)
     {

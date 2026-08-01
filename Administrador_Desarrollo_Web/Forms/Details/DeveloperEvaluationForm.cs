@@ -4,7 +4,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 
 /// <summary>Alta/edición de una evaluación de líder: fecha, periodo, calificación, fortalezas,
 /// debilidades y comentarios.</summary>
-public class DeveloperEvaluationForm : Form
+public class DeveloperEvaluationForm : ResponsiveForm
 {
     private DateTimePicker _dtp = null!;
     private TextBox _txtPeriod = null!, _txtStrengths = null!, _txtWeaknesses = null!, _txtComments = null!;

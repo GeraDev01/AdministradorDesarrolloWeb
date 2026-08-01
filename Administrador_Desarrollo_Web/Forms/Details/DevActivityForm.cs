@@ -3,7 +3,7 @@ using Administrador_Desarrollo_Web.Models;
 namespace Administrador_Desarrollo_Web.Forms.Details;
 
 /// <summary>Alta/edición de una actividad libre del desarrollador.</summary>
-public class DevActivityForm : Form
+public class DevActivityForm : ResponsiveForm
 {
     private TextBox _txtTitle = null!;
     private TextBox _txtDescription = null!;

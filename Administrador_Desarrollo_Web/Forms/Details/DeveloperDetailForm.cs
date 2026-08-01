@@ -4,7 +4,7 @@ using Administrador_Desarrollo_Web.Services;
 
 namespace Administrador_Desarrollo_Web.Forms.Details;
 
-public class DeveloperDetailForm : Form
+public class DeveloperDetailForm : ResponsiveForm
 {
     private TextBox _txtName = null!;
     private TextBox _txtEmail = null!;

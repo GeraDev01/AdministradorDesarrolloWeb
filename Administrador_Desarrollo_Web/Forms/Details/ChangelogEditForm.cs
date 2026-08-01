@@ -5,7 +5,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// despliega necesita saber qué trae la versión que va a subir, pero editar el historial de
 /// cambios es del administrador.
 /// </summary>
-public class ChangelogEditForm : Form
+public class ChangelogEditForm : ResponsiveForm
 {
     private RichTextBox _rt = null!;
     public string Changelog => _rt.Text.Trim();

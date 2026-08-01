@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Administrador_Desarrollo_Web.Forms.Details;
 
 /// <summary>Historial de rotaciones de desarrolladores entre equipos.</summary>
-public class TeamRotationHistoryForm : Form
+public class TeamRotationHistoryForm : ResponsiveForm
 {
     private readonly AppDbContext _db;
     private DataGridView _grid = null!;

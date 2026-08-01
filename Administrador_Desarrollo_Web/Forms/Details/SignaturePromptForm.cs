@@ -3,7 +3,7 @@ using Administrador_Desarrollo_Web.Forms;
 namespace Administrador_Desarrollo_Web.Forms.Details;
 
 /// <summary>Pide nombre (y si es predeterminada) para una firma importada.</summary>
-public class SignaturePromptForm : Form
+public class SignaturePromptForm : ResponsiveForm
 {
     private TextBox _txtName = null!;
     private CheckBox _chkDefault = null!;

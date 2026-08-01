@@ -3,7 +3,7 @@ using Administrador_Desarrollo_Web.Data;
 
 namespace Administrador_Desarrollo_Web.Forms.Details;
 
-public class NoteDetailForm : Form
+public class NoteDetailForm : ResponsiveForm
 {
     private readonly List<Developer> _devs;
     private TextBox _txtTitle = null!;

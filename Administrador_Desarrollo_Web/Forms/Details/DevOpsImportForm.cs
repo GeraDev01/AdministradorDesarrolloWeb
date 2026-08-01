@@ -9,7 +9,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// omisión. La lista que recibe YA excluye los cerrados (Done/Removed), así que aquí solo se decide
 /// el subconjunto a traer. La asignación al desarrollador es automática: aquí no se elige a mano.
 /// </summary>
-public class DevOpsImportForm : Form
+public class DevOpsImportForm : ResponsiveForm
 {
     private sealed class Candidate
     {

@@ -7,7 +7,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// Asigna un criterio de puntos a uno o varios EQUIPOS (criterios de ámbito Equipo/Ambos).
 /// Genera un TeamPointEntry por cada equipo marcado. No afecta a los puntos individuales.
 /// </summary>
-public class TeamPointEntryForm : Form
+public class TeamPointEntryForm : ResponsiveForm
 {
     private readonly List<Team> _teams;
     private readonly List<ScoringCriterion> _criteria;

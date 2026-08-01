@@ -6,7 +6,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// Búsqueda global (Ctrl+K): escribe y salta a requerimientos, tickets de DevOps, desarrolladores o
 /// sugerencias. Devuelve en <see cref="SelectedNavKey"/> la pantalla a la que navegar.
 /// </summary>
-public class GlobalSearchForm : Form
+public class GlobalSearchForm : ResponsiveForm
 {
     private readonly SearchService _search;
     private TextBox _txt = null!;

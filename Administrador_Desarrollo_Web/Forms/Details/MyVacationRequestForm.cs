@@ -3,7 +3,7 @@ using Administrador_Desarrollo_Web.Models;
 namespace Administrador_Desarrollo_Web.Forms.Details;
 
 /// <summary>Alta de una solicitud de vacaciones por el propio desarrollador, con documento de respaldo opcional.</summary>
-public class MyVacationRequestForm : Form
+public class MyVacationRequestForm : ResponsiveForm
 {
     private DateTimePicker _dtpStart = null!;
     private DateTimePicker _dtpEnd = null!;

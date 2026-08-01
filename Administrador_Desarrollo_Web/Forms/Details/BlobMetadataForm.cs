@@ -6,7 +6,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// Editor de los metadatos de un blob. Azure no hace merge al guardarlos: lo que se envía es lo
 /// que queda, así que la rejilla siempre muestra y devuelve el conjunto COMPLETO.
 /// </summary>
-public class BlobMetadataForm : Form
+public class BlobMetadataForm : ResponsiveForm
 {
     private DataGridView _grid = null!;
     private Label _lblError = null!;

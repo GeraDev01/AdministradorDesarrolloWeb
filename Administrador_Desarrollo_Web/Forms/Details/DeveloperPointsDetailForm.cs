@@ -8,7 +8,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// Muestra el detalle de puntos (tipo "calificaciones") de un desarrollador en un
 /// período: cada criterio con sus puntos, fecha, requerimiento, captura y comentario.
 /// </summary>
-public class DeveloperPointsDetailForm : Form
+public class DeveloperPointsDetailForm : ResponsiveForm
 {
     private static readonly string[] Months =
         ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];

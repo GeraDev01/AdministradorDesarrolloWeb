@@ -7,7 +7,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// Reporte de tiempo por día: cuánto se dedicó a cada requerimiento/actividad en cada fecha, a
 /// partir de los tramos registrados. Exacto por día aunque una sesión abarque varios.
 /// </summary>
-public class TiempoPorDiaForm : Form
+public class TiempoPorDiaForm : ResponsiveForm
 {
     private readonly WorkSessionService _work;
     private readonly int _devId;

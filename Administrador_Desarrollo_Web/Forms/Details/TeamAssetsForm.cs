@@ -9,7 +9,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// Relaciona sistemas y proyectos con un equipo: en "Sistemas" marcas los sistemas que
 /// pertenecen al equipo; en "Proyectos" gestionas los proyectos del equipo.
 /// </summary>
-public class TeamAssetsForm : Form
+public class TeamAssetsForm : ResponsiveForm
 {
     private readonly AppDbContext _db;
     private readonly AuditService _audit;

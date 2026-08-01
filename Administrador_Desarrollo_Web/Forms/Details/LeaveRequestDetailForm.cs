@@ -3,7 +3,7 @@ using Administrador_Desarrollo_Web.Data;
 
 namespace Administrador_Desarrollo_Web.Forms.Details;
 
-public class LeaveRequestDetailForm : Form
+public class LeaveRequestDetailForm : ResponsiveForm
 {
     private readonly List<Developer> _devs;
     private ComboBox _cbxDev = null!;

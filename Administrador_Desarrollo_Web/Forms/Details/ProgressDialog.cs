@@ -1,7 +1,7 @@
 namespace Administrador_Desarrollo_Web.Forms.Details;
 
 /// <summary>Diálogo modal-no-bloqueante con log y barra de progreso para tareas largas.</summary>
-public class ProgressDialog : Form
+public class ProgressDialog : ResponsiveForm
 {
     private RichTextBox _txtLog = null!;
     private Button _btnClose = null!, _btnCancel = null!;

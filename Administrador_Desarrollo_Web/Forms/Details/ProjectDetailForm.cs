@@ -4,7 +4,7 @@ using Administrador_Desarrollo_Web.Models;
 namespace Administrador_Desarrollo_Web.Forms.Details;
 
 /// <summary>Alta/edición de un proyecto.</summary>
-public class ProjectDetailForm : Form
+public class ProjectDetailForm : ResponsiveForm
 {
     private TextBox _txtName = null!, _txtClient = null!, _txtDesc = null!;
     private ComboBox _cbxStatus = null!;

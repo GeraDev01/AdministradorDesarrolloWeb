@@ -7,7 +7,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// Captura del PAT personal de Azure DevOps. Se guarda solo en este equipo, cifrado con la cuenta
 /// de Windows de quien lo captura: nunca viaja a la base compartida ni lo puede leer nadie más.
 /// </summary>
-public class MyDevOpsPatForm : Form
+public class MyDevOpsPatForm : ResponsiveForm
 {
     private readonly AzureDevOpsService _devops;
 

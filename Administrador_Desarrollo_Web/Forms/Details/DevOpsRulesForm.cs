@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Administrador_Desarrollo_Web.Forms.Details;
 
 /// <summary>Gestiona las reglas de auto-asignación de work items de Azure DevOps.</summary>
-public class DevOpsRulesForm : Form
+public class DevOpsRulesForm : ResponsiveForm
 {
     private readonly AppDbContext _db;
     private readonly List<Developer> _devs;
@@ -107,7 +107,7 @@ public class DevOpsRulesForm : Form
 }
 
 /// <summary>Edición de una regla de auto-asignación.</summary>
-public class DevOpsRuleEditForm : Form
+public class DevOpsRuleEditForm : ResponsiveForm
 {
     private readonly List<Developer> _devs;
     private readonly DevOpsAssignmentRule _rule;
