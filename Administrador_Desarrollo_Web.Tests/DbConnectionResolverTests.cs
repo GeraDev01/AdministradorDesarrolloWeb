@@ -4,9 +4,12 @@ using Xunit;
 namespace Administrador_Desarrollo_Web.Tests;
 
 /// <summary>
-/// Precedencia de la conexión: configuración local &gt; incrustada en el ejecutable &gt; SQLite.
-/// Es la regla que decide contra qué base trabaja la app, y equivocarse aquí es justo lo que
+/// Precedencia de la conexión: configuración local (SQL Server) &gt; incrustada en el ejecutable &gt;
+/// NADA. Es la regla que decide contra qué base trabaja la app, y equivocarse aquí es justo lo que
 /// produce el "sigo viendo los datos viejos".
+///
+/// SQLite ya no es un destino: cuando no hay conexión de SQL Server, la app lo dice en el login en
+/// vez de abrir una base local donde ningún usuario del equipo existe.
 /// </summary>
 public class DbConnectionResolverTests
 {
@@ -44,21 +47,28 @@ public class DbConnectionResolverTests
     }
 
     [Fact]
-    public void SinNadaSeCaeASqlite()
+    public void SinNingunaConexionNoSeAbreNingunaBase()
     {
+        // Ejecutable publicado sin la conexión incrustada y equipo sin configurar: es el caso que
+        // antes acababa en una base SQLite vacía y dejaba al desarrollador sin poder entrar, con el
+        // mismo mensaje que si hubiera escrito mal la contraseña.
         var r = DbConnectionResolver.Resolve(Cfg(DbProvider.Sqlite), embedded: null);
 
-        Assert.Equal(DbConnectionSource.SqliteLocal, r.Source);
+        Assert.Equal(DbConnectionSource.SinConexion, r.Source);
         Assert.False(r.UsaSqlServer);
+        Assert.Null(r.SqlServerConnection);
     }
 
     [Fact]
-    public void SiElUsuarioEligioSqliteAProposito_NoSeLeImponeLaIncrustada()
+    public void AunqueElEquipoTengaSqliteElegido_SeUsaLaIncrustada()
     {
+        // Elegir "SQLite local" en Configuración → Base de datos era una forma silenciosa de dejar de
+        // ver los datos del equipo para siempre: la incrustada ya no se aparta por eso.
         var r = DbConnectionResolver.Resolve(Cfg(DbProvider.Sqlite, explicita: true), Incrustada);
 
-        Assert.Equal(DbConnectionSource.SqliteLocal, r.Source);
-        Assert.False(r.UsaSqlServer);
+        Assert.Equal(DbConnectionSource.Incrustada, r.Source);
+        Assert.Equal(Incrustada, r.SqlServerConnection);
+        Assert.True(r.UsaSqlServer);
     }
 
     [Fact]
@@ -89,6 +99,6 @@ public class DbConnectionResolverTests
     {
         Assert.Contains("este equipo", DbConnectionResolver.Resolve(Cfg(DbProvider.SqlServer, Local, explicita: true), null).Descripcion);
         Assert.Contains("incrustada", DbConnectionResolver.Resolve(Cfg(DbProvider.Sqlite), Incrustada).Descripcion);
-        Assert.Contains("SQLite", DbConnectionResolver.Resolve(Cfg(DbProvider.Sqlite), null).Descripcion);
+        Assert.Contains("sin conexión", DbConnectionResolver.Resolve(Cfg(DbProvider.Sqlite), null).Descripcion);
     }
 }

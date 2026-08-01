@@ -6,22 +6,45 @@ namespace Administrador_Desarrollo_Web.Forms;
 
 public class LoginForm : Form
 {
-    private readonly AuthService _auth;
     private readonly IServiceProvider _sp;
+    private readonly DbConnectionState _conexion;
+    private readonly ToolTip _tip = new();
 
     private TextBox _txtUser = null!;
     private TextBox _txtPass = null!;
     private Label _lblError = null!;
     private Button _btnLogin = null!;
+    private Label _lblDot = null!;
+    private Label _lblConnTitulo = null!;
+    private Label _lblConnDetalle = null!;
+    private LinkLabel _lnkReintentar = null!;
 
-    public LoginForm(AuthService auth, IServiceProvider sp) { _auth = auth; _sp = sp; BuildUI(); }
+    /// <summary>
+    /// AuthService toca la base en su primer uso, así que se resuelve al pulsar «Iniciar sesión» y no
+    /// al construir la ventana: sin conexión con la base del equipo no hay <c>AppDbContext</c> que
+    /// inyectar, y esta ventana tiene que poder abrirse igual para poder DECIR que no se pudo conectar.
+    /// </summary>
+    private AuthService Auth => (AuthService)_sp.GetService(typeof(AuthService))!;
+
+    /// <summary>
+    /// El estado de la conexión se toma del estado COMPARTIDO de la aplicación, no de quien
+    /// construya la ventana. Esta pantalla se crea también al cerrar sesión, y cuando dependía de
+    /// que alguien la configurara desde fuera esa segunda vez se quedaba con el ● en gris.
+    /// </summary>
+    public LoginForm(IServiceProvider sp, DbConnectionState conexion)
+    {
+        _sp = sp; _conexion = conexion;
+        BuildUI();
+        PintarEstado(_conexion.Estado);
+    }
 
     private void BuildUI()
     {
         Text = "Administrador de Desarrollo";
         if (AppTheme.AppIcon != null) Icon = AppTheme.AppIcon;
-        Size = new Size(460, 500);
-        MinimumSize = new Size(460, 500);
+        // Alto suficiente para que el motivo de un fallo de conexión quepa sin recortarse.
+        Size = new Size(460, 560);
+        MinimumSize = new Size(460, 560);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
@@ -122,6 +145,54 @@ public class LoginForm : Form
         _btnLogin.Click += BtnLogin_Click;
         pnlBottom.Controls.Add(_btnLogin, 0, 1);
 
+        // ── Indicador de conexión ─────────────────────────────
+        // El login responde lo mismo ("Usuario o contraseña incorrectos") cuando el usuario no existe
+        // en la base que cuando la contraseña está mal. Este punto es lo único que distingue
+        // "escribí mal la contraseña" de "mi aplicación no está hablando con la base del equipo".
+        var pnlEstado = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3,
+            Margin = new Padding(0, 10, 0, 0), Padding = Padding.Empty,
+            CellBorderStyle = TableLayoutPanelCellBorderStyle.None
+        };
+        pnlEstado.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 18f));
+        pnlEstado.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        pnlEstado.RowStyles.Add(new RowStyle(SizeType.Absolute, 20f));  // punto + título
+        pnlEstado.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));  // motivo
+        pnlEstado.RowStyles.Add(new RowStyle(SizeType.Absolute, 20f));  // reintentar
+
+        _lblDot = new Label
+        {
+            Text = "●", Dock = DockStyle.Fill, Margin = Padding.Empty,
+            Font = new Font("Segoe UI", 10f), ForeColor = AppTheme.TextSecondary,
+            TextAlign = ContentAlignment.MiddleLeft
+        };
+        _lblConnTitulo = new Label
+        {
+            Dock = DockStyle.Fill, Margin = Padding.Empty, AutoEllipsis = true,
+            Font = AppTheme.SmallFont, ForeColor = AppTheme.TextSecondary,
+            TextAlign = ContentAlignment.MiddleLeft
+        };
+        _lblConnDetalle = new Label
+        {
+            Dock = DockStyle.Fill, Margin = Padding.Empty,
+            Font = AppTheme.SmallFont, ForeColor = AppTheme.TextSecondary,
+            TextAlign = ContentAlignment.TopLeft
+        };
+        _lnkReintentar = new LinkLabel
+        {
+            Text = "Reintentar la conexión", AutoSize = true, Visible = false,
+            Margin = Padding.Empty, Font = AppTheme.SmallFont,
+            LinkColor = AppTheme.SidebarActive, ActiveLinkColor = AppTheme.SidebarActive
+        };
+        _lnkReintentar.LinkClicked += async (_, _) => await ReintentarAsync();
+
+        pnlEstado.Controls.Add(_lblDot, 0, 0);
+        pnlEstado.Controls.Add(_lblConnTitulo, 1, 0);
+        pnlEstado.Controls.Add(_lblConnDetalle, 1, 1);
+        pnlEstado.Controls.Add(_lnkReintentar, 1, 2);
+        pnlBottom.Controls.Add(pnlEstado, 0, 2);
+
         pnlForm.Controls.Add(pnlBottom, 0, 5);
         outer.Controls.Add(pnlBanner, 0, 0);
         outer.Controls.Add(pnlForm, 0, 1);
@@ -131,13 +202,60 @@ public class LoginForm : Form
 
     protected override void OnShown(EventArgs e) { base.OnShown(e); _txtUser.Focus(); }
 
+    /// <summary>
+    /// Pinta el estado de la conexión con la base del equipo. El enlace de reintentar solo aparece
+    /// si hay una cadena que probar: con un ejecutable sin conexión incrustada, en un equipo sin
+    /// ninguna configurada, reintentar no puede cambiar nada.
+    /// </summary>
+    private void PintarEstado(DbConnectionStatus estado)
+    {
+        var color = estado.Conectado ? AppTheme.Success : AppTheme.Danger;
+        _lblDot.ForeColor        = color;
+        _lblConnTitulo.ForeColor = color;
+        _lblConnTitulo.Text      = estado.Titulo;
+        _lblConnDetalle.Text     = estado.Detalle;
+
+        var ayuda = string.IsNullOrEmpty(estado.Detalle) ? estado.Titulo : $"{estado.Titulo}\n\n{estado.Detalle}";
+        _tip.SetToolTip(_lblDot, ayuda);
+        _tip.SetToolTip(_lblConnTitulo, ayuda);
+
+        // Sin la base del equipo no se intenta iniciar sesión: la consulta fallaría con un error
+        // técnico, o —lo que costó este cambio— tendría éxito contra una base que no es la del equipo.
+        _txtUser.Enabled = _txtPass.Enabled = _btnLogin.Enabled = estado.Conectado;
+        _lnkReintentar.Visible = !estado.Conectado && _conexion.SePuedeReintentar;
+        if (!estado.Conectado) _lblError.Text = "";
+    }
+
+    private async Task ReintentarAsync()
+    {
+        if (!_conexion.SePuedeReintentar) return;
+
+        _lnkReintentar.Enabled = false;
+        _lblDot.ForeColor = AppTheme.Warning;
+        _lblConnTitulo.ForeColor = AppTheme.TextSecondary;
+        _lblConnTitulo.Text = DbConnectionStatus.Comprobando.Titulo;
+        _lblConnDetalle.Text = "";
+        UseWaitCursor = true;
+        try
+        {
+            // Reintentar a través del estado compartido: así el resultado queda guardado y la
+            // siguiente pantalla de inicio de sesión no vuelve a partir del estado viejo.
+            PintarEstado(await _conexion.ReintentarAsync());
+        }
+        finally
+        {
+            UseWaitCursor = false;
+            _lnkReintentar.Enabled = true;
+        }
+    }
+
     private void BtnLogin_Click(object? s, EventArgs e)
     {
         _lblError.Text = "";
         _btnLogin.Enabled = false;
         _btnLogin.Text = "Verificando...";
 
-        var (ok, msg, user) = _auth.Login(_txtUser.Text.Trim(), _txtPass.Text);
+        var (ok, msg, user) = Auth.Login(_txtUser.Text.Trim(), _txtPass.Text);
         _btnLogin.Enabled = true;
         _btnLogin.Text = "Iniciar sesión";
 
@@ -147,7 +265,7 @@ public class LoginForm : Form
         {
             using var pwdFrm = new ChangePasswordForm(forced: true);
             if (pwdFrm.ShowDialog(this) == DialogResult.OK)
-                _auth.ChangePassword(user.Id, pwdFrm.NewPassword);
+                Auth.ChangePassword(user.Id, pwdFrm.NewPassword);
         }
 
         var mainForm = (MainForm)_sp.GetService(typeof(MainForm))!;
