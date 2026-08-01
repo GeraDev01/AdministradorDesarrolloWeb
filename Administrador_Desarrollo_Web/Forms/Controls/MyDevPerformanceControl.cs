@@ -334,22 +334,20 @@ public class MyDevPerformanceControl : UserControl
         _                             => AppTheme.TextSecondary
     };
 
-    // Ranking general individual — SOLO puntos aprobados, sin detalles.
+    // Ranking general individual — delega en el servicio, que es quien sabe qué entra al ranking
+    // (solo aprobados, sin líderes). Antes esta pantalla tenía SU PROPIA copia del cálculo y era
+    // cuestión de tiempo que divergiera de la del administrador.
     private void LoadIndividualRanking(int devId, int year, int month)
     {
-        var approvedByDev = _db.PointEntries
-            .Where(p => p.Year == year && p.Month == month && p.ApprovalStatus == PointApprovalStatus.Aprobado)
-            .GroupBy(p => p.DeveloperId)
-            .Select(g => new { g.Key, Sum = g.Sum(x => x.Points) })
-            .ToDictionary(x => x.Key, x => x.Sum);
+        var ranked = _scoring.IndividualRanking(year, month);
 
-        var devs = _db.Developers.Where(d => d.IsActive).OrderBy(d => d.FullName)
-            .Select(d => new { d.Id, d.FullName }).ToList();
+        // El nivel Lead no compite: decirlo es mejor que un «— de N» que se reporta como bug.
+        bool soyNivelLead = _scoring.IdsConNivelLead().Contains(devId);
+        _kpiRank.Text = soyNivelLead ? "Fuera de ranking (nivel Lead)"
+                      : ranked.Count > 0 ? $"— de {ranked.Count}" : "—";
+        // Incondicional: si le cambian el nivel y recarga, el gris no se puede quedar pegado.
+        _kpiRank.ForeColor = soyNivelLead ? AppTheme.TextSecondary : AppTheme.TextPrimary;
 
-        var ranked = devs.Select(d => new { d.Id, d.FullName, Total = approvedByDev.GetValueOrDefault(d.Id, 0) })
-            .OrderByDescending(r => r.Total).ThenBy(r => r.FullName).ToList();
-
-        _kpiRank.Text = ranked.Count > 0 ? $"— de {ranked.Count}" : "—";
         for (int i = 0; i < ranked.Count; i++)
         {
             var r = ranked[i];
@@ -357,7 +355,7 @@ public class MyDevPerformanceControl : UserControl
             int row = _gridIndiv.Rows.Add(medal, r.FullName, (r.Total >= 0 ? "+" : "") + r.Total);
             _gridIndiv.Rows[row].Cells["Pts"].Style.Font = AppTheme.BoldFont;
             _gridIndiv.Rows[row].Cells["Pts"].Style.ForeColor = r.Total > 0 ? AppTheme.Success : r.Total < 0 ? AppTheme.Danger : AppTheme.TextSecondary;
-            if (r.Id == devId)   // resaltar mi fila + fijar mi posición
+            if (r.DeveloperId == devId)   // resaltar mi fila + fijar mi posición
             {
                 _gridIndiv.Rows[row].DefaultCellStyle.BackColor = Color.FromArgb(255, 248, 220);
                 _kpiRank.Text = $"#{i + 1} de {ranked.Count}";
@@ -365,26 +363,14 @@ public class MyDevPerformanceControl : UserControl
         }
     }
 
-    // Ranking general por equipo = puntos aprobados de integrantes + puntos propios del equipo. Solo el total.
+    // Ranking general por equipo — misma delegación. Aquí el líder SÍ suma: es parte de su equipo.
     private void LoadTeamRanking(int year, int month)
     {
-        var teams = _db.Teams.OrderBy(t => t.Name).AsNoTracking().ToList();
-        var devs  = _db.Developers.Where(d => d.IsActive).Select(d => new { d.Id, d.TeamId }).ToList();
-        var indiv = _db.PointEntries.Where(p => p.Year == year && p.Month == month && p.ApprovalStatus == PointApprovalStatus.Aprobado)
-            .Select(p => new { p.DeveloperId, p.Points }).ToList();
-        var teamPts = _db.TeamPointEntries.Where(p => p.Year == year && p.Month == month)
-            .Select(p => new { p.TeamId, p.Points }).ToList();
+        int myTeamId = _currentUser.DeveloperId is int me
+            ? _db.Developers.AsNoTracking().Where(d => d.Id == me).Select(d => d.TeamId).FirstOrDefault() ?? -1
+            : -1;
 
-        int myTeamId = _currentUser.DeveloperId is int me ? devs.FirstOrDefault(d => d.Id == me)?.TeamId ?? -1 : -1;
-
-        var ranked = teams.Select(t =>
-        {
-            var memberIds = devs.Where(d => d.TeamId == t.Id).Select(d => d.Id).ToHashSet();
-            int total = indiv.Where(e => memberIds.Contains(e.DeveloperId)).Sum(e => e.Points)
-                      + teamPts.Where(e => e.TeamId == t.Id).Sum(e => e.Points);
-            return new { t.Id, t.Name, Total = total };
-        }).OrderByDescending(r => r.Total).ThenBy(r => r.Name).ToList();
-
+        var ranked = _scoring.TeamRanking(year, month);
         for (int i = 0; i < ranked.Count; i++)
         {
             var r = ranked[i];
@@ -392,7 +378,7 @@ public class MyDevPerformanceControl : UserControl
             int row = _gridTeam.Rows.Add(medal, r.Name, (r.Total >= 0 ? "+" : "") + r.Total);
             _gridTeam.Rows[row].Cells["Pts"].Style.Font = AppTheme.BoldFont;
             _gridTeam.Rows[row].Cells["Pts"].Style.ForeColor = r.Total > 0 ? AppTheme.Success : r.Total < 0 ? AppTheme.Danger : AppTheme.TextSecondary;
-            if (r.Id == myTeamId)
+            if (r.TeamId == myTeamId)
                 _gridTeam.Rows[row].DefaultCellStyle.BackColor = Color.FromArgb(255, 248, 220);
         }
         if (ranked.Count == 0) _gridTeam.Rows.Add("", "(no hay equipos)", "");

@@ -23,6 +23,7 @@ public class PerformanceControl : UserControl
     private DataGridView _gridEntries = null!;
     private ComboBox _cbxMonth = null!;
     private NumericUpDown _nudYear = null!;
+    private CheckBox _chkLideres = null!;
     private ComboBox _cbxMonthE = null!;
     private NumericUpDown _nudYearE = null!;
     private DataGridView _gridTeamRank = null!;
@@ -81,6 +82,13 @@ public class PerformanceControl : UserControl
         periodFlow.Controls.Add(_nudYear);
         var btnLoad = AppTheme.MakePrimaryButton("🔄 Cargar", 95); btnLoad.Margin = new Padding(0, 2, 0, 0); btnLoad.Click += (_, _) => LoadRanking();
         periodFlow.Controls.Add(btnLoad);
+
+        // El nivel Lead no compite, pero el administrador necesita poder SELECCIONARLOS aquí:
+        // «Ver detalle», «Asignar» y «Borrar todas» operan sobre la fila elegida del ranking, y
+        // sin esta casilla un Lead quedaría inoperable desde esta pestaña.
+        _chkLideres = new CheckBox { Text = "Incluir nivel Lead", AutoSize = true, Margin = new Padding(10, 7, 0, 0) };
+        _chkLideres.CheckedChanged += (_, _) => LoadRanking();
+        periodFlow.Controls.Add(_chkLideres);
         rankToolbar.Controls.Add(periodFlow, 0, 0);
 
         var rankBtns = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false };
@@ -677,16 +685,29 @@ public class PerformanceControl : UserControl
         int month = _cbxMonth.SelectedIndex + 1;
         int year  = (int)_nudYear.Value;
 
-        // Ranking individual (solo aprobados) desde el servicio central de puntuación.
-        _rankingRows = _scoring.IndividualRanking(year, month)
+        // Ranking individual (solo aprobados) desde el servicio central de puntuación. Los de
+        // nivel Lead solo entran si la casilla lo pide, y entran FUERA de concurso: con corona,
+        // sin medalla y sin resaltado de podio — están para operarse, no compitiendo.
+        var scores = _scoring.IndividualRanking(year, month, incluirNivelLead: _chkLideres.Checked);
+        // La corona va en la columna de POSICIÓN, no pegada al nombre: «Ver detalle» y «Borrar
+        // todas» resuelven al desarrollador por su FullName tal cual está en la celda.
+        _rankingRows = scores
             .Select(r => new RankRow("", r.FullName, r.Total, r.Positive, r.Negative, r.Count, r.Entries))
             .ToList();
 
         _gridRanking.Rows.Clear();
+        int posicion = 0;   // solo avanza con competidores: los Lead no ocupan lugar
         for (int i = 0; i < _rankingRows.Count; i++)
         {
             var r = _rankingRows[i];
-            string medal = i == 0 ? "🥇" : i == 1 ? "🥈" : i == 2 ? "🥉" : $"#{i + 1}";
+            bool esLider = scores[i].EsNivelLead;
+            string medal;
+            if (esLider) medal = "👑";
+            else
+            {
+                medal = posicion == 0 ? "🥇" : posicion == 1 ? "🥈" : posicion == 2 ? "🥉" : $"#{posicion + 1}";
+                posicion++;
+            }
             _rankingRows[i] = r with { Medal = medal };
 
             int rowIdx = _gridRanking.Rows.Add(medal, r.Dev, r.Total,
@@ -695,9 +716,9 @@ public class PerformanceControl : UserControl
             if (r.Total > 0)      _gridRanking.Rows[rowIdx].Cells["Total"].Style.ForeColor = AppTheme.Success;
             else if (r.Total < 0) _gridRanking.Rows[rowIdx].Cells["Total"].Style.ForeColor = AppTheme.Danger;
             _gridRanking.Rows[rowIdx].Cells["Total"].Style.Font = AppTheme.BoldFont;
-            if (i < 3 && r.Total > 0)
+            if (!esLider && posicion <= 3 && posicion >= 1 && r.Total > 0)
                 _gridRanking.Rows[rowIdx].DefaultCellStyle.BackColor =
-                    i == 0 ? Color.FromArgb(255, 248, 220) : i == 1 ? Color.FromArgb(240, 248, 255) : Color.FromArgb(240, 255, 240);
+                    posicion == 1 ? Color.FromArgb(255, 248, 220) : posicion == 2 ? Color.FromArgb(240, 248, 255) : Color.FromArgb(240, 255, 240);
         }
     }
 

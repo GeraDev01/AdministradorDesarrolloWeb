@@ -81,4 +81,173 @@ public class PerformanceScoringTests
         Assert.Equal(45, row.Total);
         Assert.Equal(2, row.MemberCount);
     }
+
+    // ── Nivel Lead fuera del ranking individual ─────────────────────────────────
+    //
+    // La regla es una asimetría deliberada: quien tiene el NIVEL «Lead» (Seniority) no figura en
+    // el ranking individual —evalúa y reparte parte de los puntos— pero sus puntos SÍ suman a su
+    // equipo. Y OJO: ser LÍDER DE EQUIPO (TeamRole.Lider) NO excluye; esa confusión ya ocurrió una
+    // vez y estas pruebas la dejan clavada.
+
+    private static PointEntry Aprobada(int devId, int critId, int pts) => new()
+    {
+        DeveloperId = devId, CriterionId = critId, Points = pts,
+        Year = 2026, Month = 7, Date = DateTime.UtcNow, ApprovalStatus = PointApprovalStatus.Aprobado
+    };
+
+    [Fact]
+    public void NivelLead_no_figura_en_el_ranking_individual()
+    {
+        using var db = TestDb.New();
+        var lead = new Developer { FullName = "Lía", IsActive = true, Seniority = "Lead" };
+        var dev  = new Developer { FullName = "Ana", IsActive = true, Seniority = "Junior" };
+        db.Developers.AddRange(lead, dev); db.SaveChanges();
+        var crit = Crit(db);
+        db.PointEntries.AddRange(Aprobada(lead.Id, crit.Id, 50), Aprobada(dev.Id, crit.Id, 5));
+        db.SaveChanges();
+
+        var ranking = new PerformanceScoringService(db).IndividualRanking(2026, 7);
+
+        Assert.DoesNotContain(ranking, r => r.DeveloperId == lead.Id);
+        Assert.Equal(dev.Id, ranking[0].DeveloperId);   // el 1.º es el mejor que SÍ compite
+    }
+
+    [Fact]
+    public void LiderDeEquipo_SI_figura_en_el_ranking()
+    {
+        // La corrección del criterio: coordinar un equipo no es tener el nivel Lead. Un Senior
+        // que lidera el equipo Alfa sigue compitiendo — por rol Y por LeadDeveloperId.
+        using var db = TestDb.New();
+        var senior = new Developer { FullName = "Luis", IsActive = true, Seniority = "Senior", TeamRole = TeamRole.Lider };
+        db.Developers.Add(senior); db.SaveChanges();
+        db.Teams.Add(new Team { Name = "Alfa", CreatedAt = DateTime.UtcNow, LeadDeveloperId = senior.Id });
+        db.SaveChanges();
+
+        var ranking = new PerformanceScoringService(db).IndividualRanking(2026, 7);
+
+        Assert.Contains(ranking, r => r.DeveloperId == senior.Id);
+    }
+
+    [Theory]
+    [InlineData("Junior")]
+    [InlineData("Mid")]
+    [InlineData("Senior")]
+    [InlineData("Arquitecto")]
+    [InlineData(null)]
+    public void Los_demas_niveles_compiten(string? seniority)
+    {
+        using var db = TestDb.New();
+        var dev = new Developer { FullName = "Ana", IsActive = true, Seniority = seniority };
+        db.Developers.Add(dev); db.SaveChanges();
+
+        Assert.Contains(new PerformanceScoringService(db).IndividualRanking(2026, 7),
+            r => r.DeveloperId == dev.Id);
+    }
+
+    [Theory]
+    [InlineData("Lead")]
+    [InlineData("lead")]
+    [InlineData(" Lead ")]
+    public void NivelLead_se_reconoce_aunque_venga_capturado_a_mano(string seniority)
+    {
+        // Seniority hoy es un combo cerrado, pero las fichas viejas pudieron capturarse a mano.
+        using var db = TestDb.New();
+        var lead = new Developer { FullName = "Lía", IsActive = true, Seniority = seniority };
+        db.Developers.Add(lead); db.SaveChanges();
+
+        var svc = new PerformanceScoringService(db);
+        Assert.Contains(lead.Id, svc.IdsConNivelLead());
+        Assert.DoesNotContain(svc.IndividualRanking(2026, 7), r => r.DeveloperId == lead.Id);
+    }
+
+    [Fact]
+    public void IncluirNivelLead_LosDevuelve_MarcadosYConSuTotalIntacto()
+    {
+        // La pantalla del administrador los necesita para «Ajustar puntos» y «Limpiar mes».
+        using var db = TestDb.New();
+        var lead = new Developer { FullName = "Lía", IsActive = true, Seniority = "Lead" };
+        db.Developers.Add(lead); db.SaveChanges();
+        var crit = Crit(db);
+        db.PointEntries.Add(Aprobada(lead.Id, crit.Id, 50)); db.SaveChanges();
+
+        var fila = new PerformanceScoringService(db)
+            .IndividualRanking(2026, 7, incluirNivelLead: true)
+            .Single(r => r.DeveloperId == lead.Id);
+
+        Assert.True(fila.EsNivelLead);
+        Assert.Equal(50, fila.Total);
+    }
+
+    [Fact]
+    public void Los_puntos_del_nivelLead_siguen_sumando_a_su_equipo()
+    {
+        using var db = TestDb.New();
+        var team = new Team { Name = "Alfa", CreatedAt = DateTime.UtcNow };
+        db.Teams.Add(team); db.SaveChanges();
+        var lead = new Developer { FullName = "Lía", IsActive = true, TeamId = team.Id, Seniority = "Lead" };
+        var dev  = new Developer { FullName = "Ana", IsActive = true, TeamId = team.Id };
+        db.Developers.AddRange(lead, dev); db.SaveChanges();
+        var crit = Crit(db);
+        db.PointEntries.AddRange(Aprobada(lead.Id, crit.Id, 20), Aprobada(dev.Id, crit.Id, 10));
+        db.SaveChanges();
+
+        var svc = new PerformanceScoringService(db);
+        var row = svc.TeamRanking(2026, 7).Single(r => r.TeamId == team.Id);
+
+        Assert.Equal(30, row.MembersSum);                              // 20 del Lead + 10
+        Assert.Equal(2, row.MemberCount);                              // el Lead sigue contando
+        Assert.Equal(30, svc.TeamMembersApprovedSum(team.Id, 2026, 7)); // y el detalle cuadra
+    }
+
+    [Fact]
+    public void El_panel_personal_del_nivelLead_no_cambia()
+    {
+        using var db = TestDb.New();
+        var lead = new Developer { FullName = "Lía", IsActive = true, Seniority = "Lead" };
+        db.Developers.Add(lead); db.SaveChanges();
+        var crit = Crit(db);
+        db.PointEntries.Add(Aprobada(lead.Id, crit.Id, 20));
+        db.PointEntries.Add(new PointEntry { DeveloperId = lead.Id, CriterionId = crit.Id, Points = 7, Year = 2026, Month = 7, Date = DateTime.UtcNow, ApprovalStatus = PointApprovalStatus.Pendiente });
+        db.SaveChanges();
+
+        var t = new PerformanceScoringService(db).DevMonthlyTotals(lead.Id, 2026, 7);
+
+        Assert.Equal(20, t.Approved);
+        Assert.Equal(7, t.Pending);
+    }
+
+    [Fact]
+    public void PositionOf_deUnNivelLead_DevuelveQueNoCompite()
+    {
+        using var db = TestDb.New();
+        var lead = new Developer { FullName = "Lía", IsActive = true, Seniority = "Lead" };
+        var dev  = new Developer { FullName = "Ana", IsActive = true };
+        db.Developers.AddRange(lead, dev); db.SaveChanges();
+        var crit = Crit(db);
+        db.PointEntries.AddRange(Aprobada(lead.Id, crit.Id, 50), Aprobada(dev.Id, crit.Id, 5));
+        db.SaveChanges();
+
+        var svc = new PerformanceScoringService(db);
+
+        Assert.Null(svc.PositionOf(lead.Id, 2026, 7).position);
+        // Y quien sí compite es 1.º aunque el Lead tenga más puntos: los Lead no ocupan lugar.
+        Assert.Equal(1, svc.PositionOf(dev.Id, 2026, 7).position);
+    }
+
+    [Fact]
+    public void Todos_nivelLead_RankingVacio_SinExcepcion()
+    {
+        using var db = TestDb.New();
+        var l1 = new Developer { FullName = "L1", IsActive = true, Seniority = "Lead" };
+        var l2 = new Developer { FullName = "L2", IsActive = true, Seniority = "Lead" };
+        db.Developers.AddRange(l1, l2); db.SaveChanges();
+
+        var svc = new PerformanceScoringService(db);
+        var ranking = svc.IndividualRanking(2026, 7);
+
+        Assert.Empty(ranking);
+        var (pos, total) = svc.PositionOf(l1.Id, 2026, 7);
+        Assert.Null(pos);
+        Assert.Equal(0, total);
+    }
 }

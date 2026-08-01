@@ -16,15 +16,40 @@ public class PerformanceScoringService
     private readonly AppDbContext _db;
     public PerformanceScoringService(AppDbContext db) => _db = db;
 
-    /// <summary>Ranking individual del período (solo puntos aprobados), por desarrollador activo, mayor total primero.</summary>
-    public List<DevScore> IndividualRanking(int year, int month)
+    /// <summary>
+    /// Quiénes tienen el NIVEL «Lead» (Developer.Seniority). Ese nivel es lo que saca del ranking:
+    /// un Lead evalúa y reparte parte de los puntos, así que no compite contra Junior/Mid/Senior.
+    /// OJO: ser LÍDER DE EQUIPO (TeamRole.Lider / Team.LeadDeveloperId) NO excluye — un Senior
+    /// puede coordinar un equipo y sigue compitiendo; se corrigió tras confundirse ambas cosas.
+    /// La comparación ignora mayúsculas y espacios: la ficha vieja pudo capturarse a mano antes de
+    /// que Seniority fuera un combo cerrado. AsNoTracking y proyección a Id porque el AppDbContext
+    /// es Singleton: una entidad rastreada traería un nivel viejo si otra máquina lo cambió.
+    /// </summary>
+    public HashSet<int> IdsConNivelLead() =>
+        _db.Developers.AsNoTracking()
+            .Where(d => d.Seniority != null && d.Seniority.Trim().ToLower() == "lead")
+            .Select(d => d.Id)
+            .ToHashSet();
+
+    /// <summary>
+    /// Ranking individual del período (solo puntos aprobados), por desarrollador activo, mayor
+    /// total primero. Los de NIVEL Lead quedan fuera por omisión: reparten parte de los puntos y
+    /// no compiten contra los niveles que evalúan. Sus puntos SÍ siguen contando para su equipo
+    /// (ver <see cref="TeamRanking"/>) y su panel personal no cambia.
+    /// <paramref name="incluirNivelLead"/> existe para la pantalla del administrador, que necesita
+    /// seleccionarlos para ajustar o limpiar sus puntos.
+    /// </summary>
+    public List<DevScore> IndividualRanking(int year, int month, bool incluirNivelLead = false)
     {
         var entries = _db.PointEntries
             .Include(p => p.Developer).Include(p => p.Criterion).Include(p => p.Requirement)
             .Where(p => p.Year == year && p.Month == month && p.ApprovalStatus == PointApprovalStatus.Aprobado)
             .ToList();
 
-        var devs = _db.Developers.Where(d => d.IsActive).OrderBy(d => d.FullName).ToList();
+        var nivelLead = IdsConNivelLead();
+        var devs = _db.Developers.Where(d => d.IsActive).OrderBy(d => d.FullName).ToList()
+            .Where(d => incluirNivelLead || !nivelLead.Contains(d.Id))
+            .ToList();
         return devs.Select(dev =>
         {
             var de = entries.Where(e => e.DeveloperId == dev.Id).OrderByDescending(e => e.Date).ToList();
@@ -32,13 +57,20 @@ public class PerformanceScoringService
                 Total: de.Sum(e => e.Points),
                 Positive: de.Where(e => e.Points > 0).Sum(e => e.Points),
                 Negative: de.Where(e => e.Points < 0).Sum(e => e.Points),
-                Count: de.Count, Entries: de);
+                Count: de.Count, Entries: de,
+                EsNivelLead: nivelLead.Contains(dev.Id));
         })
         .OrderByDescending(r => r.Total)
         .ToList();
     }
 
-    /// <summary>Ranking por equipo: puntos aprobados de sus integrantes + puntos propios del equipo. Mayor total primero.</summary>
+    /// <summary>
+    /// Ranking por equipo: puntos aprobados de sus integrantes + puntos propios del equipo. Mayor
+    /// total primero. Aquí TODOS cuentan —también los de nivel Lead, en la suma y en MemberCount—:
+    /// la competencia es entre equipos y cada quien es parte del suyo. Restar los puntos del Lead
+    /// castigaría justo a los equipos cuyo Lead más trabaja, y crearía el incentivo de no
+    /// registrarle actividad.
+    /// </summary>
     public List<TeamScore> TeamRanking(int year, int month)
     {
         var teams = _db.Teams.OrderBy(t => t.Name).AsNoTracking().ToList();
@@ -83,13 +115,17 @@ public class PerformanceScoringService
             RejectedCount: mine.Count(p => p.ApprovalStatus == PointApprovalStatus.Rechazado));
     }
 
-    /// <summary>Posición 1-based del desarrollador en el ranking individual del período (empates por total, luego nombre).</summary>
-    public (int position, int total) PositionOf(int devId, int year, int month)
+    /// <summary>
+    /// Posición 1-based del desarrollador en el ranking individual del período (empates por total,
+    /// luego nombre). <c>position = null</c> significa que NO COMPITE (nivel Lead, inactivo o no
+    /// existe); antes se devolvía un 0 ambiguo que en pantalla se leería «#0 de N».
+    /// </summary>
+    public (int? position, int total) PositionOf(int devId, int year, int month)
     {
         var ranking = IndividualRanking(year, month);
         for (int i = 0; i < ranking.Count; i++)
             if (ranking[i].DeveloperId == devId) return (i + 1, ranking.Count);
-        return (0, ranking.Count);
+        return (null, ranking.Count);
     }
 
     /// <summary>
@@ -133,6 +169,7 @@ public class PerformanceScoringService
     }
 }
 
-public sealed record DevScore(int DeveloperId, string FullName, int Total, int Positive, int Negative, int Count, List<PointEntry> Entries);
+// EsNivelLead va al FINAL y con default: el record es posicional y hay construcciones que no lo pasan.
+public sealed record DevScore(int DeveloperId, string FullName, int Total, int Positive, int Negative, int Count, List<PointEntry> Entries, bool EsNivelLead = false);
 public sealed record TeamScore(int TeamId, string Name, int MembersSum, int TeamOwn, int Total, int MemberCount);
 public sealed record DevMonthly(int Approved, int Pending, int Rejected, int RejectedCount);
