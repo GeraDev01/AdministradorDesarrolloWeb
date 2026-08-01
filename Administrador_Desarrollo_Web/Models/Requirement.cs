@@ -42,5 +42,9 @@ public class Requirement
     public DateTime? StatusChangedAt { get; set; }
     public byte[]? RowVersion { get; set; }
 
+    /// <summary>Sprint al que está comprometido, o null si está fuera de sprint (el backlog).</summary>
+    public int? SprintId { get; set; }
+    public Sprint? Sprint { get; set; }
+
     public ICollection<Assignment> Assignments { get; set; } = new List<Assignment>();
 }

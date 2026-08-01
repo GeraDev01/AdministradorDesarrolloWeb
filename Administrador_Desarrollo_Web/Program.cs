@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Administrador_Desarrollo_Web.Data;
@@ -124,6 +124,7 @@ internal static class Program
         services.AddSingleton<TemplateService>();
         services.AddSingleton<PresenceService>();
         services.AddSingleton<ForumService>();
+        services.AddSingleton<SprintService>();
 
         services.AddTransient<LoginForm>();
         services.AddTransient<MainForm>();
@@ -136,6 +137,7 @@ internal static class Program
         services.AddTransient<ReportsControl>();
         services.AddTransient<EmailControl>();
         services.AddTransient<RequirementsControl>();
+        services.AddTransient<SprintControl>();
         services.AddTransient<UserManagementControl>();
         services.AddTransient<AuditLogControl>();
         services.AddTransient<ConfigurationControl>();

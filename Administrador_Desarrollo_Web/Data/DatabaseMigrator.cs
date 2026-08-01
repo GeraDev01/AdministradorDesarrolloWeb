@@ -856,6 +856,44 @@ public static class DatabaseMigrator
                 ""LocalDate""     TEXT    NOT NULL
             );");
         try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_WI_Dev_Date"" ON ""WorkIntervals""(""DeveloperId"",""LocalDate"")"); } catch { }
+
+        // ── Sprints (seguimiento del avance contra calendario) ─────
+        // Sin FK en la columna nueva a propósito: el ALTER es aditivo y el servicio desliga a
+        // mano al eliminar un sprint; solo las bases recién creadas llevan la FK (EnsureCreated).
+        db.Database.ExecuteSqlRaw(@"
+            CREATE TABLE IF NOT EXISTS ""Sprints"" (
+                ""Id""        INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                ""Name""      TEXT NOT NULL,
+                ""Goal""      TEXT,
+                ""StartDate"" TEXT NOT NULL,
+                ""EndDate""   TEXT NOT NULL,
+                ""CreatedAt"" TEXT NOT NULL
+            );");
+        try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Sprint_Start"" ON ""Sprints""(""StartDate"")"); } catch { }
+        // Sin catch ciego en el ALTER: Requirements es la tabla central y una columna que no se
+        // creó de verdad rompería TODA la app, no solo los sprints. Se comprueba con PRAGMA (el
+        // ALTER de SQLite no tiene IF NOT EXISTS) y, si falta, se ejecuta dejando que un fallo
+        // real suba al log en vez de tragarse.
+        if (!SqliteTieneColumna(db, "Requirements", "SprintId"))
+            db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Requirements"" ADD COLUMN ""SprintId"" INTEGER");
+        try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Req_Sprint"" ON ""Requirements""(""SprintId"")"); } catch { }
+    }
+
+    private static bool SqliteTieneColumna(AppDbContext db, string tabla, string columna)
+    {
+        var conn = db.Database.GetDbConnection();
+        bool abrir = conn.State != System.Data.ConnectionState.Open;
+        if (abrir) conn.Open();
+        try
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = $"PRAGMA table_info('{tabla}')";
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+                if (string.Equals(r.GetString(1), columna, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+        finally { if (abrir) conn.Close(); }
     }
 
     /// <summary>
@@ -1390,5 +1428,27 @@ CREATE TABLE [WorkIntervals] (
     [LocalDate] datetime2 NOT NULL
 );");
         ExecIndex("WorkIntervals", "IX_WI_Dev_Date", "DeveloperId", "[DeveloperId],[LocalDate]");
+
+        // ── Sprints (seguimiento del avance contra calendario) ─────
+        Exec(@"
+IF OBJECT_ID(N'[Sprints]', N'U') IS NULL
+CREATE TABLE [Sprints] (
+    [Id] int IDENTITY(1,1) NOT NULL CONSTRAINT [PK_Sprints] PRIMARY KEY,
+    [Name] nvarchar(100) NOT NULL,
+    [Goal] nvarchar(1000) NULL,
+    [StartDate] datetime2 NOT NULL,
+    [EndDate] datetime2 NOT NULL,
+    [CreatedAt] datetime2 NOT NULL
+);");
+        ExecIndex("Sprints", "IX_Sprint_Start", "StartDate", "[StartDate]");
+        // Sin FK a propósito (ver la rama SQLite): el servicio desliga a mano al eliminar.
+        // Directo, sin el catch de Exec: el IF COL_LENGTH ya lo hace idempotente, y un fallo REAL
+        // en la columna de la tabla central debe subir al log, no tragarse — sin ella rompe toda
+        // la app, no solo los sprints.
+        db.Database.ExecuteSqlRaw("IF COL_LENGTH('Requirements','SprintId') IS NULL ALTER TABLE [Requirements] ADD [SprintId] int NULL;");
+        // ExecIndex comprueba por primera columna, no por nombre: en una base recién creada
+        // EnsureCreated ya dejó IX_Requirements_SprintId y crear otro con distinto nombre sería
+        // un duplicado silencioso.
+        ExecIndex("Requirements", "IX_Req_Sprint", "SprintId", "[SprintId]");
     }
 }

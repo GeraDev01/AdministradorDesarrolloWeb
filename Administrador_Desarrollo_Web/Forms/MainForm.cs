@@ -124,6 +124,7 @@ public class MainForm : ResponsiveForm
 
             AddGroup(pnlNav, "Trabajo");
             AddNav(pnlNav, "📋", "Requerimientos",   "requirements");
+            AddNav(pnlNav, "🏁", "Sprint",           "sprint");
             AddNav(pnlNav, "📈", "Métricas",         "metrics");
             AddNav(pnlNav, "📑", "Reportes",         "reports");
             AddNav(pnlNav, "🎯", "Estimación y capacidad", "estimation");
@@ -916,6 +917,7 @@ public class MainForm : ResponsiveForm
             "estimation"      => (UserControl)_sp.GetService(typeof(EstimationCapacityControl))!,
             "email"           => (UserControl)_sp.GetService(typeof(EmailControl))!,
             "requirements"    => (UserControl)_sp.GetService(typeof(RequirementsControl))!,
+            "sprint"          => (UserControl)_sp.GetService(typeof(SprintControl))!,
             "minutes"         => (UserControl)_sp.GetService(typeof(MinutesControl))!,
             "vacations"       => (UserControl)_sp.GetService(typeof(VacationsControl))!,
             "leaves"          => (UserControl)_sp.GetService(typeof(LeaveRequestsControl))!,
@@ -965,6 +967,7 @@ public class MainForm : ResponsiveForm
             "estimation"      => "🎯  Estimación y capacidad",
             "email"           => "✉  Correo",
             "requirements"    => "📋  Requerimientos",
+            "sprint"          => "🏁  Seguimiento del Sprint",
             "minutes"         => "📝  Minutas",
             "vacations"       => "🏖  Vacaciones y Notas",
             "leaves"          => "📋  Permisos",

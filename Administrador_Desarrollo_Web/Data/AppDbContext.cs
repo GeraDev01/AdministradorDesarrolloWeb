@@ -16,6 +16,7 @@ public class AppDbContext : DbContext
     public DbSet<Developer> Developers => Set<Developer>();
     public DbSet<DeveloperProfile> DeveloperProfiles => Set<DeveloperProfile>();
     public DbSet<Requirement> Requirements => Set<Requirement>();
+    public DbSet<Sprint> Sprints => Set<Sprint>();
     public DbSet<Assignment> Assignments => Set<Assignment>();
     public DbSet<RequirementAttachment> RequirementAttachments => Set<RequirementAttachment>();
     public DbSet<Team> Teams => Set<Team>();
@@ -119,6 +120,19 @@ public class AppDbContext : DbContext
             e.Property(r => r.Status).HasConversion<int>();
             e.Property(r => r.Priority).HasConversion<int>();
             e.Property(r => r.Source).HasConversion<int>();
+            // SetNull: borrar un sprint regresa sus requerimientos al backlog, jamás los borra.
+            // En la base real la columna se agrega por ALTER sin FK (el migrador es aditivo), así
+            // que el servicio también desliga a mano al eliminar — esto cubre las bases nuevas.
+            e.HasOne(r => r.Sprint).WithMany(s => s.Requirements)
+             .HasForeignKey(r => r.SprintId).IsRequired(false).OnDelete(DeleteBehavior.SetNull);
+            e.HasIndex(r => r.SprintId);
+        });
+
+        modelBuilder.Entity<Sprint>(e =>
+        {
+            e.Property(s => s.Name).HasMaxLength(100);
+            e.Property(s => s.Goal).HasMaxLength(1000);
+            e.HasIndex(s => s.StartDate);
         });
 
         modelBuilder.Entity<AuditLog>(e =>
