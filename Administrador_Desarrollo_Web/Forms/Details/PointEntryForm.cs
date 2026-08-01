@@ -7,7 +7,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// Asigna un criterio de puntos a uno o varios desarrolladores a la vez.
 /// Devuelve una entrada (PointEntry) por cada desarrollador marcado.
 /// </summary>
-public class PointEntryForm : Form
+public class PointEntryForm : ResponsiveForm
 {
     private readonly List<Developer> _devs;
     private readonly List<ScoringCriterion> _criteria;
@@ -23,6 +23,7 @@ public class PointEntryForm : Form
     private ComboBox _cbxReq = null!;
     private TextBox _txtComment = null!;
     private Label _lblPointsHint = null!;
+    private Label _lblCriterionDesc = null!;
     private PictureBox _picShot = null!;
     private Label _lblShot = null!;
     private bool _syncingAll;
@@ -83,7 +84,16 @@ public class PointEntryForm : Form
         foreach (var c in _criteria) _cbxCriterion.Items.Add($"{c.Name}  ({(c.DefaultPoints >= 0 ? "+" : "")}{c.DefaultPoints} pts)");
         if (_cbxCriterion.Items.Count > 0) _cbxCriterion.SelectedIndex = 0;
         _cbxCriterion.SelectedIndexChanged += CriterionChanged;
-        body.Controls.Add(_cbxCriterion); y += 38;
+        body.Controls.Add(_cbxCriterion); y += 34;
+
+        // La descripción del criterio elegido: con más de cien criterios en el catálogo, el nombre
+        // solo no basta para saber cuál corresponde.
+        _lblCriterionDesc = new Label
+        {
+            Location = new Point(27, y), AutoSize = false, Size = new Size(418, 46),
+            ForeColor = AppTheme.TextSecondary, Font = AppTheme.SmallFont
+        };
+        body.Controls.Add(_lblCriterionDesc); y += 52;
 
         // ── Puntos ──────────────────────────────────────────────────
         body.Controls.Add(new Label { Text = "Puntos (ajustable):", Location = new Point(25, y), AutoSize = true });
@@ -215,6 +225,9 @@ public class PointEntryForm : Form
         var c = _criteria[_cbxCriterion.SelectedIndex];
         _nudPoints.Value = Math.Clamp(c.DefaultPoints, -999, 999);
         _lblPointsHint.Text = $"  (default del criterio: {(c.DefaultPoints >= 0 ? "+" : "")}{c.DefaultPoints})";
+        _lblCriterionDesc.Text = string.IsNullOrWhiteSpace(c.Description)
+            ? "(este criterio no tiene descripción)"
+            : c.Description;
     }
 
     private void BtnSave_Click(object? s, EventArgs e)

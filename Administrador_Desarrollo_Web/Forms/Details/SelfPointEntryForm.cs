@@ -8,13 +8,14 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// La entrada nace en estado Pendiente y solo cuenta en el ranking cuando el jefe
 /// la aprueba. No permite puntos negativos (esos son exclusivos del jefe).
 /// </summary>
-public class SelfPointEntryForm : Form
+public class SelfPointEntryForm : ResponsiveForm
 {
     private readonly int _developerId;
     private readonly List<ScoringCriterion> _criteria;
     private readonly List<Requirement> _reqs;
 
     private ComboBox _cbxCriterion = null!;
+    private Label _lblCriterionDesc = null!;
     private Label _lblPoints = null!;
     private Label _lblPointsHint = null!;
     private ComboBox _cbxMonth = null!;
@@ -26,6 +27,7 @@ public class SelfPointEntryForm : Form
 
     private byte[]? _screenshot;
     private string? _screenshotName;
+    private readonly ToolTip _tip = new() { AutoPopDelay = 20000 };
 
     public PointEntry? Result { get; private set; }
 
@@ -74,7 +76,17 @@ public class SelfPointEntryForm : Form
         foreach (var c in _criteria) _cbxCriterion.Items.Add($"{c.Name}  (+{c.DefaultPoints} pts)");
         if (_cbxCriterion.Items.Count > 0) _cbxCriterion.SelectedIndex = 0;
         _cbxCriterion.SelectedIndexChanged += CriterionChanged;
-        body.Controls.Add(_cbxCriterion); y += 38;
+        body.Controls.Add(_cbxCriterion); y += 34;
+
+        // Qué significa el criterio elegido. Los nombres solos («Iniciativa / mejora», «Cero bugs en
+        // QA») no bastan para saber cuál toca: el administrador escribe una descripción por criterio
+        // y hasta ahora no se veía en ninguna parte, así que la elección era a ciegas.
+        _lblCriterionDesc = new Label
+        {
+            Location = new Point(27, y), AutoSize = false, Size = new Size(418, 46),
+            ForeColor = AppTheme.TextSecondary, Font = AppTheme.SmallFont
+        };
+        body.Controls.Add(_lblCriterionDesc); y += 52;
 
         // El puntaje lo fija el criterio, no el desarrollador: se muestra, no se edita.
         // Antes era un NumericUpDown editable de 1 a 999, lo que contradecía la regla del módulo.
@@ -145,9 +157,20 @@ public class SelfPointEntryForm : Form
         if (_cbxCriterion.SelectedIndex < 0 || _cbxCriterion.SelectedIndex >= _criteria.Count)
         {
             _lblPoints.Text = "—";
+            _lblCriterionDesc.Text = "";
             return;
         }
-        _lblPoints.Text = $"+{_criteria[_cbxCriterion.SelectedIndex].DefaultPoints}";
+
+        var criterio = _criteria[_cbxCriterion.SelectedIndex];
+        _lblPoints.Text = $"+{criterio.DefaultPoints}";
+        _lblCriterionDesc.Text = string.IsNullOrWhiteSpace(criterio.Description)
+            ? "(este criterio no tiene descripción; pídesela al administrador)"
+            : criterio.Description;
+        _lblCriterionDesc.ForeColor = string.IsNullOrWhiteSpace(criterio.Description)
+            ? AppTheme.Warning : AppTheme.TextSecondary;
+        // La descripción completa en el tooltip, por si no cupo en las dos líneas.
+        _tip.SetToolTip(_lblCriterionDesc, criterio.Description ?? "");
+        _tip.SetToolTip(_cbxCriterion, criterio.Description ?? "");
     }
 
     private void BtnAttachShot_Click(object? s, EventArgs e)
