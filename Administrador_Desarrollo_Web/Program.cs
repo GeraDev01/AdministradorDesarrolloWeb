@@ -17,9 +17,20 @@ internal static class Program
         ApplicationConfiguration.Initialize();
         Application.SetHighDpiMode(HighDpiMode.SystemAware);
 
+        // Una sola aplicación por sesión de Windows. Se comprueba ANTES del log y de la base: una
+        // segunda ejecución no debe abrir el archivo de registro, ni conectar, ni sembrar nada.
+        using var instancia = SingleInstance.Adquirir();
+        if (!instancia.EsPrimera)
+        {
+            // Sin mensaje de «ya está abierta»: la respuesta a abrir la aplicación es que aparezca
+            // la ventana. Un aviso sobraría y, con la ventana escondida en la bandeja, sería lo
+            // único que se vería.
+            instancia.PedirQueSeMuestre();
+            return;
+        }
+
         var appDataPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "AdministradorDesarrolloWeb");
         Directory.CreateDirectory(appDataPath);
-        var dbPath   = Path.Combine(appDataPath, "app.db");
         var logsPath = Path.Combine(appDataPath, "logs");
 
         var loggerFactory = LoggingSetup.Configure(logsPath);
@@ -39,7 +50,8 @@ internal static class Program
         };
 
         // Una sola aplicación para todo el equipo. La conexión sale, en este orden, de: lo
-        // configurado en este equipo, lo incrustado al publicar, o la base local SQLite.
+        // configurado en este equipo o lo incrustado al publicar. Si no hay ninguna, la aplicación
+        // NO abre una base local: lo dice en el login y no deja entrar.
         var dbCfg = DbProviderConfig.Load();
         var eleccion = DbConnectionResolver.Resolve(dbCfg, EmbeddedDbConfig.ConnectionString);
 
@@ -53,21 +65,25 @@ internal static class Program
                 "Configuración de base de datos", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
 
-        bool usaSqlServer = eleccion.UsaSqlServer;
-
         var services = new ServiceCollection();
         services.AddSingleton<ILoggerFactory>(loggerFactory);
         services.AddSingleton(typeof(ILogger<>), typeof(Logger<>));
-        services.AddDbContext<AppDbContext>(opts =>
-        {
-            if (usaSqlServer)
-                // Normaliza también las cadenas guardadas antes (formato abreviado o sin Encrypt).
-                opts.UseSqlServer(SqlConnectionStringHelper.NormalizeOrOriginal(eleccion.SqlServerConnection));
-            else
-                opts.UseSqlite($"Data Source={dbPath}");
-        }, ServiceLifetime.Singleton);
+        if (eleccion.UsaSqlServer)
+            // Normaliza también las cadenas guardadas antes (formato abreviado o sin Encrypt).
+            services.AddDbContext<AppDbContext>(
+                opts => opts.UseSqlServer(SqlConnectionStringHelper.NormalizeOrOriginal(eleccion.SqlServerConnection)),
+                ServiceLifetime.Singleton);
+        else
+            // Sin conexión al servidor del equipo no se registra ninguna base: si algún camino
+            // llegara aquí por accidente, se cae con un mensaje explícito en vez de crear una base
+            // local vacía a espaldas del usuario.
+            services.AddSingleton<AppDbContext>(_ => throw new InvalidOperationException(
+                "No hay conexión con la base de datos del equipo. Esta aplicación no trabaja con una base local."));
         services.AddSingleton(dbCfg);
         services.AddSingleton(eleccion);
+        // El estado de la conexión es de la aplicación, no de la ventana de inicio de sesión (que se
+        // vuelve a construir en cada cierre de sesión).
+        services.AddSingleton<DbConnectionState>();
 
         services.AddSingleton<CurrentUserContext>();
         // Identidad de sesión como abstracción (misma instancia singleton en el escritorio).
@@ -105,6 +121,9 @@ internal static class Program
         services.AddSingleton<DevActivityService>();
         services.AddSingleton<SlaService>();
         services.AddSingleton<SlaNotificationService>();
+        services.AddSingleton<TemplateService>();
+        services.AddSingleton<PresenceService>();
+        services.AddSingleton<ForumService>();
 
         services.AddTransient<LoginForm>();
         services.AddTransient<MainForm>();
@@ -153,12 +172,75 @@ internal static class Program
         services.AddTransient<AnnouncementsControl>();
         services.AddTransient<FreshDeskControl>();
         services.AddTransient<TicketLinkControl>();
+        services.AddTransient<TemplatesControl>();
+        services.AddTransient<PresenceControl>();
+        services.AddTransient<ForumControl>();
 
         var provider = services.BuildServiceProvider();
 
+        // El esquema y el seed solo tienen sentido si la base del equipo respondió. El resultado es
+        // lo que pinta el indicador ● del login: verde si se abrió la base del equipo, rojo con el
+        // motivo si no. Antes un fallo aquí cerraba la aplicación tras un MessageBox y no quedaba
+        // rastro en pantalla de contra qué base se había intentado trabajar.
+        DbConnectionStatus estado;
+        string? adminPwd = null;
+        if (eleccion.UsaSqlServer)
+            (estado, adminPwd) = PrepararBaseDeDatos(provider, eleccion, logger);
+        else
+            estado = DbConnectionStatus.SinConexion();
+
+        if (!estado.Conectado)
+            logger.LogError("Sin base de datos del equipo: {titulo} — {detalle}", estado.Titulo, estado.Detalle);
+        if (adminPwd != null) MostrarPasswordAdminInicial(adminPwd);
+
+        // Reintentar solo aporta cuando hay una cadena que probar (típicamente falta la VPN). Si el
+        // ejecutable no trae conexión y el equipo no tiene ninguna, no hay nada que reintentar hasta
+        // que el administrador reparta un ejecutable publicado con ella.
+        Func<Task<DbConnectionStatus>>? reintentar = null;
+        if (eleccion.UsaSqlServer)
+            reintentar = async () =>
+            {
+                var (nuevo, pwd) = await Task.Run(() => PrepararBaseDeDatos(provider, eleccion, logger));
+                if (pwd != null) MostrarPasswordAdminInicial(pwd);   // el await vuelve al hilo de UI
+                return nuevo;
+            };
+
+        // Se deja en el estado compartido ANTES de crear la ventana: así lo lee tanto esta pantalla
+        // de inicio de sesión como la que se construya al cerrar sesión.
+        provider.GetRequiredService<DbConnectionState>().Configurar(estado, reintentar);
+
+        var login = provider.GetRequiredService<LoginForm>();
+
+        // Volver a abrir el ejecutable trae al frente ESTA aplicación en vez de arrancar otra.
+        // La señal llega en un hilo de fondo, así que se salta al de la interfaz: `login` sirve de
+        // puente porque es la ventana de Application.Run y sigue viva (escondida) toda la ejecución,
+        // incluso mientras se trabaja en la principal o después de cerrar sesión.
+        instancia.OtraInstanciaLlamo += () =>
+        {
+            try { login.BeginInvoke(WindowActivation.TraerAlFrente); }
+            catch { /* aún sin handle o cerrando: no hay ventana a la que saltar */ }
+        };
+
+        logger.LogInformation("Iniciando aplicación...");
+        Application.Run(login);
+        logger.LogInformation("Aplicación cerrada.");
+        Serilog.Log.CloseAndFlush();
+    }
+
+    /// <summary>
+    /// Abre la base del equipo, pone el esquema al día y siembra lo indispensable. Devuelve el estado
+    /// para el indicador del login y, solo cuando la base estaba recién creada, la contraseña temporal
+    /// del admin sembrado.
+    ///
+    /// No lanza: un fallo se convierte en el ● rojo del login en vez de cerrar la aplicación.
+    /// </summary>
+    private static (DbConnectionStatus estado, string? adminPwd) PrepararBaseDeDatos(
+        IServiceProvider provider, DbConnectionChoice eleccion, ILogger logger)
+    {
+        AppDbContext db;
         try
         {
-            var db = provider.GetRequiredService<AppDbContext>();
+            db = provider.GetRequiredService<AppDbContext>();
 
             try
             {
@@ -179,38 +261,38 @@ internal static class Program
             // Antes esto siempre registraba la ruta de SQLite, aunque la app estuviera en SQL Server:
             // imposible saber desde el log contra qué base se estaba trabajando.
             logger.LogInformation("BD inicializada [{origen}]: {destino}",
-                eleccion.Descripcion,
-                usaSqlServer ? SqlConnectionStringHelper.Mask(eleccion.SqlServerConnection) : dbPath);
+                eleccion.Descripcion, SqlConnectionStringHelper.Mask(eleccion.SqlServerConnection));
         }
         catch (Exception ex)
         {
+            // El detalle técnico (servidor, base, número de error de SQL) se queda aquí, en el log:
+            // la pantalla de login solo dice que no se pudo conectar y el motivo en una línea.
             logger.LogCritical(ex, "Error al inicializar la BD");
-            MessageBox.Show($"No se pudo inicializar la base de datos:\n{ex.Message}", "Error crítico", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            return;
+            return (DbConnectionStatus.Fallo(ex), null);
         }
 
+        string? seededAdminPwd = null;
         try
         {
-            var auth = provider.GetRequiredService<AuthService>();
-            var seededAdminPwd = auth.SeedAdmin();
-            SeedDefaultCriteria(provider.GetRequiredService<AppDbContext>());
+            seededAdminPwd = provider.GetRequiredService<AuthService>().SeedAdmin();
+            SeedDefaultCriteria(db);
+            // Catálogo inicial de plantillas: una sola vez, para que la pantalla no se estrene vacía.
+            TemplateSeed.Sembrar(db);
             // Reconciliar cronómetros huérfanos de un cierre sucio/crash anterior
             // (evita contar el tiempo con la app cerrada).
             provider.GetRequiredService<WorkSessionService>().ReconcileOrphans();
             logger.LogInformation("Seed completado.");
-            // Primer arranque: mostrar una sola vez la contraseña temporal del admin recién creado.
-            if (seededAdminPwd != null)
-                MessageBox.Show(
-                    $"Se creó el usuario administrador inicial.\n\nUsuario:  admin\nContraseña temporal:  {seededAdminPwd}\n\nGuárdala en un lugar seguro. Deberás cambiarla al iniciar sesión.",
-                    "Primer arranque", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         catch (Exception ex) { logger.LogError(ex, "Error en seed"); }
 
-        logger.LogInformation("Iniciando aplicación...");
-        Application.Run(provider.GetRequiredService<LoginForm>());
-        logger.LogInformation("Aplicación cerrada.");
-        Serilog.Log.CloseAndFlush();
+        return (DbConnectionStatus.Ok(), seededAdminPwd);
     }
+
+    /// <summary>Base recién creada: la contraseña temporal del admin se muestra una sola vez.</summary>
+    private static void MostrarPasswordAdminInicial(string password) =>
+        MessageBox.Show(
+            $"Se creó el usuario administrador inicial.\n\nUsuario:  admin\nContraseña temporal:  {password}\n\nGuárdala en un lugar seguro. Deberás cambiarla al iniciar sesión.",
+            "Primer arranque", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
     private static void SeedDefaultCriteria(AppDbContext db)
     {
