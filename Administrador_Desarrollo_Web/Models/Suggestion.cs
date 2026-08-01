@@ -3,6 +3,15 @@ namespace Administrador_Desarrollo_Web.Models;
 /// <summary>Sobre qué es la sugerencia: el producto (la app), el departamento, u otra cosa.</summary>
 public enum SuggestionCategory { Producto = 0, Departamento = 1, Otro = 2 }
 
+/// <summary>Quién puede ver la sugerencia además de su autor.</summary>
+public enum SuggestionVisibility
+{
+    /// <summary>Todo el equipo la ve en el tablero de propuestas.</summary>
+    Publica = 0,
+    /// <summary>Solo el administrador (y su autor). Para lo que no se quiere plantear en público.</summary>
+    SoloAdministrador = 1
+}
+
 /// <summary>Ciclo de vida de una sugerencia desde que se envía hasta que el administrador la atiende.</summary>
 public enum SuggestionStatus
 {
@@ -42,6 +51,22 @@ public class Suggestion
 
     /// <summary>El autor pidió no mostrar su nombre al administrador.</summary>
     public bool Anonymous { get; set; }
+
+    /// <summary>
+    /// Si la ve todo el equipo o solo el administrador. Antes TODAS eran públicas sin preguntar, así
+    /// que quien quería plantear algo delicado —el ambiente del área, una queja— no tenía dónde.
+    /// </summary>
+    public SuggestionVisibility Visibility { get; set; } = SuggestionVisibility.Publica;
+
+    /// <summary>
+    /// El autor abre su propuesta a los votos del equipo. Apagado, la sugerencia se lee pero no se
+    /// vota: hay cosas que no son un concurso de popularidad y que aun así conviene plantear.
+    /// Una sugerencia que solo ve el administrador nunca se puede votar, esté como esté esta bandera.
+    /// </summary>
+    public bool OpenToVoting { get; set; } = true;
+
+    /// <summary>Solo tiene sentido votar lo que el equipo ve y su autor abrió a votación.</summary>
+    public bool SePuedeVotar => Visibility == SuggestionVisibility.Publica && OpenToVoting;
 
     /// <summary>Respuesta del administrador al atenderla.</summary>
     public string? AdminResponse { get; set; }

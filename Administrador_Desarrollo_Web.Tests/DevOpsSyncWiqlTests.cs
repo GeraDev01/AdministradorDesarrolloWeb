@@ -49,4 +49,68 @@ public class DevOpsSyncWiqlTests
         Assert.Contains("'O''Brien'", wiql);
         Assert.Contains("'Won''t Do'", wiql);
     }
+
+    // ── Sincronización del propio desarrollador ──────────────────────────────────
+
+    [Fact]
+    public void SoloMisAsignados_UsaLaMacroDeDevOps_NoUnCorreo()
+    {
+        // @Me lo resuelve el servidor contra el dueño del PAT. Por eso funciona aunque el correo de
+        // la ficha no coincida con el de la cuenta de DevOps, que es lo que rompía el empate.
+        var wiql = AzureDevOpsService.BuildSyncWiql("Webpro",
+            new DevOpsSyncFilter([], [], [], SoloMisAsignados: true));
+
+        Assert.Contains("[System.AssignedTo] = @Me", wiql);
+        Assert.DoesNotContain("'@Me'", wiql);   // entrecomillarlo lo convertiría en un nombre literal
+    }
+
+    [Fact]
+    public void VentanaDeDias_AcotaPorFechaDeCambio()
+    {
+        var wiql = AzureDevOpsService.BuildSyncWiql("Webpro",
+            new DevOpsSyncFilter([], [], [], CambiadosEnDias: 90));
+
+        Assert.Contains("[System.ChangedDate] >= @Today - 90", wiql);
+        Assert.DoesNotContain("'90'", wiql);    // es aritmética de fechas, no una cadena
+    }
+
+    [Fact]
+    public void SinVentana_NoAcotaPorFecha()
+    {
+        var wiql = AzureDevOpsService.BuildSyncWiql("Webpro",
+            new DevOpsSyncFilter([], [], [], SoloMisAsignados: true, CambiadosEnDias: null));
+        Assert.DoesNotContain("@Today", wiql);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-5)]
+    public void VentanaAbsurda_SeIgnora(int dias)
+    {
+        // «Últimos 0 días» no debe generar una consulta que no devuelva nada.
+        var wiql = AzureDevOpsService.BuildSyncWiql("Webpro",
+            new DevOpsSyncFilter([], [], [], CambiadosEnDias: dias));
+        Assert.DoesNotContain("@Today", wiql);
+    }
+
+    [Fact]
+    public void MisTickets_CombinaAmbasCosas()
+    {
+        var wiql = AzureDevOpsService.BuildSyncWiql("Webpro",
+            new DevOpsSyncFilter([], [], [], SoloMisAsignados: true, CambiadosEnDias: 30));
+
+        Assert.Contains("[System.AssignedTo] = @Me", wiql);
+        Assert.Contains("[System.ChangedDate] >= @Today - 30", wiql);
+        Assert.Contains("[System.State] <> 'Removed'", wiql);
+    }
+
+    [Fact]
+    public void FiltroConSoloMisAsignados_NoCuentaComoVacio()
+    {
+        // Si IsEmpty lo diera por vacío, BuildSyncWiql se saltaría el bloque entero y la
+        // sincronización del desarrollador se traería los tickets de todo el equipo.
+        Assert.False(new DevOpsSyncFilter([], [], [], SoloMisAsignados: true).IsEmpty);
+        Assert.False(new DevOpsSyncFilter([], [], [], CambiadosEnDias: 30).IsEmpty);
+        Assert.True(new DevOpsSyncFilter([], [], []).IsEmpty);
+    }
 }

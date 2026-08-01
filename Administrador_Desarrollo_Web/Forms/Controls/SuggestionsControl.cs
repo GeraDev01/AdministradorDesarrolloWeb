@@ -12,7 +12,7 @@ public class SuggestionsControl : UserControl
 {
     private readonly SuggestionService _suggestions;
 
-    private ComboBox _cbxEstado = null!, _cbxCategoria = null!;
+    private ComboBox _cbxEstado = null!, _cbxCategoria = null!, _cbxVisibilidad = null!;
     private CheckBox _chkTopVotos = null!;
     private DataGridView _grid = null!;
     private Button _btnAtender = null!, _btnView = null!, _btnDelete = null!;
@@ -63,10 +63,18 @@ public class SuggestionsControl : UserControl
         _cbxCategoria.SelectedIndex = 0;
         _cbxCategoria.SelectedIndexChanged += (_, _) => LoadData();
 
+        _cbxVisibilidad = new ComboBox { Width = 190, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(8, 2, 0, 0) };
+        _cbxVisibilidad.Items.AddRange([
+            "Todas las visibilidades",
+            SuggestionService.EtiquetaVisibilidad(SuggestionVisibility.Publica),
+            SuggestionService.EtiquetaVisibilidad(SuggestionVisibility.SoloAdministrador)]);
+        _cbxVisibilidad.SelectedIndex = 0;
+        _cbxVisibilidad.SelectedIndexChanged += (_, _) => LoadData();
+
         _chkTopVotos = new CheckBox { Text = "Más votadas primero", AutoSize = true, Margin = new Padding(12, 8, 0, 0) };
         _chkTopVotos.CheckedChanged += (_, _) => LoadData();
 
-        toolbar.Controls.AddRange([btnAtender, _btnView, _btnDelete, _cbxEstado, _cbxCategoria, _chkTopVotos]);
+        toolbar.Controls.AddRange([btnAtender, _btnView, _btnDelete, _cbxEstado, _cbxCategoria, _cbxVisibilidad, _chkTopVotos]);
 
         var pnlBody = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10, 4, 10, 4), BackColor = AppTheme.ContentBg };
         _grid = AppTheme.MakeGrid();
@@ -74,7 +82,8 @@ public class SuggestionsControl : UserControl
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Fecha",     Name = "Fecha",  FillWeight = 12 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "De",         Name = "Autor",  FillWeight = 18 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Categoría",  Name = "Cat",    FillWeight = 13 });
-        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Título",     Name = "Titulo", FillWeight = 36 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Título",     Name = "Titulo", FillWeight = 30 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Quién la ve", Name = "Alcance", FillWeight = 18 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "👍",         Name = "Votos",  FillWeight = 7, DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleRight } });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Estado",     Name = "Estado", FillWeight = 14 });
         // El mapeo fila→entidad usa el índice de _rows: si se permitiera ordenar por encabezado, la
@@ -108,7 +117,14 @@ public class SuggestionsControl : UserControl
             1 => SuggestionCategory.Producto, 2 => SuggestionCategory.Departamento, 3 => SuggestionCategory.Otro, _ => null
         };
 
-        _rows = _suggestions.Todas(estado, cat);
+        SuggestionVisibility? vis = _cbxVisibilidad.SelectedIndex switch
+        {
+            1 => SuggestionVisibility.Publica,
+            2 => SuggestionVisibility.SoloAdministrador,
+            _ => null
+        };
+
+        _rows = _suggestions.Todas(estado, cat, vis);
         var votos = _suggestions.ContarVotos();
         int Votos(Suggestion s) => votos.TryGetValue(s.Id, out var n) ? n : 0;
         if (_chkTopVotos.Checked)
@@ -122,17 +138,23 @@ public class SuggestionsControl : UserControl
                 Autor(s),
                 SuggestionService.EtiquetaCategoria(s.Category),
                 s.Title,
-                Votos(s),
+                SuggestionService.EtiquetaAlcance(s),
+                s.SePuedeVotar ? Votos(s) : "—",
                 SuggestionService.EtiquetaEstado(s.Status));
             _grid.Rows[i].Cells["Estado"].Style.ForeColor = ColorEstado(s.Status);
             _grid.Rows[i].Cells["Estado"].Style.Font = AppTheme.BoldFont;
             if (s.Status == SuggestionStatus.Nueva) _grid.Rows[i].Cells["Titulo"].Style.Font = AppTheme.BoldFont;
-            if (Votos(s) > 0) _grid.Rows[i].Cells["Votos"].Style.Font = AppTheme.BoldFont;
+            if (s.SePuedeVotar && Votos(s) > 0) _grid.Rows[i].Cells["Votos"].Style.Font = AppTheme.BoldFont;
+            // Lo que va dirigido solo al administrador se destaca: nadie más lo va a leer, así que
+            // si él no lo atiende no lo atiende nadie.
+            if (s.Visibility == SuggestionVisibility.SoloAdministrador)
+                _grid.Rows[i].Cells["Alcance"].Style.ForeColor = AppTheme.Warning;
         }
         int nuevas = _rows.Count(s => s.Status == SuggestionStatus.Nueva);
+        int privadas = _rows.Count(s => s.Visibility == SuggestionVisibility.SoloAdministrador);
         _lblStatus.Text = _rows.Count == 0
             ? "No hay sugerencias con ese filtro."
-            : $"{_rows.Count} sugerencia(s)  ·  {nuevas} sin atender.";
+            : $"{_rows.Count} sugerencia(s)  ·  {nuevas} sin atender  ·  {privadas} solo para ti.";
         UpdateButtons();
     }
 

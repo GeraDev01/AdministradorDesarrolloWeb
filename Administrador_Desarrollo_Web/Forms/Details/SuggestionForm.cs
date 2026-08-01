@@ -8,17 +8,21 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// solo lectura). Es UI pura, sin dependencias de base ni de DI: el control que la abre lee las
 /// propiedades y persiste.
 /// </summary>
-public class SuggestionForm : Form
+public class SuggestionForm : ResponsiveForm
 {
     private ComboBox _cbxCat = null!;
     private TextBox _txtTitle = null!;
     private TextBox _txtBody = null!;
     private CheckBox _chkAnon = null!;
+    private ComboBox _cbxVisibilidad = null!;
+    private CheckBox _chkVotacion = null!;
 
     public SuggestionCategory Categoria => (SuggestionCategory)Math.Max(0, _cbxCat.SelectedIndex);
     public string Titulo => _txtTitle.Text.Trim();
     public string Cuerpo => _txtBody.Text.Trim();
     public bool Anonima => _chkAnon.Checked;
+    public SuggestionVisibility Visibilidad => (SuggestionVisibility)Math.Max(0, _cbxVisibilidad.SelectedIndex);
+    public bool AbiertaAVotacion => _chkVotacion.Checked;
 
     /// <summary>Diálogo para escribir una sugerencia nueva.</summary>
     public SuggestionForm() => BuildUI(null);
@@ -30,7 +34,7 @@ public class SuggestionForm : Form
     {
         bool soloLectura = ver != null;
         Text = soloLectura ? $"Sugerencia #{ver!.Id}" : "Nueva sugerencia";
-        Size = new Size(560, soloLectura ? 560 : 470);
+        Size = new Size(560, soloLectura ? 640 : 560);
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = false;
         BackColor = AppTheme.ContentBg; Font = AppTheme.DefaultFont;
@@ -66,6 +70,50 @@ public class SuggestionForm : Form
         };
         Controls.Add(_chkAnon);
         y += 30;
+
+        // ── Quién la ve y si se vota ──────────────────────────────
+        Controls.Add(new Label { Text = "¿Quién la ve?", Location = new Point(20, y), AutoSize = true, Font = AppTheme.BoldFont });
+        y += 22;
+        _cbxVisibilidad = new ComboBox { Location = new Point(20, y), Width = 320, DropDownStyle = ComboBoxStyle.DropDownList, Enabled = !soloLectura };
+        _cbxVisibilidad.Items.AddRange([
+            SuggestionService.EtiquetaVisibilidad(SuggestionVisibility.Publica),
+            SuggestionService.EtiquetaVisibilidad(SuggestionVisibility.SoloAdministrador)]);
+        _cbxVisibilidad.SelectedIndex = soloLectura ? (int)ver!.Visibility : 0;
+        Controls.Add(_cbxVisibilidad);
+        y += 32;
+
+        _chkVotacion = new CheckBox
+        {
+            Text = "Abrirla a los votos del equipo",
+            Location = new Point(20, y), AutoSize = true,
+            Checked = soloLectura ? ver!.OpenToVoting : true, Enabled = !soloLectura
+        };
+        Controls.Add(_chkVotacion);
+        y += 22;
+
+        var lblAyuda = new Label
+        {
+            Location = new Point(38, y), AutoSize = false, Width = 480, Height = 32,
+            Font = AppTheme.SmallFont, ForeColor = AppTheme.TextSecondary
+        };
+        Controls.Add(lblAyuda);
+        y += 38;
+
+        // Lo que solo ve el administrador no se puede votar: el equipo ni siquiera la tiene delante.
+        void PintarVotacion()
+        {
+            bool publica = _cbxVisibilidad.SelectedIndex == (int)SuggestionVisibility.Publica;
+            _chkVotacion.Enabled = !soloLectura && publica;
+            if (!publica) _chkVotacion.Checked = false;
+            lblAyuda.Text = publica
+                ? (_chkVotacion.Checked
+                    ? "Aparece en «Propuestas del equipo» y tus compañeros pueden apoyarla."
+                    : "Aparece en «Propuestas del equipo», pero nadie podrá votarla.")
+                : "Solo la verá el administrador. No aparece en el tablero del equipo ni se puede votar.";
+        }
+        _cbxVisibilidad.SelectedIndexChanged += (_, _) => PintarVotacion();
+        _chkVotacion.CheckedChanged += (_, _) => PintarVotacion();
+        PintarVotacion();
 
         if (soloLectura)
         {

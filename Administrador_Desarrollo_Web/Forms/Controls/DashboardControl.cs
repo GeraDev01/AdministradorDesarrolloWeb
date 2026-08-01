@@ -9,6 +9,7 @@ public class DashboardControl : UserControl
 {
     private readonly AppDbContext _db;
     private readonly ICurrentUser _currentUser;
+    private readonly PerformanceScoringService _scoring;
     private FlowLayoutPanel _pnlCards = null!;
     private DataGridView _gridDeadlines = null!;
     private DataGridView? _gridWorkload;
@@ -22,9 +23,21 @@ public class DashboardControl : UserControl
     /// </summary>
     private bool VeDatosDeEquipo => _currentUser.IsAdmin;
 
-    public DashboardControl(AppDbContext db, ICurrentUser currentUser)
+    /// <summary>
+    /// Ficha del desarrollador al que hay que acotar las cifras, o null si esta sesión ve las del
+    /// área completa.
+    ///
+    /// Las tarjetas y las próximas entregas contaban los requerimientos de TODOS, también cuando
+    /// entraba un desarrollador: veía «18 en desarrollo» y ninguno era suyo. El resto de la
+    /// pantalla ya se ocultaba por rol; esto faltaba. Un administrador con ficha ligada sigue
+    /// viendo el total del área, que es lo que necesita.
+    /// </summary>
+    private int? SoloDeEsteDesarrollador =>
+        _currentUser.IsAdmin ? null : _currentUser.DeveloperId;
+
+    public DashboardControl(AppDbContext db, ICurrentUser currentUser, PerformanceScoringService scoring)
     {
-        _db = db; _currentUser = currentUser;
+        _db = db; _currentUser = currentUser; _scoring = scoring;
         BuildUI();
     }
 
@@ -134,14 +147,24 @@ public class DashboardControl : UserControl
     {
         // Status cards
         _pnlCards.Controls.Clear();
+        var mios = MisRequerimientos();
+        int Cuantos(RequirementStatus s) => mios.Count(r => r.Status == s);
+
+        // Los recordatorios son una herramienta del administrador; a un desarrollador solo le
+        // cuentan los que llevan su nombre.
+        int devId = SoloDeEsteDesarrollador ?? -1;
+        int pendientes = SoloDeEsteDesarrollador == null
+            ? _db.Notes.Count(n => !n.IsCompleted)
+            : _db.Notes.Count(n => !n.IsCompleted && n.DeveloperId == devId);
+
         var cards = new[]
         {
-            ("Por estimar",   _db.Requirements.Count(r => r.Status == RequirementStatus.PorEstimar),   AppTheme.TextSecondary),
-            ("En desarrollo", _db.Requirements.Count(r => r.Status == RequirementStatus.EnDesarrollo), AppTheme.Warning),
-            ("Por entregar",  _db.Requirements.Count(r => r.Status == RequirementStatus.PorEntregar),  Color.FromArgb(251, 146, 60)),
-            ("Entregados",    _db.Requirements.Count(r => r.Status == RequirementStatus.Entregado),    AppTheme.Success),
-            ("Cancelados",    _db.Requirements.Count(r => r.Status == RequirementStatus.Cancelado),    AppTheme.Danger),
-            ("Pendientes",    _db.Notes.Count(n => !n.IsCompleted),                                     Color.FromArgb(139, 92, 246))
+            ("Por estimar",   Cuantos(RequirementStatus.PorEstimar),   AppTheme.TextSecondary),
+            ("En desarrollo", Cuantos(RequirementStatus.EnDesarrollo), AppTheme.Warning),
+            ("Por entregar",  Cuantos(RequirementStatus.PorEntregar),  Color.FromArgb(251, 146, 60)),
+            ("Entregados",    Cuantos(RequirementStatus.Entregado),    AppTheme.Success),
+            ("Cancelados",    Cuantos(RequirementStatus.Cancelado),    AppTheme.Danger),
+            ("Pendientes",    pendientes,                              Color.FromArgb(139, 92, 246))
         };
         foreach (var (label, count, color) in cards)
         {
@@ -161,9 +184,9 @@ public class DashboardControl : UserControl
         // Upcoming deadlines
         _gridDeadlines.Rows.Clear();
         var deadline = DateTime.Today.AddDays(7);
-        foreach (var r in _db.Requirements
+        foreach (var r in mios
             .Where(r => r.CommittedDeliveryDate <= deadline && r.Status != RequirementStatus.Entregado && r.Status != RequirementStatus.Cancelado)
-            .OrderBy(r => r.CommittedDeliveryDate).Take(15).ToList())
+            .OrderBy(r => r.CommittedDeliveryDate).Take(15))
         {
             bool overdue = r.CommittedDeliveryDate < DateTime.Today;
             int i = _gridDeadlines.Rows.Add(r.Title, StatusLbl(r.Status), r.CommittedDeliveryDate?.ToString("dd/MM/yyyy") ?? "—");
@@ -194,23 +217,35 @@ public class DashboardControl : UserControl
             if (overdue) _gridNotes.Rows[i].DefaultCellStyle.ForeColor = AppTheme.Danger;
         }
 
-        // Top ranking (current month)
+        // Top ranking (current month) — delega en el servicio para no divergir de la pantalla de
+        // Desempeño: esta era la copia más desviada (agrupaba sobre entradas, no sobre devs) y
+        // habría seguido mostrando al líder en 1.º cuando el ranking oficial ya lo excluye.
+        // El Where(Count > 0) conserva el comportamiento de siempre: sin puntos no hay podio.
         _gridRanking!.Rows.Clear();
-        int month = DateTime.Today.Month; int year = DateTime.Today.Year;
-        // Solo cuentan los puntos aprobados (los pendientes/rechazados no influyen en el ranking).
-        var pts = _db.PointEntries.Include(p => p.Developer).Where(p => p.Year == year && p.Month == month && p.ApprovalStatus == PointApprovalStatus.Aprobado).ToList();
-        var ranking = pts.GroupBy(p => p.DeveloperId)
-            .Select(g => (Dev: g.First().Developer.FullName, Total: g.Sum(p => p.Points), Count: g.Count()))
-            .OrderByDescending(r => r.Total).Take(5).ToList();
+        var ranking = _scoring.IndividualRanking(DateTime.Today.Year, DateTime.Today.Month)
+            .Where(r => r.Count > 0).Take(5).ToList();
         for (int i = 0; i < ranking.Count; i++)
         {
             var r = ranking[i];
             string medal = i == 0 ? "🥇" : i == 1 ? "🥈" : i == 2 ? "🥉" : $"#{i + 1}";
-            int ri = _gridRanking.Rows.Add(medal, r.Dev, r.Total > 0 ? $"+{r.Total}" : r.Total.ToString(), r.Count);
+            int ri = _gridRanking.Rows.Add(medal, r.FullName, r.Total > 0 ? $"+{r.Total}" : r.Total.ToString(), r.Count);
             _gridRanking.Rows[ri].Cells["Total"].Style.ForeColor = r.Total >= 0 ? AppTheme.Success : AppTheme.Danger;
             _gridRanking.Rows[ri].Cells["Total"].Style.Font = AppTheme.BoldFont;
         }
         if (!ranking.Any()) _gridRanking.Rows.Add("—", "Sin datos este mes", "", "");
+    }
+
+    /// <summary>
+    /// Los requerimientos que le tocan a esta sesión: todos para el administrador, solo los
+    /// asignados para un desarrollador. Se materializa una vez y de ahí salen las tarjetas y las
+    /// próximas entregas, para no repetir seis conteos contra la base.
+    /// </summary>
+    private List<Requirement> MisRequerimientos()
+    {
+        var q = _db.Requirements.AsNoTracking();
+        if (SoloDeEsteDesarrollador is int devId)
+            q = q.Where(r => r.Assignments.Any(a => a.DeveloperId == devId));
+        return q.ToList();
     }
 
     protected override void OnVisibleChanged(EventArgs e) { base.OnVisibleChanged(e); if (Visible) LoadData(); }

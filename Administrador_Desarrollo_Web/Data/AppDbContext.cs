@@ -74,6 +74,16 @@ public class AppDbContext : DbContext
     public DbSet<DeveloperEvaluation> DeveloperEvaluations => Set<DeveloperEvaluation>();
     public DbSet<DeveloperMilestone> DeveloperMilestones => Set<DeveloperMilestone>();
 
+    // Biblioteca de plantillas y scripts (administrador)
+    public DbSet<Template> Templates => Set<Template>();
+
+    // Presencia en vivo y registro de asistencia
+    public DbSet<WorkPresence> WorkPresences => Set<WorkPresence>();
+
+    // Foro del equipo
+    public DbSet<ForumPost> ForumPosts => Set<ForumPost>();
+    public DbSet<ForumLike> ForumLikes => Set<ForumLike>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<User>(e =>
@@ -189,6 +199,8 @@ public class AppDbContext : DbContext
         {
             e.Property(s => s.Category).HasConversion<int>();
             e.Property(s => s.Status).HasConversion<int>();
+            e.Property(s => s.Visibility).HasConversion<int>();
+            e.Ignore(s => s.SePuedeVotar);   // se deriva de Visibility + OpenToVoting
             e.Property(s => s.Title).IsRequired().HasMaxLength(150);
             // Si se borra la ficha del desarrollador, la sugerencia se conserva (queda sin autor).
             e.HasOne(s => s.Developer).WithMany().HasForeignKey(s => s.DeveloperId).IsRequired(false).OnDelete(DeleteBehavior.SetNull);
@@ -357,6 +369,58 @@ public class AppDbContext : DbContext
             e.Property(x => x.Kind).HasConversion<int>();
             e.HasOne(x => x.Developer).WithMany().HasForeignKey(x => x.DeveloperId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(x => x.DeveloperId);
+        });
+
+        // Biblioteca de plantillas y scripts. Sin FK al usuario que la creó: la plantilla es del
+        // área, no de la persona, y debe sobrevivir a que su cuenta se elimine.
+        modelBuilder.Entity<Template>(e =>
+        {
+            e.Property(t => t.Kind).HasConversion<int>();
+            e.Property(t => t.Title).IsRequired().HasMaxLength(200);
+            e.Property(t => t.Tags).HasMaxLength(300);
+            e.Property(t => t.FileName).HasMaxLength(260);
+            e.HasIndex(t => new { t.Kind, t.IsArchived });
+        });
+
+        // Presencia y asistencia. Sin FK al usuario ni a la ficha a propósito: es un registro
+        // histórico y debe sobrevivir a que se borre la cuenta, igual que la bitácora.
+        modelBuilder.Entity<WorkPresence>(e =>
+        {
+            e.Property(p => p.State).HasConversion<int>();
+            e.Property(p => p.EndReason).HasConversion<int>();
+            e.Property(p => p.DisplayName).IsRequired().HasMaxLength(200);
+            e.Property(p => p.StateNote).HasMaxLength(200);
+            e.Property(p => p.Origin).HasMaxLength(200);
+            e.Ignore(p => p.Abierta);
+            e.Ignore(p => p.Duracion);
+            // Las dos consultas que existen: «quién está ahora» (abiertas) y «la jornada de fulano».
+            e.HasIndex(p => new { p.UserId, p.StartedAtUtc });
+            e.HasIndex(p => p.EndedAtUtc);
+        });
+
+        // Foro. Sin FK al autor a propósito: una publicación es histórica y debe sobrevivir a que
+        // se borre la cuenta de quien la escribió, igual que la bitácora.
+        modelBuilder.Entity<ForumPost>(e =>
+        {
+            e.Property(p => p.Topic).HasConversion<int>();
+            e.Property(p => p.AuthorName).IsRequired().HasMaxLength(200);
+            e.Property(p => p.Title).HasMaxLength(200);
+            e.Property(p => p.Tags).HasMaxLength(300);
+            e.Ignore(p => p.EsPublicacion);
+            e.Ignore(p => p.Eliminado);
+            e.Ignore(p => p.TextoVisible);
+            // NoAction en la autorreferencia: una cascada sobre sí misma la rechaza SQL Server, y de
+            // todos modos aquí nada se borra de verdad (se marca DeletedAtUtc).
+            e.HasOne<ForumPost>().WithMany().HasForeignKey(p => p.ParentId).OnDelete(DeleteBehavior.NoAction);
+            e.HasIndex(p => new { p.RootId, p.CreatedAtUtc });   // traer un hilo completo
+            e.HasIndex(p => new { p.ParentId });                 // colgar los comentarios de su padre
+            e.HasIndex(p => p.CreatedAtUtc);                     // el muro, por fecha
+        });
+
+        modelBuilder.Entity<ForumLike>(e =>
+        {
+            e.HasOne(l => l.Post).WithMany().HasForeignKey(l => l.PostId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(l => new { l.PostId, l.UserId }).IsUnique();   // un «me gusta» por persona
         });
 
         // Bitácora de tramos trabajados (sin FK a propósito: registro histórico de tiempo por día).

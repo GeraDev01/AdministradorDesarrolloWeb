@@ -208,6 +208,138 @@ public class SuggestionServiceTests
         Assert.False(Svc(db, autor).Equipo().Single(x => x.Sug.Id == sug.Id).YoVote);   // el autor no votó
     }
 
+    // ── Visibilidad y votación ───────────────────────────────────────────────────
+
+    [Fact]
+    public void PorOmision_EsPublicaYVotable()
+    {
+        // Lo que ya existía seguía siendo público y votable; los valores por omisión lo respetan.
+        var db = TestDb.New();
+        SeedDev(db, 5);
+        Svc(db, Ctx.As(UserRole.Desarrollador, developerId: 5, userId: 10))
+            .Enviar(SuggestionCategory.Producto, "Idea", "cuerpo de la idea", false);
+
+        var g = db.Suggestions.Single();
+        Assert.Equal(SuggestionVisibility.Publica, g.Visibility);
+        Assert.True(g.OpenToVoting);
+        Assert.True(g.SePuedeVotar);
+    }
+
+    [Fact]
+    public void SoloAdministrador_NoAparecEnElTableroDelEquipo()
+    {
+        var db = TestDb.New();
+        SeedDev(db, 5);
+        var autor = Ctx.As(UserRole.Desarrollador, developerId: 5, userId: 10);
+        Svc(db, autor).Enviar(SuggestionCategory.Departamento, "Algo delicado", "cuerpo delicado",
+            anonima: false, visibilidad: SuggestionVisibility.SoloAdministrador);
+        Svc(db, autor).Enviar(SuggestionCategory.Producto, "Idea pública", "cuerpo público", false);
+
+        // Ni un compañero…
+        var deOtro = Svc(db, Ctx.As(UserRole.Desarrollador, userId: 20)).Equipo();
+        Assert.Single(deOtro);
+        Assert.Equal("Idea pública", deOtro[0].Sug.Title);
+
+        // …ni su propio autor: si la viera en el tablero del equipo no habría forma de saber que
+        // nadie más la ve. Para eso está «Mis sugerencias».
+        Assert.Single(Svc(db, autor).Equipo());
+        Assert.Equal(2, Svc(db, autor).Mias().Count);
+    }
+
+    [Fact]
+    public void SoloAdministrador_SiLaVeElAdministrador()
+    {
+        var db = TestDb.New();
+        SeedDev(db, 5);
+        Svc(db, Ctx.As(UserRole.Desarrollador, developerId: 5, userId: 10))
+            .Enviar(SuggestionCategory.Departamento, "Para ti nada más", "cuerpo",
+                anonima: false, visibilidad: SuggestionVisibility.SoloAdministrador);
+
+        var admin = Svc(db, Ctx.As(UserRole.Admin, userId: 99));
+        Assert.Single(admin.Todas());
+        Assert.Single(admin.Todas(visibilidad: SuggestionVisibility.SoloAdministrador));
+        Assert.Empty(admin.Todas(visibilidad: SuggestionVisibility.Publica));
+    }
+
+    [Fact]
+    public void SoloAdministrador_NoSePuedeVotar_AunqueSeLlameDirectoAlServicio()
+    {
+        // La comprobación vive en el servicio, no solo en el botón: esconder el botón no impide
+        // que otra ruta —o una versión futura de la pantalla— vote lo que nadie debería votar.
+        var db = TestDb.New();
+        SeedDev(db, 5);
+        var (_, _, sug) = Svc(db, Ctx.As(UserRole.Desarrollador, developerId: 5, userId: 10))
+            .Enviar(SuggestionCategory.Otro, "Privada", "cuerpo",
+                anonima: false, visibilidad: SuggestionVisibility.SoloAdministrador);
+
+        var (ok, votado, total) = Svc(db, Ctx.As(UserRole.Desarrollador, userId: 20)).Votar(sug!.Id);
+
+        Assert.False(ok);
+        Assert.False(votado);
+        Assert.Equal(0, total);
+        Assert.Empty(db.SuggestionVotes);
+    }
+
+    [Fact]
+    public void PublicaSinVotacion_SeVePeroNoSeVota()
+    {
+        var db = TestDb.New();
+        SeedDev(db, 5);
+        var (_, _, sug) = Svc(db, Ctx.As(UserRole.Desarrollador, developerId: 5, userId: 10))
+            .Enviar(SuggestionCategory.Producto, "No es un concurso", "cuerpo",
+                anonima: false, visibilidad: SuggestionVisibility.Publica, abiertaAVotacion: false);
+
+        // Se ve en el tablero…
+        Assert.Single(Svc(db, Ctx.As(UserRole.Desarrollador, userId: 20)).Equipo());
+        // …pero no se puede apoyar.
+        var (ok, _, _) = Svc(db, Ctx.As(UserRole.Desarrollador, userId: 20)).Votar(sug!.Id);
+        Assert.False(ok);
+        Assert.False(db.Suggestions.Single().SePuedeVotar);
+    }
+
+    [Fact]
+    public void SoloAdministrador_ApagaLaVotacionAunqueSePidaEncendida()
+    {
+        // Dejar la bandera encendida daría a entender que hay una votación en marcha que el equipo
+        // ni siquiera puede ver.
+        var db = TestDb.New();
+        SeedDev(db, 5);
+        Svc(db, Ctx.As(UserRole.Desarrollador, developerId: 5, userId: 10))
+            .Enviar(SuggestionCategory.Otro, "Privada", "cuerpo",
+                anonima: false, visibilidad: SuggestionVisibility.SoloAdministrador, abiertaAVotacion: true);
+
+        Assert.False(db.Suggestions.Single().OpenToVoting);
+    }
+
+    [Fact]
+    public void AnonimaYSoloAdministrador_SeCombinan()
+    {
+        // Son cosas distintas: una esconde QUIÉN, la otra limita QUIÉNES la leen.
+        var db = TestDb.New();
+        SeedDev(db, 5);
+        Svc(db, Ctx.As(UserRole.Desarrollador, developerId: 5, userId: 10))
+            .Enviar(SuggestionCategory.Departamento, "Sobre el ambiente", "cuerpo",
+                anonima: true, visibilidad: SuggestionVisibility.SoloAdministrador);
+
+        var g = db.Suggestions.Single();
+        Assert.True(g.Anonymous);
+        Assert.Equal(SuggestionVisibility.SoloAdministrador, g.Visibility);
+        // El anonimato sigue sin delatarse en la bitácora.
+        Assert.DoesNotContain(db.AuditLogs, a => a.EntityType == "Suggestion");
+    }
+
+    [Fact]
+    public void EtiquetaAlcance_DiceLasTresSituaciones()
+    {
+        var privada = new Suggestion { Visibility = SuggestionVisibility.SoloAdministrador, OpenToVoting = false };
+        var votable = new Suggestion { Visibility = SuggestionVisibility.Publica, OpenToVoting = true };
+        var sinVoto = new Suggestion { Visibility = SuggestionVisibility.Publica, OpenToVoting = false };
+
+        Assert.Contains("Solo administrador", SuggestionService.EtiquetaAlcance(privada));
+        Assert.Contains("se vota", SuggestionService.EtiquetaAlcance(votable));
+        Assert.Contains("sin votación", SuggestionService.EtiquetaAlcance(sinVoto));
+    }
+
     [Fact]
     public void Eliminar_OtroDesarrollador_Rechaza()
     {

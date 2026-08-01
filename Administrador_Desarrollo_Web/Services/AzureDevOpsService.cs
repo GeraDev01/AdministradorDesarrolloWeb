@@ -14,9 +14,25 @@ public record DevOpsImportResult(int Added, int Updated, IReadOnlyList<(string T
 
 /// <summary>Filtro de sincronización selectiva: tipos de work item, estados y/o personas asignadas
 /// (correos o nombres). Vacío = sin filtro. Sirve para no traer miles de items y que sea rápida.</summary>
-public record DevOpsSyncFilter(IReadOnlyList<string> Types, IReadOnlyList<string> Assignees, IReadOnlyList<string> States)
+public record DevOpsSyncFilter(
+    IReadOnlyList<string> Types,
+    IReadOnlyList<string> Assignees,
+    IReadOnlyList<string> States,
+    /// <summary>
+    /// Trae solo lo asignado al DUEÑO DEL PAT con el que se sincroniza, usando la macro <c>@Me</c> de
+    /// DevOps. La resuelve el servidor, así que no depende de que el correo de la ficha coincida con
+    /// el de la cuenta de DevOps — que es justo lo que hacía fallar el empate por identidad.
+    /// </summary>
+    bool SoloMisAsignados = false,
+    /// <summary>Solo lo movido en los últimos N días. Null = sin límite (todo el historial).</summary>
+    int? CambiadosEnDias = null)
 {
-    public bool IsEmpty => Types.Count == 0 && Assignees.Count == 0 && States.Count == 0;
+    public DevOpsSyncFilter(IReadOnlyList<string> types, IReadOnlyList<string> assignees, IReadOnlyList<string> states)
+        : this(types, assignees, states, false, null) { }
+
+    public bool IsEmpty =>
+        Types.Count == 0 && Assignees.Count == 0 && States.Count == 0
+        && !SoloMisAsignados && CambiadosEnDias == null;
 }
 
 public class AzureDevOpsService
@@ -37,6 +53,33 @@ public class AzureDevOpsService
     public bool IsEnabled =>
         _settings.Get(SettingsService.Keys.AzureDevOpsEnabled) == "true"
         && !string.IsNullOrEmpty(_settings.Get(SettingsService.Keys.AzureDevOpsPat));
+
+    /// <summary>
+    /// El desarrollador puede traer SUS tickets por su cuenta: basta con que tenga su PAT personal
+    /// capturado y que la organización y el proyecto estén configurados.
+    ///
+    /// A propósito NO exige el PAT de la instalación ni la bandera <c>AzureDevOpsEnabled</c>, que son
+    /// del administrador: si dependiera de ellos, nadie podría actualizar su propia lista hasta que
+    /// el administrador sincronizara, que era exactamente el problema. Escribir los tickets sí está
+    /// a su alcance — el login restringido del ejecutable repartido tiene <c>db_datawriter</c>; lo
+    /// que no puede es tocar el esquema ni <c>AppSettings</c>.
+    /// </summary>
+    public bool PuedeSincronizarMisTickets =>
+        LocalDevOpsConfig.Load().TienePat
+        && !string.IsNullOrEmpty(_settings.Get(SettingsService.Keys.AzureDevOpsOrgUrl))
+        && !string.IsNullOrEmpty(_settings.Get(SettingsService.Keys.AzureDevOpsProject));
+
+    /// <summary>
+    /// Trae de DevOps solo los work items asignados a quien ejecuta (macro <c>@Me</c> sobre su PAT
+    /// personal) y movidos en los últimos <paramref name="dias"/> días. Es la sincronización del
+    /// DESARROLLADOR: acotada a lo suyo y a una ventana de tiempo, para que no arrastre años de
+    /// historial ni toque los tickets de nadie más.
+    /// </summary>
+    public Task<DevOpsSyncResult> SincronizarMisTicketsAsync(int dias = 90, CancellationToken ct = default) =>
+        SyncToLocalAsync(
+            watchedLocalIds: [],
+            filter: new DevOpsSyncFilter([], [], [], SoloMisAsignados: true, CambiadosEnDias: dias),
+            ct: ct);
 
     // ── Fetch ligero (solo para import a Requerimientos) ──────────
     public async Task<List<DevOpsWorkItem>> QueryWorkItemsAsync(string? wiql = null, CancellationToken ct = default)
@@ -870,6 +913,13 @@ public class AzureDevOpsService
             if (filter.Assignees.Count > 0)
                 sb.Append(" AND [System.AssignedTo] IN (")
                   .Append(string.Join(",", filter.Assignees.Select(a => $"'{Esc(a)}'"))).Append(')');
+            // @Me lo resuelve DevOps contra el dueño del PAT: no hay nombre ni correo que entrecomillar,
+            // y por eso mismo no falla cuando el correo de la ficha no coincide con el de la cuenta.
+            if (filter.SoloMisAsignados)
+                sb.Append(" AND [System.AssignedTo] = @Me");
+            // @Today - N es aritmética de fechas de WIQL; el número va sin comillas.
+            if (filter.CambiadosEnDias is int dias && dias > 0)
+                sb.Append(" AND [System.ChangedDate] >= @Today - ").Append(dias);
         }
         sb.Append(" ORDER BY [System.ChangedDate] DESC");
         return sb.ToString();

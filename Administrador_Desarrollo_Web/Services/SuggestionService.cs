@@ -36,7 +36,9 @@ public class SuggestionService
     // ── Envío (desarrollador o cualquier usuario con sesión) ─────────────────────
 
     public (bool ok, string mensaje, Suggestion? sugerencia) Enviar(
-        SuggestionCategory categoria, string? titulo, string? cuerpo, bool anonima)
+        SuggestionCategory categoria, string? titulo, string? cuerpo, bool anonima,
+        SuggestionVisibility visibilidad = SuggestionVisibility.Publica,
+        bool abiertaAVotacion = true)
     {
         AuthorizationGuard.RequireLoggedIn(_currentUser);
         if (_currentUser.UserId is not int userId)
@@ -58,6 +60,10 @@ public class SuggestionService
             Category        = categoria,
             Status          = SuggestionStatus.Nueva,
             Anonymous       = anonima,
+            Visibility      = visibilidad,
+            // Lo que solo ve el administrador no se vota nunca: dejar la bandera encendida daría a
+            // entender que hay una votación en marcha que el equipo ni siquiera puede ver.
+            OpenToVoting    = visibilidad == SuggestionVisibility.Publica && abiertaAVotacion,
             CreatedAt       = DateTime.UtcNow
         };
         _db.Suggestions.Add(sug);
@@ -98,13 +104,18 @@ public class SuggestionService
             .ToList();
     }
 
-    /// <summary>Todas las sugerencias, con filtros opcionales (solo administrador).</summary>
-    public List<Suggestion> Todas(SuggestionStatus? estado = null, SuggestionCategory? categoria = null)
+    /// <summary>
+    /// Todas las sugerencias, con filtros opcionales (solo administrador). Incluye a propósito las
+    /// marcadas «solo administrador»: es justo a quien van dirigidas.
+    /// </summary>
+    public List<Suggestion> Todas(SuggestionStatus? estado = null, SuggestionCategory? categoria = null,
+        SuggestionVisibility? visibilidad = null)
     {
         AuthorizationGuard.RequireAdmin(_currentUser);
         var q = _db.Suggestions.Include(s => s.Developer).AsQueryable();
         if (estado is { } es) q = q.Where(s => s.Status == es);
         if (categoria is { } cat) q = q.Where(s => s.Category == cat);
+        if (visibilidad is { } vis) q = q.Where(s => s.Visibility == vis);
         return q.OrderByDescending(s => s.CreatedAt).AsNoTracking().ToList();
     }
 
@@ -118,7 +129,16 @@ public class SuggestionService
     {
         AuthorizationGuard.RequireLoggedIn(_currentUser);
         if (_currentUser.UserId is not int userId) return (false, false, 0);
-        if (!_db.Suggestions.Any(s => s.Id == suggestionId)) return (false, false, 0);
+
+        // Se comprueba aquí y no solo escondiendo el botón: una propuesta que su autor no abrió a
+        // votación —o que solo va dirigida al administrador— no debe poder votarse por otra ruta.
+        var sug = _db.Suggestions.AsNoTracking()
+            .Where(s => s.Id == suggestionId)
+            .Select(s => new { s.Visibility, s.OpenToVoting })
+            .FirstOrDefault();
+        if (sug == null) return (false, false, 0);
+        if (sug.Visibility != SuggestionVisibility.Publica || !sug.OpenToVoting)
+            return (false, false, _db.SuggestionVotes.Count(v => v.SuggestionId == suggestionId));
 
         var existente = _db.SuggestionVotes.FirstOrDefault(v => v.SuggestionId == suggestionId && v.UserId == userId);
         bool votado;
@@ -131,15 +151,21 @@ public class SuggestionService
     }
 
     /// <summary>
-    /// Tablero de propuestas del equipo: TODAS las sugerencias con su total de votos y si el usuario
-    /// actual ya votó, ordenadas por más votadas. Es la pantalla donde el equipo apoya ideas.
+    /// Tablero de propuestas del equipo: las sugerencias PÚBLICAS con su total de votos y si el
+    /// usuario actual ya votó, ordenadas por más votadas. Es la pantalla donde el equipo apoya ideas.
+    ///
+    /// Las marcadas «solo administrador» no salen aquí ni para quien las escribió: si su propio
+    /// autor las viera en el tablero del equipo, no habría forma de saber que nadie más las ve. Para
+    /// darles seguimiento está «Mis sugerencias», que sí son suyas y solo suyas.
     /// </summary>
     public List<SuggestionConVotos> Equipo()
     {
         AuthorizationGuard.RequireLoggedIn(_currentUser);
         var userId = _currentUser.UserId ?? -1;
 
-        var sugs = _db.Suggestions.Include(s => s.Developer).AsNoTracking().ToList();
+        var sugs = _db.Suggestions.Include(s => s.Developer).AsNoTracking()
+            .Where(s => s.Visibility == SuggestionVisibility.Publica)
+            .ToList();
         var votos = _db.SuggestionVotes.AsNoTracking()
             .GroupBy(v => v.SuggestionId).ToDictionary(g => g.Key, g => g.Count());
         var mios = _db.SuggestionVotes.AsNoTracking().Where(v => v.UserId == userId)
@@ -219,6 +245,20 @@ public class SuggestionService
         SuggestionCategory.Producto     => "Producto",
         SuggestionCategory.Departamento => "Departamento",
         _                               => "Otro"
+    };
+
+    public static string EtiquetaVisibilidad(SuggestionVisibility v) => v switch
+    {
+        SuggestionVisibility.SoloAdministrador => "Solo administrador",
+        _                                      => "Pública (todo el equipo)"
+    };
+
+    /// <summary>Una línea para la lista: quién la ve y si se puede votar.</summary>
+    public static string EtiquetaAlcance(Suggestion s) => s.Visibility switch
+    {
+        SuggestionVisibility.SoloAdministrador => "🔒 Solo administrador",
+        _ when s.OpenToVoting                  => "👥 Pública · se vota",
+        _                                      => "👥 Pública · sin votación"
     };
 
     public static string EtiquetaEstado(SuggestionStatus s) => s switch

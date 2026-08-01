@@ -1,4 +1,4 @@
-using Administrador_Desarrollo_Web.Data;
+﻿using Administrador_Desarrollo_Web.Data;
 using Administrador_Desarrollo_Web.Services;
 using Administrador_Desarrollo_Web.Forms.Controls;
 using Administrador_Desarrollo_Web.Forms.Details;
@@ -6,7 +6,7 @@ using Administrador_Desarrollo_Web.Models;
 
 namespace Administrador_Desarrollo_Web.Forms;
 
-public class MainForm : Form
+public class MainForm : ResponsiveForm
 {
     private readonly CurrentUserContext _currentUser;
     private readonly AuthService _auth;
@@ -49,6 +49,11 @@ public class MainForm : Form
     private System.Windows.Forms.Timer? _freshDeskTimer;
     /// <summary>Evita que dos ticks solapados hagan dos sincronizaciones de Freshdesk a la vez.</summary>
     private bool _freshDeskEnCurso;
+
+    // ── Presencia ────────────────────────────────────────────────
+    private System.Windows.Forms.Timer? _presenceTimer;
+    private Button? _btnEstado;
+    private PresenceService Presencia => (PresenceService)_sp.GetService(typeof(PresenceService))!;
 
     public MainForm(CurrentUserContext currentUser, AuthService auth, IServiceProvider sp)
     {
@@ -99,6 +104,9 @@ public class MainForm : Form
         // Avisos: para todos los roles (te asignaron un ticket de DevOps o un requerimiento).
         AddNav(pnlNav, "🔔", "Avisos", "notifications");
 
+        // El foro es de todo el equipo: si solo lo viera una parte, dejaría de ser un foro.
+        AddNav(pnlNav, "💬", "Foro", "forum");
+
         // El Dashboard expone carga del equipo, recordatorios internos y ranking de desempeño:
         // nada de eso le corresponde a Operaciones, cuyo alcance son los despliegues.
         if (!_currentUser.IsOperaciones)
@@ -108,6 +116,7 @@ public class MainForm : Form
         {
             AddGroup(pnlNav, "Equipo");
             AddNav(pnlNav, "👤", "Desarrolladores",  "developers");
+            AddNav(pnlNav, "🟢", "Quién está",       "presence");
             AddNav(pnlNav, "🌱", "Perfil y desarrollo", "dev-profiles");
             AddNav(pnlNav, "📢", "Comunicados",      "announcements");
             AddNav(pnlNav, "👥", "Equipos",          "teams");
@@ -147,6 +156,7 @@ public class MainForm : Form
                 AddNav(pnlNav, "⏱", "Mis SLA",          "my-sla");
 
             AddGroup(pnlNav, "Administración");
+            AddNav(pnlNav, "📚", "Plantillas",         "templates");
             AddNav(pnlNav, "🔐", "Usuarios",           "users");
             AddNav(pnlNav, "📋", "Bitácora",            "audit");
             AddNav(pnlNav, "⚙",  "Configuración",       "config");
@@ -162,6 +172,9 @@ public class MainForm : Form
             AddNav(pnlNav, "📄", "Mis Evaluaciones", "my-evaluations");
             AddNav(pnlNav, "⏱", "Mis SLA",          "my-sla");
             NavSep(pnlNav);
+            // Herramienta, no compromiso propio: por eso va después del separador. Es la misma
+            // pantalla del administrador en modo consulta (el servicio filtra qué tipos ve).
+            AddNav(pnlNav, "📚", "Plantillas",       "templates");
             AddNav(pnlNav, "🏖", "Mis Vacaciones",   "my-vacations");
             AddNav(pnlNav, "💡", "Sugerencias",      "my-suggestions");
         }
@@ -210,10 +223,33 @@ public class MainForm : Form
         topbarTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 340f));
         topbarTbl.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
 
-        _lblModuleTitle = new Label { Dock = DockStyle.Fill, Font = AppTheme.HeaderFont, ForeColor = AppTheme.TextPrimary, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(20, 0, 0, 0) };
-        _lblUserInfo    = new Label { Dock = DockStyle.Fill, Font = AppTheme.DefaultFont, ForeColor = AppTheme.TextSecondary, TextAlign = ContentAlignment.MiddleRight, Padding = new Padding(0, 0, 20, 0) };
+        // AutoEllipsis: en una pantalla estrecha el título del módulo y el nombre del usuario dejan
+        // de caber. Sin esto, el texto se dibuja igual y se monta encima del botón de estado; con
+        // esto se corta con «…» y además el texto completo sale en el tooltip.
+        _lblModuleTitle = new Label { Dock = DockStyle.Fill, Font = AppTheme.HeaderFont, ForeColor = AppTheme.TextPrimary, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(20, 0, 0, 0), AutoEllipsis = true };
+
+        // Estado + identidad, a la derecha. El estado va aquí y no dentro de una pantalla porque se
+        // cambia de paso, sin ir a buscarlo: si cuesta marcarlo, nadie lo marca y el tablero miente.
+        var derecha = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1,
+            Margin = Padding.Empty, Padding = Padding.Empty, BackColor = AppTheme.CardBg
+        };
+        derecha.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150f));
+        derecha.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        derecha.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+
+        _btnEstado = AppTheme.MakeSecondaryButton("🟢 Disponible", 142, 28);
+        _btnEstado.Margin = new Padding(0, 13, 8, 13);
+        _btnEstado.Click += (_, _) => MostrarMenuEstado();
+
+        _lblUserInfo = new Label { Dock = DockStyle.Fill, Font = AppTheme.DefaultFont, ForeColor = AppTheme.TextSecondary, TextAlign = ContentAlignment.MiddleRight, Padding = new Padding(0, 0, 20, 0), AutoEllipsis = true };
+
+        derecha.Controls.Add(_btnEstado,  0, 0);
+        derecha.Controls.Add(_lblUserInfo, 1, 0);
+
         topbarTbl.Controls.Add(_lblModuleTitle, 0, 0);
-        topbarTbl.Controls.Add(_lblUserInfo,    1, 0);
+        topbarTbl.Controls.Add(derecha,         1, 0);
         topbarTbl.Controls.Add(new Panel { Dock = DockStyle.Bottom, Height = 1, BackColor = AppTheme.Border });
 
         _pnlContent = new Panel { Dock = DockStyle.Fill, BackColor = AppTheme.ContentBg, Margin = Padding.Empty };
@@ -250,6 +286,10 @@ public class MainForm : Form
             DeploymentCtrl.CancelarDespliegue();
         }
 
+        // La jornada se cierra al salir de verdad. Con la X (que solo esconde a la bandeja) NO se
+        // cierra: la aplicación sigue viva vigilando SLA, y eso es seguir conectado.
+        TerminarPresencia();
+
         _pendingTimer?.Stop();
         _pendingTimer?.Dispose();
         _slaTimer?.Stop();
@@ -282,6 +322,11 @@ public class MainForm : Form
                        : _currentUser.IsOperaciones  ? "deployments"
                        : "dashboard";
         Navigate(defaultKey);
+
+        // Presencia: se abre la jornada y se late. El latido es lo que distingue «sigue ahí» de
+        // «se le colgó la aplicación»; sin él, un cuelgue dejaría a esa persona marcada como
+        // conectada para siempre.
+        IniciarPresencia();
 
         // Badge de autocalificaciones pendientes (solo el jefe/Admin lo ve).
         if (_currentUser.IsAdmin)
@@ -354,11 +399,108 @@ public class MainForm : Form
         };
     }
 
-    private void RestaurarDesdeBandeja()
+    /// <summary>
+    /// Saca la ventana de la bandeja y le da el foco. Antes forzaba el maximizado, y eso le
+    /// cambiaba el tamaño a quien la había dejado a media pantalla; ahora vuelve como estaba.
+    /// </summary>
+    private void RestaurarDesdeBandeja() => WindowActivation.Traer(this);
+
+    // ── Presencia ────────────────────────────────────────────────
+
+    private void IniciarPresencia()
     {
-        Show();
-        WindowState = FormWindowState.Maximized;
-        Activate();
+        try
+        {
+            Presencia.Entrar();
+            PintarEstado();
+        }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Presencia: {ex.Message}"); }
+
+        _presenceTimer = new System.Windows.Forms.Timer
+        {
+            Interval = (int)PresenceService.IntervaloLatido.TotalMilliseconds
+        };
+        _presenceTimer.Tick += (_, _) =>
+        {
+            // Un fallo de red no debe tumbar la aplicación ni parar el latido siguiente.
+            try { Presencia.Latir(); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Latido: {ex.Message}"); }
+        };
+        _presenceTimer.Start();
+    }
+
+    private void MostrarMenuEstado()
+    {
+        var menu = new ContextMenuStrip();
+        foreach (var estado in Enum.GetValues<PresenceState>())
+        {
+            // «Ausente» no se elige a mano: es lo que dice el sistema de quien no está.
+            if (estado == PresenceState.Ausente) continue;
+            var e = estado;
+            var item = menu.Items.Add($"{PresenceService.Icono(e)}  {PresenceService.Etiqueta(e)}", null,
+                (_, _) => CambiarEstado(e, null));
+            // El mismo código de color que el botón: si se aprende «verde = disponible» en un
+            // sitio, se tiene que reconocer en el otro.
+            item.ForeColor = AppTheme.PresenceColor(e);
+        }
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("✏  Estado con nota…", null, (_, _) => CambiarEstadoConNota());
+
+        if (_btnEstado != null) menu.Show(_btnEstado, new Point(0, _btnEstado.Height));
+    }
+
+    private void CambiarEstadoConNota()
+    {
+        var (estadoActual, notaActual) = Presencia.MiEstado();
+        using var frm = new PresenceNoteForm(estadoActual, notaActual);
+        if (frm.ShowDialog(this) != DialogResult.OK) return;
+        CambiarEstado(frm.Estado, frm.Nota);
+    }
+
+    private void CambiarEstado(PresenceState estado, string? nota)
+    {
+        try
+        {
+            Presencia.CambiarEstado(estado, nota);
+            PintarEstado();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"No se pudo cambiar tu estado:\n{ex.Message}", "Estado",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    private void PintarEstado()
+    {
+        if (_btnEstado == null) return;
+        try
+        {
+            var (estado, nota) = Presencia.MiEstado();
+            _btnEstado.Text = $"{PresenceService.Icono(estado)} {PresenceService.Etiqueta(estado)}";
+
+            // Botón RELLENO con el color del estado y texto blanco. Antes pasaba lo contrario de
+            // lo pedido: Disponible era el único estado sin color, y los otros cinco compartían el
+            // mismo azul, o sea que no se distinguían entre sí. Con texto blanco los seis fondos
+            // dan contraste ≥ 4.7:1 (hay prueba que lo afirma).
+            var color = AppTheme.PresenceColor(estado);
+            _btnEstado.BackColor = color;
+            _btnEstado.ForeColor = Color.White;
+            _btnEstado.Font = AppTheme.BoldFont;
+            _btnEstado.FlatAppearance.MouseOverBackColor = ControlPaint.Light(color, 0.15f);
+            new ToolTip().SetToolTip(_btnEstado,
+                string.IsNullOrWhiteSpace(nota)
+                    ? "Tu estado, visible para el administrador. Clic para cambiarlo."
+                    : $"{PresenceService.Etiqueta(estado)} — {nota}");
+        }
+        catch { /* sin base, el botón se queda como esté */ }
+    }
+
+    private void TerminarPresencia()
+    {
+        _presenceTimer?.Stop();
+        _presenceTimer?.Dispose();
+        _presenceTimer = null;
+        try { Presencia.Salir(); } catch { /* cerrando: no vale tumbar la salida por esto */ }
     }
 
     /// <summary>
@@ -505,13 +647,14 @@ public class MainForm : Form
     {
         if (_currentUser.IsAdmin) return true;
 
+        // El foro es de todo el equipo, así que entra en las listas de los dos roles.
         if (_currentUser.IsOperaciones)
-            return key is "notifications" or "deployments" or "scheduled-deployments";
+            return key is "notifications" or "forum" or "deployments" or "scheduled-deployments";
 
         if (_currentUser.IsDesarrollador)
-            return key is "notifications" or "dashboard" or "my-performance" or "my-assignments"
+            return key is "notifications" or "forum" or "dashboard" or "my-performance" or "my-assignments"
                        or "my-devops-tickets" or "my-activities" or "my-evaluations" or "my-sla"
-                       or "my-vacations" or "my-suggestions";
+                       or "my-vacations" or "my-suggestions" or "templates";
 
         return false;
     }
@@ -785,6 +928,9 @@ public class MainForm : Form
             "devops-tags"     => (UserControl)_sp.GetService(typeof(DevOpsTagsDashboardControl))!,
             "freshdesk-tickets" => (UserControl)_sp.GetService(typeof(FreshDeskControl))!,
             "ticket-links"    => (UserControl)_sp.GetService(typeof(TicketLinkControl))!,
+            "forum"           => (UserControl)_sp.GetService(typeof(ForumControl))!,
+            "presence"        => (UserControl)_sp.GetService(typeof(PresenceControl))!,
+            "templates"       => (UserControl)_sp.GetService(typeof(TemplatesControl))!,
             "users"           => (UserControl)_sp.GetService(typeof(UserManagementControl))!,
             "audit"           => (UserControl)_sp.GetService(typeof(AuditLogControl))!,
             "config"          => (UserControl)_sp.GetService(typeof(ConfigurationControl))!,
@@ -831,6 +977,9 @@ public class MainForm : Form
             "devops-tags"       => "📊  Dashboard de tickets por tag",
             "freshdesk-tickets" => "🎫  Freshdesk — Tickets",
             "ticket-links"      => "🔗  Vínculos y Estadísticas",
+            "forum"             => "💬  Foro del equipo",
+            "presence"          => "🟢  Quién está y registro de jornadas",
+            "templates"         => "📚  Plantillas y scripts",
             "users"             => "🔐  Gestión de Usuarios",
             "audit"             => "📋  Bitácora de Auditoría",
             "config"            => "⚙  Configuración",
@@ -887,6 +1036,7 @@ public class MainForm : Form
         // ícono en la bandeja haría creer que sigue vigilando.
         _slaTimer?.Stop();
         _pendingTimer?.Stop();
+        TerminarPresencia();       // cerrar sesión cierra la jornada de esta persona
         _slaAlertas.Reiniciar();   // el siguiente usuario empieza con avisos limpios
         // Se libera, no solo se oculta: al volver a iniciar sesión se crea otro MainForm con su
         // propio ícono, y dos NotifyIcon vivos acabarían acumulándose en cada ciclo.

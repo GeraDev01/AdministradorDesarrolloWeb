@@ -59,9 +59,10 @@ public class MySuggestionsControl : UserControl
         _grid.MultiSelect = false;
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Fecha", Name = "Fecha", FillWeight = 14 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Categoría", Name = "Cat", FillWeight = 14 });
-        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Título", Name = "Titulo", FillWeight = 34 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Título", Name = "Titulo", FillWeight = 30 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Quién la ve", Name = "Alcance", FillWeight = 20 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Estado", Name = "Estado", FillWeight = 14 });
-        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Respuesta", Name = "Resp", FillWeight = 24 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Respuesta", Name = "Resp", FillWeight = 22 });
         foreach (DataGridViewColumn c in _grid.Columns) c.SortMode = DataGridViewColumnSortMode.NotSortable;
         _grid.SelectionChanged += (_, _) => UpdateButtons();
         _grid.CellDoubleClick += (_, ev) => { if (ev.RowIndex >= 0) Ver(); };
@@ -114,6 +115,7 @@ public class MySuggestionsControl : UserControl
         {
             int i = _grid.Rows.Add(s.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy"),
                 SuggestionService.EtiquetaCategoria(s.Category), s.Title,
+                SuggestionService.EtiquetaAlcance(s),
                 SuggestionService.EtiquetaEstado(s.Status), s.AdminResponse ?? "");
             _grid.Rows[i].Cells["Estado"].Style.ForeColor = ColorEstado(s.Status);
             _grid.Rows[i].Cells["Estado"].Style.Font = AppTheme.BoldFont;
@@ -134,6 +136,13 @@ public class MySuggestionsControl : UserControl
                 SuggestionService.EtiquetaEstado(e.Sug.Status),
                 e.Sug.Anonymous ? "Anónima" : e.Sug.Developer?.FullName ?? "—");
             _gridEq.Rows[i].Cells["Estado"].Style.ForeColor = ColorEstado(e.Sug.Status);
+            // Las que no se votan se marcan con un guion en vez de un 0, que se leería como
+            // «nadie la ha apoyado» cuando en realidad nadie puede.
+            if (!e.Sug.SePuedeVotar)
+            {
+                _gridEq.Rows[i].Cells["Votos"].Value = "—";
+                _gridEq.Rows[i].Cells["Votos"].Style.ForeColor = AppTheme.TextSecondary;
+            }
             if (e.YoVote)
             {
                 _gridEq.Rows[i].Cells["Votos"].Style.ForeColor = AppTheme.Success;
@@ -162,15 +171,20 @@ public class MySuggestionsControl : UserControl
     private void UpdateEquipoButtons()
     {
         var e = SeleccionadaEquipo();
-        _btnVotar.Enabled = e != null;
-        _btnVotar.Text = e?.YoVote == true ? "✓ Quitar voto" : "👍 Votar";
+        // Su autor pudo dejarla fuera de votación: se lee y se comenta, pero no se apoya.
+        bool votable = e?.Sug.SePuedeVotar == true;
+        _btnVotar.Enabled = votable;
+        _btnVotar.Text = !votable ? "👍 Votar"
+            : e!.YoVote ? "✓ Quitar voto"
+            : "👍 Votar";
     }
 
     private void Nueva()
     {
         using var frm = new SuggestionForm();
         if (frm.ShowDialog(FindForm()) != DialogResult.OK) return;
-        var (ok, mensaje, _) = _suggestions.Enviar(frm.Categoria, frm.Titulo, frm.Cuerpo, frm.Anonima);
+        var (ok, mensaje, _) = _suggestions.Enviar(
+            frm.Categoria, frm.Titulo, frm.Cuerpo, frm.Anonima, frm.Visibilidad, frm.AbiertaAVotacion);
         LoadData();
         MessageBox.Show(mensaje, ok ? "Enviada" : "No se pudo enviar", MessageBoxButtons.OK, ok ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
     }

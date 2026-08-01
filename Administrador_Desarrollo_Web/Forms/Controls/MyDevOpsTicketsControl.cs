@@ -8,10 +8,14 @@ namespace Administrador_Desarrollo_Web.Forms.Controls;
 /// <summary>
 /// Pantalla del DESARROLLADOR: sus work items de Azure DevOps, es decir, los asignados a él.
 ///
-/// No sincroniza contra DevOps (eso lo hace el administrador y requiere permisos de escritura sobre
-/// la base compartida): lee los tickets YA sincronizados y se queda con los que le corresponden,
-/// empatando por identidad (<see cref="DevOpsIdentityMatcher"/>). Comentar y abrir sí van contra
-/// DevOps con el PAT PERSONAL de cada quien, para que el comentario quede firmado a su nombre.
+/// <b>Sincroniza por su cuenta</b>, sin esperar al administrador: con su PAT personal pide a DevOps
+/// lo asignado a sí mismo (macro <c>@Me</c>) dentro de una ventana de días. Antes solo leía lo que
+/// el administrador hubiera traído, así que un ticket recién asignado no aparecía hasta que a otra
+/// persona le diera por sincronizar.
+///
+/// Para leer la lista sigue empatando por identidad (<see cref="DevOpsIdentityMatcher"/>), que
+/// además recoge lo que trajo el administrador. Comentar, cambiar prioridad y sincronizar van
+/// contra DevOps con el PAT PERSONAL, para que todo quede firmado a nombre de cada quien.
 /// </summary>
 public class MyDevOpsTicketsControl : UserControl
 {
@@ -24,6 +28,25 @@ public class MyDevOpsTicketsControl : UserControl
     private Label _lblStatus = null!;
     private Label _lblEmpty = null!;
     private List<DevOpsTicket> _mine = [];
+
+    // Filtros
+    private ComboBox _cbxEstado = null!, _cbxTipo = null!, _cbxIteracion = null!, _cbxDias = null!;
+    private CheckBox _chkSoloAbiertos = null!;
+    private Button _btnSync = null!;
+    private readonly ToolTip _tip = new();
+    private bool _suspenderFiltros;
+    private bool _sincronizando;
+
+    /// <summary>Ventanas de tiempo del combo; null = todo el historial.</summary>
+    private static readonly (string Etiqueta, int? Dias)[] Ventanas =
+    [
+        ("Últimos 30 días", 30),
+        ("Últimos 90 días", MyDevOpsTicketFilter.DiasPorOmision),
+        ("Último año", 365),
+        ("Todo el historial", null),
+    ];
+
+    private const string ClaveColumnas = "my-devops.tickets";
 
     public MyDevOpsTicketsControl(AppDbContext db, AzureDevOpsService devOps, CurrentUserContext currentUser)
     {
@@ -39,12 +62,13 @@ public class MyDevOpsTicketsControl : UserControl
 
         var tbl = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill, RowCount = 3, ColumnCount = 1,
+            Dock = DockStyle.Fill, RowCount = 4, ColumnCount = 1,
             Margin = Padding.Empty, Padding = Padding.Empty, CellBorderStyle = TableLayoutPanelCellBorderStyle.None
         };
-        tbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 50f));
-        tbl.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
-        tbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 26f));
+        tbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 50f));   // acciones
+        tbl.RowStyles.Add(new RowStyle(SizeType.AutoSize));        // filtros (se acomodan en dos líneas si hace falta)
+        tbl.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));   // rejilla
+        tbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 26f));   // estado
         tbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
 
         // ── Toolbar (AutoSize para que nunca se corten los botones) ──
@@ -54,7 +78,11 @@ public class MyDevOpsTicketsControl : UserControl
             WrapContents = false, Padding = new Padding(10, 8, 10, 4), BackColor = AppTheme.ContentBg
         };
 
-        var btnRefresh = AppTheme.MakePrimaryButton("🔄  Actualizar", 130);
+        _btnSync = AppTheme.MakePrimaryButton("⟳  Sincronizar mis tickets", 210);
+        _btnSync.Margin = new Padding(0, 0, 8, 0);
+        _btnSync.Click += (_, _) => _ = SincronizarAsync();
+
+        var btnRefresh = AppTheme.MakeSecondaryButton("🔄  Actualizar", 130);
         btnRefresh.Margin = new Padding(0, 0, 8, 0);
         btnRefresh.Click += (_, _) => LoadData();
 
@@ -63,9 +91,46 @@ public class MyDevOpsTicketsControl : UserControl
 
         var btnPat = AppTheme.MakeSecondaryButton("🔑  Mi PAT de DevOps", 180);
         btnPat.Margin = new Padding(0, 0, 8, 0);
-        btnPat.Click += (_, _) => { using var f = new MyDevOpsPatForm(_devOps); f.ShowDialog(FindForm()); };
+        btnPat.Click += (_, _) =>
+        {
+            using var f = new MyDevOpsPatForm(_devOps);
+            f.ShowDialog(FindForm());
+            PintarBotonSync();   // pudo capturar su PAT justo ahora
+        };
 
-        toolbar.Controls.AddRange([btnRefresh, _txtSearch, btnPat]);
+        toolbar.Controls.AddRange([_btnSync, btnRefresh, _txtSearch, btnPat]);
+
+        // ── Filtros ──────────────────────────────────────────────────
+        var filtros = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Top, FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Padding = new Padding(10, 0, 10, 6), BackColor = AppTheme.ContentBg
+        };
+
+        _cbxDias = ComboFiltro(null, 165);
+        foreach (var (etiqueta, _) in Ventanas) _cbxDias.Items.Add(etiqueta);
+        _cbxDias.SelectedIndex = Array.FindIndex(Ventanas, v => v.Dias == MyDevOpsTicketFilter.DiasPorOmision);
+
+        _cbxEstado    = ComboFiltro("Todos los estados");
+        _cbxTipo      = ComboFiltro("Todos los tipos");
+        _cbxIteracion = ComboFiltro("Todas las iteraciones", 175);
+
+        _chkSoloAbiertos = new CheckBox
+        {
+            Text = "Solo sin cerrar", AutoSize = true, Checked = true,
+            Font = AppTheme.DefaultFont, Margin = new Padding(4, 7, 8, 0)
+        };
+
+        foreach (var c in new Control[] { _cbxDias, _cbxEstado, _cbxTipo, _cbxIteracion })
+            ((ComboBox)c).SelectedIndexChanged += (_, _) => Filter();
+        _chkSoloAbiertos.CheckedChanged += (_, _) => Filter();
+
+        var btnLimpiar = AppTheme.MakeSecondaryButton("Limpiar", 80, 26);
+        btnLimpiar.Margin = new Padding(0, 3, 0, 0);
+        btnLimpiar.Click += (_, _) => LimpiarFiltros();
+
+        filtros.Controls.AddRange([_cbxDias, _cbxEstado, _cbxTipo, _cbxIteracion, _chkSoloAbiertos, btnLimpiar]);
 
         // ── Cuerpo: grid + mensaje de vacío superpuesto ──────────────
         var pnlBody = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10, 4, 10, 4), BackColor = AppTheme.ContentBg };
@@ -107,11 +172,104 @@ public class MyDevOpsTicketsControl : UserControl
             TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(12, 0, 0, 0)
         };
 
-        tbl.Controls.Add(toolbar,  0, 0);
-        tbl.Controls.Add(pnlBody,  0, 1);
-        tbl.Controls.Add(_lblStatus, 0, 2);
+        GridColumns.Habilitar(_grid, ClaveColumnas);
+        toolbar.Controls.Add(GridColumns.CrearBoton(_grid, ClaveColumnas));
+
+        tbl.Controls.Add(toolbar,    0, 0);
+        tbl.Controls.Add(filtros,    0, 1);
+        tbl.Controls.Add(pnlBody,    0, 2);
+        tbl.Controls.Add(_lblStatus, 0, 3);
         Controls.Add(tbl);
+
+        PintarBotonSync();
     }
+
+    private static ComboBox ComboFiltro(string? todos, int ancho = 150)
+    {
+        var cbx = new ComboBox
+        {
+            Width = ancho, DropDownStyle = ComboBoxStyle.DropDownList,
+            Font = AppTheme.DefaultFont, Margin = new Padding(0, 3, 6, 3)
+        };
+        if (todos != null) { cbx.Items.Add(todos); cbx.SelectedIndex = 0; }
+        return cbx;
+    }
+
+    /// <summary>Sin PAT personal no hay con qué preguntarle a DevOps; el botón lo dice en vez de fallar al pulsarlo.</summary>
+    private void PintarBotonSync()
+    {
+        bool puede = _devOps.PuedeSincronizarMisTickets;
+        _btnSync.Enabled = puede && !_sincronizando;
+        _btnSync.Text = _sincronizando ? "⟳  Sincronizando…" : "⟳  Sincronizar mis tickets";
+        _tip.SetToolTip(_btnSync, puede
+            ? "Trae de Azure DevOps los work items asignados a ti, usando tu PAT personal."
+            : "Captura tu PAT en «Mi PAT de DevOps» para poder sincronizar por tu cuenta.");
+    }
+
+    private async Task SincronizarAsync()
+    {
+        if (_sincronizando) return;
+        _sincronizando = true;
+        PintarBotonSync();
+        UseWaitCursor = true;
+        try
+        {
+            // Se pide la misma ventana que está viendo; «Todo el historial» se acota a un año para
+            // no arrastrar de golpe años de work items cerrados por una sola pulsación.
+            int dias = VentanaSeleccionada() ?? 365;
+            var r = await _devOps.SincronizarMisTicketsAsync(dias);
+            LoadData();
+            _lblStatus.Text = $"Sincronizado: {r.Added} nuevo(s), {r.Updated} actualizado(s).";
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                $"No se pudieron traer tus tickets de Azure DevOps:\n\n{ex.Message}",
+                "Sincronizar", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+        finally
+        {
+            UseWaitCursor = false;
+            _sincronizando = false;
+            PintarBotonSync();
+        }
+    }
+
+    private int? VentanaSeleccionada() =>
+        _cbxDias.SelectedIndex >= 0 ? Ventanas[_cbxDias.SelectedIndex].Dias : MyDevOpsTicketFilter.DiasPorOmision;
+
+    private void LimpiarFiltros()
+    {
+        _suspenderFiltros = true;
+        try
+        {
+            _txtSearch.Clear();
+            _cbxEstado.SelectedIndex = _cbxTipo.SelectedIndex = _cbxIteracion.SelectedIndex = 0;
+            _cbxDias.SelectedIndex = Array.FindIndex(Ventanas, v => v.Dias == MyDevOpsTicketFilter.DiasPorOmision);
+            _chkSoloAbiertos.Checked = true;
+        }
+        finally { _suspenderFiltros = false; }
+        Filter();
+    }
+
+    /// <summary>Rellena un combo con lo que hay en los datos, conservando lo elegido si sigue existiendo.</summary>
+    private static void PoblarFiltro(ComboBox cbx, IEnumerable<string?> valores)
+    {
+        var previo = cbx.SelectedIndex > 0 ? cbx.SelectedItem as string : null;
+        var todos = (string)cbx.Items[0]!;
+
+        cbx.BeginUpdate();
+        cbx.Items.Clear();
+        cbx.Items.Add(todos);
+        foreach (var v in MyDevOpsTicketFilter.Opciones(valores)) cbx.Items.Add(v);
+        cbx.EndUpdate();
+
+        int idx = previo != null ? cbx.Items.IndexOf(previo) : 0;
+        cbx.SelectedIndex = idx >= 0 ? idx : 0;
+    }
+
+    private static string? ValorFiltro(ComboBox cbx) =>
+        cbx.SelectedIndex > 0 ? cbx.SelectedItem as string : null;
 
     private void LoadData()
     {
@@ -130,14 +288,26 @@ public class MyDevOpsTicketsControl : UserControl
 
         _mine = DevOpsTicketQuery.ForDeveloper(_db, dev);
 
+        // Los combos se arman con lo que hay: ofrecer iteraciones o estados inexistentes convierte
+        // el filtro en una lista de callejones sin salida.
+        _suspenderFiltros = true;
+        try
+        {
+            PoblarFiltro(_cbxEstado,    _mine.Select(t => t.State));
+            PoblarFiltro(_cbxTipo,      _mine.Select(t => t.WorkItemType));
+            PoblarFiltro(_cbxIteracion, _mine.Select(t => t.IterationPath));
+        }
+        finally { _suspenderFiltros = false; }
+
         if (_mine.Count == 0)
         {
             bool sinTickets = !_db.DevOpsTickets.Any();
             ShowEmpty(sinTickets
-                ? "Todavía no hay tickets de DevOps sincronizados.\nPídele a un administrador que sincronice Azure DevOps."
+                ? "Todavía no hay tickets de DevOps sincronizados.\n" +
+                  "Pulsa «⟳ Sincronizar mis tickets» para traer los tuyos con tu PAT personal."
                 : $"No encontramos tickets de DevOps a tu nombre ({dev.FullName}).\n\n" +
-                  "El empate usa tu correo. Revisa que tu correo en la ficha de desarrollador sea el mismo\n" +
-                  "de tu cuenta de DevOps, y pide al administrador una sincronización para actualizar los datos.");
+                  "Pulsa «⟳ Sincronizar mis tickets»: pregunta a DevOps por lo asignado a la cuenta de TU PAT,\n" +
+                  "así que funciona aunque el correo de tu ficha no coincida con el de tu cuenta de DevOps.");
         }
         else _lblEmpty.Visible = false;
 
@@ -153,23 +323,23 @@ public class MyDevOpsTicketsControl : UserControl
 
     private void Filter()
     {
-        var q = _txtSearch.Text.Trim();
-        var data = string.IsNullOrEmpty(q)
-            ? _mine
-            : _mine.Where(t =>
-                t.ExternalId.ToString().Contains(q)
-                || t.Title.Contains(q, StringComparison.OrdinalIgnoreCase)
-                || t.State.Contains(q, StringComparison.OrdinalIgnoreCase)
-                || t.WorkItemType.Contains(q, StringComparison.OrdinalIgnoreCase)
-                || t.IterationPath.Contains(q, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (_suspenderFiltros) return;
+
+        var data = MyDevOpsTicketFilter.Aplicar(_mine, new MyDevOpsFilter(
+            _txtSearch.Text,
+            ValorFiltro(_cbxEstado),
+            ValorFiltro(_cbxTipo),
+            ValorFiltro(_cbxIteracion),
+            _chkSoloAbiertos.Checked,
+            VentanaSeleccionada()), DateTime.UtcNow);
 
         _grid.DataSource = data;
         if (_mine.Count > 0) _lblEmpty.Visible = false;
 
-        var lastSync = _mine.Count > 0 ? _mine.Max(t => t.SyncedAt).ToLocalTime().ToString("dd/MM/yyyy HH:mm") : "—";
-        int activos = _mine.Count(t => IsActive(t.State));
-        _lblStatus.Text = $"{data.Count} de {_mine.Count} tickets a tu nombre  |  {activos} activo(s)  |  " +
-                          $"Última sincronización del administrador: {lastSync}";
+        _lblStatus.Text = MyDevOpsTicketFilter.Resumen(
+            data.Count, _mine.Count,
+            _mine.Count(t => !AzureDevOpsService.EsCerrado(t.State)),
+            _mine.Count > 0 ? _mine.Max(t => t.SyncedAt) : null);
     }
 
     // ── Formato del grid ──────────────────────────────────────────
@@ -379,9 +549,6 @@ public class MyDevOpsTicketsControl : UserControl
     protected override void OnVisibleChanged(EventArgs e) { base.OnVisibleChanged(e); if (Visible) LoadData(); }
 
     // ── Helpers ───────────────────────────────────────────────────
-    private static bool IsActive(string state) => (state ?? "").Trim().ToLowerInvariant()
-        is "active" or "in progress" or "doing" or "in development" or "committed";
-
     private static Color StateColor(string state) => (state ?? "").ToLower() switch
     {
         "active" or "in progress" or "doing" or "in development" => AppTheme.SidebarActive,

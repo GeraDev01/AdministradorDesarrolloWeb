@@ -651,6 +651,11 @@ public static class DatabaseMigrator
             );
         ");
         try { db.Database.ExecuteSqlRaw(@"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_SugVote_Unico"" ON ""SuggestionVotes""(""SuggestionId"",""UserId"")"); } catch { }
+        // Visibilidad y votación (BDs ya existentes). Los valores por omisión reproducen el
+        // comportamiento anterior —todas públicas y votables—, para no cambiarle el sentido a lo
+        // que la gente ya envió.
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Suggestions"" ADD COLUMN ""Visibility"" INTEGER NOT NULL DEFAULT 0"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Suggestions"" ADD COLUMN ""OpenToVoting"" INTEGER NOT NULL DEFAULT 1"); } catch { }
 
         // ── Ficha de perfil del desarrollador (admin) ─────────────
         db.Database.ExecuteSqlRaw(@"
@@ -763,6 +768,80 @@ public static class DatabaseMigrator
                 CONSTRAINT ""FK_DevMile_Dev"" FOREIGN KEY (""DeveloperId"") REFERENCES ""Developers""(""Id"") ON DELETE CASCADE
             );");
         try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_DevMile_Dev"" ON ""DeveloperMilestones""(""DeveloperId"")"); } catch { }
+
+        // ── Biblioteca de plantillas y scripts ─────────────────────
+        db.Database.ExecuteSqlRaw(@"
+            CREATE TABLE IF NOT EXISTS ""Templates"" (
+                ""Id""              INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                ""Kind""            INTEGER NOT NULL DEFAULT 8,
+                ""Title""           TEXT    NOT NULL,
+                ""Description""     TEXT,
+                ""Body""            TEXT    NOT NULL,
+                ""Tags""            TEXT,
+                ""IsArchived""      INTEGER NOT NULL DEFAULT 0,
+                ""FileBytes""       BLOB,
+                ""FileName""        TEXT,
+                ""UsageCount""      INTEGER NOT NULL DEFAULT 0,
+                ""LastUsedAt""      TEXT,
+                ""CreatedByUserId"" INTEGER,
+                ""CreatedAt""       TEXT    NOT NULL,
+                ""UpdatedAt""       TEXT
+            );");
+        try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Tpl_Kind_Archived"" ON ""Templates""(""Kind"",""IsArchived"")"); } catch { }
+
+        // ── Foro del equipo ────────────────────────────────────────
+        db.Database.ExecuteSqlRaw(@"
+            CREATE TABLE IF NOT EXISTS ""ForumPosts"" (
+                ""Id""                INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                ""ParentId""          INTEGER,
+                ""RootId""            INTEGER NOT NULL DEFAULT 0,
+                ""Depth""             INTEGER NOT NULL DEFAULT 0,
+                ""AuthorUserId""      INTEGER NOT NULL,
+                ""AuthorName""        TEXT    NOT NULL,
+                ""AuthorDeveloperId"" INTEGER,
+                ""Title""             TEXT,
+                ""Body""              TEXT    NOT NULL,
+                ""Topic""             INTEGER NOT NULL DEFAULT 0,
+                ""Tags""              TEXT,
+                ""Pinned""            INTEGER NOT NULL DEFAULT 0,
+                ""Locked""            INTEGER NOT NULL DEFAULT 0,
+                ""CreatedAtUtc""      TEXT    NOT NULL,
+                ""EditedAtUtc""       TEXT,
+                ""DeletedAtUtc""      TEXT,
+                ""DeletedByUserId""   INTEGER,
+                CONSTRAINT ""FK_Forum_Parent"" FOREIGN KEY (""ParentId"") REFERENCES ""ForumPosts""(""Id"")
+            );");
+        try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Forum_Root_Created"" ON ""ForumPosts""(""RootId"",""CreatedAtUtc"")"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Forum_Parent"" ON ""ForumPosts""(""ParentId"")"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Forum_Created"" ON ""ForumPosts""(""CreatedAtUtc"")"); } catch { }
+
+        db.Database.ExecuteSqlRaw(@"
+            CREATE TABLE IF NOT EXISTS ""ForumLikes"" (
+                ""Id""           INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                ""PostId""       INTEGER NOT NULL,
+                ""UserId""       INTEGER NOT NULL,
+                ""CreatedAtUtc"" TEXT    NOT NULL,
+                CONSTRAINT ""FK_ForumLike_Post"" FOREIGN KEY (""PostId"") REFERENCES ""ForumPosts""(""Id"") ON DELETE CASCADE
+            );");
+        try { db.Database.ExecuteSqlRaw(@"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_ForumLike_Unico"" ON ""ForumLikes""(""PostId"",""UserId"")"); } catch { }
+
+        // ── Presencia en vivo y registro de asistencia ─────────────
+        db.Database.ExecuteSqlRaw(@"
+            CREATE TABLE IF NOT EXISTS ""WorkPresences"" (
+                ""Id""            INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                ""UserId""        INTEGER NOT NULL,
+                ""DeveloperId""   INTEGER,
+                ""DisplayName""   TEXT    NOT NULL,
+                ""StartedAtUtc""  TEXT    NOT NULL,
+                ""EndedAtUtc""    TEXT,
+                ""LastSeenUtc""   TEXT    NOT NULL,
+                ""State""         INTEGER NOT NULL DEFAULT 0,
+                ""StateNote""     TEXT,
+                ""EndReason""     INTEGER,
+                ""Origin""        TEXT
+            );");
+        try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Presence_User_Start"" ON ""WorkPresences""(""UserId"",""StartedAtUtc"")"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Presence_Ended"" ON ""WorkPresences""(""EndedAtUtc"")"); } catch { }
 
         // ── Tramos trabajados (reporte de tiempo por día) ──────────
         db.Database.ExecuteSqlRaw(@"
@@ -1079,6 +1158,9 @@ CREATE TABLE [Suggestions] (
 );");
         ExecIndex("Suggestions", "IX_Sug_CreatedByUser", "CreatedByUserId", "[CreatedByUserId]");
         ExecIndex("Suggestions", "IX_Sug_Status", "Status", "[Status]");
+        // Visibilidad y votación. Por omisión, lo que ya existía: pública y votable.
+        Exec("IF COL_LENGTH('Suggestions','Visibility') IS NULL ALTER TABLE [Suggestions] ADD [Visibility] int NOT NULL DEFAULT 0;");
+        Exec("IF COL_LENGTH('Suggestions','OpenToVoting') IS NULL ALTER TABLE [Suggestions] ADD [OpenToVoting] bit NOT NULL DEFAULT 1;");
 
         // ── Votos de sugerencias ───────────────────────────────────
         Exec(@"
@@ -1212,6 +1294,87 @@ CREATE TABLE [DeveloperMilestones] (
     CONSTRAINT [FK_DevMile_Dev] FOREIGN KEY ([DeveloperId]) REFERENCES [Developers]([Id]) ON DELETE CASCADE
 );");
         ExecIndex("DeveloperMilestones", "IX_DevMile_Dev", "DeveloperId", "[DeveloperId]");
+
+        // ── Biblioteca de plantillas y scripts ─────────────────────
+        Exec(@"
+IF OBJECT_ID(N'[Templates]', N'U') IS NULL
+CREATE TABLE [Templates] (
+    [Id] int IDENTITY(1,1) NOT NULL CONSTRAINT [PK_Templates] PRIMARY KEY,
+    [Kind] int NOT NULL DEFAULT 8,
+    [Title] nvarchar(200) NOT NULL,
+    [Description] nvarchar(max) NULL,
+    [Body] nvarchar(max) NOT NULL,
+    [Tags] nvarchar(300) NULL,
+    [IsArchived] bit NOT NULL DEFAULT 0,
+    [FileBytes] varbinary(max) NULL,
+    [FileName] nvarchar(260) NULL,
+    [UsageCount] int NOT NULL DEFAULT 0,
+    [LastUsedAt] datetime2 NULL,
+    [CreatedByUserId] int NULL,
+    [CreatedAt] datetime2 NOT NULL,
+    [UpdatedAt] datetime2 NULL
+);");
+        ExecIndex("Templates", "IX_Tpl_Kind_Archived", "Kind", "[Kind],[IsArchived]");
+
+        // ── Foro del equipo ────────────────────────────────────────
+        // NO ACTION en la autorreferencia: SQL Server rechaza una cascada de una tabla sobre sí
+        // misma. Da igual, aquí nada se borra de verdad (se marca DeletedAtUtc).
+        Exec(@"
+IF OBJECT_ID(N'[ForumPosts]', N'U') IS NULL
+CREATE TABLE [ForumPosts] (
+    [Id] int IDENTITY(1,1) NOT NULL CONSTRAINT [PK_ForumPosts] PRIMARY KEY,
+    [ParentId] int NULL,
+    [RootId] int NOT NULL DEFAULT 0,
+    [Depth] int NOT NULL DEFAULT 0,
+    [AuthorUserId] int NOT NULL,
+    [AuthorName] nvarchar(200) NOT NULL,
+    [AuthorDeveloperId] int NULL,
+    [Title] nvarchar(200) NULL,
+    [Body] nvarchar(max) NOT NULL,
+    [Topic] int NOT NULL DEFAULT 0,
+    [Tags] nvarchar(300) NULL,
+    [Pinned] bit NOT NULL DEFAULT 0,
+    [Locked] bit NOT NULL DEFAULT 0,
+    [CreatedAtUtc] datetime2 NOT NULL,
+    [EditedAtUtc] datetime2 NULL,
+    [DeletedAtUtc] datetime2 NULL,
+    [DeletedByUserId] int NULL,
+    CONSTRAINT [FK_Forum_Parent] FOREIGN KEY ([ParentId]) REFERENCES [ForumPosts]([Id])
+);");
+        ExecIndex("ForumPosts", "IX_Forum_Root_Created", "RootId", "[RootId],[CreatedAtUtc]");
+        ExecIndex("ForumPosts", "IX_Forum_Parent", "ParentId", "[ParentId]");
+        ExecIndex("ForumPosts", "IX_Forum_Created", "CreatedAtUtc", "[CreatedAtUtc]");
+
+        Exec(@"
+IF OBJECT_ID(N'[ForumLikes]', N'U') IS NULL
+CREATE TABLE [ForumLikes] (
+    [Id] int IDENTITY(1,1) NOT NULL CONSTRAINT [PK_ForumLikes] PRIMARY KEY,
+    [PostId] int NOT NULL,
+    [UserId] int NOT NULL,
+    [CreatedAtUtc] datetime2 NOT NULL,
+    CONSTRAINT [FK_ForumLike_Post] FOREIGN KEY ([PostId]) REFERENCES [ForumPosts]([Id]) ON DELETE CASCADE
+);");
+        Exec(@"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IX_ForumLike_Unico' AND object_id=OBJECT_ID('ForumLikes'))
+CREATE UNIQUE INDEX [IX_ForumLike_Unico] ON [ForumLikes]([PostId],[UserId]);");
+
+        // ── Presencia en vivo y registro de asistencia ─────────────
+        Exec(@"
+IF OBJECT_ID(N'[WorkPresences]', N'U') IS NULL
+CREATE TABLE [WorkPresences] (
+    [Id] int IDENTITY(1,1) NOT NULL CONSTRAINT [PK_WorkPresences] PRIMARY KEY,
+    [UserId] int NOT NULL,
+    [DeveloperId] int NULL,
+    [DisplayName] nvarchar(200) NOT NULL,
+    [StartedAtUtc] datetime2 NOT NULL,
+    [EndedAtUtc] datetime2 NULL,
+    [LastSeenUtc] datetime2 NOT NULL,
+    [State] int NOT NULL DEFAULT 0,
+    [StateNote] nvarchar(200) NULL,
+    [EndReason] int NULL,
+    [Origin] nvarchar(200) NULL
+);");
+        ExecIndex("WorkPresences", "IX_Presence_User_Start", "UserId", "[UserId],[StartedAtUtc]");
+        ExecIndex("WorkPresences", "IX_Presence_Ended", "EndedAtUtc", "[EndedAtUtc]");
 
         // ── Tramos trabajados (reporte de tiempo por día) ──────────
         Exec(@"

@@ -7,7 +7,7 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// Diálogo del administrador para atender una sugerencia: muestra su contenido y captura el nuevo
 /// estado y una respuesta opcional para el autor. UI pura; el control que la abre persiste.
 /// </summary>
-public class SuggestionResponseForm : Form
+public class SuggestionResponseForm : ResponsiveForm
 {
     private ComboBox _cbxEstado = null!;
     private TextBox _txtRespuesta = null!;
