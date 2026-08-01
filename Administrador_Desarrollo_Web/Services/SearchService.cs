@@ -3,14 +3,15 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Administrador_Desarrollo_Web.Services;
 
-public enum SearchKind { Requerimiento, Ticket, Desarrollador, Sugerencia }
+public enum SearchKind { Requerimiento, Ticket, Desarrollador, Sugerencia, Plantilla }
 
 /// <summary>Un resultado de la búsqueda global: qué es, cómo se muestra y a qué pantalla lleva.</summary>
 public record SearchHit(SearchKind Kind, string Texto, string Detalle, string NavKey);
 
 /// <summary>
 /// Búsqueda global (Ctrl+K) para el administrador: encuentra requerimientos, tickets de DevOps,
-/// desarrolladores y sugerencias por texto o número, y devuelve a qué pantalla saltar. Solo lectura.
+/// desarrolladores, sugerencias y plantillas por texto o número, y devuelve a qué pantalla saltar.
+/// Solo lectura.
 /// </summary>
 public class SearchService
 {
@@ -54,6 +55,20 @@ public class SearchService
             .Select(s => new { s.Title }).ToList()
             .Select(s => new SearchHit(SearchKind.Sugerencia, s.Title, "Sugerencia", "suggestions")));
 
+        // Plantillas: solo las activas. Las archivadas se sacaron de la vista a propósito y no
+        // deben volver por la puerta de atrás del buscador.
+        //
+        // OJO si algún día se abre Ctrl+K a más roles: esta consulta lista título y etiquetas de
+        // TODAS las plantillas sin mirar el rol. Hoy no fuga nada porque la búsqueda global es
+        // solo del administrador, pero el desarrollador únicamente puede LEER los tipos de
+        // TemplateService.TiposDelEquipo — habría que filtrar aquí igual que en Legibles().
+        hits.AddRange(_db.Templates.AsNoTracking()
+            .Where(t => !t.IsArchived && (t.Title.Contains(query) || (t.Tags != null && t.Tags.Contains(query))))
+            .OrderByDescending(t => t.UsageCount).ThenBy(t => t.Title).Take(maxPorTipo)
+            .Select(t => new { t.Title, t.Kind }).ToList()
+            .Select(t => new SearchHit(SearchKind.Plantilla, t.Title,
+                $"Plantilla · {TemplateService.EtiquetaTipo(t.Kind)}", "templates")));
+
         return hits;
     }
 
@@ -63,6 +78,7 @@ public class SearchService
         SearchKind.Ticket        => "🔷",
         SearchKind.Desarrollador => "👤",
         SearchKind.Sugerencia    => "💡",
+        SearchKind.Plantilla     => "📚",
         _                        => "•"
     };
 }

@@ -42,4 +42,17 @@ public static class AuthorizationGuard
         if (user.IsAdmin || user.IsOperaciones) return;
         throw new AuthorizationException("Esta operación es del área de despliegues (Administrador u Operaciones).");
     }
+
+    /// <summary>
+    /// Lectura de la biblioteca de plantillas: Admin o Desarrollador. La comprobación es POSITIVA
+    /// por rol a propósito — escrita por descarte («no es admin»), Operaciones y cualquier rol
+    /// futuro heredarían la lectura en silencio, que es exactamente el error que ya se cometió una
+    /// vez (ver la nota de ICurrentUser).
+    /// </summary>
+    public static void RequireAdminOrDesarrollador(ICurrentUser user)
+    {
+        RequireLoggedIn(user);
+        if (user.IsAdmin || user.IsDesarrollador) return;
+        throw new AuthorizationException("Esta operación es de la biblioteca de plantillas (Administrador o Desarrollador).");
+    }
 }
