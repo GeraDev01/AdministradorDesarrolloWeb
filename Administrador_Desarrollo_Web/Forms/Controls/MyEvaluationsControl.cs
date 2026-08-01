@@ -1,4 +1,5 @@
 using Administrador_Desarrollo_Web.Data;
+using Administrador_Desarrollo_Web.Forms.Details;
 using Administrador_Desarrollo_Web.Models;
 using Administrador_Desarrollo_Web.Services;
 
@@ -38,8 +39,12 @@ public class MyEvaluationsControl : UserControl
         var toolbar = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Padding = new Padding(10, 8, 10, 4) };
         toolbar.Controls.Add(new Label { Text = "Tus evaluaciones e hitos, tal como los registró tu líder. Doble clic en una evaluación para ver el detalle completo.", AutoSize = true, Margin = new Padding(0, 8, 16, 0), ForeColor = AppTheme.TextSecondary });
         var btnPdf = AppTheme.MakePrimaryButton("📄 Descargar mi reporte (PDF)", 240); btnPdf.Margin = new Padding(0, 2, 8, 0); btnPdf.Click += BtnPdf_Click;
-        var btnReload = AppTheme.MakeSecondaryButton("🔄 Recargar", 110); btnReload.Margin = new Padding(0, 2, 0, 0); btnReload.Click += (_, _) => LoadData();
-        toolbar.Controls.AddRange([btnPdf, btnReload]);
+        var btnReload = AppTheme.MakeSecondaryButton("🔄 Recargar", 110); btnReload.Margin = new Padding(0, 2, 8, 0); btnReload.Click += (_, _) => LoadData();
+        // Acceso directo a la ruta de LibreOffice: no solo cuando el PDF falla — quien acaba de
+        // reinstalarlo puede corregirla antes de chocar con el error.
+        var btnLibre = AppTheme.MakeSecondaryButton("⚙ LibreOffice…", 140); btnLibre.Margin = new Padding(0, 2, 0, 0);
+        btnLibre.Click += (_, _) => { using var f = new LibreOfficePathForm(); f.ShowDialog(FindForm()); };
+        toolbar.Controls.AddRange([btnPdf, btnReload, btnLibre]);
 
         // Evaluaciones (solo lectura)
         _gridEval = AppTheme.MakeGrid(); _gridEval.MultiSelect = false;
@@ -119,7 +124,20 @@ public class MyEvaluationsControl : UserControl
     {
         if (DevId < 0) { MessageBox.Show("Tu cuenta no está vinculada a un desarrollador.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
         if (!_report.ConverterAvailable(out var diag))
-        { MessageBox.Show(diag, "Generar PDF", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+        {
+            // El arreglo a un clic del error: el desarrollador no puede abrir Configuración (es
+            // del admin), así que aquí mismo se le ofrece decir dónde quedó SU LibreOffice.
+            if (MessageBox.Show(
+                    $"{diag}\n\n¿Quieres indicar ahora dónde está LibreOffice en esta computadora?",
+                    "Generar PDF", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                return;
+
+            using var cfg = new LibreOfficePathForm();
+            if (cfg.ShowDialog(FindForm()) != DialogResult.OK || !cfg.Guardado) return;
+            if (!_report.ConverterAvailable(out diag))
+            { MessageBox.Show(diag, "Generar PDF", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+            // La ruta quedó bien: se sigue de largo con la generación.
+        }
 
         using var dlg = new SaveFileDialog { Filter = "PDF (*.pdf)|*.pdf", FileName = $"Mi_Reporte_{DateTime.Now:yyyyMMdd}.pdf" };
         if (dlg.ShowDialog(FindForm()) != DialogResult.OK) return;

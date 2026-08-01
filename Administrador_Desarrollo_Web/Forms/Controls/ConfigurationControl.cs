@@ -275,7 +275,7 @@ public class ConfigurationControl : UserControl
         AddField(scroll, "Puesto (por defecto):", ref _txtVacPuesto, ref y, false, "Desarrollador Web");
         AddField(scroll, "Jefe directo (nombre que firma la autorización):", ref _txtVacJefe, ref y, false, "GERARDO TELLEZ");
 
-        scroll.Controls.Add(new Label { Text = "Ruta de LibreOffice (soffice.exe) — se autodetecta si está instalado:", Location = new Point(30, y), AutoSize = true, Font = AppTheme.DefaultFont });
+        scroll.Controls.Add(new Label { Text = "Ruta de LibreOffice (soffice.exe) — COMPARTIDA, el valor por omisión del equipo; cada quien puede fijar la suya en su computadora:", Location = new Point(30, y), AutoSize = true, Font = AppTheme.DefaultFont });
         y += 22;
         _txtLibreOffice = new TextBox { Location = new Point(30, y), Width = 660, PlaceholderText = @"C:\Program Files\LibreOffice\program\soffice.exe" };
         scroll.Controls.Add(_txtLibreOffice);
@@ -818,14 +818,35 @@ public class ConfigurationControl : UserControl
 
     private void BtnBrowseLibre_Click(object? s, EventArgs e)
     {
-        using var dlg = new OpenFileDialog { Filter = "soffice.exe|soffice.exe|Ejecutables (*.exe)|*.exe", Title = "Seleccionar soffice.exe de LibreOffice" };
+        // soffice.com también sirve (es el lanzador de consola); el filtro viejo no lo dejaba elegir.
+        using var dlg = new OpenFileDialog
+        {
+            Filter = "LibreOffice (soffice.exe;soffice.com)|soffice.exe;soffice.com|Ejecutables (*.exe;*.com)|*.exe;*.com",
+            Title = "Seleccionar soffice.exe de LibreOffice"
+        };
         if (dlg.ShowDialog(FindForm()) == DialogResult.OK) _txtLibreOffice.Text = dlg.FileName;
     }
 
     private void BtnTestLibre_Click(object? s, EventArgs e)
     {
-        // Guardar la ruta escrita para que el convertidor la considere al probar.
-        _settings.Set(SettingsService.Keys.LibreOfficePath, _txtLibreOffice.Text.Trim(), false, "Ruta de soffice.exe (LibreOffice)");
+        // Guardar la ruta escrita para que quede como valor COMPARTIDO del equipo.
+        var compartida = _txtLibreOffice.Text.Trim();
+        _settings.Set(SettingsService.Keys.LibreOfficePath, compartida, false, "Ruta de soffice.exe (LibreOffice)");
+
+        // Se prueba LO QUE SE GUARDÓ, no la resolución completa: la ruta personal del admin en
+        // esta máquina ganaría en la resolución y un «✓ disponible» aquí dejaría guardada una
+        // ruta compartida rota para el resto del equipo sin que nadie lo note.
+        if (compartida.Length > 0)
+        {
+            bool ok = LibreOfficeLocalConfig.EsSofficeValido(compartida);
+            _lblLibreStatus.ForeColor = ok ? AppTheme.Success : AppTheme.Danger;
+            _lblLibreStatus.Text = ok
+                ? "✓  La ruta compartida es válida en esta máquina. La conversión a PDF funcionará."
+                : "✗  Esa ruta no existe aquí o no es soffice.exe/soffice.com. Quedó guardada para el equipo: revísala.";
+            return;
+        }
+
+        // Sin ruta escrita, lo que le queda al equipo es la autodetección (más la personal de cada quien).
         if (_converter.IsAvailable(out var diag))
         {
             _lblLibreStatus.ForeColor = AppTheme.Success;

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Administrador_Desarrollo_Web.Data;
 using Microsoft.Extensions.Logging;
 
 namespace Administrador_Desarrollo_Web.Services;
@@ -6,8 +7,13 @@ namespace Administrador_Desarrollo_Web.Services;
 /// <summary>
 /// Convierte DOCX→PDF invocando LibreOffice en modo headless
 /// (soffice --headless --convert-to pdf). Gratis (MPL), sin Office.
-/// La ruta de soffice.exe se toma de la configuración (LibreOfficePath) o se
-/// autodetecta en las rutas de instalación típicas de Windows.
+///
+/// La ruta de soffice.exe se resuelve en este orden, y se re-resuelve en CADA llamada para que un
+/// cambio de configuración aplique sin reiniciar:
+///  1. la ruta PERSONAL de esta máquina (<see cref="LibreOfficeLocalConfig"/>) — cada quien lo
+///     instaló donde pudo, y el login restringido no puede escribir la configuración compartida;
+///  2. la ruta COMPARTIDA de AppSettings (LibreOfficePath) — el valor por omisión del equipo;
+///  3. autodetección en las rutas de instalación típicas de Windows.
 /// </summary>
 public class LibreOfficeConverter : IDocxToPdfConverter
 {
@@ -28,25 +34,50 @@ public class LibreOfficeConverter : IDocxToPdfConverter
         _logger = logger;
     }
 
+    /// <summary>
+    /// La precedencia, pura y sin tocar disco ni base: así se prueba con archivos falsos en un
+    /// directorio temporal (el patrón de DbConnectionResolver). Devuelve también DE DÓNDE salió la
+    /// ruta: cuando algo falla, «no se encontró» a secas obliga a soportar a ciegas.
+    /// </summary>
+    public static (string? ruta, string origen) ResolverRuta(
+        string? local, string? global, IEnumerable<string> conocidas, Func<string, bool> existe)
+    {
+        // La local rota NO gana: si alguien movió su LibreOffice, caer a la global o a la
+        // autodetección deja a la persona trabajando en vez de atorada en su error de captura.
+        if (!string.IsNullOrWhiteSpace(local) && existe(local!))
+            return (local, "configurada en esta computadora");
+        if (!string.IsNullOrWhiteSpace(global) && existe(global!))
+            return (global, "configuración compartida del equipo");
+        foreach (var p in conocidas)
+            if (existe(p)) return (p, "autodetectada");
+        return (null, "ninguna");
+    }
+
     public string? ResolveSofficePath()
     {
-        var configured = _settings.Get(SettingsService.Keys.LibreOfficePath);
-        if (!string.IsNullOrWhiteSpace(configured) && File.Exists(configured))
-            return configured;
-
-        foreach (var p in KnownPaths)
-            if (File.Exists(p)) return p;
-
-        return null;
+        var (ruta, _) = ResolverRuta(
+            LibreOfficeLocalConfig.Cargar().SofficePath,
+            _settings.Get(SettingsService.Keys.LibreOfficePath),
+            KnownPaths, File.Exists);
+        return ruta;
     }
 
     public bool IsAvailable(out string? diagnostic)
     {
-        var path = ResolveSofficePath();
+        var local = LibreOfficeLocalConfig.Cargar().SofficePath;
+        var global = _settings.Get(SettingsService.Keys.LibreOfficePath);
+        var (path, _) = ResolverRuta(local, global, KnownPaths, File.Exists);
         if (path == null)
         {
-            diagnostic = "No se encontró LibreOffice. Instálalo (https://es.libreoffice.org/descarga/) " +
-                         "o indica la ruta de soffice.exe en Configuración.";
+            // Decir qué se intentó: sin esto, una ruta capturada con error y una instalación
+            // ausente se reportan igual y el soporte es a ciegas.
+            var intentos = new List<string>();
+            if (!string.IsNullOrWhiteSpace(local))  intentos.Add($"la ruta de esta computadora ({local})");
+            if (!string.IsNullOrWhiteSpace(global)) intentos.Add($"la compartida ({global})");
+            intentos.Add("las rutas típicas de instalación");
+
+            diagnostic = $"No se encontró LibreOffice; se intentó: {string.Join(", ", intentos)}. " +
+                         "Instálalo (https://es.libreoffice.org/descarga/) o indica dónde está soffice.exe.";
             return false;
         }
         diagnostic = null;
