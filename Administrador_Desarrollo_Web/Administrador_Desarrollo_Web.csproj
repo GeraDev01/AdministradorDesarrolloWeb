@@ -10,6 +10,20 @@
     <StartupObject />
     <AssemblyTitle>Administrador de Desarrollo</AssemblyTitle>
     <Product>Administrador de Desarrollo</Product>
+
+    <!-- Identidad del binario. No sustituye a la firma digital, pero sí importa: un .exe sin
+         empresa, sin versión y sin descripción es justo el perfil que los antivirus puntúan como
+         sospechoso, y en las propiedades del archivo el usuario no ve más que un nombre suelto.
+         Además, la versión es lo que permite comparar «lo que tengo» contra «lo que hay» para
+         avisar de actualizaciones. Súbela en cada entrega. -->
+    <Company>Soltum</Company>
+    <Authors>Soltum</Authors>
+    <Description>Administración de requerimientos, despliegues y desempeño del equipo de desarrollo web.</Description>
+    <Copyright>© Soltum</Copyright>
+    <Version>1.0.0</Version>
+    <FileVersion>1.0.0.0</FileVersion>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <NeutralLanguage>es-MX</NeutralLanguage>
   </PropertyGroup>
 
   <!-- El proyecto de pruebas puede ver miembros internal (p. ej. el descifrado de la conexión
