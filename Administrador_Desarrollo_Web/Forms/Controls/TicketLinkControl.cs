@@ -23,12 +23,27 @@ public class TicketLinkControl : UserControl
     private TextBox _txtSearchDO = null!, _txtSearchFD = null!;
     private Button _btnLink = null!;
 
+    // Filtros del vinculador. Los de DevOps se arman con lo que HAY en los datos porque estado, tipo
+    // y asignado dependen de la plantilla de proceso del proyecto; los de Freshdesk son un dominio
+    // cerrado y usan las mismas etiquetas que la pantalla de Freshdesk.
+    private ComboBox _cbxDoEstado = null!, _cbxDoTipo = null!, _cbxDoAsignado = null!;
+    private ComboBox _cbxFdEstado = null!, _cbxFdPrioridad = null!, _cbxFdAgente = null!;
+    private CheckBox _chkDoSinVincular = null!, _chkFdSinVincular = null!;
+    private Label _lblDoCount = null!, _lblFdCount = null!;
+
+    /// <summary>Evita que repoblar los combos durante la carga dispare un filtrado por cada uno.</summary>
+    private bool _suspenderFiltros;
+
     // Stats panel
     private Panel _pnlStats = null!;
 
     private List<TicketLink> _links = [];
     private List<DevOpsTicket> _allDO = [];
     private List<FreshDeskTicket> _allFD = [];
+
+    // Qué tickets ya tienen al menos un vínculo, para el filtro «solo sin vincular».
+    private HashSet<int> _doVinculados = [];
+    private HashSet<int> _fdVinculados = [];
 
     public TicketLinkControl(AppDbContext db, CurrentUserContext currentUser, AuditService audit)
     {
@@ -102,6 +117,9 @@ public class TicketLinkControl : UserControl
 
         _gridLinks = AppTheme.MakeGrid();
         _gridLinks.Dock = DockStyle.Fill;
+        // Sin esto, a las columnas de abajo se les suma una autogenerada por cada propiedad del
+        // origen de datos (aquí, LinkId): columnas que nadie pidió, quitándole ancho a las que sí.
+        _gridLinks.AutoGenerateColumns = false;
         _gridLinks.Columns.AddRange(
             TxtCol("DO_ID",       "ID DevOps",   75),
             TxtCol("DO_Type",     "Tipo",        100),
@@ -116,6 +134,11 @@ public class TicketLinkControl : UserControl
             TxtCol("Notes",       "Notas",         150)
         );
         _gridLinks.Columns["LinkedAt"]!.DefaultCellStyle.Format = "dd/MM/yyyy";
+
+        // Once columnas no caben cómodas en ningún monitor: que cada quien deje las suyas.
+        GridColumns.Habilitar(_gridLinks, ClaveVinculos);
+        toolbar.Controls.Add(new Panel { Width = 10, Height = 1 });
+        toolbar.Controls.Add(GridColumns.CrearBoton(_gridLinks, ClaveVinculos));
 
         tbl.Controls.Add(toolbar,         0, 0);
         tbl.Controls.Add(_lblLinksStatus, 0, 1);
@@ -140,19 +163,49 @@ public class TicketLinkControl : UserControl
         };
 
         // Panel izquierdo: DevOps
-        var leftTbl = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3, ColumnCount = 1, Margin = Padding.Empty };
-        leftTbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 22f));
-        leftTbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 36f));
-        leftTbl.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+        var leftTbl = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 5, ColumnCount = 1, Margin = Padding.Empty };
+        leftTbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 22f));   // etiqueta
+        leftTbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 36f));   // búsqueda + columnas
+        leftTbl.RowStyles.Add(new RowStyle(SizeType.AutoSize));        // filtros (se acomodan en dos líneas si el panel es angosto)
+        leftTbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 20f));   // contador
+        leftTbl.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));   // rejilla
         leftTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
 
         _lblDevOpsSearch = new Label { Text = "Work Item Azure DevOps:", Font = AppTheme.BoldFont, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
         _txtSearchDO = new TextBox { Dock = DockStyle.Fill, Font = AppTheme.DefaultFont, PlaceholderText = "Buscar work item..." };
         _txtSearchDO.TextChanged += (_, _) => FilterUnlinkedDO();
 
+        _cbxDoEstado   = ComboFiltro("Todos los estados");
+        _cbxDoTipo     = ComboFiltro("Todos los tipos");
+        _cbxDoAsignado = ComboFiltro("Todos los asignados", 140);
+        foreach (var c in new[] { _cbxDoEstado, _cbxDoTipo, _cbxDoAsignado })
+            c.SelectedIndexChanged += (_, _) => FilterUnlinkedDO();
+
+        _chkDoSinVincular = new CheckBox
+        {
+            Text = "Solo sin vincular", AutoSize = true, Font = AppTheme.DefaultFont,
+            Margin = new Padding(4, 7, 8, 0)
+        };
+        _chkDoSinVincular.CheckedChanged += (_, _) => FilterUnlinkedDO();
+
+        var btnLimpiarDO = AppTheme.MakeSecondaryButton("Limpiar", 80, 26);
+        btnLimpiarDO.Margin = new Padding(0, 3, 0, 0);
+        btnLimpiarDO.Click += (_, _) => LimpiarFiltrosDO();
+
+        _lblDoCount = new Label
+        {
+            Dock = DockStyle.Fill, Font = AppTheme.SmallFont, ForeColor = AppTheme.TextSecondary,
+            TextAlign = ContentAlignment.MiddleLeft
+        };
+
         _gridUnlinkedDO = AppTheme.MakeGrid();
         _gridUnlinkedDO.Dock = DockStyle.Fill;
         _gridUnlinkedDO.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+        // Esta rejilla se enlaza a List<DevOpsTicket>: sin esto, a las cinco columnas de abajo se
+        // les sumaba UNA POR CADA propiedad de la entidad (Id, AreaPath, IterationPath, Tags,
+        // Description, StoryPoints, SyncedAt, Url, TicketLinks…). Casi veinte columnas en medio
+        // panel: eso era lo que se empalmaba.
+        _gridUnlinkedDO.AutoGenerateColumns = false;
         _gridUnlinkedDO.Columns.AddRange(
             TxtCol("ExternalId", "#", 60),
             TxtCol("WorkItemType", "Tipo", 100),
@@ -160,16 +213,21 @@ public class TicketLinkControl : UserControl
             TxtCol("State", "Estado", 90),
             TxtCol("AssignedTo", "Asignado", 130)
         );
+        GridColumns.Habilitar(_gridUnlinkedDO, ClaveDevOps);
 
-        leftTbl.Controls.Add(_lblDevOpsSearch,  0, 0);
-        leftTbl.Controls.Add(_txtSearchDO,       0, 1);
-        leftTbl.Controls.Add(_gridUnlinkedDO,    0, 2);
+        leftTbl.Controls.Add(_lblDevOpsSearch, 0, 0);
+        leftTbl.Controls.Add(FilaBusqueda(_txtSearchDO, _gridUnlinkedDO, ClaveDevOps), 0, 1);
+        leftTbl.Controls.Add(BarraFiltros(_cbxDoEstado, _cbxDoTipo, _cbxDoAsignado, _chkDoSinVincular, btnLimpiarDO), 0, 2);
+        leftTbl.Controls.Add(_lblDoCount,      0, 3);
+        leftTbl.Controls.Add(_gridUnlinkedDO,  0, 4);
         split.Panel1.Controls.Add(leftTbl);
 
         // Panel derecho: Freshdesk
-        var rightTbl = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3, ColumnCount = 1, Margin = Padding.Empty };
+        var rightTbl = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 5, ColumnCount = 1, Margin = Padding.Empty };
         rightTbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 22f));
         rightTbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 36f));
+        rightTbl.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        rightTbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 20f));
         rightTbl.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
         rightTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
 
@@ -177,9 +235,39 @@ public class TicketLinkControl : UserControl
         _txtSearchFD = new TextBox { Dock = DockStyle.Fill, Font = AppTheme.DefaultFont, PlaceholderText = "Buscar ticket..." };
         _txtSearchFD.TextChanged += (_, _) => FilterUnlinkedFD();
 
+        // Estado y prioridad son un dominio cerrado: mismas etiquetas y mismo orden que la pantalla
+        // de Freshdesk, para que no haya que traducir mentalmente al saltar de una a otra.
+        _cbxFdEstado = ComboFiltro("Todos los estados");
+        _cbxFdEstado.Items.AddRange(["Abierto", "Pendiente", "Resuelto", "Cerrado"]);
+        _cbxFdEstado.SelectedIndex = 0;
+        _cbxFdPrioridad = ComboFiltro("Todas las prioridades", 135);
+        _cbxFdPrioridad.Items.AddRange(["Baja", "Media", "Alta", "Urgente"]);
+        _cbxFdPrioridad.SelectedIndex = 0;
+        _cbxFdAgente = ComboFiltro("Todos los agentes", 140);
+        foreach (var c in new[] { _cbxFdEstado, _cbxFdPrioridad, _cbxFdAgente })
+            c.SelectedIndexChanged += (_, _) => FilterUnlinkedFD();
+
+        _chkFdSinVincular = new CheckBox
+        {
+            Text = "Solo sin vincular", AutoSize = true, Font = AppTheme.DefaultFont,
+            Margin = new Padding(4, 7, 8, 0)
+        };
+        _chkFdSinVincular.CheckedChanged += (_, _) => FilterUnlinkedFD();
+
+        var btnLimpiarFD = AppTheme.MakeSecondaryButton("Limpiar", 80, 26);
+        btnLimpiarFD.Margin = new Padding(0, 3, 0, 0);
+        btnLimpiarFD.Click += (_, _) => LimpiarFiltrosFD();
+
+        _lblFdCount = new Label
+        {
+            Dock = DockStyle.Fill, Font = AppTheme.SmallFont, ForeColor = AppTheme.TextSecondary,
+            TextAlign = ContentAlignment.MiddleLeft
+        };
+
         _gridUnlinkedFD = AppTheme.MakeGrid();
         _gridUnlinkedFD.Dock = DockStyle.Fill;
         _gridUnlinkedFD.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+        _gridUnlinkedFD.AutoGenerateColumns = false;   // si no, se cuela una columna «Id» de más
         _gridUnlinkedFD.Columns.AddRange(
             TxtCol("ExternalId", "#", 70),
             TxtCol("Subject", "Asunto", 230),
@@ -187,10 +275,13 @@ public class TicketLinkControl : UserControl
             TxtCol("PriorityLabel", "Prioridad", 80),
             TxtCol("AgentName", "Agente", 130)
         );
+        GridColumns.Habilitar(_gridUnlinkedFD, ClaveFreshDesk);
 
-        rightTbl.Controls.Add(_lblFDSearch,   0, 0);
-        rightTbl.Controls.Add(_txtSearchFD,    0, 1);
-        rightTbl.Controls.Add(_gridUnlinkedFD, 0, 2);
+        rightTbl.Controls.Add(_lblFDSearch, 0, 0);
+        rightTbl.Controls.Add(FilaBusqueda(_txtSearchFD, _gridUnlinkedFD, ClaveFreshDesk), 0, 1);
+        rightTbl.Controls.Add(BarraFiltros(_cbxFdEstado, _cbxFdPrioridad, _cbxFdAgente, _chkFdSinVincular, btnLimpiarFD), 0, 2);
+        rightTbl.Controls.Add(_lblFdCount,     0, 3);
+        rightTbl.Controls.Add(_gridUnlinkedFD, 0, 4);
         split.Panel2.Controls.Add(rightTbl);
 
         // Botón vincular — barra inferior con FlowLayout
@@ -311,6 +402,21 @@ public class TicketLinkControl : UserControl
         _allDO = _db.DevOpsTickets.OrderByDescending(t => t.UpdatedAtExternal).ToList();
         _allFD = _db.FreshDeskTickets.OrderByDescending(t => t.UpdatedAtExternal).ToList();
 
+        _doVinculados = _links.Select(l => l.DevOpsTicketId).ToHashSet();
+        _fdVinculados = _links.Select(l => l.FreshDeskTicketId).ToHashSet();
+
+        // Los combos que se arman con los datos se repueblan aquí. Se suspende el filtrado mientras
+        // tanto: si no, cada Items.Clear() dispararía un refiltrado con el combo a medio llenar.
+        _suspenderFiltros = true;
+        try
+        {
+            PoblarFiltro(_cbxDoEstado,   _allDO.Select(t => t.State));
+            PoblarFiltro(_cbxDoTipo,     _allDO.Select(t => t.WorkItemType));
+            PoblarFiltro(_cbxDoAsignado, _allDO.Select(t => t.AssignedTo));
+            PoblarFiltro(_cbxFdAgente,   _allFD.Select(t => t.AgentName));
+        }
+        finally { _suspenderFiltros = false; }
+
         FilterLinks();
         FilterUnlinkedDO();
         FilterUnlinkedFD();
@@ -381,25 +487,32 @@ public class TicketLinkControl : UserControl
 
     private void FilterUnlinkedDO()
     {
-        var search = _txtSearchDO.Text.Trim().ToLower();
-        // Mostrar todos, no solo sin vincular (puede haber varios vínculos)
-        var filtered = _allDO.Where(t =>
-            string.IsNullOrEmpty(search)
-            || t.Title.ToLower().Contains(search)
-            || t.ExternalId.ToString().Contains(search)
-            || t.AssignedTo.ToLower().Contains(search)).ToList();
+        if (_suspenderFiltros) return;
+
+        // Por omisión se muestran TODOS, no solo los sin vincular: un work item puede tener varios
+        // tickets de Freshdesk detrás. Quien quiera solo lo pendiente marca la casilla.
+        var filtered = TicketLinkFilter.Aplicar(_allDO, new DevOpsLinkFilter(
+            _txtSearchDO.Text,
+            ValorFiltro(_cbxDoEstado),
+            ValorFiltro(_cbxDoTipo),
+            ValorFiltro(_cbxDoAsignado),
+            _chkDoSinVincular.Checked), _doVinculados);
 
         _gridUnlinkedDO.DataSource = filtered;
+        _lblDoCount.Text = TicketLinkFilter.Resumen(filtered.Count, _allDO.Count,
+            _allDO.Count(t => !_doVinculados.Contains(t.Id)), "work item");
     }
 
     private void FilterUnlinkedFD()
     {
-        var search = _txtSearchFD.Text.Trim().ToLower();
-        var filtered = _allFD.Where(t =>
-            string.IsNullOrEmpty(search)
-            || t.Subject.ToLower().Contains(search)
-            || t.ExternalId.ToString().Contains(search)
-            || t.RequesterName.ToLower().Contains(search)).ToList();
+        if (_suspenderFiltros) return;
+
+        var filtered = TicketLinkFilter.Aplicar(_allFD, new FreshDeskLinkFilter(
+            _txtSearchFD.Text,
+            ValorFiltro(_cbxFdEstado),
+            ValorFiltro(_cbxFdPrioridad),
+            ValorFiltro(_cbxFdAgente),
+            _chkFdSinVincular.Checked), _fdVinculados);
 
         _gridUnlinkedFD.DataSource = filtered.Select(t => new
         {
@@ -410,6 +523,35 @@ public class TicketLinkControl : UserControl
             t.AgentName,
             t.Id
         }).ToList<dynamic>();
+
+        _lblFdCount.Text = TicketLinkFilter.Resumen(filtered.Count, _allFD.Count,
+            _allFD.Count(t => !_fdVinculados.Contains(t.Id)), "ticket");
+    }
+
+    private void LimpiarFiltrosDO()
+    {
+        _suspenderFiltros = true;
+        try
+        {
+            _txtSearchDO.Clear();
+            _cbxDoEstado.SelectedIndex = _cbxDoTipo.SelectedIndex = _cbxDoAsignado.SelectedIndex = 0;
+            _chkDoSinVincular.Checked = false;
+        }
+        finally { _suspenderFiltros = false; }
+        FilterUnlinkedDO();
+    }
+
+    private void LimpiarFiltrosFD()
+    {
+        _suspenderFiltros = true;
+        try
+        {
+            _txtSearchFD.Clear();
+            _cbxFdEstado.SelectedIndex = _cbxFdPrioridad.SelectedIndex = _cbxFdAgente.SelectedIndex = 0;
+            _chkFdSinVincular.Checked = false;
+        }
+        finally { _suspenderFiltros = false; }
+        FilterUnlinkedFD();
     }
 
     // ── Acciones ───────────────────────────────────────────────────
@@ -483,10 +625,98 @@ public class TicketLinkControl : UserControl
     }
 
     // ── Helpers ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Las rejillas del tema están en <c>AutoSizeColumnsMode.Fill</c>, donde el ancho no manda: lo
+    /// que reparte el espacio es <c>FillWeight</c>, y por omisión vale 100 para todas. Por eso «ID
+    /// DevOps» salía tan ancha como «Título DevOps» y los títulos no cabían. El ancho pensado para
+    /// cada columna se usa como peso, y un mínimo modesto evita que se aplasten hasta no leerse.
+    /// </summary>
     private static DataGridViewTextBoxColumn TxtCol(string prop, string header, int w) => new()
     {
-        HeaderText = header, DataPropertyName = prop, Width = w, ReadOnly = true, Name = prop
+        HeaderText = header, DataPropertyName = prop, Width = w, ReadOnly = true, Name = prop,
+        FillWeight = w, MinimumWidth = Math.Min(w, 70)
     };
+
+    /// <summary>Clave con la que se recuerdan las columnas escondidas de cada lista de esta pantalla.</summary>
+    private const string ClaveVinculos  = "ticket-links.vinculos";
+    private const string ClaveDevOps    = "ticket-links.devops";
+    private const string ClaveFreshDesk = "ticket-links.freshdesk";
+
+    /// <summary>Combo de filtro, ya con su opción «todos» en el primer lugar (índice 0 = sin filtrar).</summary>
+    private static ComboBox ComboFiltro(string todos, int ancho = 125)
+    {
+        var cbx = new ComboBox
+        {
+            Width = ancho, DropDownStyle = ComboBoxStyle.DropDownList,
+            Font = AppTheme.DefaultFont, Margin = new Padding(0, 3, 6, 3)
+        };
+        cbx.Items.Add(todos);
+        cbx.SelectedIndex = 0;
+        return cbx;
+    }
+
+    /// <summary>
+    /// Rellena un combo con los valores que REALMENTE existen en los datos, conservando lo que la
+    /// persona tenía elegido si sigue estando (al resincronizar no se le deshace el filtro).
+    /// </summary>
+    private static void PoblarFiltro(ComboBox cbx, IEnumerable<string?> valores)
+    {
+        var previo = cbx.SelectedIndex > 0 ? cbx.SelectedItem as string : null;
+        var todos = (string)cbx.Items[0]!;
+
+        cbx.BeginUpdate();
+        cbx.Items.Clear();
+        cbx.Items.Add(todos);
+        foreach (var v in TicketLinkFilter.Opciones(valores)) cbx.Items.Add(v);
+        cbx.EndUpdate();
+
+        int idx = previo != null ? cbx.Items.IndexOf(previo) : 0;
+        cbx.SelectedIndex = idx >= 0 ? idx : 0;
+    }
+
+    /// <summary>Lo elegido en un combo de filtro; null en «todos», que es no filtrar.</summary>
+    private static string? ValorFiltro(ComboBox cbx) =>
+        cbx.SelectedIndex > 0 ? cbx.SelectedItem as string : null;
+
+    /// <summary>
+    /// Barra de filtros de un panel del vinculador. Envuelve a dos líneas cuando el splitter deja el
+    /// panel angosto, en vez de recortar los últimos controles.
+    /// </summary>
+    private static FlowLayoutPanel BarraFiltros(params Control[] controles)
+    {
+        var flow = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Top, FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Margin = Padding.Empty, Padding = new Padding(0, 2, 0, 2),
+            BackColor = AppTheme.ContentBg
+        };
+        flow.Controls.AddRange(controles);
+        return flow;
+    }
+
+    /// <summary>Caja de búsqueda con su botón de columnas al lado, para los dos paneles del vinculador.</summary>
+    private static TableLayoutPanel FilaBusqueda(TextBox busqueda, DataGridView grid, string clave)
+    {
+        var fila = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1,
+            Margin = Padding.Empty, Padding = Padding.Empty
+        };
+        fila.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        fila.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 132f));
+        fila.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+
+        busqueda.Margin = new Padding(0, 2, 8, 2);
+        var btn = GridColumns.CrearBoton(grid, clave);
+        btn.Dock = DockStyle.Fill;
+        btn.Margin = new Padding(0, 1, 0, 1);
+
+        fila.Controls.Add(busqueda, 0, 0);
+        fila.Controls.Add(btn,      1, 0);
+        return fila;
+    }
 
     private static Panel MakeStatCard(string label, string value, Color accent)
     {
