@@ -10,6 +10,7 @@ Aplicación de escritorio (**WinForms · .NET 10**) para gestionar un equipo de 
 - Desarrolladores (datos, fecha de ingreso, **número de serie del equipo**) y equipos/roles.
 - **Ficha de perfil** confidencial (solo administrador): fortalezas, debilidades, stack técnico, **salario** y expectativas de crecimiento — el salario nunca se registra en la bitácora.
 - Contactos y **comunicados**: el administrador envía avisos que le llegan a cada desarrollador a su bandeja (con globo en la bandeja del sistema).
+- **Quién está**: presencia en vivo por latido (no por inicio/cierre de sesión, que mentiría ante un cuelgue) con estados que cada quien elige —ocupado, en reunión, comiendo, en un descanso— y **registro de jornadas** por día. Los estados se ven en vivo y no se historizan a propósito; lo que queda guardado es la entrada y la salida.
 
 **Trabajo**
 - Requerimientos, métricas, reportes (exportables a **Excel**) y estimación/capacidad.
@@ -17,7 +18,8 @@ Aplicación de escritorio (**WinForms · .NET 10**) para gestionar un equipo de 
 - **Vacaciones**: cálculo automático de días conforme a la **Ley Federal del Trabajo** de México (reforma "Vacaciones Dignas") a partir de la fecha de ingreso; solicitudes con documento generado (**.docx → PDF**).
 - Permisos, desempeño (puntajes/aprobaciones), evaluaciones e hitos, actividades libres.
 - **SLA**: compromisos por prioridad, recordatorios automáticos, escalamiento y tablero de cumplimiento.
-- Sugerencias del equipo (con votos).
+- Sugerencias del equipo: cada quien elige si su propuesta es **pública o solo para el administrador**, y si se abre a votación.
+- **Foro** del equipo (todos los roles): publicaciones con **comentarios anidados**, ❤, temas y etiquetas, en dos vistas — **muro** con tarjetas para el día a día y **auditoría** en rejilla con búsqueda para reconstruir una conversación. Nada se borra: lo retirado conserva su hueco en el hilo.
 
 **Despliegue e infraestructura**
 - Despliegues por **perfil** o por **selección directa de servidores** (estilo Blobup), con respaldo previo por servidor, streaming y reintentos.
@@ -29,12 +31,20 @@ Aplicación de escritorio (**WinForms · .NET 10**) para gestionar un equipo de 
 - **Freshdesk**: sincronización de tickets con filtro por **agente** (mis asignados) y/o **grupo/departamento**, vínculo con tickets de DevOps y aviso de asignación.
 - **Correo** (SMTP/IMAP), **Azure Blob Storage** (versiones y respaldos) y despliegue por **FTPS**.
 - Avisos in-app persistentes por usuario + notificación en la bandeja del sistema.
+- **Una sola instancia por sesión de Windows**: volver a abrir el ejecutable trae al frente la aplicación que ya está corriendo (aunque esté escondida en la bandeja) en vez de arrancar otra.
+
+**Plantillas y scripts** *(solo administrador)*
+- Biblioteca compartida con lo que se repite todos los días: cuerpos de **ticket de Freshdesk**, **respuestas al cliente**, **observaciones de requerimientos**, **comentarios de Azure DevOps**, **documentos de entrega de estimaciones** y **scripts de utilería** (SQL, PowerShell, Bash).
+- Marcadores `{{así}}` que se preguntan al copiar, con vista previa en vivo; `{{fecha}}`, `{{hora}}`, `{{anio}}` y `{{usuario}}` se rellenan solos.
+- **Copiar** al portapapeles o **Guardar como…** con la extensión correcta (`.sql`, `.ps1`, `.sh`) — un `.ps1` se escribe con BOM para que Windows PowerShell 5.1 no le rompa los acentos.
+- Los documentos que no son texto (un `.docx` de estimación) viajan como archivo adjunto de la plantilla.
+- La aplicación **nunca ejecuta** un script: solo lo entrega.
 
 ## 👥 Roles
 
 | Rol | Alcance |
 |-----|---------|
-| **Administrador** | Todo: equipo, trabajo, despliegues, integraciones, configuración. |
+| **Administrador** | Todo: equipo, trabajo, despliegues, integraciones, plantillas, configuración. |
 | **Operaciones** | Despliegues (en vivo y programados, por perfil o servidores directos) y avisos. |
 | **Desarrollador** | Autoservicio: sus tickets/actividades, evaluaciones, SLA, vacaciones y sugerencias. |
 
@@ -68,7 +78,7 @@ cd AdministradorDesarrolloWeb
 dotnet run --project Administrador_Desarrollo_Web
 ```
 
-En el **primer arranque** se crea una base **SQLite** local en `%AppData%\AdministradorDesarrolloWeb\app.db`, se aplican las migraciones y se siembra un usuario **admin** con una contraseña temporal que se muestra una sola vez (te pedirá cambiarla al entrar).
+Para ejecutar en desarrollo necesitas una conexión a SQL Server capturada en *Configuración → Base de datos* (`dbprovider.json`): **la aplicación no trabaja con una base local**. Si la base del equipo está recién creada, se aplican las migraciones y se siembra un usuario **admin** con una contraseña temporal que se muestra una sola vez (te pedirá cambiarla al entrar).
 
 ## 🗄️ Base de datos y configuración
 
@@ -76,9 +86,12 @@ La conexión se resuelve en este orden (`DbConnectionResolver`):
 
 1. **Configuración local** de ese equipo — `%AppData%\AdministradorDesarrolloWeb\dbprovider.json` (capturada en *Configuración → Base de datos*; la contraseña se cifra con DPAPI del usuario de Windows).
 2. **Conexión incrustada** en el ejecutable (si se publicó con ella).
-3. **SQLite local**, como último recurso.
 
-Las migraciones son **hechas a mano, aditivas e idempotentes** (`DatabaseMigrator`): al arrancar, la app crea/actualiza el esquema tanto en SQLite como en SQL Server sin perder datos.
+**No hay tercer nivel.** Si ninguna de las dos está disponible, o el servidor no responde, la pantalla de inicio de sesión lo dice con un indicador ● **rojo** y no deja entrar. Antes se caía a una base **SQLite** local: como en esa base no existe ningún usuario del equipo, el login respondía *«Usuario o contraseña incorrectos»* —el mismo mensaje que una contraseña mal escrita— y nadie sabía que el problema era la conexión.
+
+Cuando sí conecta, el indicador se pone ● **verde**. A propósito solo informa si hay conexión o no: la pantalla de inicio de sesión se ve antes de autenticarse, así que no muestra servidor, base ni usuario. Eso sigue quedando en el log (`BD inicializada [origen]: destino`).
+
+Las migraciones son **hechas a mano, aditivas e idempotentes** (`DatabaseMigrator`): al arrancar, la app crea/actualiza el esquema sin perder datos.
 
 ## 📦 Distribución
 

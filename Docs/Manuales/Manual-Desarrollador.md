@@ -41,6 +41,19 @@ Al iniciar sesión la aplicación te deja directamente en **Mi Panel**. Arriba a
 
 Ojo con la **X** de la ventana: **no cierra la aplicación**, la deja escondida en la bandeja del sistema vigilando tus SLA (lo explicamos en la sección de avisos). Para cerrarla de verdad hay que usar **Salir** en el menú del ícono de la bandeja.
 
+Por eso mismo, **la aplicación solo se abre una vez**: si le vuelves a dar doble clic estando ya corriendo, no arranca otra — reaparece la que ya tenías, aunque estuviera escondida en la bandeja. Si alguna vez parece que «no pasa nada» al abrirla, busca su ícono junto al reloj.
+
+### Tu estado
+
+Arriba a la derecha, junto a tu nombre, hay un botón con tu **estado**: 🟢 Disponible · 🔴 Ocupado · 📅 En reunión · 🍽 Comiendo · ☕ En un descanso. Pulsa y elige; con **✏ Estado con nota…** puedes añadir una línea corta («vuelvo 15:30»). El administrador lo ve en su pantalla *Quién está*.
+
+Dos cosas que conviene que sepas, para que no te sorprendan:
+
+- **Se guarda a qué hora entras y a qué hora sales** (tu jornada), como registro de asistencia.
+- **Tu estado NO se guarda minutado.** Se ve en el momento y se sobrescribe: no queda un histórico de cuánto tiempo estuviste en cada uno. Marcar «en un descanso» no deja rastro de cuánto duró.
+
+Mientras la aplicación esté abierta manda una señal cada dos minutos. Si se cuelga o se apaga el equipo, tu jornada se cierra sola **con la hora de esa última señal** — no con la de cuando alguien vuelva a abrirla.
+
 ---
 
 ## Avisos
@@ -55,13 +68,42 @@ Cuando tienes avisos sin leer, el botón **🔔 Avisos** del menú muestra el co
 
 ---
 
+## Foro
+
+**💬 Foro**, arriba del menú. Es el espacio del equipo para compartir ideas, preguntas y lo que vas aprendiendo. **Lo ve y lo escribe todo el mundo**, sea cual sea su rol.
+
+Dos pestañas de lo mismo: **🗂 Muro** (tarjetas con scroll, para el día a día) y **📋 Auditoría** (rejilla con filtros, para encontrar algo que se dijo hace meses).
+
+### Publicar y conversar
+
+1. **➕ Publicar**: elige el **Tema** (💡 Idea · ❓ Pregunta · 📗 Aprendizaje · 📣 Anuncio · 💬 Otro), pon **Título**, **Etiquetas** (opcionales, separadas por coma) y el texto.
+2. Se abre el hilo. Ahí escribes comentarios, o pulsas **↩ Responder** en un comentario concreto para colgarte de él — así se arman los subhilos.
+3. **❤** para apoyar una publicación o un comentario. Se quita pulsando otra vez.
+
+Clic en cualquier parte de una tarjeta del muro abre su hilo. El muro se ordena por **última actividad**: un hilo viejo que revive vuelve a subir.
+
+### Lo que puedes cambiar de lo tuyo
+
+- **✏ Editar** — solo lo que tú escribiste. Queda marcado *(editado)*.
+- **🗑 Retirar** — solo lo tuyo (el administrador puede retirar cualquier cosa).
+
+> **Retirar no borra.** La entrada se queda con un aviso *«(contenido eliminado por su autor)»* en su lugar del hilo. Es a propósito: si desapareciera, las respuestas que le contestan dejarían de tener sentido. Su **texto** ya no aparece en las búsquedas.
+>
+> Dicho de otro modo: **lo que escribas queda**, aunque lo retires. Piénsalo como una conversación de trabajo, no como un chat que se borra.
+
+Un hilo puede aparecer **🔒 cerrado**: el administrador decidió terminar esa conversación. Se sigue leyendo, pero ya no admite comentarios — tampoco respondiendo a un comentario de dentro.
+
+---
+
 ## Dashboard
 
 Es una vista de solo lectura. No hay botones ni filtros.
 
-**Tarjetas superiores.** Seis contadores del sistema completo (no solo de tus requerimientos): *Por estimar*, *En desarrollo*, *Por entregar*, *Entregados*, *Cancelados* y *Pendientes* (recordatorios internos sin completar).
+**Tarjetas superiores.** Seis contadores **de lo tuyo**: *Por estimar*, *En desarrollo*, *Por entregar*, *Entregados*, *Cancelados* (solo requerimientos **asignados a ti**) y *Pendientes* (recordatorios sin completar **que llevan tu nombre**). Antes contaban los de toda el área, así que podías ver «18 en desarrollo» sin que ninguno fuera tuyo.
 
-**⏰ Próximas entregas (7 días).** Tabla con las columnas *Requerimiento*, *Estado* y *Fecha*. Lista hasta 15 requerimientos con fecha de compromiso dentro de los próximos 7 días que no estén entregados ni cancelados. Los que ya pasaron de fecha salen **en rojo y negritas**.
+**⏰ Próximas entregas (7 días).** Tabla con las columnas *Requerimiento*, *Estado* y *Fecha*. Lista hasta 15 requerimientos **tuyos** con fecha de compromiso dentro de los próximos 7 días que no estén entregados ni cancelados. Los que ya pasaron de fecha salen **en rojo y negritas**.
+
+> Si tu cuenta no está vinculada a una ficha de desarrollador, las tarjetas salen en cero: no hay a quién atribuirle los requerimientos. Pide al administrador que vincule tu usuario.
 
 Con tu rol, el Dashboard **no** muestra la carga por desarrollador, los recordatorios internos ni el top del ranking: esas tres secciones son de administración y ni siquiera se cargan.
 
@@ -178,15 +220,35 @@ No tienes que hacer nada extra: ocurre solo al detener. En el panel del cronóme
 
 ## Mis tickets DevOps
 
-Es la lista de los **work items de Azure DevOps asignados a ti**. La aplicación **no sincroniza** DevOps —eso lo hace el administrador—: aquí lees los tickets que él ya sincronizó y te muestra los que te tocan, empatados por **tu correo** (el de tu ficha de desarrollador debe coincidir con el de tu cuenta de DevOps). Comentar, abrir y cambiar la prioridad sí van contra DevOps con **tu PAT personal**, para que todo quede firmado a tu nombre.
+Es la lista de los **work items de Azure DevOps asignados a ti**. **Sincronizas tú, sin esperar a nadie**: con tu PAT personal la aplicación le pregunta a DevOps qué hay asignado a tu cuenta. Comentar, abrir y cambiar la prioridad también van con **tu PAT**, para que todo quede firmado a tu nombre.
+
+### Sincronizar tus tickets
+
+**⟳ Sincronizar mis tickets** trae de DevOps lo asignado **a la cuenta de tu PAT**, dentro de la ventana de tiempo que tengas elegida en el combo. Antes había que esperar a que el administrador sincronizara: un ticket recién asignado no aparecía hasta que a otra persona le diera por hacerlo.
+
+Dos cosas que conviene saber:
+
+- **Pregunta por la cuenta de tu PAT, no por tu correo.** Usa la marca `@Me` de DevOps, que resuelve el servidor. Por eso funciona **aunque el correo de tu ficha no coincida** con el de tu cuenta de DevOps — que era justo lo que hacía fallar el empate.
+- **Si el botón está gris**, te falta capturar tu PAT: pulsa **🔑 Mi PAT de DevOps**. Al pasar el ratón por encima, el botón te lo dice.
+- Con *Todo el historial* elegido, la sincronización se acota a **un año**: traer de golpe años de work items cerrados por una sola pulsación no le sirve a nadie.
 
 ### La pantalla
 
-En la barra: **🔄 Actualizar**, un buscador (*Buscar por título, ID, estado…*) y **🔑 Mi PAT de DevOps** (abre la misma ventana *Mi PAT de Azure DevOps* que usas en *Mis SLA*).
+En la barra: **⟳ Sincronizar mis tickets**, **🔄 Actualizar** (solo relee lo que ya está en la base, sin ir a DevOps), un buscador (*Buscar por título, ID, estado…*), **🔑 Mi PAT de DevOps** y **🧱 Columnas**.
 
-Columnas: *ID*, *Tipo*, *Título*, *Estado*, *Prioridad*, *Iteración*, *Pts*, *💬* (cuántos comentarios lleva) y *Actualizado*. Abajo, una línea de estado dice «N de M tickets a tu nombre  |  K activo(s)  |  Última sincronización del administrador: dd/mm/aaaa hh:mm».
+**Filtros** (con **Limpiar** para dejarlos todos como estaban):
 
-Si tu cuenta no está vinculada a un desarrollador, si todavía no hay tickets sincronizados, o si ninguno empata con tu correo, la pantalla lo explica en un mensaje central (por ejemplo «No encontramos tickets de DevOps a tu nombre…, revisa tu correo con el administrador»).
+| Filtro | Por omisión |
+|---|---|
+| Ventana de tiempo | *Últimos 90 días* (también *30 días*, *Último año*, *Todo el historial*) |
+| Estado · Tipo · Iteración | Todos — se arman con lo que de verdad hay en tus tickets |
+| **Solo sin cerrar** | **Marcado** |
+
+Esos dos valores por omisión son el arreglo de fondo: la pantalla traía **el historial completo**, así que años de tickets cerrados tapaban los tres que tienes abiertos hoy.
+
+Columnas: *ID*, *Tipo*, *Título*, *Estado*, *Prioridad*, *Iteración*, *Pts*, *💬* (cuántos comentarios lleva) y *Actualizado* — escóndelas y recupéralas con **🧱 Columnas**. Abajo se lee «N de M ticket(s) · K sin cerrar · última sincronización: dd/mm/aaaa hh:mm». La cuenta de **sin cerrar** es tu pendiente real y **no cambia con el filtro**.
+
+Si tu cuenta no está vinculada a un desarrollador, o todavía no has sincronizado, la pantalla lo explica en un mensaje central.
 
 ### Abrir, comentar y cambiar prioridad
 
@@ -440,7 +502,7 @@ La pantalla tiene **dos pestañas**:
 
 En esta pestaña están **tus** propuestas. Botones de la barra: **➕ Nueva sugerencia**, **👁 Ver**, **🗑 Eliminar** y **🔄 Recargar**. **👁 Ver** se activa al seleccionar una fila; **🗑 Eliminar** solo se habilita mientras la sugerencia siga en estado **Nueva**.
 
-Columnas: *Fecha*, *Categoría*, *Título*, *Estado* y *Respuesta*. Doble clic sobre una fila abre la sugerencia. Al pie, una línea de resumen dice «N sugerencia(s) enviada(s)» o, si aún no has mandado ninguna, «Todavía no has enviado sugerencias. Pulsa «➕ Nueva sugerencia» para proponer una mejora.».
+Columnas: *Fecha*, *Categoría*, *Título*, **Quién la ve**, *Estado* y *Respuesta*. Doble clic sobre una fila abre la sugerencia. Al pie, una línea de resumen dice «N sugerencia(s) enviada(s)» o, si aún no has mandado ninguna, «Todavía no has enviado sugerencias. Pulsa «➕ Nueva sugerencia» para proponer una mejora.».
 
 ### Enviar una sugerencia
 
@@ -448,7 +510,25 @@ Columnas: *Fecha*, *Categoría*, *Título*, *Estado* y *Respuesta*. Doble clic s
 2. En **¿Sobre qué es tu propuesta?** elige la categoría: **Producto (la aplicación)**, **Departamento** u **Otro**.
 3. Escribe el **Título** (al menos 3 caracteres) y la **Descripción (qué propones y por qué mejora)** (al menos 5 caracteres).
 4. Opcional: marca la casilla **Enviar sin mostrar mi nombre al administrador** para mandarla de forma anónima (ver más abajo).
-5. Pulsa **Enviar 💡**.
+5. En **¿Quién la ve?** elige el alcance, y decide si abrirla a votos (ver el apartado siguiente).
+6. Pulsa **Enviar 💡**.
+
+### ¿Quién la ve? y ¿se vota?
+
+Son **dos decisiones distintas**, y las tomas tú al enviarla:
+
+| **¿Quién la ve?** | Qué significa |
+|---|---|
+| **Pública (todo el equipo)** *(por omisión)* | Aparece en **👍 Propuestas del equipo**. Tus compañeros la leen. |
+| **Solo administrador** | **Nadie del equipo la ve**, ni siquiera aparece en tu propio tablero de propuestas. Para lo que no quieres plantear en público: el ambiente del área, una queja, algo delicado. Le sigues dando seguimiento aquí, en *Mis sugerencias*. |
+
+**Abrirla a los votos del equipo** *(marcado por omisión)* decide si tus compañeros pueden apoyarla con 👍. Si la desmarcas, la propuesta **se lee pero no se vota**: hay cosas que no son un concurso de popularidad y que aun así conviene plantear. En la lista salen con un **—** en la columna de votos, no con un 0 — que se leería como «nadie la apoyó» cuando en realidad nadie puede.
+
+Si eliges **Solo administrador**, la casilla de votación se apaga y se bloquea sola: no tendría sentido una votación que el equipo ni siquiera ve.
+
+La columna **Quién la ve** te lo resume de un vistazo: *🔒 Solo administrador*, *👥 Pública · se vota* o *👥 Pública · sin votación*.
+
+> **Anónima y «solo administrador» son cosas distintas.** La primera esconde **quién** lo dijo; la segunda limita **quiénes lo leen**. Puedes combinarlas.
 
 Si todo está bien, sale «Sugerencia enviada. ¡Gracias!» y la sugerencia aparece en la lista en estado **Nueva**. Si dejas el título o la descripción demasiado cortos, la ventana te lo pide con «Escribe un título (al menos 3 caracteres).» o «Describe tu sugerencia (al menos 5 caracteres).».
 
@@ -474,11 +554,15 @@ La casilla **Enviar sin mostrar mi nombre al administrador** hace que tu sugeren
 
 ### 👍 Propuestas del equipo
 
-La segunda pestaña, **👍 Propuestas del equipo**, muestra **todas** las propuestas del equipo (no solo las tuyas), ordenadas de la **más votada a la menos votada**, para que las mejoras más pedidas suban a la vista de todos.
+La segunda pestaña, **👍 Propuestas del equipo**, muestra las propuestas **públicas** del equipo (no solo las tuyas), ordenadas de la **más votada a la menos votada**, para que las mejoras más pedidas suban a la vista de todos.
+
+Las marcadas **Solo administrador** no salen aquí — **ni siquiera para quien las escribió**. Es a propósito: si su propio autor las viera en el tablero del equipo, no habría forma de saber que nadie más las está leyendo. Para darles seguimiento está *Mis sugerencias*.
 
 Columnas: **👍** (número de votos), *Categoría*, *Título*, *Estado* y *De* (quién la propuso). Las propuestas enviadas de forma anónima salen como **Anónima** en la columna *De*, sin nombre. Al pie, la línea de resumen dice «N propuesta(s) del equipo · ordenadas por más votadas. Selecciona una y pulsa «👍 Votar».» o, si no hay ninguna, «No hay propuestas todavía.».
 
 Botones de la barra: **👍 Votar**, **👁 Ver** y **🔄 Recargar**. Con **👁 Ver** (o doble clic) abres la propuesta en modo de solo lectura, igual que en *Mis sugerencias*.
+
+**👍 Votar** se queda gris cuando el autor no abrió esa propuesta a votación (columna 👍 con un **—**). Puedes leerla y comentarla en persona; lo que no puedes es apoyarla.
 
 **Votar una propuesta:**
 

@@ -2,7 +2,7 @@
 ## Manual del Administrador
 
 **Rol: Administrador**  
-**Versión del manual:** 1.3  ·  **Fecha:** 27 de julio de 2026
+**Versión del manual:** 1.4  ·  **Fecha:** 30 de julio de 2026
 
 > Este manual describe únicamente lo que la aplicación hace de verdad. La misma aplicación
 > se reparte a todo el equipo: el menú y los permisos dependen del rol de la cuenta con la
@@ -21,13 +21,20 @@ Como **Administrador** ves el menú completo. No hay pantalla ni botón de la ap
 - Publicar versiones de los sistemas y desplegarlas a servidores por FTP/FTPS, en el momento o programadas.
 - Administrar el contenedor de Azure Blob Storage: carpetas, metadatos y enlaces temporales de descarga.
 - Sincronizar tickets de Azure DevOps y Freshdesk y vincularlos entre sí.
+- Guardar en un solo lugar las plantillas del área: cuerpos de ticket de Freshdesk, respuestas al cliente, observaciones de requerimientos y de DevOps, documentos de entrega de estimaciones y scripts de utilería (SQL, PowerShell, Bash).
+- Ver **quién está conectado** y en qué anda, con el **registro de jornadas** por día.
+- Participar en el **foro del equipo**, y fijar o cerrar hilos cuando haga falta.
 - Crear y desactivar usuarios, consultar la bitácora de auditoría y configurar toda la aplicación (base de datos, Azure, correo e integraciones).
 
-**Cómo se navega.** El menú de la izquierda está en grupos plegables: *Equipo*, *Trabajo*, *Despliegue e Infraestructura*, *Integraciones y Correo* y *Administración*. Pulsa el encabezado de un grupo para abrirlo; al abrir uno se cierran los demás. *Dashboard* está fuera de cualquier grupo, arriba de todo. Hasta abajo está **🚪 Cerrar sesión**.
+**Cómo se navega.** El menú de la izquierda está en grupos plegables: *Equipo*, *Trabajo*, *Despliegue e Infraestructura*, *Integraciones y Correo* y *Administración*. Pulsa el encabezado de un grupo para abrirlo; al abrir uno se cierran los demás. *Avisos*, *Foro* y *Dashboard* están fuera de cualquier grupo, arriba de todo. Hasta abajo está **🚪 Cerrar sesión**.
+
+**Tu estado.** Arriba a la derecha, junto a tu nombre, hay un botón con tu estado (🟢 Disponible, 🔴 Ocupado, 📅 En reunión, 🍽 Comiendo, ☕ En un descanso), con nota opcional. Lo tienen todos los roles; tú además ves el de los demás en *Equipo → Quién está*.
 
 **La aplicación no se cierra con la X.** Al pulsar la X la ventana se esconde en la bandeja del sistema y sigue vigilando los SLA y ejecutando los despliegues programados. Verás el aviso *"La aplicación quedó en la bandeja vigilando tus SLA. Para cerrarla del todo, clic derecho → Salir."*. Para volver: doble clic en el icono de la bandeja o clic derecho → **Abrir**. Para terminar de verdad: clic derecho → **Salir**.
 
-**🔎 Búsqueda global (Ctrl+K).** Como Administrador, en cualquier pantalla puedes pulsar **Ctrl+K** para abrir un buscador rápido. Escribe al menos 2 caracteres y encuentra a la vez **requerimientos, tickets de Azure DevOps, desarrolladores y sugerencias**; con Enter (o doble clic) saltas directo a la pantalla correspondiente. Debajo de la caja se lee *"Escribe al menos 2 caracteres. Enter para abrir, Esc para cerrar."* y, al buscar, *"N resultado(s) · hasta M por tipo; afina si falta alguno."*. Cierra con **Esc**. (Este atajo es solo para el rol Administrador.)
+**Solo se abre una vez.** Si vuelves a abrir el ejecutable estando ya corriendo, no arranca una segunda: la que ya estaba se pone al frente (aunque estuviera escondida en la bandeja o minimizada). No verás ningún aviso de *"ya está abierta"* — la respuesta a abrir la aplicación es que aparezca la ventana. Es a propósito: dos instancias pondrían dos íconos en la bandeja, avisarían dos veces del mismo SLA y dos cronómetros sobre la misma persona contarían el tiempo doble. Si la aplicación se colgara y la mataras desde el Administrador de tareas, puedes volver a abrirla de inmediato; no hay que reiniciar nada.
+
+**🔎 Búsqueda global (Ctrl+K).** Como Administrador, en cualquier pantalla puedes pulsar **Ctrl+K** para abrir un buscador rápido. Escribe al menos 2 caracteres y encuentra a la vez **requerimientos, tickets de Azure DevOps, desarrolladores, sugerencias y plantillas**; con Enter (o doble clic) saltas directo a la pantalla correspondiente. Debajo de la caja se lee *"Escribe al menos 2 caracteres. Enter para abrir, Esc para cerrar."* y, al buscar, *"N resultado(s) · hasta M por tipo; afina si falta alguno."*. Cierra con **Esc**. (Este atajo es solo para el rol Administrador.)
 
 ---
 
@@ -80,6 +87,85 @@ Si el desarrollador ya tenía cuenta, el mismo botón te ofrece restablecer su c
 Selecciona y pulsa **✉ Correo**. Si el correo está configurado y habilitado se abre la ventana de redacción de la aplicación; si no, se abre tu cliente de correo de Windows.
 
 > **Ojo:** **🗑 Eliminar** no borra: pregunta *"¿Desactivar a 'X'?"* y lo marca como inactivo. Se conserva su historial.
+
+---
+
+## Foro
+
+Título en pantalla: *💬 Foro del equipo*. **Lo ve todo el equipo** — administradores, operaciones y desarrolladores —, porque el punto es compartir: si solo lo viera una parte, no sería un foro. Está arriba del menú, fuera de los grupos plegables.
+
+Son **dos vistas de los mismos datos**:
+
+| Vista | Para qué |
+|---|---|
+| **🗂 Muro** | El día a día: tarjetas con scroll, ❤ y contador de comentarios. Clic en cualquier parte de una tarjeta abre su hilo. |
+| **📋 Auditoría** | Reconstruir una conversación: rejilla con *Cuándo · Autor · Tipo · Hilo · Texto · Estado*, filtros y **🧱 Columnas**. Doble clic abre el hilo. |
+
+**Temas:** 💡 Idea · ❓ Pregunta · 📗 Aprendizaje · 📣 Anuncio · 💬 Otro. Cada publicación puede llevar **etiquetas** separadas por coma.
+
+**Filtros del muro:** buscador (mira en título, texto, etiquetas y autor), tema, ventana de tiempo y *Solo mías*. La auditoría añade filtro por **autor**, armado con quien de verdad ha escrito.
+
+### El hilo
+
+Al abrir una publicación se ve arriba, y debajo sus comentarios **anidados**: cada respuesta sangrada bajo aquello a lo que contesta, y los hermanos por fecha. Se comenta en el hilo o se pulsa **↩ Responder** en un comentario concreto para colgarse de él.
+
+La sangría **se corta a los cinco niveles**: más allá la conversación se va al margen derecho y deja de leerse, así que los comentarios siguientes cuelgan del último nivel.
+
+### Nada se borra
+
+**🗑 Retirar** no borra: conserva la entrada y sustituye su texto por *«(contenido eliminado por su autor)»*. Es deliberado — un hilo con respuestas que contestan a algo que ya no está es **peor** de auditar que ver un hueco marcado. Por lo mismo, **editar deja constancia**: la entrada queda marcada *(editado)*.
+
+En la búsqueda, el **texto** de lo retirado ya no se encuentra (si se pudiera, retirarlo no serviría de nada), pero **el título de una publicación retirada sí**, para poder auditarla.
+
+### Lo que solo puede el administrador
+
+| Acción | Quién |
+|---|---|
+| Publicar, comentar, dar ❤ | Cualquiera con sesión |
+| Editar | **Solo su autor** |
+| Retirar | Su autor **o** el administrador |
+| **📌 Fijar** una publicación arriba del muro | Solo administrador |
+| **🔒 Cerrar** un hilo (deja de admitir comentarios) | Solo administrador |
+
+> **Cerrar un hilo lo cierra entero**, no solo su primer mensaje: tampoco se puede responder a un comentario de dentro. Si no fuera así, se seguiría conversando por la puerta de atrás en un hilo dado por cerrado. Se puede reabrir.
+
+El orden del muro es por **última actividad**, no por fecha de publicación: un hilo viejo que revive con un comentario nuevo vuelve a subir. Las fijadas van siempre primero.
+
+Todo (publicar, comentar, editar, retirar, fijar, cerrar) queda en la **Bitácora** con el tipo de entidad `ForumPost`.
+
+---
+
+## Equipo → Quién está
+
+Título en pantalla: *🟢 Quién está y registro de jornadas*. Dos pestañas: **🟢 Quién está** (ahora mismo) y **📋 Registro de jornadas** (el histórico por día).
+
+### 🟢 Quién está
+
+Lista **a todas las cuentas activas**, conectadas o no — que alguien falte es justamente el dato. Columnas: el punto de color, *Persona*, *Estado*, *Nota* y *Desde*. Los conectados salen primero y en negritas; los demás en gris, con *«visto dd/mm hh:mm»* o *«nunca ha entrado»*. Se refresca solo cada 30 segundos, y con **🔄 Actualizar** cuando quieras. Tiene **🧱 Columnas**.
+
+**Cómo se decide que alguien está conectado.** La aplicación manda una señal (un «latido») cada **2 minutos** mientras esté abierta. Quien lleve **10 minutos sin dar señales** pasa a desconectado.
+
+No se usa el par inicio/cierre de sesión, y hay una razón concreta: **cerrar con la X no cierra la aplicación**, la deja en la bandeja vigilando SLA — y eso *es* estar conectado. Pero un cuelgue, un apagón o un corte de red no avisan de nada: con solo inicio/cierre, esa persona se quedaría marcada como conectada **para siempre**. La tolerancia es cinco veces el intervalo a propósito, para que bloquear la pantalla o que el equipo suspenda un momento no marque a nadie como ausente.
+
+**Los estados** los elige cada quien desde el botón de su barra superior: 🟢 Disponible · 🔴 Ocupado · 📅 En reunión · 🍽 Comiendo · ☕ En un descanso. Pueden llevar una **nota corta** («vuelvo 15:30»). *Ausente* no se elige a mano: es lo que el sistema dice de quien no está.
+
+> **Los estados no se guardan minutados.** Se ven aquí en vivo y se sobrescriben; **no queda histórico** de cuánto tiempo estuvo alguien en cada uno. Es una decisión deliberada: un registro cronometrado de las pausas de una persona es vigilancia, no asistencia. Lo que sí queda es la jornada — a qué hora entró y a qué hora salió.
+>
+> La nota de alguien desconectado tampoco se muestra: un *«Comiendo — vuelvo 15:30»* de hace tres días no informa de nada.
+
+### 📋 Registro de jornadas
+
+Elige el **Día** (o pulsa **Hoy**) y ves las jornadas de esa fecha: *Persona*, *Entrada*, *Salida*, *Duración*, *Cierre* y *Equipo* (desde qué máquina). Abajo, el total de jornadas, cuántas personas y la suma de horas.
+
+La columna **Cierre** dice cómo terminó cada una:
+
+| Cierre | Qué pasó |
+|---|---|
+| **Cerró sesión** | Salió por las buenas (Cerrar sesión, o Salir desde la bandeja). La hora de salida es real. |
+| **⚠ Sin señales** | La aplicación dejó de responder: se colgó, se apagó el equipo o se cayó la red. |
+| **En curso** | Sigue conectada ahora mismo. |
+
+> **Una jornada «⚠ Sin señales» se cierra con la hora del ÚLTIMO latido, no con la de ahora.** Si a alguien se le apagó el equipo a las 14:00 y nadie lo abrió hasta el día siguiente, su jornada termina a las 14:00 — no a las 9:00 del día siguiente. Cerrarla con la hora actual le regalaría todas las horas que el equipo pasó apagado. Por eso esa salida **no es una hora real de salida**: es la última señal que dio.
 
 ---
 
@@ -462,15 +548,17 @@ Título en pantalla: *💡 Sugerencias y propuestas*. En el menú aparece como *
 
 - **Estado:** Todos los estados · Nueva · En revisión · Aceptada · Rechazada · Implementada.
 - **Categoría:** Todas las categorías · Producto · Departamento · Otro.
+- **Visibilidad:** Todas las visibilidades · Pública (todo el equipo) · Solo administrador.
 
 Junto a los combos hay una casilla **Más votadas primero**: al marcarla, la lista se ordena por el número de votos (de mayor a menor) en vez de por fecha.
 
-**Columnas de la lista:** Fecha · De · Categoría · Título · **👍** (votos) · Estado.
+**Columnas de la lista:** Fecha · De · Categoría · Título · **Quién la ve** · **👍** (votos) · Estado.
 
-- La columna **👍** muestra cuántos votos («me gusta») lleva cada sugerencia del equipo; las que tienen votos salen en negritas.
+- La columna **Quién la ve** dice el alcance que le puso su autor: *🔒 Solo administrador*, *👥 Pública · se vota* o *👥 Pública · sin votación*. Las **🔒 solo administrador** salen **en ámbar**: nadie del equipo las está leyendo, así que si tú no las atiendes no las atiende nadie. Con el combo **Visibilidad** puedes quedarte solo con esas.
+- La columna **👍** muestra cuántos votos («me gusta») lleva cada sugerencia del equipo; las que tienen votos salen en negritas. Un **—** significa que su autor no la abrió a votación (no que nadie la haya apoyado).
 - Las sugerencias enviadas **como anónimas** muestran **«Anónima»** en la columna **De**; nunca el nombre del autor.
 - Las que siguen en estado **Nueva** salen con el **título en negritas**.
-- Abajo se resume *"N sugerencia(s)  ·  M sin atender."* (las *sin atender* son las que están en **Nueva**). Si el filtro no devuelve nada verás *"No hay sugerencias con ese filtro."*.
+- Abajo se resume *"N sugerencia(s)  ·  M sin atender  ·  K solo para ti."* (las *sin atender* son las que están en **Nueva**; las *solo para ti* son las 🔒). Si el filtro no devuelve nada verás *"No hay sugerencias con ese filtro."*.
 
 ### Atender o responder una sugerencia
 1. Selecciona la sugerencia y pulsa **📝 Atender / responder** (o doble clic en la fila).
@@ -844,7 +932,9 @@ Doble clic o clic derecho → **📋 Ver detalle** muestra la ficha completa y l
 Título en pantalla: *🔗 Vínculos y Estadísticas*. Sirve para relacionar un work item de Azure DevOps con el ticket de Freshdesk que lo originó. Tres pestañas.
 
 ### 🔗 Vínculos
-Lista de los vínculos existentes, con cuadro de búsqueda y el botón **🗑 Desvincular** (pide confirmación con *"¿Eliminar este vínculo?"*).
+Lista de los vínculos existentes, con cuadro de búsqueda, **🧱 Columnas** y el botón **🗑 Desvincular** (pide confirmación con *"¿Eliminar este vínculo?"*).
+
+**Columnas:** ID DevOps · Tipo · Título DevOps · Estado DO · ID FD · Asunto Freshdesk · Estado FD · Agente · Vinculado · Por · Notas.
 
 ### ➕ Vincular tickets
 1. Busca y selecciona el **Work Item Azure DevOps** en la lista izquierda.
@@ -854,8 +944,99 @@ Lista de los vínculos existentes, con cuadro de búsqueda y el botón **🗑 De
 
 Si ya existía ese par verás *"Este vínculo ya existe."*.
 
+**Filtros.** Cada lado tiene su caja de búsqueda, sus filtros y su botón **Limpiar** (que los deja todos en blanco de una vez). Los filtros se **acumulan**: buscar *"error"* con tipo *Bug* deja solo los bugs cuyo título diga error.
+
+| Lado | Busca por texto en | Filtros |
+|---|---|---|
+| Azure DevOps | Título · número · asignado | Estado · Tipo · Asignado · **Solo sin vincular** |
+| Freshdesk | Asunto · número · solicitante | Estado · Prioridad · Agente · **Solo sin vincular** |
+
+- **Solo sin vincular** es el que suele hacer falta: esconde lo que ya tiene al menos un vínculo y te deja justo lo que falta por atar. Viene apagado a propósito, porque un work item puede tener varios tickets de Freshdesk detrás y a veces quieres agregarle otro.
+- Los combos de **Estado**, **Tipo**, **Asignado** y **Agente** se arman con lo que **de verdad hay** en los tickets sincronizados, no con una lista fija: no te ofrecen estados que nadie usa. Si vuelves a sincronizar, tu filtro se conserva mientras ese valor siga existiendo.
+- Debajo de cada lista se lee *"N de M work item(s) · K sin vincular"*. La cuenta de **sin vincular** es el pendiente real y **no cambia con el filtro**: aunque estés viendo tres, te sigue diciendo cuántos faltan en total.
+
+### 🧱 Columnas: quitar y poner
+
+Las tres listas de esta pantalla (la de vínculos y las dos del vinculador) tienen su propio botón **🧱 Columnas**. También se llega con **clic derecho sobre el encabezado** de cualquier columna.
+
+Se abre *🧱 Qué columnas quieres ver*: marca las que quieras, desmarca las que no, y **Aceptar**. Abajo se lee *"N de M columnas visibles."*. **Mostrar todas** las devuelve todas de golpe. **Tiene que quedar al menos una**: si las desmarcas todas, avisa *"Deja al menos una columna visible."* y no deja aceptar.
+
+Lo que escondas **se recuerda para la próxima vez**, y es tuyo: se guarda en tu equipo (`%AppData%\AdministradorDesarrolloWeb\columnas.json`), no en la base del equipo, así que no le cambia la vista a nadie más. Cada lista se acuerda de lo suyo por separado. Si una versión nueva agrega una columna, esa aparece: se guarda lo que escondiste, no lo que dejaste ver.
+
 ### 📊 Estadísticas
 Conteos globales: work items totales, tickets de Freshdesk totales, vínculos totales, cuántos de cada lado están vinculados, y desgloses de DevOps por estado y por tipo, y de Freshdesk por estado, prioridad y agente.
+
+---
+
+## Administración → Plantillas
+
+Título en pantalla: *📚 Plantillas y scripts*. En el menú aparece como **📚 Plantillas**. Es la biblioteca de lo que se repite todos los días y que hasta ahora vivía en un bloc de notas de cada quien: el cuerpo de un ticket de Freshdesk, la respuesta con la que se acusa recibo, la observación que se pone en cada requerimiento, el comentario de avance de un work item de DevOps, el esqueleto del documento con el que se entrega una estimación y los scripts de utilería (SQL, PowerShell, Bash).
+
+Vive en la base de datos del equipo, así que se captura una vez y está en cualquier equipo donde entres. **Es solo para el rol Administrador**: los scripts suelen traer nombres de servidores, bases y rutas internas.
+
+> **La aplicación no ejecuta nada de lo que hay aquí.** Un script se copia o se guarda a un archivo; correrlo, contra qué servidor y con qué credenciales, es una decisión que se toma fuera, viendo lo que se va a ejecutar.
+
+**Tipos de plantilla:** 🎫 Ticket Freshdesk · 💬 Respuesta Freshdesk · 📋 Comentario de requerimiento · 🔷 Comentario Azure DevOps · 📄 Documento de estimación · 🗄 Script SQL · 🟦 Script PowerShell · 🐧 Script Bash · 📌 Otro.
+
+**Botones:** 📋 Copiar · 💾 Guardar como… · ➕ Nueva · ✏ Editar · ⧉ Duplicar · 🗄 Archivar (o ♻ Restaurar) · 🗑 Eliminar
+
+**Filtros:** una caja de búsqueda (busca en título, etiquetas **y contenido**), un combo de tipo y una casilla **Ver archivadas**.
+
+**Columnas de la lista:** Tipo · Título · Etiquetas · Usos · Actualizada.
+
+- La lista sale ordenada por **Usos**, de mayor a menor: lo que de verdad usas queda arriba.
+- Un **📎** junto al título significa que la plantilla trae un archivo adjunto.
+- Las archivadas salen en gris y con **🗄** delante (solo si marcaste *Ver archivadas*).
+- A la derecha hay una **vista previa** con el título, el tipo, las etiquetas, los usos, el archivo adjunto si lo hay, cuántos marcadores tiene, la nota de *cuándo usarla* y el contenido completo.
+
+### Marcadores `{{así}}`
+
+Dentro del contenido puedes escribir **`{{cliente}}`, `{{folio}}`, `{{sistema}}`**… lo que necesites. Al copiar o guardar, la aplicación te pide esos datos en un diálogo con **vista previa en vivo** y los sustituye.
+
+Hay cinco que **se rellenan solos** y nunca se preguntan:
+
+| Marcador | Se convierte en |
+|---|---|
+| `{{fecha}}` | La fecha de hoy (dd/mm/aaaa) |
+| `{{hora}}` | La hora actual (hh:mm) |
+| `{{fechahora}}` | Fecha y hora |
+| `{{anio}}` (o `{{año}}`) | El año en curso |
+| `{{usuario}}` (o `{{yo}}`) | Tu nombre de usuario |
+
+Un marcador que dejes **vacío se queda escrito tal cual** en el resultado. Es a propósito: es preferible que se vea un `{{cliente}}` sin llenar a mandarle al cliente un hueco en blanco.
+
+Al editar una plantilla, debajo del contenido se lee cuántos marcadores tiene y cuáles se van a preguntar.
+
+### Copiar
+
+**📋 Copiar** (o **doble clic** en la fila) deja el texto listo en el portapapeles. Si tiene marcadores, primero abre el diálogo *Rellenar*: llena lo que quieras, mira cómo va quedando a la derecha y pulsa **Usar este texto**. Abajo se confirma *"Copiado al portapapeles: «X» (N caracteres)."* y el contador de **Usos** sube.
+
+### Guardar como…
+
+**💾 Guardar como…** baja la plantilla a un archivo, con la extensión que le toca a su tipo: `.sql`, `.ps1`, `.sh`, `.md` o `.txt`. Un `.ps1` se escribe con **BOM** a propósito: sin él, Windows PowerShell 5.1 lee el archivo como ANSI y cualquier acento del script sale corrupto al ejecutarlo.
+
+Si la plantilla trae **archivo adjunto** y además contenido de texto, pregunta cuál de los dos quieres guardar.
+
+### Nueva / Editar
+
+El diálogo pide **Tipo**, **Título**, **Etiquetas** (separadas por coma, para buscar), **Cuándo usarla** (la nota que sale en la vista previa) y el **Contenido**. Opcionalmente puedes **📎 Adjuntar archivo…** — es lo que se usa para el `.docx` o `.xlsx` de una estimación que ya viene formateado; el máximo son **10 MB**, porque esto vive en la base del equipo (para algo más grande, súbelo a Blob Storage y deja aquí el enlace).
+
+Con un archivo adjunto, el contenido de texto pasa a ser **opcional**: sirve para explicar cómo se llena el documento.
+
+Si abres **➕ Nueva** con un tipo filtrado, la plantilla nace ya de ese tipo.
+
+### Archivar frente a eliminar
+
+- **🗄 Archivar** la saca de la lista del día a día y del buscador global, pero no la pierde: para verla, marca *Ver archivadas*; para devolverla, **♻ Restaurar**.
+- **🗑 Eliminar** sí borra. Pregunta *"¿Eliminar la plantilla «X»?"*, avisa que no se puede deshacer y sugiere archivar en su lugar; la opción por omisión es *No*.
+
+### Catálogo inicial
+
+La primera vez que arranca, la aplicación siembra un juego de plantillas de ejemplo de las ocho familias (alta y respuestas de Freshdesk, análisis y devolución de requerimientos, avance y cierre de DevOps, documento y correo de estimación, y scripts de bloqueos, tamaño de tablas, búsqueda de texto, respaldo previo, espacio en disco, respaldo de carpeta, estado de IIS y respaldo con rotación). Están para editarse, no para usarse tal cual: **ninguna trae datos reales de clientes ni de servidores**.
+
+Se siembra **una sola vez**. Si borras las de ejemplo, no vuelven a aparecer en el siguiente arranque. Y si la base ya tenía plantillas cuando se actualizó la aplicación, no se siembra nada.
+
+Todo lo que hagas aquí (crear, editar, duplicar, archivar, eliminar) queda en la **Bitácora** con el tipo de entidad `Template`.
 
 ---
 
@@ -1241,6 +1422,12 @@ Casi nada se borra de verdad, y es a propósito: si se borrara, el historial y l
 - **No puedes tener dos SLA activos sobre el mismo objetivo.**
 - **No puedes poner una fecha límite en el pasado.**
 
+**Sobre plantillas y scripts**
+- **La aplicación no ejecuta ningún script de la biblioteca.** Solo lo copia o lo guarda a un archivo. Un botón de "ejecutar" contra un servidor productivo, a un clic de distancia y sin ver lo que se va a correr, es exactamente el accidente que no queremos.
+- **Las plantillas son solo del rol Administrador**, también para consultarlas: suelen traer nombres de servidores, bases y rutas internas.
+- **Un archivo adjunto no puede pasar de 10 MB**: la plantilla vive en la base de datos del equipo. Para algo más grande, súbelo a Blob Storage y deja aquí el enlace.
+- **El catálogo de ejemplo se siembra una sola vez.** Si borras esas plantillas, no vuelven en el siguiente arranque.
+
 **Sobre configuración**
 - **El cambio de proveedor de base de datos no aplica hasta reiniciar** la aplicación.
 - **Las claves cifradas están atadas a este equipo y usuario de Windows.** Si la aplicación se instala en otra máquina, hay que volver a capturar las connection strings, el PAT, la API Key y la contraseña de correo.
@@ -1262,7 +1449,7 @@ Contraseña temporal:  (12 caracteres generados al azar)
 
 Anótala antes de cerrar el mensaje. Inicia sesión con ella; la aplicación te obligará a cambiarla de inmediato.
 
-En este primer arranque la aplicación también siembra el catálogo completo de criterios de desempeño (individuales y de equipo).
+En este primer arranque la aplicación también siembra el catálogo completo de criterios de desempeño (individuales y de equipo) y el juego inicial de **plantillas** (*Administración → Plantillas*), que está para editarse a la medida del área.
 
 ### 2. Base de datos definitiva
 Si el equipo va a compartir una sola base:

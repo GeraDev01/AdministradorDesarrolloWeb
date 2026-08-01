@@ -38,6 +38,9 @@ Arriba a la derecha de la ventana verás tu nombre y, entre paréntesis, **(Oper
 Esto no es un detalle cosmético: de aquí depende que los despliegues programados se ejecuten.
 
 - **Cerrar con la ✕ no cierra la aplicación.** La manda a la bandeja del sistema (junto al reloj) y sale un globo que dice *"Sigo aquí"*. Sigue corriendo.
+- **Solo se abre una vez.** Si vuelves a abrir el ejecutable estando ya corriendo, no arranca otra: la que ya estaba se pone al frente, aunque estuviera en la bandeja. Importa aquí más que en ningún lado: dos instancias podrían pelearse un mismo despliegue programado.
+- **💬 Foro.** Arriba del menú tienes el foro del equipo, igual que todos los demás roles: publicaciones con comentarios anidados, ❤ y búsqueda. Se explica a detalle en el Manual del Desarrollador.
+- **Tu estado.** Junto a tu nombre, arriba a la derecha, marcas si estás disponible, ocupado, en reunión, comiendo o en un descanso. El administrador lo ve en su pantalla *Quién está*. Se guarda a qué hora entras y sales; el estado solo se ve en vivo y no queda historial.
 - Para **volver a la ventana**: doble clic en el ícono de la bandeja, o clic derecho → **Abrir**.
 - Para **cerrar de verdad**: clic derecho en el ícono de la bandeja → **Salir**.
 - **Cerrar sesión** (botón 🚪 Cerrar sesión, abajo del menú) te regresa a la pantalla de inicio de sesión. Un despliegue programado necesita una sesión iniciada para ejecutarse: si vas a dejar el equipo encendido para que corra una cita nocturna, **usa la ✕ (bandeja), no Cerrar sesión**.
