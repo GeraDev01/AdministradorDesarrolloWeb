@@ -1,4 +1,4 @@
-using Administrador_Desarrollo_Web.Data;
+﻿using Administrador_Desarrollo_Web.Data;
 using Administrador_Desarrollo_Web.Services;
 using Administrador_Desarrollo_Web.Forms.Details;
 using Microsoft.Data.SqlClient;
@@ -51,6 +51,7 @@ public class ConfigurationControl : UserControl
     private CheckBox _chkDigest = null!;
     private ComboBox _cbxDigestFreq = null!;
     private TextBox _txtDigestRecipients = null!;
+    private TextBox _txtUltimaVersion = null!, _txtUrlDescarga = null!, _txtNotasVersion = null!;
     // Freshdesk
     private TextBox _txtFreshDeskDomain = null!;
     private TextBox _txtFreshDeskApiKey = null!;
@@ -347,6 +348,29 @@ public class ConfigurationControl : UserControl
         AddField(scroll, "Destinatarios del resumen (correos separados por ; ). Vacío = usa el de escalamiento de SLA o la propia cuenta:",
             ref _txtDigestRecipients, ref y, false, "jefe@empresa.com; lider@empresa.com");
 
+        // ── Aviso de versión nueva ────────────────────────────────
+        AddSection(scroll, "⬆  Aviso de versión nueva", ref y);
+        scroll.Controls.Add(new Label
+        {
+            Text = $"Esta aplicación es la v{AppVersion.Texto}. Lo que captures aquí es lo que verá el equipo al entrar.\n" +
+                   "Orden correcto al entregar: subir la versión en el .csproj → publicar → subir el .exe → recién entonces capturarla aquí.",
+            Location = new Point(30, y), AutoSize = false, Size = new Size(750, 34),
+            Font = AppTheme.SmallFont, ForeColor = AppTheme.TextSecondary
+        });
+        y += 40;
+        AddField(scroll, "Última versión publicada (solo números, p. ej. 1.2.0):", ref _txtUltimaVersion, ref y, false, "1.2.0");
+        AddField(scroll, "Enlace de descarga (https://…  o  \\\\servidor\\compartido\\Administrador.exe):", ref _txtUrlDescarga, ref y, false, "");
+
+        scroll.Controls.Add(new Label { Text = "Novedades de esa versión (lo que verá el equipo):", Location = new Point(30, y), AutoSize = true, Font = AppTheme.DefaultFont });
+        y += 22;
+        _txtNotasVersion = new TextBox
+        {
+            Location = new Point(30, y), Width = 750, Height = 70, Multiline = true,
+            AcceptsReturn = true, ScrollBars = ScrollBars.Vertical
+        };
+        scroll.Controls.Add(_txtNotasVersion);
+        y += 80;
+
         // ── Guardar general ───────────────────────────────────────
         y += 10;
         _lblStatus = new Label { Location = new Point(30, y), AutoSize = false, Size = new Size(750, 28), Font = AppTheme.BoldFont };
@@ -438,6 +462,10 @@ public class ConfigurationControl : UserControl
         _chkDigest.Checked = _settings.Get(DigestService.KeyEnabled) == "true";
         _cbxDigestFreq.SelectedIndex = _settings.Get(DigestService.KeyFrequency) == "7" ? 1 : 0;
         _txtDigestRecipients.Text = _settings.Get(DigestService.KeyRecipients) ?? "";
+
+        _txtUltimaVersion.Text = _settings.Get(UpdateNotice.KeyLatestVersion) ?? "";
+        _txtUrlDescarga.Text   = _settings.Get(UpdateNotice.KeyDownloadUrl) ?? "";
+        _txtNotasVersion.Text  = _settings.Get(UpdateNotice.KeyReleaseNotes) ?? "";
         // Freshdesk
         _chkFreshDeskEnabled.Checked = _settings.Get(SettingsService.Keys.FreshDeskEnabled) == "true";
         _txtFreshDeskDomain.Text = _settings.Get(SettingsService.Keys.FreshDeskDomain) ?? "";
@@ -520,6 +548,12 @@ public class ConfigurationControl : UserControl
             _settings.Set(DigestService.KeyEnabled, _chkDigest.Checked ? "true" : "false", false, "Resumen por correo");
             _settings.Set(DigestService.KeyFrequency, _cbxDigestFreq.SelectedIndex == 1 ? "7" : "1", false, "Frecuencia del resumen (días)");
             _settings.Set(DigestService.KeyRecipients, _txtDigestRecipients.Text.Trim(), false, "Destinatarios del resumen");
+
+            // isSecret:false OBLIGATORIO en las tres: DPAPI cifra por usuario de Windows y el
+            // resto del equipo recibiría null al leerlas — el aviso dejaría de salir en silencio.
+            _settings.Set(UpdateNotice.KeyLatestVersion, _txtUltimaVersion.Text.Trim(), false, "Última versión publicada de la aplicación");
+            _settings.Set(UpdateNotice.KeyDownloadUrl,   _txtUrlDescarga.Text.Trim(),   false, "Enlace de descarga de la última versión");
+            _settings.Set(UpdateNotice.KeyReleaseNotes,  _txtNotasVersion.Text.Trim(),  false, "Novedades de la última versión");
             // Freshdesk
             _settings.Set(SettingsService.Keys.FreshDeskEnabled, _chkFreshDeskEnabled.Checked ? "true" : "false", false, "Freshdesk habilitado");
             if (!string.IsNullOrWhiteSpace(_txtFreshDeskDomain.Text))

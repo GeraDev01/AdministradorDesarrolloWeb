@@ -125,6 +125,7 @@ internal static class Program
         services.AddSingleton<PresenceService>();
         services.AddSingleton<ForumService>();
         services.AddSingleton<SprintService>();
+        services.AddSingleton<CommitmentAlertService>();
 
         services.AddTransient<LoginForm>();
         services.AddTransient<MainForm>();
@@ -156,6 +157,7 @@ internal static class Program
         // Fase 4 — Desarrollador self-service
         services.AddTransient<MyAssignmentsControl>();
         services.AddTransient<MyDevOpsTicketsControl>();
+        services.AddTransient<MyPresenceControl>();
         services.AddTransient<MyEvaluationsControl>();
         services.AddTransient<NotificationsControl>();
         services.AddTransient<MyActivitiesControl>();

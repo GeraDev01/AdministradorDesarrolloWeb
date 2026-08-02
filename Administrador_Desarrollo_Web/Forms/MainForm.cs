@@ -172,6 +172,12 @@ public class MainForm : ResponsiveForm
             AddNav(pnlNav, "🧩", "Mis Actividades",  "my-activities");
             AddNav(pnlNav, "📄", "Mis Evaluaciones", "my-evaluations");
             AddNav(pnlNav, "⏱", "Mis SLA",          "my-sla");
+            // Su propio registro de asistencia: el mismo dato que ve el administrador en «Quién
+            // está». Que cada quien vea el suyo lo vuelve transparente en vez de unilateral.
+            AddNav(pnlNav, "🕒", "Mi jornada",       "my-presence");
+            // El sprint del equipo, en solo consulta: la misma pantalla del administrador sin los
+            // botones de escritura. Va con lo demás «suyo» porque es su trabajo comprometido.
+            AddNav(pnlNav, "🏁", "Sprint",           "sprint");
             NavSep(pnlNav);
             // Herramienta, no compromiso propio: por eso va después del separador. Es la misma
             // pantalla del administrador en modo consulta (el servicio filtra qué tipos ve).
@@ -341,11 +347,13 @@ public class MainForm : ResponsiveForm
         // Vigilancia de SLA: badge en el menú y aviso en cuanto algo requiera atención.
         ConfigurarBandeja();
         _slaTimer = new System.Windows.Forms.Timer { Interval = 5 * 60_000 };
-        _slaTimer.Tick += (_, _) => { RevisarSla(primeraVez: false); RevisarNotificaciones(silencioso: false); RevisarTareasAutomaticas(); };
+        _slaTimer.Tick += (_, _) => { RevisarSla(primeraVez: false); RevisarCompromisos(); RevisarNotificaciones(silencioso: false); RevisarTareasAutomaticas(); };
         _slaTimer.Start();
         RevisarSla(primeraVez: true);
+        RevisarCompromisos();
         RevisarNotificaciones(silencioso: true);   // primera vez: solo fija el contador, sin globo
         RevisarTareasAutomaticas();                // respaldo/resumen automáticos, una vez por período
+        RevisarVersion();                          // una sola vez por arranque, no en cada ciclo
 
         // Despliegues programados: se revisan cada minuto porque una cita a las 02:00 debe
         // arrancar cerca de las 02:00, no hasta cinco minutos después.
@@ -494,6 +502,59 @@ public class MainForm : ResponsiveForm
                     : $"{PresenceService.Etiqueta(estado)} — {nota}");
         }
         catch { /* sin base, el botón se queda como esté */ }
+    }
+
+    /// <summary>
+    /// Avisa si el administrador publicó una versión más nueva que la que corre. Una sola vez por
+    /// arranque y una sola vez por versión (la memoria vive en %APPDATA%): un aviso que sale en
+    /// cada ciclo se cierra por reflejo y deja de leerse.
+    /// </summary>
+    private void RevisarVersion()
+    {
+        try
+        {
+            if (_sp.GetService(typeof(SettingsService)) is not SettingsService settings) return;
+
+            var estado = UpdateNoticeState.Cargar();
+            var aviso = UpdateNotice.Evaluar(
+                settings.Get(UpdateNotice.KeyLatestVersion),
+                settings.Get(UpdateNotice.KeyDownloadUrl),
+                settings.Get(UpdateNotice.KeyReleaseNotes),
+                AppVersion.Actual,
+                estado.UltimaVersionAvisada);
+            if (aviso == null) return;
+
+            // Se anota ANTES de mostrar: si la ventana falla al abrirse, es preferible perder un
+            // aviso que repetirlo en cada arranque.
+            estado.UltimaVersionAvisada = aviso.VersionTexto;
+            try { estado.Guardar(); } catch { /* sin memoria, a lo sumo se repite */ }
+
+            if (!Visible || WindowState == FormWindowState.Minimized)
+            {
+                _trayIcon?.ShowBalloonTip(10_000, $"Versión {aviso.VersionTexto} disponible",
+                    "Ábrela cuando puedas para ver cómo actualizar.", ToolTipIcon.Info);
+                return;
+            }
+
+            // Show y no ShowDialog: es un aviso, no un trámite para empezar a trabajar.
+            new UpdateNoticeForm(aviso).Show(this);
+        }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Aviso de versión: {ex.Message}"); }
+    }
+
+    /// <summary>
+    /// Avisa a cada desarrollador de sus fechas comprometidas que se acercan. Va ANTES de
+    /// RevisarNotificaciones para que los avisos que cree se cuenten en el badge de esta misma
+    /// vuelta en vez de esperar cinco minutos.
+    /// </summary>
+    private void RevisarCompromisos()
+    {
+        try
+        {
+            if (_sp.GetService(typeof(CommitmentAlertService)) is CommitmentAlertService svc)
+                svc.RevisarYAvisar();
+        }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Compromisos: {ex.Message}"); }
     }
 
     private void TerminarPresencia()
@@ -655,7 +716,7 @@ public class MainForm : ResponsiveForm
         if (_currentUser.IsDesarrollador)
             return key is "notifications" or "forum" or "dashboard" or "my-performance" or "my-assignments"
                        or "my-devops-tickets" or "my-activities" or "my-evaluations" or "my-sla"
-                       or "my-vacations" or "my-suggestions" or "templates";
+                       or "my-vacations" or "my-suggestions" or "templates" or "sprint" or "my-presence";
 
         return false;
     }
@@ -944,6 +1005,7 @@ public class MainForm : ResponsiveForm
             "my-sla"          => (UserControl)_sp.GetService(typeof(MySlaControl))!,
             "my-assignments"  => (UserControl)_sp.GetService(typeof(MyAssignmentsControl))!,
             "my-devops-tickets" => (UserControl)_sp.GetService(typeof(MyDevOpsTicketsControl))!,
+            "my-presence"     => (UserControl)_sp.GetService(typeof(MyPresenceControl))!,
             "notifications"   => (UserControl)_sp.GetService(typeof(NotificationsControl))!,
             "my-performance"  => (UserControl)_sp.GetService(typeof(MyDevPerformanceControl))!,
             "my-activities"   => (UserControl)_sp.GetService(typeof(MyActivitiesControl))!,
@@ -992,6 +1054,7 @@ public class MainForm : ResponsiveForm
             "suggestions"     => "💡  Sugerencias y propuestas",
             "my-suggestions"  => "💡  Sugerencias",
             "my-sla"          => "⏱  Mis SLA",
+            "my-presence"     => "🕒  Mi jornada",
             "my-assignments"  => "📋  Mis Asignaciones",
             "notifications"   => "🔔  Avisos",
             "my-devops-tickets" => "🔷  Mis tickets de DevOps",
