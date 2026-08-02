@@ -1,0 +1,72 @@
+using System.Text;
+
+namespace Administrador_Desarrollo_Web.Services;
+
+/// <summary>Un punto del checklist previo al despliegue.</summary>
+/// <param name="Clave">Identificador estable: es lo que queda escrito en la evidencia.</param>
+/// <param name="Texto">Lo que se le pregunta a la persona.</param>
+/// <param name="Ayuda">Por qué importa. Un checklist que no explica se marca sin leer.</param>
+public sealed record PuntoChecklist(string Clave, string Texto, string Ayuda);
+
+/// <summary>
+/// El checklist que hay que confirmar ANTES de desplegar a producción, y la evidencia que queda
+/// escrita en el despliegue.
+///
+/// Existe porque Operaciones es el rol con menos pantallas y el de mayor riesgo por clic: una
+/// confirmación de «¿seguro?» se contesta que sí por reflejo, mientras que marcar cuatro puntos
+/// obliga a mirarlos. Y porque cuando algo sale mal, la pregunta que sigue —«¿se tomó respaldo?»,
+/// «¿estaba autorizada la ventana?»— hoy no tiene respuesta escrita en ninguna parte.
+///
+/// La evidencia se guarda en <c>DeploymentJob.Notes</c>, junto al despliegue y no en un archivo
+/// aparte: separada del hecho que documenta, se pierde.
+/// </summary>
+public static class DeploymentChecklist
+{
+    /// <summary>
+    /// Los puntos, fijos y en código a propósito: si fueran configurables, el primer despliegue
+    /// apurado los dejaría vacíos y el checklist no protegería de nada.
+    /// </summary>
+    public static readonly PuntoChecklist[] Puntos =
+    [
+        new("version",   "Verifiqué que la versión es la correcta",
+                         "El error más caro es desplegar la versión de ayer, y es el más fácil de cometer."),
+        new("ventana",   "El despliegue está autorizado para esta ventana de tiempo",
+                         "Fuera de la ventana acordada, una caída de dos minutos le pega a quien está trabajando."),
+        new("aviso",     "Avisé a quien corresponde que voy a desplegar",
+                         "Si el sistema se cae, alguien tiene que saber que fue el despliegue y no una falla."),
+        new("reversion", "Sé cómo revertir si algo sale mal",
+                         "El momento de averiguarlo no es cuando ya está roto."),
+    ];
+
+    /// <summary>Qué puntos faltan por marcar. Vacío = se puede desplegar.</summary>
+    public static List<PuntoChecklist> Faltantes(IReadOnlyCollection<string> marcados) =>
+        Puntos.Where(p => !marcados.Contains(p.Clave)).ToList();
+
+    /// <summary>
+    /// El texto que queda guardado con el despliegue. Es la evidencia: quién confirmó qué, cuándo,
+    /// y los hechos del despliegue que NO dependen de que alguien los marque (versión, destino y
+    /// respaldo salen del sistema, no de la buena fe de quien despliega).
+    /// </summary>
+    public static string Evidencia(
+        string usuario, DateTime cuandoLocal, string version, string destino, string respaldo,
+        IReadOnlyCollection<string> marcados, string? nota)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("CHECKLIST PREVIO AL DESPLIEGUE");
+        sb.AppendLine($"Confirmado por : {usuario}");
+        sb.AppendLine($"Fecha y hora   : {cuandoLocal:dd/MM/yyyy HH:mm}");
+        sb.AppendLine($"Versión        : {version}");
+        sb.AppendLine($"Destino        : {destino}");
+        sb.AppendLine($"Respaldo previo: {respaldo}");
+        sb.AppendLine();
+        foreach (var p in Puntos)
+            sb.AppendLine($"  [{(marcados.Contains(p.Clave) ? "x" : " ")}] {p.Texto}");
+
+        if (!string.IsNullOrWhiteSpace(nota))
+        {
+            sb.AppendLine();
+            sb.AppendLine($"Nota: {nota.Trim()}");
+        }
+        return sb.ToString().TrimEnd();
+    }
+}

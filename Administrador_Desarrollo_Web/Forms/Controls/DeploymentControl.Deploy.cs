@@ -1,4 +1,4 @@
-using Administrador_Desarrollo_Web.Forms.Details;
+﻿using Administrador_Desarrollo_Web.Forms.Details;
 using Administrador_Desarrollo_Web.Models;
 using Administrador_Desarrollo_Web.Services;
 using Microsoft.EntityFrameworkCore;
@@ -250,14 +250,18 @@ public partial class DeploymentControl
             destinoDesc = $"perfil '{profile.Name}' ({targetCount} servidor/es)";
         }
 
-        var avisoBackup = respaldoDesc == "ninguno"
-            ? "\n\n⚠ SIN respaldo previo: si algo sale mal no habrá copia para revertir."
-            : $"\n\nRespaldo previo: {respaldoDesc}.";
-        var confirm = MessageBox.Show(
-            $"¿Desplegar la versión '{release.Version}' a {destinoDesc}?{avisoBackup}",
-            "Confirmar despliegue", MessageBoxButtons.YesNo,
-            respaldoDesc == "ninguno" ? MessageBoxIcon.Warning : MessageBoxIcon.Question);
-        if (confirm != DialogResult.Yes) return;
+        // Checklist en vez de un «¿seguro?»: una confirmación de una línea se contesta que sí por
+        // reflejo. Lo que se marque queda escrito con el despliegue como evidencia.
+        var queSeDespliega = $"{release.AppSystem?.Name} v{release.Version}".Trim();
+        string evidencia;
+        using (var chk = new DeploymentChecklistForm(
+                   queSeDespliega, destinoDesc, respaldoDesc, sinRespaldo: respaldoDesc == "ninguno"))
+        {
+            if (chk.ShowDialog(FindForm()) != DialogResult.OK) return;
+            evidencia = DeploymentChecklist.Evidencia(
+                _currentUser.User?.FullName ?? _currentUser.Username ?? "(sin nombre)",
+                DateTime.Now, queSeDespliega, destinoDesc, respaldoDesc, chk.Marcados, chk.Nota);
+        }
 
         _txtLog.Clear();
         SetDeployRunning(true);
@@ -270,8 +274,8 @@ public partial class DeploymentControl
             _lblDeployStatus.ForeColor = AppTheme.SidebarActive;
             _lblDeployStatus.Text = "⏳ Despliegue en curso...";
             var job = directo
-                ? await _deploy.DeployToServersAsync(release.Id, _directTargetIds, progress, _cts.Token, respaldarTargets, onStatus)
-                : await _deploy.DeployAsync(release.Id, profile!.Id, progress, _cts.Token, respaldarTargets, onStatus);
+                ? await _deploy.DeployToServersAsync(release.Id, _directTargetIds, progress, _cts.Token, respaldarTargets, onStatus, evidencia)
+                : await _deploy.DeployAsync(release.Id, profile!.Id, progress, _cts.Token, respaldarTargets, onStatus, evidencia);
             _lblDeployStatus.ForeColor = job.TargetsFailed == 0 ? AppTheme.Success : AppTheme.Warning;
             _lblDeployStatus.Text = job.TargetsFailed == 0
                 ? $"✅ Despliegue completado — {job.TargetsOk} servidor(es)."

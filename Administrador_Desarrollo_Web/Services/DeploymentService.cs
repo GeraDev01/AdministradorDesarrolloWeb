@@ -1,4 +1,4 @@
-using System.IO.Compression;
+﻿using System.IO.Compression;
 using System.Security.Cryptography;
 using FluentFTP;
 using FluentFTP.Helpers;
@@ -256,11 +256,12 @@ public class DeploymentService
     public async Task<DeploymentJob> DeployToServersAsync(
         int releaseId, IReadOnlyList<int> targetIds,
         IProgress<string> progress, CancellationToken ct = default,
-        IReadOnlySet<int>? respaldarTargets = null, IProgress<DeployStatus>? onStatus = null)
+        IReadOnlySet<int>? respaldarTargets = null, IProgress<DeployStatus>? onStatus = null,
+        string? evidenciaChecklist = null)
     {
         AuthorizationGuard.RequireAdminOrOperaciones(_currentUser);
         var profileId = PrepararSeleccionDirecta(targetIds);
-        return await DeployAsync(releaseId, profileId, progress, ct, respaldarTargets, onStatus);
+        return await DeployAsync(releaseId, profileId, progress, ct, respaldarTargets, onStatus, evidenciaChecklist);
     }
 
     // ── Deployment ───────────────────────────────────────────────
@@ -285,10 +286,15 @@ public class DeploymentService
     ///    (qué archivo se sube, si está respaldando…), para la barra y el renglón de estado.
     ///  · <b>Reintentos</b> ante conexiones lentas (ver <see cref="FtpRetryPolicy"/>).
     /// </summary>
+    /// <param name="evidenciaChecklist">
+    /// El checklist previo confirmado por quien despliega (ver <see cref="DeploymentChecklist"/>).
+    /// Se guarda con el job: separada del hecho que documenta, la evidencia se pierde.
+    /// </param>
     public async Task<DeploymentJob> DeployAsync(
         int releaseId, int profileId,
         IProgress<string> progress, CancellationToken ct = default,
-        IReadOnlySet<int>? respaldarTargets = null, IProgress<DeployStatus>? onStatus = null)
+        IReadOnlySet<int>? respaldarTargets = null, IProgress<DeployStatus>? onStatus = null,
+        string? evidenciaChecklist = null)
     {
         AuthorizationGuard.RequireAdminOrOperaciones(_currentUser);
         var correlacion = AuditService.NuevaCorrelacion();
@@ -340,6 +346,7 @@ public class DeploymentService
             StartedAt           = DateTime.UtcNow,
             StartedById         = _currentUser.User?.Id,
             TargetsTotal        = targets.Count,
+            Notes               = evidenciaChecklist,
             CreatedAt           = DateTime.UtcNow
         };
         db.DeploymentJobs.Add(job);
