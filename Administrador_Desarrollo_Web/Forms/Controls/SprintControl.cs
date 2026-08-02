@@ -1,4 +1,4 @@
-using Administrador_Desarrollo_Web.Data;
+﻿using Administrador_Desarrollo_Web.Data;
 using Administrador_Desarrollo_Web.Forms.Details;
 using Administrador_Desarrollo_Web.Models;
 using Administrador_Desarrollo_Web.Services;
@@ -6,33 +6,60 @@ using Administrador_Desarrollo_Web.Services;
 namespace Administrador_Desarrollo_Web.Forms.Controls;
 
 /// <summary>
-/// Seguimiento del sprint, SOLO administrador: una línea de tiempo tipo calendario (día por día,
-/// fines de semana sombreados, marcador de HOY) con dos barras comparables — el tiempo consumido
-/// y el avance real de los requerimientos — y debajo la lista de lo comprometido.
+/// Seguimiento del sprint, en dos vistas:
 ///
-/// La lectura es una sola: si la barra de avance va detrás de la de tiempo, vamos atrasados. Todo
-/// el cálculo vive en <see cref="SprintService.CalcularAvance"/>; aquí solo se dibuja.
+///  · <b>🏁 Sprint actual</b> — línea de tiempo tipo calendario (día por día, fines de semana
+///    sombreados, marcador de HOY) con dos barras comparables —el tiempo consumido y el avance
+///    real— y debajo la lista de lo comprometido. La lectura es una sola: si la barra de avance
+///    va detrás de la de tiempo, vamos atrasados.
+///  · <b>📈 Histórico</b> — cómo salió cada sprint y la VELOCIDAD del equipo (promedio de
+///    entregados por sprint cerrado). Es la única base honesta para comprometer el siguiente:
+///    sin ella, el compromiso es un deseo.
+///
+/// El DESARROLLADOR ve la misma pantalla en SOLO CONSULTA: sin botones de escritura, sin la
+/// pestaña de histórico, con sus requerimientos marcados 👤 y un filtro «solo los míos». El avance
+/// se calcula siempre sobre TODO el sprint aunque el filtro esconda filas: dos porcentajes
+/// distintos para el mismo sprint serían dos verdades.
+///
+/// Todo el cálculo vive en <see cref="SprintService"/> (CalcularAvance, Historico, Velocidad);
+/// aquí solo se dibuja.
 /// </summary>
 public class SprintControl : UserControl
 {
     private readonly SprintService _sprints;
     private readonly AppDbContext _db;
+    private readonly ReportService _report;
+    private readonly bool _esAdmin;
+    /// <summary>La cuenta está ligada a una ficha de desarrollador: sin ella no hay «lo mío».</summary>
+    private readonly bool _tieneFicha;
 
     private ComboBox _cbxSprint = null!;
     private Panel _pnlTimeline = null!;
     private DataGridView _grid = null!;
     private Label _lblEstado = null!, _lblObjetivo = null!;
     private Label _kpiVeredicto = null!, _kpiAvance = null!, _kpiTiempo = null!, _kpiEntregados = null!, _kpiDias = null!;
-    private Button _btnEditar = null!, _btnEliminar = null!, _btnReqs = null!;
+
+    // Histórico
+    private DataGridView _gridHist = null!;
+    private Panel _pnlGrafica = null!;
+    private Label _lblHist = null!, _kpiVelocidad = null!, _kpiCerrados = null!, _kpiCumplimiento = null!;
+    private List<SprintResumen> _historico = [];
+    private Button _btnExcel = null!;
+    /// <summary>Los de escritura solo EXISTEN para el administrador (ver BuildSeguimientoTab).</summary>
+    private Button? _btnEditar, _btnEliminar, _btnReqs;
+    private CheckBox? _chkSoloMios;
+    private HashSet<int> _mios = [];
 
     private List<Sprint> _lista = [];
     private Sprint? _sprint;
     private List<Requirement> _reqs = [];
     private SprintAvance? _avance;
 
-    public SprintControl(SprintService sprints, AppDbContext db)
+    public SprintControl(SprintService sprints, AppDbContext db, ReportService report, ICurrentUser currentUser)
     {
-        _sprints = sprints; _db = db;
+        _sprints = sprints; _db = db; _report = report;
+        _esAdmin = currentUser.IsAdmin;
+        _tieneFicha = currentUser.DeveloperId != null;
         BuildUI();
         LoadSprints();
     }
@@ -43,6 +70,18 @@ public class SprintControl : UserControl
     {
         BackColor = AppTheme.ContentBg;
         Dock = DockStyle.Fill;
+
+        var tabs = new TabControl { Dock = DockStyle.Fill, Font = AppTheme.DefaultFont };
+        tabs.TabPages.Add(BuildSeguimientoTab());
+        // El histórico es del administrador (Historico() exige ese rol): construirlo para el
+        // desarrollador sería una pestaña que solo sabe decir «sin permiso».
+        if (_esAdmin) tabs.TabPages.Add(BuildHistoricoTab());
+        Controls.Add(tabs);
+    }
+
+    private TabPage BuildSeguimientoTab()
+    {
+        var page = new TabPage("  🏁  Sprint actual  ") { BackColor = AppTheme.ContentBg };
 
         var tbl = new TableLayoutPanel
         {
@@ -68,23 +107,51 @@ public class SprintControl : UserControl
         _cbxSprint.SelectedIndexChanged += (_, _) => LoadSeguimiento();
         toolbar.Controls.Add(_cbxSprint);
 
-        var btnNuevo = AppTheme.MakePrimaryButton("➕ Nuevo sprint", 140);
-        btnNuevo.Margin = new Padding(0, 2, 6, 0);
-        btnNuevo.Click += (_, _) => Nuevo();
+        // Filtrar a lo propio es lo primero que quiere el desarrollador; el administrador no lo
+        // necesita (para él son todos) y por eso solo aparece con ficha ligada.
+        if (_tieneFicha && !_esAdmin)
+        {
+            _chkSoloMios = new CheckBox { Text = "Solo los míos", AutoSize = true, Margin = new Padding(0, 7, 12, 0) };
+            _chkSoloMios.CheckedChanged += (_, _) => PintarSprint();
+            toolbar.Controls.Add(_chkSoloMios);
+        }
 
-        _btnEditar = AppTheme.MakeSecondaryButton("✏ Fechas y nombre", 160);
-        _btnEditar.Margin = new Padding(0, 2, 6, 0);
-        _btnEditar.Click += (_, _) => Editar();
+        _btnExcel = AppTheme.MakeSecondaryButton("📊 Excel", 100);
+        _btnExcel.Margin = new Padding(0, 2, 6, 0);
+        _btnExcel.Click += (_, _) => ExportarExcel();
+        toolbar.Controls.Add(_btnExcel);
 
-        _btnReqs = AppTheme.MakeSecondaryButton("📋 Requerimientos…", 170);
-        _btnReqs.Margin = new Padding(0, 2, 6, 0);
-        _btnReqs.Click += (_, _) => ElegirRequerimientos();
+        // Los botones de escritura solo EXISTEN para el administrador: uno gris invita a preguntar
+        // por qué; uno ausente, no. El servicio impide de todos modos.
+        if (_esAdmin)
+        {
+            var btnNuevo = AppTheme.MakePrimaryButton("➕ Nuevo sprint", 140);
+            btnNuevo.Margin = new Padding(0, 2, 6, 0);
+            btnNuevo.Click += (_, _) => Nuevo();
 
-        _btnEliminar = AppTheme.MakeDangerButton("🗑 Eliminar", 110);
-        _btnEliminar.Margin = new Padding(0, 2, 0, 0);
-        _btnEliminar.Click += (_, _) => Eliminar();
+            _btnEditar = AppTheme.MakeSecondaryButton("✏ Fechas y nombre", 160);
+            _btnEditar.Margin = new Padding(0, 2, 6, 0);
+            _btnEditar.Click += (_, _) => Editar();
 
-        toolbar.Controls.AddRange([btnNuevo, _btnEditar, _btnReqs, _btnEliminar]);
+            _btnReqs = AppTheme.MakeSecondaryButton("📋 Requerimientos…", 170);
+            _btnReqs.Margin = new Padding(0, 2, 6, 0);
+            _btnReqs.Click += (_, _) => ElegirRequerimientos();
+
+            _btnEliminar = AppTheme.MakeDangerButton("🗑 Eliminar", 110);
+            _btnEliminar.Margin = new Padding(0, 2, 0, 0);
+            _btnEliminar.Click += (_, _) => Eliminar();
+
+            toolbar.Controls.AddRange([btnNuevo, _btnEditar, _btnReqs, _btnEliminar]);
+        }
+        else
+        {
+            toolbar.Controls.Add(new Label
+            {
+                Text = "Solo consulta — el sprint lo arma el administrador",
+                AutoSize = true, ForeColor = AppTheme.TextSecondary, Font = AppTheme.SmallFont,
+                Margin = new Padding(4, 10, 0, 0)
+            });
+        }
 
         _lblObjetivo = new Label
         {
@@ -114,12 +181,13 @@ public class SprintControl : UserControl
         // ── Grid de requerimientos ─────────────────────────────────
         _grid = AppTheme.MakeGrid();
         _grid.Margin = new Padding(10, 2, 10, 2);
-        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Estado",       Name = "Estado",  FillWeight = 15 });
-        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Requerimiento", Name = "Titulo", FillWeight = 44 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "",             Name = "Mio",     FillWeight = 5 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Estado",       Name = "Estado",  FillWeight = 14 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Requerimiento", Name = "Titulo", FillWeight = 40 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "%",            Name = "Pct",     FillWeight = 8,
             DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleRight } });
-        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Compromiso",   Name = "Comp",    FillWeight = 15 });
-        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Entregado",    Name = "Entr",    FillWeight = 15 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Compromiso",   Name = "Comp",    FillWeight = 13 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Entregado",    Name = "Entr",    FillWeight = 13 });
         foreach (DataGridViewColumn c in _grid.Columns) c.SortMode = DataGridViewColumnSortMode.NotSortable;
         var pnlGrid = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10, 2, 10, 2), BackColor = AppTheme.ContentBg };
         pnlGrid.Controls.Add(_grid);
@@ -136,8 +204,193 @@ public class SprintControl : UserControl
         tbl.Controls.Add(pnlTl,        0, 3);
         tbl.Controls.Add(pnlGrid,      0, 4);
         tbl.Controls.Add(_lblEstado,   0, 5);
-        Controls.Add(tbl);
+        page.Controls.Add(tbl);
+        return page;
     }
+
+    // ── Histórico y velocidad ────────────────────────────────────────────────────
+
+    private TabPage BuildHistoricoTab()
+    {
+        var page = new TabPage("  📈  Histórico  ") { BackColor = AppTheme.ContentBg };
+
+        var tbl = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill, RowCount = 4, ColumnCount = 1,
+            Margin = Padding.Empty, Padding = Padding.Empty
+        };
+        tbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 86f));    // KPIs
+        tbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 190f));   // gráfica
+        tbl.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));    // grid
+        tbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 26f));    // estado
+        tbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+
+        var kpis = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false,
+            Padding = new Padding(10, 6, 10, 2), BackColor = AppTheme.ContentBg
+        };
+        kpis.Controls.Add(Kpi("Velocidad (entregados/sprint)", out _kpiVelocidad, 230));
+        kpis.Controls.Add(Kpi("Sprints cerrados", out _kpiCerrados, 150));
+        kpis.Controls.Add(Kpi("Cumplimiento promedio", out _kpiCumplimiento, 200));
+
+        _pnlGrafica = new PanelSinParpadeo { Dock = DockStyle.Fill, BackColor = AppTheme.CardBg, Margin = new Padding(10, 2, 10, 2) };
+        _pnlGrafica.Paint += PintarGrafica;
+        var pnlG = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10, 2, 10, 2), BackColor = AppTheme.ContentBg };
+        pnlG.Controls.Add(_pnlGrafica);
+
+        _gridHist = AppTheme.MakeGrid();
+        _gridHist.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Sprint",     Name = "Nombre", FillWeight = 26 });
+        _gridHist.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Periodo",    Name = "Periodo", FillWeight = 22 });
+        _gridHist.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Días",       Name = "Dias",   FillWeight = 8,
+            DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleRight } });
+        _gridHist.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Comprometidos", Name = "Total", FillWeight = 13,
+            DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleRight } });
+        _gridHist.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Entregados", Name = "Entr",   FillWeight = 12,
+            DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleRight } });
+        _gridHist.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Cumplido",   Name = "Pct",    FillWeight = 11,
+            DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleRight } });
+        _gridHist.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Estado",     Name = "Cerrado", FillWeight = 12 });
+        foreach (DataGridViewColumn c in _gridHist.Columns) c.SortMode = DataGridViewColumnSortMode.NotSortable;
+        var pnlGr = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10, 2, 10, 2), BackColor = AppTheme.ContentBg };
+        pnlGr.Controls.Add(_gridHist);
+
+        _lblHist = new Label
+        {
+            Dock = DockStyle.Fill, Font = AppTheme.SmallFont, ForeColor = AppTheme.TextSecondary,
+            TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(12, 0, 0, 0)
+        };
+
+        tbl.Controls.Add(kpis,     0, 0);
+        tbl.Controls.Add(pnlG,     0, 1);
+        tbl.Controls.Add(pnlGr,    0, 2);
+        tbl.Controls.Add(_lblHist, 0, 3);
+        page.Controls.Add(tbl);
+        return page;
+    }
+
+    private void LoadHistorico()
+    {
+        try { _historico = _sprints.Historico(); }
+        catch (AuthorizationException ex) { _lblHist.Text = ex.Message; return; }
+
+        var (velocidad, cerrados) = SprintService.Velocidad(_historico);
+        _kpiVelocidad.Text  = cerrados == 0 ? "—" : velocidad.ToString("0.#");
+        _kpiCerrados.Text   = cerrados.ToString();
+        var conTrabajo = _historico.Where(h => h.Cerrado && h.Total > 0).ToList();
+        _kpiCumplimiento.Text = conTrabajo.Count == 0 ? "—"
+            : $"{Math.Round(conTrabajo.Average(h => h.CompletadoPct), MidpointRounding.AwayFromZero):0}%";
+
+        _gridHist.Rows.Clear();
+        // El más reciente arriba en la tabla (se lee de arriba abajo), aunque la gráfica va al
+        // revés: ahí el tiempo tiene que correr de izquierda a derecha.
+        foreach (var h in Enumerable.Reverse(_historico))
+        {
+            int i = _gridHist.Rows.Add(
+                h.Name,
+                $"{h.StartDate:dd/MM/yy} – {h.EndDate:dd/MM/yy}",
+                h.DiasTotales,
+                h.Total + (h.Cancelados > 0 ? $" (+{h.Cancelados} canc.)" : ""),
+                h.Entregados,
+                h.Total == 0 ? "—" : $"{h.CompletadoPct}%",
+                h.Cerrado ? "Cerrado" : "En curso");
+
+            var color = !h.Cerrado ? AppTheme.SidebarActive : ColorCumplimiento(h.CompletadoPct);
+            var celda = _gridHist.Rows[i].Cells["Pct"].Style;
+            celda.ForeColor = color; celda.SelectionForeColor = color; celda.Font = AppTheme.BoldFont;
+        }
+
+        _lblHist.Text = _historico.Count == 0
+            ? "Todavía no hay sprints. El histórico se llena solo conforme cierres sprints."
+            : cerrados == 0
+                ? $"{_historico.Count} sprint(s), ninguno cerrado aún: la velocidad aparece cuando cierre el primero."
+                : $"{_historico.Count} sprint(s), {cerrados} cerrado(s).  La velocidad es el promedio de entregados " +
+                  "por sprint CERRADO — úsala para comprometer el siguiente.";
+
+        _pnlGrafica.Invalidate();
+    }
+
+    /// <summary>
+    /// Barras de entregados por sprint, en orden cronológico. Se dibuja a mano por lo mismo que la
+    /// línea de tiempo: no hay librería de gráficas en el proyecto y esto son dos rectángulos.
+    /// </summary>
+    private void PintarGrafica(object? sender, PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.Clear(AppTheme.CardBg);
+
+        if (_historico.Count == 0)
+        {
+            TextRenderer.DrawText(g, "Sin sprints todavía", AppTheme.DefaultFont,
+                _pnlGrafica.ClientRectangle, AppTheme.TextSecondary,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            return;
+        }
+
+        var area = _pnlGrafica.ClientRectangle;
+        int margenIzq = 34, margenAbajo = 30, margenArriba = 14;
+        int alto = Math.Max(40, area.Height - margenAbajo - margenArriba);
+        int ancho = Math.Max(40, area.Width - margenIzq - 14);
+
+        // Escala: el máximo entre comprometidos y entregados de todo el histórico, mínimo 1 para
+        // no dividir por cero cuando aún no hay nada entregado.
+        int tope = Math.Max(1, _historico.Max(h => Math.Max(h.Total, h.Entregados)));
+        float pasoX = (float)ancho / _historico.Count;
+        float anchoBarra = Math.Max(3, Math.Min(46, pasoX * 0.62f));
+
+        using var plumaEje = new Pen(AppTheme.Border);
+        using var brComprometido = new SolidBrush(Color.FromArgb(203, 213, 225));
+        using var brEntregado = new SolidBrush(Color.FromArgb(21, 128, 61));
+        using var plumaVel = new Pen(AppTheme.SidebarActive, 2) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash };
+
+        int yBase = margenArriba + alto;
+        g.DrawLine(plumaEje, margenIzq, yBase, margenIzq + ancho, yBase);
+
+        // Escala vertical: solo 0 y el tope; más marcas serían ruido en 190 px.
+        TextRenderer.DrawText(g, "0", AppTheme.SmallFont, new Rectangle(0, yBase - 8, margenIzq - 4, 16),
+            AppTheme.TextSecondary, TextFormatFlags.Right);
+        TextRenderer.DrawText(g, tope.ToString(), AppTheme.SmallFont,
+            new Rectangle(0, margenArriba - 8, margenIzq - 4, 16), AppTheme.TextSecondary, TextFormatFlags.Right);
+
+        for (int i = 0; i < _historico.Count; i++)
+        {
+            var h = _historico[i];
+            float cx = margenIzq + pasoX * (i + 0.5f);
+
+            // Barra clara = comprometido; barra oscura encima = entregado. La diferencia visible
+            // ES el dato: lo que se prometió y no salió.
+            float hComp = alto * h.Total / (float)tope;
+            float hEnt  = alto * h.Entregados / (float)tope;
+            g.FillRectangle(brComprometido, cx - anchoBarra / 2, yBase - hComp, anchoBarra, hComp);
+            g.FillRectangle(brEntregado, cx - anchoBarra / 2, yBase - hEnt, anchoBarra, hEnt);
+
+            if (pasoX >= 26)
+                TextRenderer.DrawText(g, Abreviar(h.Name, pasoX), AppTheme.SmallFont,
+                    new Rectangle((int)(cx - pasoX / 2), yBase + 4, (int)pasoX, 14),
+                    h.Cerrado ? AppTheme.TextSecondary : AppTheme.SidebarActive,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis);
+        }
+
+        // Línea de velocidad: contra ella se lee si un sprint salió del promedio.
+        var (velocidad, cerrados) = SprintService.Velocidad(_historico);
+        if (cerrados >= 2)
+        {
+            float y = yBase - alto * (float)velocidad / tope;
+            g.DrawLine(plumaVel, margenIzq, y, margenIzq + ancho, y);
+            TextRenderer.DrawText(g, $"velocidad {velocidad:0.#}", AppTheme.SmallFont,
+                new Rectangle(margenIzq + 4, (int)y - 15, 140, 14), AppTheme.SidebarActive, TextFormatFlags.Left);
+        }
+    }
+
+    private static string Abreviar(string nombre, float ancho) =>
+        nombre.Length <= 10 || ancho >= 70 ? nombre : nombre[..9] + "…";
+
+    private static Color ColorCumplimiento(int pct) => pct switch
+    {
+        >= 90 => Color.FromArgb(21, 128, 61),
+        >= 70 => Color.FromArgb(180, 83, 9),
+        _     => Color.FromArgb(220, 38, 38)
+    };
 
     private static Panel Kpi(string titulo, out Label valor, int ancho)
     {
@@ -170,6 +423,9 @@ public class SprintControl : UserControl
         try { _lista = _sprints.Listar(); }
         catch (AuthorizationException ex) { _lblEstado.Text = ex.Message; return; }
 
+        // El histórico depende de los mismos datos: crear, editar o borrar un sprint lo cambia.
+        if (_esAdmin) LoadHistorico();
+
         _cbxSprint.BeginUpdate();
         _cbxSprint.Items.Clear();
         foreach (var s in _lista)
@@ -197,6 +453,9 @@ public class SprintControl : UserControl
         try
         {
             _reqs = _sprints.Requerimientos(_sprint.Id);
+            _mios = _sprints.MisRequerimientos(_sprint.Id);
+            // El avance se calcula SIEMPRE sobre todo el sprint, nunca sobre lo filtrado: dos
+            // porcentajes distintos para el mismo sprint serían dos verdades.
             _avance = SprintService.CalcularAvance(_sprint, _reqs, DateTime.Today);
         }
         catch (AuthorizationException ex) { _lblEstado.Text = ex.Message; return; }
@@ -206,7 +465,11 @@ public class SprintControl : UserControl
     private void PintarSprint()
     {
         bool hay = _sprint != null;
-        _btnEditar.Enabled = _btnEliminar.Enabled = _btnReqs.Enabled = hay;
+        // Nulos en modo consulta: se creó solo lo que el rol puede usar.
+        if (_btnEditar   != null) _btnEditar.Enabled   = hay;
+        if (_btnEliminar != null) _btnEliminar.Enabled = hay;
+        if (_btnReqs     != null) _btnReqs.Enabled     = hay;
+        _btnExcel.Enabled = hay;
         _lblObjetivo.Text = _sprint?.Goal is { Length: > 0 } g ? $"🎯 {g}" : "";
 
         if (_sprint == null || _avance == null)
@@ -228,14 +491,32 @@ public class SprintControl : UserControl
         _kpiDias.Text = a.DiasRestantes.ToString();
 
         _grid.Rows.Clear();
+        bool soloMios = _chkSoloMios?.Checked == true;
+        int ocultos = 0;
         foreach (var r in _reqs)
         {
+            bool mio = _mios.Contains(r.Id);
+            if (soloMios && !mio) { ocultos++; continue; }
+
             int i = _grid.Rows.Add(
+                mio ? "👤" : "",
                 EtiquetaEstado(r.Status),
                 r.Title,
                 r.Status == RequirementStatus.Entregado ? "100%" : $"{r.ProgressPercent}%",
                 r.CommittedDeliveryDate?.ToString("dd/MM") ?? "—",
                 r.ActualDeliveryDate?.ToString("dd/MM") ?? "—");
+
+            // Lo mío, resaltado por FONDO —no por color de texto—: el texto ya lleva el color del
+            // estado y el rojo del compromiso vencido, y pisarlos borraría la señal importante.
+            // SelectionBackColor explícito o el resaltado se apaga justo al seleccionar la fila.
+            if (mio)
+            {
+                var fila = _grid.Rows[i].DefaultCellStyle;
+                fila.BackColor = Color.FromArgb(254, 249, 195);
+                fila.SelectionBackColor = Color.FromArgb(253, 230, 138);
+                fila.SelectionForeColor = AppTheme.TextPrimary;
+                _grid.Rows[i].Cells["Titulo"].Style.Font = AppTheme.BoldFont;
+            }
 
             // El color del estado, legible también en la fila seleccionada (gotcha de MakeGrid).
             var c = AppTheme.StatusColor(r.Status);
@@ -251,12 +532,28 @@ public class SprintControl : UserControl
             }
         }
 
-        _lblEstado.Text = _reqs.Count == 0
-            ? "Este sprint no tiene requerimientos: 📋 Requerimientos… para colgarle trabajo."
-            : $"{a.TotalRequerimientos} requerimiento(s)" +
-              (a.Cancelados > 0 ? $" (+{a.Cancelados} cancelado(s), fuera del cálculo)" : "") +
-              $"  ·  {a.EnCurso} en curso  ·  {a.SinEmpezar} sin empezar.  " +
-              "En la línea de tiempo: ▲ entregado, △ compromiso, sombreado = fin de semana.";
+        if (_reqs.Count == 0)
+        {
+            _lblEstado.Text = _esAdmin
+                ? "Este sprint no tiene requerimientos: 📋 Requerimientos… para colgarle trabajo."
+                : "Este sprint todavía no tiene requerimientos.";
+        }
+        else
+        {
+            var partes = new List<string>
+            {
+                $"{a.TotalRequerimientos} requerimiento(s)" +
+                (a.Cancelados > 0 ? $" (+{a.Cancelados} cancelado(s), fuera del cálculo)" : "") +
+                $"  ·  {a.EnCurso} en curso  ·  {a.SinEmpezar} sin empezar."
+            };
+            if (soloMios) partes.Add($"Mostrando solo los míos ({_mios.Count}); {ocultos} oculto(s).");
+            // Sin ficha ligada no hay «lo mío» que resaltar: decirlo evita que la persona crea
+            // que el sprint no trae trabajo suyo.
+            else if (!_esAdmin && !_tieneFicha) partes.Add("Tu cuenta no está ligada a una ficha de desarrollador: no se resalta nada como tuyo.");
+            else if (!_esAdmin) partes.Add($"👤 = asignado a ti ({_mios.Count}).");
+            partes.Add("En la línea de tiempo: ▲ entregado, △ compromiso, sombreado = fin de semana.");
+            _lblEstado.Text = string.Join("  ", partes);
+        }
 
         _pnlTimeline.Invalidate();
     }
@@ -431,6 +728,66 @@ public class SprintControl : UserControl
         });
     }
 
+    private void ExportarExcel()
+    {
+        if (_sprint == null || _avance == null) return;
+
+        var path = _report.PromptSaveDialog($"Sprint_{Limpiar(_sprint.Name)}_{_sprint.StartDate:yyyyMMdd}");
+        if (path == null) return;
+
+        var a = _avance;
+        // La cabecera del sprint va como filas antes del detalle: quien abra el archivo dentro de
+        // tres meses tiene que poder saber de qué sprint hablamos y cómo iba AL EXPORTARLO — el
+        // avance es una foto del día, no un dato del requerimiento.
+        var filas = new List<object?[]>
+        {
+            new object?[] { "Sprint",           _sprint.Name },
+            new object?[] { "Objetivo",         _sprint.Goal ?? "—" },
+            new object?[] { "Periodo",          $"{_sprint.StartDate:dd/MM/yyyy} – {_sprint.EndDate:dd/MM/yyyy}  ({a.DiasTotales} días)" },
+            new object?[] { "Estado",           a.Veredicto },
+            new object?[] { "Avance real",      $"{a.AvanceRealPct}%" },
+            new object?[] { "Tiempo consumido", $"{a.TiempoPct}%  ({a.DiasTranscurridos} de {a.DiasTotales} días)" },
+            new object?[] { "Entregados",       $"{a.Entregados} de {a.TotalRequerimientos}" },
+            new object?[] { "En curso",         a.EnCurso },
+            new object?[] { "Sin empezar",      a.SinEmpezar },
+            new object?[] { "Cancelados",       a.Cancelados },
+            new object?[] { "Exportado",        DateTime.Now.ToString("dd/MM/yyyy HH:mm") },
+            new object?[] { null, null },
+            new object?[] { "Estado", "Requerimiento", "% avance", "Compromiso", "Entregado", "Estimado (h)" },
+        };
+        foreach (var r in _reqs)
+            filas.Add(new object?[]
+            {
+                EtiquetaEstado(r.Status),
+                r.Title,
+                r.Status == RequirementStatus.Entregado ? 100 : r.ProgressPercent,
+                r.CommittedDeliveryDate?.ToString("dd/MM/yyyy") ?? "",
+                r.ActualDeliveryDate?.ToString("dd/MM/yyyy") ?? "",
+                r.EstimateHours
+            });
+
+        try
+        {
+            // Encabezado de dos columnas porque la primera mitad del archivo son pares
+            // dato/valor; el detalle trae su propia fila de títulos.
+            _report.ExportToExcel(filas, ["Sprint", _sprint.Name], f => f, "Sprint", path);
+        }
+        catch (Exception ex)
+        {
+            Avisar($"No se pudo exportar:\n{ex.Message}");
+            return;
+        }
+
+        _lblEstado.Text = $"Exportado a {path}";
+        if (MessageBox.Show($"Exportado:\n{path}\n\n¿Abrirlo ahora?", "Listo",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+    }
+
+    /// <summary>Quita del nombre lo que Windows no admite en un archivo.</summary>
+    private static string Limpiar(string nombre) =>
+        string.Concat(nombre.Split(Path.GetInvalidFileNameChars())).Replace(' ', '_');
+
     private void Eliminar()
     {
         if (_sprint == null) return;
@@ -452,7 +809,9 @@ public class SprintControl : UserControl
     protected override void OnVisibleChanged(EventArgs e)
     {
         base.OnVisibleChanged(e);
-        if (Visible && _lista.Count > 0) LoadSeguimiento();
+        if (!Visible) return;
+        if (_lista.Count > 0) LoadSeguimiento();
+        if (_esAdmin) LoadHistorico();   // «cerrado» depende de la fecha de hoy: envejece solo
     }
 
     private void Ejecutar(Action accion)

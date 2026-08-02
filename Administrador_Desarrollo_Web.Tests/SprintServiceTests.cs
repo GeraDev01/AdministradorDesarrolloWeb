@@ -38,18 +38,82 @@ public class SprintServiceTests
     // ── Permisos ─────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void TodoElSprint_EsSoloDelAdministrador()
+    public void ElDesarrollador_LEE_elSprint()
     {
+        // La mitad del valor del sprint es que el equipo vea la misma verdad.
         var db = TestDb.New();
+        var s = NuevoSprint(db);
         var dev = Svc(db, Ctx.As(UserRole.Desarrollador, userId: 3));
+
+        Assert.Single(dev.Listar());
+        Assert.Empty(dev.Requerimientos(s.Id));   // no lanza: consulta permitida
+        Assert.NotNull(dev.Avance(s.Id));
+    }
+
+    [Fact]
+    public void ElDesarrollador_NO_ESCRIBE_elSprint()
+    {
+        // El alcance lo compromete el administrador y él responde por él.
+        var db = TestDb.New();
+        var s = NuevoSprint(db);
+        var dev = Svc(db, Ctx.As(UserRole.Desarrollador, userId: 3));
+
+        Assert.Throws<AuthorizationException>(() => dev.Crear("Sprint X", null, DateTime.Today, DateTime.Today.AddDays(10)));
+        Assert.Throws<AuthorizationException>(() => dev.Actualizar(s.Id, "Otro nombre", null, DateTime.Today, DateTime.Today.AddDays(5)));
+        Assert.Throws<AuthorizationException>(() => dev.FijarRequerimientos(s.Id, []));
+        Assert.Throws<AuthorizationException>(() => dev.Eliminar(s.Id));
+        Assert.Throws<AuthorizationException>(() => dev.Historico());   // la velocidad es del jefe
+    }
+
+    [Fact]
+    public void Operaciones_QuedaFueraDeTodoElSprint()
+    {
+        // Guarda positiva por rol: abrir la lectura al desarrollador no puede regalársela a
+        // Operaciones de paso. Su alcance son los despliegues.
+        var db = TestDb.New();
+        var s = NuevoSprint(db);
         var ops = Svc(db, Ctx.As(UserRole.Operaciones, userId: 4));
 
-        Assert.Throws<AuthorizationException>(() => dev.Listar());
-        Assert.Throws<AuthorizationException>(() => dev.Crear("Sprint X", null, DateTime.Today, DateTime.Today.AddDays(10)));
-        Assert.Throws<AuthorizationException>(() => dev.Requerimientos(1));
-        Assert.Throws<AuthorizationException>(() => dev.FijarRequerimientos(1, []));
-        Assert.Throws<AuthorizationException>(() => dev.Eliminar(1));
         Assert.Throws<AuthorizationException>(() => ops.Listar());
+        Assert.Throws<AuthorizationException>(() => ops.Requerimientos(s.Id));
+        Assert.Throws<AuthorizationException>(() => ops.Avance(s.Id));
+        Assert.Throws<AuthorizationException>(() => ops.MisRequerimientos(s.Id));
+    }
+
+    [Fact]
+    public void MisRequerimientos_SoloLosAsignadosAQuienConsulta()
+    {
+        var db = TestDb.New();
+        var s = NuevoSprint(db);
+        var yo   = new Developer { FullName = "Ana", IsActive = true };
+        var otro = new Developer { FullName = "Beto", IsActive = true };
+        db.Developers.AddRange(yo, otro); db.SaveChanges();
+
+        var mio   = Req(db, "mío", sprintId: s.Id);
+        var ajeno = Req(db, "ajeno", sprintId: s.Id);
+        db.Assignments.AddRange(
+            new Assignment { RequirementId = mio.Id,   DeveloperId = yo.Id },
+            new Assignment { RequirementId = ajeno.Id, DeveloperId = otro.Id });
+        db.SaveChanges();
+
+        var dev = Svc(db, Ctx.As(UserRole.Desarrollador, userId: 3, developerId: yo.Id));
+        var mios = dev.MisRequerimientos(s.Id);
+
+        Assert.Equal([mio.Id], mios);
+        // Pero SÍ ve el sprint completo: el resaltado es una ayuda, no un filtro de seguridad.
+        Assert.Equal(2, dev.Requerimientos(s.Id).Count);
+    }
+
+    [Fact]
+    public void MisRequerimientos_SinFichaLigada_DevuelveVacioSinLanzar()
+    {
+        // Caso real: cuentas sin ficha de desarrollador. La pantalla lo dice en vez de reventar.
+        var db = TestDb.New();
+        var s = NuevoSprint(db);
+        Req(db, "algo", sprintId: s.Id);
+
+        var sinFicha = Svc(db, Ctx.As(UserRole.Desarrollador, userId: 3));
+        Assert.Empty(sinFicha.MisRequerimientos(s.Id));
     }
 
     // ── Alta y validación ────────────────────────────────────────────────────────
@@ -159,6 +223,77 @@ public class SprintServiceTests
         Assert.Empty(db.Sprints.AsNoTracking().ToList());
         var vivo = db.Requirements.AsNoTracking().Single(r => r.Id == a.Id);
         Assert.Null(vivo.SprintId);   // sin sprint, pero VIVO
+    }
+
+    // ── Histórico y velocidad ────────────────────────────────────────────────────
+
+    [Fact]
+    public void Historico_VaDelMasViejoAlMasNuevo_YCuentaBien()
+    {
+        var db = TestDb.New();
+        var viejo = NuevoSprint(db, "Sprint 1", DateTime.Today.AddDays(-40), DateTime.Today.AddDays(-27));
+        var nuevo = NuevoSprint(db, "Sprint 2", DateTime.Today.AddDays(-5), DateTime.Today.AddDays(8));
+        Req(db, "a", RequirementStatus.Entregado, sprintId: viejo.Id);
+        Req(db, "b", RequirementStatus.Entregado, sprintId: viejo.Id);
+        Req(db, "c", RequirementStatus.EnDesarrollo, sprintId: viejo.Id);
+        Req(db, "d", RequirementStatus.Cancelado, sprintId: viejo.Id);
+        Req(db, "e", RequirementStatus.EnDesarrollo, sprintId: nuevo.Id);
+
+        var h = Admin(db).Historico();
+
+        Assert.Equal(["Sprint 1", "Sprint 2"], h.Select(x => x.Name));   // cronológico: la gráfica se lee así
+        var s1 = h[0];
+        Assert.Equal(3, s1.Total);          // el cancelado NO cuenta como comprometido
+        Assert.Equal(1, s1.Cancelados);     // pero se reporta aparte
+        Assert.Equal(2, s1.Entregados);
+        Assert.Equal(67, s1.CompletadoPct); // 2/3 redondeado lejos del cero
+        Assert.True(s1.Cerrado);
+        Assert.False(h[1].Cerrado);         // el que corre hoy no está cerrado
+    }
+
+    [Fact]
+    public void Velocidad_SoloPromediaSprintsCerrados()
+    {
+        // Un sprint que empezó ayer arrastraría el promedio hacia abajo y haría creer que el
+        // equipo rinde menos de lo que rinde.
+        var cerrado1 = new SprintResumen(1, "S1", DateTime.Today.AddDays(-30), DateTime.Today.AddDays(-20), 5, 4, 0, 80, 11, Cerrado: true);
+        var cerrado2 = new SprintResumen(2, "S2", DateTime.Today.AddDays(-19), DateTime.Today.AddDays(-9), 6, 6, 0, 100, 11, Cerrado: true);
+        var enCurso  = new SprintResumen(3, "S3", DateTime.Today.AddDays(-1), DateTime.Today.AddDays(9), 6, 0, 0, 0, 11, Cerrado: false);
+
+        var (velocidad, cuantos) = SprintService.Velocidad([cerrado1, cerrado2, enCurso]);
+
+        Assert.Equal(5.0, velocidad);   // (4 + 6) / 2, sin el que corre
+        Assert.Equal(2, cuantos);
+    }
+
+    [Fact]
+    public void Velocidad_SinSprintsCerrados_EsCeroYLoDice()
+    {
+        var enCurso = new SprintResumen(1, "S1", DateTime.Today, DateTime.Today.AddDays(10), 4, 1, 0, 25, 11, Cerrado: false);
+
+        var (velocidad, cuantos) = SprintService.Velocidad([enCurso]);
+
+        Assert.Equal(0, velocidad);
+        Assert.Equal(0, cuantos);   // la UI usa esto para poner «—» en vez de un 0 engañoso
+    }
+
+    [Fact]
+    public void Historico_SprintVacio_NoDividePorCero()
+    {
+        var db = TestDb.New();
+        NuevoSprint(db, "Vacío", DateTime.Today.AddDays(-20), DateTime.Today.AddDays(-10));
+
+        var h = Assert.Single(Admin(db).Historico());
+
+        Assert.Equal(0, h.Total);
+        Assert.Equal(0, h.CompletadoPct);
+    }
+
+    [Fact]
+    public void Historico_EsSoloDelAdministrador()
+    {
+        var db = TestDb.New();
+        Assert.Throws<AuthorizationException>(() => Svc(db, Ctx.As(UserRole.Desarrollador, userId: 3)).Historico());
     }
 
     // ── CalcularAvance: la aritmética ────────────────────────────────────────────

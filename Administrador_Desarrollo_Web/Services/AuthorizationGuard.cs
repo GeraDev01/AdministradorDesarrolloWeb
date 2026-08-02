@@ -49,10 +49,10 @@ public static class AuthorizationGuard
     /// futuro heredarían la lectura en silencio, que es exactamente el error que ya se cometió una
     /// vez (ver la nota de ICurrentUser).
     /// </summary>
-    public static void RequireAdminOrDesarrollador(ICurrentUser user)
+    public static void RequireAdminOrDesarrollador(ICurrentUser user, string ambito = "de la biblioteca de plantillas")
     {
         RequireLoggedIn(user);
         if (user.IsAdmin || user.IsDesarrollador) return;
-        throw new AuthorizationException("Esta operación es de la biblioteca de plantillas (Administrador o Desarrollador).");
+        throw new AuthorizationException($"Esta operación es {ambito} (Administrador o Desarrollador).");
     }
 }

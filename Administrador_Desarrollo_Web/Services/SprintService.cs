@@ -1,4 +1,4 @@
-using Administrador_Desarrollo_Web.Data;
+﻿using Administrador_Desarrollo_Web.Data;
 using Administrador_Desarrollo_Web.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -25,10 +25,24 @@ public sealed record SprintAvance(
     int DiasTotales, int DiasTranscurridos, int DiasRestantes,
     string Veredicto);
 
+/// <summary>Cómo terminó (o va) un sprint, para la vista de histórico y velocidad.</summary>
+/// <param name="Total">Requerimientos del sprint sin contar cancelados.</param>
+/// <param name="CompletadoPct">Entregados sobre el total; 0 si el sprint no tiene nada.</param>
+/// <param name="Cerrado">Su última fecha ya pasó. Solo los cerrados cuentan para la velocidad.</param>
+public sealed record SprintResumen(
+    int SprintId, string Name, DateTime StartDate, DateTime EndDate,
+    int Total, int Entregados, int Cancelados, int CompletadoPct, int DiasTotales, bool Cerrado);
+
 /// <summary>
 /// Sprints: el administrador fija las fechas, cuelga requerimientos y ve el avance en una línea
-/// de tiempo. TODO es de administrador — el sprint es su herramienta de seguimiento; el
-/// desarrollador ya ve lo suyo en «Mis Asignaciones».
+/// de tiempo.
+///
+/// LECTURA (Listar, Requerimientos, Avance, MisRequerimientos): también del desarrollador. La
+/// mitad del valor de un sprint es que el equipo vea la MISMA verdad; uno que solo ve el jefe
+/// genera la pregunta diaria de «¿cómo vamos?» que la pantalla venía a eliminar.
+/// ESCRITURA (Crear, Actualizar, Eliminar, FijarRequerimientos, Historico): solo administrador —
+/// él compromete el alcance y él responde por él.
+/// Operaciones queda fuera de todo: su alcance son los despliegues.
 /// </summary>
 public class SprintService
 {
@@ -52,7 +66,7 @@ public class SprintService
     /// <summary>Todos los sprints, el más reciente primero.</summary>
     public List<Sprint> Listar()
     {
-        AuthorizationGuard.RequireAdmin(_currentUser);
+        AuthorizationGuard.RequireAdminOrDesarrollador(_currentUser, "de consulta del sprint");
         return _db.Sprints.AsNoTracking()
             .OrderByDescending(s => s.StartDate).ThenByDescending(s => s.Id)
             .ToList();
@@ -61,11 +75,76 @@ public class SprintService
     /// <summary>Los requerimientos del sprint (AsNoTracking: el contexto es Singleton).</summary>
     public List<Requirement> Requerimientos(int sprintId)
     {
-        AuthorizationGuard.RequireAdmin(_currentUser);
+        AuthorizationGuard.RequireAdminOrDesarrollador(_currentUser, "de consulta del sprint");
         return _db.Requirements.AsNoTracking()
             .Where(r => r.SprintId == sprintId)
             .OrderBy(r => r.Status).ThenBy(r => r.CommittedDeliveryDate ?? DateTime.MaxValue)
             .ToList();
+    }
+
+    /// <summary>
+    /// Los ids de los requerimientos del sprint asignados a QUIEN CONSULTA, para resaltarlos.
+    /// Vacío si la cuenta no está ligada a una ficha de desarrollador (caso real: cuentas de
+    /// administración sin ficha) — la pantalla lo dice en vez de resaltar nada.
+    /// </summary>
+    public HashSet<int> MisRequerimientos(int sprintId)
+    {
+        AuthorizationGuard.RequireAdminOrDesarrollador(_currentUser, "de consulta del sprint");
+        if (_currentUser.DeveloperId is not int devId) return [];
+        return _db.Requirements.AsNoTracking()
+            .Where(r => r.SprintId == sprintId && r.Assignments.Any(a => a.DeveloperId == devId))
+            .Select(r => r.Id)
+            .ToHashSet();
+    }
+
+    /// <summary>
+    /// Todos los sprints con su resultado, del más viejo al más nuevo (así la gráfica se lee de
+    /// izquierda a derecha en el tiempo). Es la vista de VELOCIDAD: con tres o cuatro sprints
+    /// cerrados se sabe cuánto entrega el equipo de verdad, que es la única base honesta para
+    /// comprometer el siguiente.
+    /// </summary>
+    public List<SprintResumen> Historico()
+    {
+        AuthorizationGuard.RequireAdmin(_currentUser);
+
+        var sprints = _db.Sprints.AsNoTracking().OrderBy(s => s.StartDate).ThenBy(s => s.Id).ToList();
+        if (sprints.Count == 0) return [];
+
+        // Un solo agregado en la base en vez de una consulta por sprint: con veinte sprints, el
+        // N+1 se nota en una base remota.
+        var conteos = _db.Requirements.AsNoTracking()
+            .Where(r => r.SprintId != null)
+            .GroupBy(r => new { SprintId = r.SprintId!.Value, r.Status })
+            .Select(g => new { g.Key.SprintId, g.Key.Status, Cuantos = g.Count() })
+            .ToList();
+
+        var hoy = DateTime.Today;
+        return sprints.Select(s =>
+        {
+            var suyos = conteos.Where(c => c.SprintId == s.Id).ToList();
+            int cancelados = suyos.Where(c => c.Status == RequirementStatus.Cancelado).Sum(c => c.Cuantos);
+            int total      = suyos.Sum(c => c.Cuantos) - cancelados;
+            int entregados = suyos.Where(c => c.Status == RequirementStatus.Entregado).Sum(c => c.Cuantos);
+
+            return new SprintResumen(
+                s.Id, s.Name, s.StartDate, s.EndDate,
+                Total: total, Entregados: entregados, Cancelados: cancelados,
+                CompletadoPct: total == 0 ? 0 : (int)Math.Round(entregados * 100.0 / total, MidpointRounding.AwayFromZero),
+                DiasTotales: (s.EndDate.Date - s.StartDate.Date).Days + 1,
+                Cerrado: hoy > s.EndDate.Date);
+        }).ToList();
+    }
+
+    /// <summary>
+    /// Promedio de requerimientos entregados por sprint CERRADO — la velocidad del equipo. Los
+    /// sprints en curso quedan fuera a propósito: uno que empezó ayer arrastraría el promedio
+    /// hacia abajo y haría creer que el equipo rinde menos de lo que rinde.
+    /// </summary>
+    public static (double velocidad, int sprintsContados) Velocidad(IReadOnlyList<SprintResumen> historico)
+    {
+        var cerrados = historico.Where(h => h.Cerrado).ToList();
+        if (cerrados.Count == 0) return (0, 0);
+        return (cerrados.Average(h => h.Entregados), cerrados.Count);
     }
 
     // ── Alta, edición y baja ─────────────────────────────────────────────────────
@@ -192,7 +271,7 @@ public class SprintService
     /// <summary>Avance del sprint contra hoy (fecha local).</summary>
     public SprintAvance Avance(int sprintId)
     {
-        AuthorizationGuard.RequireAdmin(_currentUser);
+        AuthorizationGuard.RequireAdminOrDesarrollador(_currentUser, "de consulta del sprint");
         var s = _db.Sprints.AsNoTracking().First(x => x.Id == sprintId);
         return CalcularAvance(s, Requerimientos(sprintId), DateTime.Today);
     }
