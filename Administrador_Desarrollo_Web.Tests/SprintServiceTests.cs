@@ -267,6 +267,33 @@ public class SprintServiceTests
     }
 
     [Fact]
+    public void Velocidad_IgnoraLosCerradosSinTrabajo()
+    {
+        // Un sprint que nunca se pobló —o al que le cancelaron todo— aporta un cero que NO es un
+        // fracaso: contarlo hundiría la velocidad y haría comprometer de menos el siguiente.
+        var conTrabajo = new SprintResumen(1, "S1", DateTime.Today.AddDays(-30), DateTime.Today.AddDays(-20), 5, 4, 0, 80, 11, Cerrado: true);
+        var vacio      = new SprintResumen(2, "S2", DateTime.Today.AddDays(-19), DateTime.Today.AddDays(-9), 0, 0, 0, 0, 11, Cerrado: true);
+
+        var (velocidad, cuantos) = SprintService.Velocidad([conTrabajo, vacio]);
+
+        Assert.Equal(4.0, velocidad);   // no 2.0
+        Assert.Equal(1, cuantos);
+    }
+
+    [Fact]
+    public void Velocidad_UnCeroCONtrabajo_SiCuenta()
+    {
+        // Aquí el cero es real: se comprometieron cinco y no salió ninguno.
+        var fracaso = new SprintResumen(1, "S1", DateTime.Today.AddDays(-30), DateTime.Today.AddDays(-20), 5, 0, 0, 0, 11, Cerrado: true);
+        var bueno   = new SprintResumen(2, "S2", DateTime.Today.AddDays(-19), DateTime.Today.AddDays(-9), 4, 4, 0, 100, 11, Cerrado: true);
+
+        var (velocidad, cuantos) = SprintService.Velocidad([fracaso, bueno]);
+
+        Assert.Equal(2.0, velocidad);
+        Assert.Equal(2, cuantos);
+    }
+
+    [Fact]
     public void Velocidad_SinSprintsCerrados_EsCeroYLoDice()
     {
         var enCurso = new SprintResumen(1, "S1", DateTime.Today, DateTime.Today.AddDays(10), 4, 1, 0, 25, 11, Cerrado: false);

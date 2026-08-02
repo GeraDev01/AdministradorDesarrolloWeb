@@ -136,13 +136,16 @@ public class SprintService
     }
 
     /// <summary>
-    /// Promedio de requerimientos entregados por sprint CERRADO — la velocidad del equipo. Los
-    /// sprints en curso quedan fuera a propósito: uno que empezó ayer arrastraría el promedio
-    /// hacia abajo y haría creer que el equipo rinde menos de lo que rinde.
+    /// Promedio de requerimientos entregados por sprint CERRADO Y CON TRABAJO — la velocidad del
+    /// equipo. Los sprints en curso quedan fuera a propósito: uno que empezó ayer arrastraría el
+    /// promedio hacia abajo y haría creer que el equipo rinde menos de lo que rinde.
     /// </summary>
     public static (double velocidad, int sprintsContados) Velocidad(IReadOnlyList<SprintResumen> historico)
     {
-        var cerrados = historico.Where(h => h.Cerrado).ToList();
+        // Con trabajo comprometido: un sprint cerrado que nunca se pobló —o al que le cancelaron
+        // todo— aportaría un cero que no es un fracaso y hundiría el promedio. Uno con Total > 0 y
+        // cero entregados SÍ cuenta: ahí el cero es real.
+        var cerrados = historico.Where(h => h.Cerrado && h.Total > 0).ToList();
         if (cerrados.Count == 0) return (0, 0);
         return (cerrados.Average(h => h.Entregados), cerrados.Count);
     }

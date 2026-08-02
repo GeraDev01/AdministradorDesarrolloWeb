@@ -235,7 +235,13 @@ public partial class DeploymentControl
             respaldarTargets = _directBackupIds;   // por servidor
             respaldoDesc = _directBackupIds.Count == targetCount ? "todos"
                          : _directBackupIds.Count == 0 ? "ninguno" : $"{_directBackupIds.Count} de {targetCount}";
-            destinoDesc = $"{targetCount} servidor(es) seleccionados";
+            // Los NOMBRES, no solo el conteo: el perfil de selección directa se reescribe en cada
+            // despliegue, así que sin congelarlos aquí el historial dice «⚡ Selección directa» y
+            // ya no hay forma de saber a qué servidores fue.
+            var nombres = _db.DeploymentTargets.AsNoTracking()
+                .Where(t => _directTargetIds.Contains(t.Id)).OrderBy(t => t.Nombre)
+                .Select(t => t.Nombre).ToList();
+            destinoDesc = $"{targetCount} servidor(es): {string.Join(", ", nombres)}";
         }
         else
         {

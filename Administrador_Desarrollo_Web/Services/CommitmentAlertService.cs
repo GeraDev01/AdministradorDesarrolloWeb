@@ -84,14 +84,19 @@ public class CommitmentAlertService
     /// <summary>
     /// Revisa los compromisos de TODOS y crea los avisos que falten. Devuelve cuántos creó.
     ///
-    /// Sin guarda de rol a propósito: no expone datos a nadie —solo escribe avisos dirigidos a
-    /// cada desarrollador— y la dispara el temporizador de la aplicación, que corre con la sesión
-    /// que esté abierta, sea del rol que sea.
+    /// La dispara el temporizador de la aplicación con la sesión del ADMINISTRADOR (ver
+    /// MainForm.RevisarCompromisos): escribe avisos para todo el equipo, así que un solo escritor
+    /// reduce las carreras entre instancias — el respaldo definitivo es el índice único sobre
+    /// (ForUserId, DedupeKey).
+    ///
+    /// Todo el trabajo se hace en TRES consultas fijas y no en dos por aviso. Corre en el hilo de
+    /// UI cada cinco minutos: con doscientos compromisos, un viaje por aviso contra una base
+    /// remota congelaba la ventana varios segundos en cada ciclo.
     /// </summary>
     public int RevisarYAvisar(DateTime? hoyLocal = null)
     {
-        // Solo lo que puede vencer: sin fecha comprometida no hay nada que avisar, y entregado o
-        // cancelado ya no corre. El filtro va en la BASE para no traer el histórico completo.
+        // (1) Solo lo que puede vencer: sin fecha comprometida no hay nada que avisar, y entregado
+        // o cancelado ya no corre. El filtro va en la BASE para no traer el histórico completo.
         var candidatos = _db.Requirements.AsNoTracking()
             .Where(r => r.CommittedDeliveryDate != null
                      && r.Status != RequirementStatus.Entregado
@@ -103,16 +108,59 @@ public class CommitmentAlertService
             .SelectMany(c => c.DevIds.Distinct().Select(d => (c.Req, developerId: d)))
             .ToList();
 
-        int creados = 0;
-        foreach (var a in Calcular(asignados, hoyLocal ?? DateTime.Today))
+        var avisos = Calcular(asignados, hoyLocal ?? DateTime.Today);
+        if (avisos.Count == 0) return 0;
+
+        // (2) Los usuarios de todos los desarrolladores del lote, de una vez.
+        var devIds = avisos.Select(a => a.DeveloperId).Distinct().ToList();
+        var usuarioDe = _db.Users.AsNoTracking()
+            .Where(u => u.DeveloperId != null && devIds.Contains(u.DeveloperId.Value) && u.IsActive)
+            .Select(u => new { DevId = u.DeveloperId!.Value, u.Id })
+            .ToList()
+            .GroupBy(x => x.DevId)
+            .ToDictionary(g => g.Key, g => g.First().Id);
+
+        // (3) Los avisos que YA existen, de una vez. Es el reemplazo del Any() por aviso.
+        var claves = avisos.Select(a => a.DedupeKey).Distinct().ToList();
+        var yaAvisado = _db.Notifications.AsNoTracking()
+            .Where(n => n.DedupeKey != null && claves.Contains(n.DedupeKey))
+            .Select(n => new { n.ForUserId, n.DedupeKey })
+            .ToList()
+            .Select(n => (n.ForUserId, n.DedupeKey))
+            .ToHashSet();
+
+        var nuevos = new List<Notification>();
+        foreach (var a in avisos)
         {
-            bool ok = _notif.NotifyDeveloper(
-                a.DeveloperId, NotificationKind.CompromisoPorVencer,
-                $"Compromiso: {a.Etiqueta}",
-                $"«{a.Titulo}» está comprometido para el {a.FechaCompromiso:dd/MM/yyyy} y {a.Etiqueta}.",
-                url: "my-assignments", dedupeKey: a.DedupeKey);
-            if (ok) creados++;
+            if (!usuarioDe.TryGetValue(a.DeveloperId, out var userId)) continue;   // sin cuenta activa
+            if (!yaAvisado.Add((userId, (string?)a.DedupeKey))) continue;          // ya estaba, o repetido en el lote
+
+            nuevos.Add(new Notification
+            {
+                ForUserId = userId,
+                Kind = NotificationKind.CompromisoPorVencer,
+                Title = $"Compromiso: {a.Etiqueta}",
+                Message = $"«{a.Titulo}» está comprometido para el {a.FechaCompromiso:dd/MM/yyyy} y {a.Etiqueta}.",
+                // Url se deja en NULL a propósito: ese campo lo abre el shell al hacer doble clic,
+                // así que una clave de navegación interna fallaría en silencio. Sin Url, la
+                // pantalla de Avisos muestra el mensaje completo, que es lo que hace falta.
+                Url = null,
+                DedupeKey = a.DedupeKey,
+                CreatedAt = DateTime.UtcNow
+            });
         }
-        return creados;
+        if (nuevos.Count == 0) return 0;
+
+        _db.Notifications.AddRange(nuevos);
+        try { _db.SaveChanges(); }
+        catch (DbUpdateException)
+        {
+            // Otra instancia insertó el mismo aviso entre la lectura y el guardado: el índice
+            // único lo rechaza y está bien — el aviso ya existe. Se desanclan para no envenenar el
+            // contexto Singleton y se sigue: duplicar un recordatorio es peor que perderlo.
+            foreach (var n in nuevos) _db.Entry(n).State = EntityState.Detached;
+            return 0;
+        }
+        return nuevos.Count;
     }
 }

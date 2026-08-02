@@ -1,4 +1,4 @@
-using Administrador_Desarrollo_Web.Models;
+﻿using Administrador_Desarrollo_Web.Models;
 using Administrador_Desarrollo_Web.Services;
 
 namespace Administrador_Desarrollo_Web.Forms.Controls;
@@ -93,9 +93,14 @@ public class NotificationsControl : UserControl
         if (e.RowIndex < 0 || e.RowIndex >= _items.Count) return;
         var n = _items[e.RowIndex];
         if (n.ReadAt == null) { _notif.MarkRead(n.Id); UnreadChanged?.Invoke(); }
-        if (!string.IsNullOrEmpty(n.Url))
-            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(n.Url) { UseShellExecute = true }); } catch { }
-        else if (!string.IsNullOrWhiteSpace(n.Message))   // sin enlace (p. ej. un comunicado): se lee completo aquí
+        // Solo http(s): este campo lo abre el SHELL, así que cualquier otra cosa —una clave de
+        // navegación interna, un valor mal capturado— fallaría en silencio y, peor, se saltaría
+        // el mensaje completo de abajo dejando el doble clic sin hacer nada.
+        if (n.Url is { Length: > 0 } destino
+            && Uri.TryCreate(destino, UriKind.Absolute, out var uri)
+            && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(destino) { UseShellExecute = true }); } catch { }
+        else if (!string.IsNullOrWhiteSpace(n.Message))   // sin enlace usable: se lee completo aquí
             MessageBox.Show(n.Message, n.Title, MessageBoxButtons.OK, MessageBoxIcon.Information);
         LoadData();
     }

@@ -1,4 +1,4 @@
-using Administrador_Desarrollo_Web.Data;
+﻿using Administrador_Desarrollo_Web.Data;
 using Administrador_Desarrollo_Web.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -222,7 +222,29 @@ public class DeploymentScheduleService
 
         try
         {
-            var job = await _deploy.DeployAsync(cita.AppReleaseId, cita.DeploymentProfileId, progress, ct);
+            // Un despliegue programado no tiene checklist humano: nadie estaba frente a la
+            // pantalla. Aun así deja evidencia AUTOMÁTICA — quién lo agendó, para cuándo y con qué
+            // notas — o el expediente lo confundiría con un despliegue anterior a la función y le
+            // atribuiría la decisión a quien solo tenía la aplicación abierta a esa hora.
+            var quienAgendo = cita.CreatedByUserId is int uid
+                ? await db.Users.AsNoTracking().Where(u => u.Id == uid)
+                      .Select(u => string.IsNullOrWhiteSpace(u.FullName) ? u.Username : u.FullName)
+                      .FirstOrDefaultAsync(ct) ?? $"usuario #{uid}"
+                : "(desconocido)";
+            var lineas = new List<string>
+            {
+                "DESPLIEGUE PROGRAMADO (sin checklist: se ejecutó solo, sin nadie delante)",
+                $"Agendado por : {quienAgendo}",
+                $"Agendado el  : {cita.CreatedAt.ToLocalTime():dd/MM/yyyy HH:mm}",
+                $"Programado a : {cita.ScheduledAtUtc.ToLocalTime():dd/MM/yyyy HH:mm}",
+                $"Ejecutado el : {DateTime.Now:dd/MM/yyyy HH:mm}"
+            };
+            if (!string.IsNullOrWhiteSpace(cita.Notes))
+                lineas.Add($"{Environment.NewLine}Nota de la programación: {cita.Notes.Trim()}");
+            var evidencia = string.Join(Environment.NewLine, lineas);
+
+            var job = await _deploy.DeployAsync(cita.AppReleaseId, cita.DeploymentProfileId, progress, ct,
+                evidenciaChecklist: evidencia);
 
             cita.DeploymentJobId = job.Id;
             cita.Status = job.Status == JobStatus.Completado

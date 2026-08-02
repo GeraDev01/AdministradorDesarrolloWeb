@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 
 namespace Administrador_Desarrollo_Web.Data;
 
@@ -706,6 +706,11 @@ public static class DatabaseMigrator
                 ""ReadAt""    TEXT
             );");
         try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Notif_User_Read"" ON ""Notifications""(""ForUserId"",""ReadAt"")"); } catch { }
+        // Índice único PARCIAL: es el respaldo real del dedupe de avisos. La comprobación en
+        // código es un lee-luego-inserta sin transacción, y con dos instancias abiertas el mismo
+        // recordatorio se duplicaba. FILTRADO por DedupeKey NOT NULL a propósito: hay avisos
+        // legítimos sin clave (los de asignación), y sin el filtro solo cabría UNO por usuario.
+        try { db.Database.ExecuteSqlRaw(@"CREATE UNIQUE INDEX IF NOT EXISTS ""UX_Notif_Dedupe"" ON ""Notifications""(""ForUserId"",""DedupeKey"") WHERE ""DedupeKey"" IS NOT NULL"); } catch { }
 
         db.Database.ExecuteSqlRaw(@"
             CREATE TABLE IF NOT EXISTS ""DevOpsAssignmentsSeen"" (
@@ -1175,6 +1180,12 @@ CREATE TABLE [Notifications] (
     [ReadAt] datetime2 NULL
 );");
         ExecIndex("Notifications", "IX_Notif_User_Read", "ForUserId", "[ForUserId],[ReadAt]");
+        // Directo y NO por ExecIndex: ese helper omite el índice si ya existe otro que empiece
+        // por la misma columna, y IX_Notif_User_Read ya empieza por ForUserId — nunca se crearía.
+        // Filtrado por DedupeKey NOT NULL: en SQL Server NULL es un valor comparable en un índice
+        // único, así que sin el filtro solo cabría un aviso sin clave por usuario.
+        Exec(@"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='UX_Notif_Dedupe' AND object_id=OBJECT_ID('Notifications'))
+CREATE UNIQUE INDEX [UX_Notif_Dedupe] ON [Notifications]([ForUserId],[DedupeKey]) WHERE [DedupeKey] IS NOT NULL;");
 
         // ── Sugerencias / propuestas de mejora ─────────────────────
         Exec(@"

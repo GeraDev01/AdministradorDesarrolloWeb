@@ -1,4 +1,4 @@
-using Administrador_Desarrollo_Web.Models;
+﻿using Administrador_Desarrollo_Web.Models;
 using Administrador_Desarrollo_Web.Services;
 
 namespace Administrador_Desarrollo_Web.Forms.Controls;
@@ -20,6 +20,8 @@ public class MyPresenceControl : UserControl
     private DateTimePicker _dtpDesde = null!, _dtpHasta = null!;
     private DataGridView _grid = null!;
     private Label _lblResumen = null!;
+    /// <summary>Mientras se mueven las dos fechas a la vez, sus eventos no recargan.</summary>
+    private bool _suspendido;
 
     public MyPresenceControl(PresenceService presence)
     {
@@ -50,12 +52,12 @@ public class MyPresenceControl : UserControl
         };
         barra.Controls.Add(new Label { Text = "Del:", AutoSize = true, Margin = new Padding(0, 8, 6, 0) });
         _dtpDesde = new DateTimePicker { Width = 130, Format = DateTimePickerFormat.Short, Margin = new Padding(0, 3, 8, 0) };
-        _dtpDesde.ValueChanged += (_, _) => LoadData();
+        _dtpDesde.ValueChanged += Recargar;
         barra.Controls.Add(_dtpDesde);
 
         barra.Controls.Add(new Label { Text = "al:", AutoSize = true, Margin = new Padding(0, 8, 6, 0) });
         _dtpHasta = new DateTimePicker { Width = 130, Format = DateTimePickerFormat.Short, Margin = new Padding(0, 3, 12, 0) };
-        _dtpHasta.ValueChanged += (_, _) => LoadData();
+        _dtpHasta.ValueChanged += Recargar;
         barra.Controls.Add(_dtpHasta);
 
         // Botones de rango: además de la comodidad, acotan por interfaz lo que se trae a memoria.
@@ -107,15 +109,16 @@ public class MyPresenceControl : UserControl
 
     private void Rango(DateTime desde, DateTime hasta)
     {
-        // Se asignan sin recargar dos veces: el segundo ValueChanged hace el trabajo.
-        _dtpDesde.ValueChanged -= Recargar;
-        _dtpDesde.Value = desde;
-        _dtpDesde.ValueChanged += Recargar;
-        _dtpHasta.Value = hasta;   // este sí dispara
+        // Las dos fechas se mueven como UNA sola operación. Con una bandera y no desenganchando
+        // el manejador: mover solo «del» dispararía una consulta con el «al» todavía viejo, y en
+        // los rangos hacia atrás eso pinta por un instante «el al es anterior al del».
+        _suspendido = true;
+        try { _dtpDesde.Value = desde; _dtpHasta.Value = hasta; }
+        finally { _suspendido = false; }
         LoadData();
     }
 
-    private void Recargar(object? s, EventArgs e) => LoadData();
+    private void Recargar(object? s, EventArgs e) { if (!_suspendido) LoadData(); }
 
     private void LoadData()
     {

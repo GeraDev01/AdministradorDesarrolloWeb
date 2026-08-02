@@ -551,7 +551,11 @@ public class MainForm : ResponsiveForm
     {
         try
         {
-            if (_sp.GetService(typeof(CommitmentAlertService)) is CommitmentAlertService svc)
+            // Solo la sesión del administrador barre: escribe avisos para TODO el equipo, así que
+            // un único escritor evita que N instancias abiertas compitan por crear lo mismo. El
+            // respaldo definitivo es el índice único UX_Notif_Dedupe.
+            if (_currentUser.IsAdmin
+                && _sp.GetService(typeof(CommitmentAlertService)) is CommitmentAlertService svc)
                 svc.RevisarYAvisar();
         }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Compromisos: {ex.Message}"); }

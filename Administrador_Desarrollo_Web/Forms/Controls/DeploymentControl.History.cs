@@ -75,7 +75,11 @@ public partial class DeploymentControl
 
     private void LoadHistory()
     {
-        _jobs = _db.DeploymentJobs
+        // AsNoTracking OBLIGATORIO: el AppDbContext es Singleton y el despliegue corre en su
+        // propio contexto. Sin esto, la resolución de identidad devuelve las instancias que quedaron
+        // rastreadas ANTES de desplegar y la evidencia exportada dice «En curso / 0 correctos» de un
+        // despliegue que ya terminó bien.
+        _jobs = _db.DeploymentJobs.AsNoTracking()
             .Include(j => j.AppRelease).ThenInclude(r => r.AppSystem)
             .Include(j => j.Profile)
             .OrderByDescending(j => j.CreatedAt).Take(200).ToList();
