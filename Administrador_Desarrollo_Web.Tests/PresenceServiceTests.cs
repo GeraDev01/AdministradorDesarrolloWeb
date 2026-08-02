@@ -240,6 +240,107 @@ public class PresenceServiceTests
         Assert.Equal(j.LastSeenUtc, j.EndedAtUtc);
     }
 
+    // ── Mi jornada (cada quien la suya) ──────────────────────────────────────────
+
+    [Fact]
+    public void MisJornadas_SoloDevuelveLasPropias()
+    {
+        // Lo esencial: nadie ve la asistencia de otro. El método ni siquiera acepta un id, así
+        // que no hay forma de pedir las ajenas — esta prueba fija esa garantía.
+        var db = TestDb.New();
+        var ana = Usuario(db, 1, "Ana");
+        var beto = Usuario(db, 2, "Beto");
+        Svc(db, ana).Entrar();
+        Svc(db, beto).Entrar();
+
+        var mias = Svc(db, ana).MisJornadas(DateTime.Today, DateTime.Today);
+
+        Assert.Single(mias);
+        Assert.Equal(2, db.WorkPresences.Count());   // la de Beto existe, pero no es de Ana
+    }
+
+    [Fact]
+    public void MisJornadas_IncluyeElUltimoDiaDelRango()
+    {
+        // El error de una línea: sin AddDays(1) al convertir el «hasta», el último día del rango
+        // se pierde entero y «esta semana» no incluiría hoy.
+        var db = TestDb.New();
+        var ana = Usuario(db, 1, "Ana");
+        Svc(db, ana).Entrar();
+
+        Assert.Single(Svc(db, ana).MisJornadas(DateTime.Today.AddDays(-6), DateTime.Today));
+    }
+
+    [Fact]
+    public void MisJornadas_FueraDelRango_NoAparecen()
+    {
+        var db = TestDb.New();
+        var ana = Usuario(db, 1, "Ana");
+        Svc(db, ana).Entrar();
+
+        var ayer = DateTime.Today.AddDays(-1);
+        Assert.Empty(Svc(db, ana).MisJornadas(ayer.AddDays(-5), ayer));
+    }
+
+    [Fact]
+    public void MisJornadas_ElTotalCuadraConLaDuracionDeCadaUna()
+    {
+        var db = TestDb.New();
+        var ana = Usuario(db, 1, "Ana");
+        var svc = Svc(db, ana);
+        svc.Entrar();
+
+        // Dos horas trabajadas, ya cerradas.
+        var j = db.WorkPresences.Single();
+        j.StartedAtUtc = DateTime.UtcNow.AddHours(-2);
+        j.LastSeenUtc  = DateTime.UtcNow;
+        db.SaveChanges();
+        svc.Salir();
+
+        // El rango cubre ayer: corriendo la prueba de madrugada, «hace 2 horas» es el día anterior.
+        var total = TimeSpan.FromTicks(
+            svc.MisJornadas(DateTime.Today.AddDays(-1), DateTime.Today).Sum(x => x.Duracion.Ticks));
+        Assert.InRange(total.TotalHours, 1.9, 2.1);
+    }
+
+    [Fact]
+    public void MisJornadas_MarcaLaCaidaComoSinLatido()
+    {
+        var db = TestDb.New();
+        var ana = Usuario(db, 1, "Ana");
+        var svc = Svc(db, ana);
+        svc.Entrar();
+        SinLatirDesdeHace(db, 1, PresenceService.ToleranciaSinLatido + TimeSpan.FromMinutes(5));
+        svc.CerrarCaidas();
+
+        var j = Assert.Single(svc.MisJornadas(DateTime.Today, DateTime.Today));
+        Assert.Equal(PresenceEnd.SinLatido, j.Cierre);
+    }
+
+    [Fact]
+    public void MisJornadas_NoBarreJornadasAjenas()
+    {
+        // Consultar el registro propio no puede convertirse en escritura sobre filas de terceros:
+        // CerrarCaidas cierra las de TODOS y un fallo de red volvería la lectura un error.
+        var db = TestDb.New();
+        var ana = Usuario(db, 1, "Ana");
+        var beto = Usuario(db, 2, "Beto");
+        Svc(db, beto).Entrar();
+        SinLatirDesdeHace(db, 2, PresenceService.ToleranciaSinLatido + TimeSpan.FromMinutes(5));
+
+        Svc(db, ana).MisJornadas(DateTime.Today, DateTime.Today);
+
+        Assert.Null(db.WorkPresences.AsNoTracking().Single(p => p.UserId == 2).EndedAtUtc);
+    }
+
+    [Fact]
+    public void MisJornadas_SinSesion_NoDevuelveNada()
+    {
+        var db = TestDb.New();
+        Assert.Throws<AuthorizationException>(
+            () => Svc(db, new CurrentUserContext()).MisJornadas(DateTime.Today, DateTime.Today));
+    }
+
     // ── Estados ──────────────────────────────────────────────────────────────────
 
     [Fact]

@@ -15,6 +15,19 @@ public record PresenciaDeUsuario(
     DateTime UltimoLatidoUtc);
 
 /// <summary>
+/// Una jornada propia, para la pantalla «Mi jornada». Es una proyección y no la entidad: el
+/// ESTADO (comiendo, descanso…) no sale de la capa de servicio, porque no se historiza a
+/// propósito — un registro minutado de las pausas de alguien es vigilancia, no asistencia.
+/// </summary>
+/// <param name="Cierre">Null mientras sigue abierta; SinLatido si se cayó.</param>
+public record MiJornada(
+    DateTime InicioUtc,
+    DateTime? FinUtc,
+    TimeSpan Duracion,
+    PresenceEnd? Cierre,
+    string? Equipo);
+
+/// <summary>
 /// Quién tiene la aplicación abierta ahora y desde cuándo, más el registro de jornadas.
 ///
 /// Se sostiene en un LATIDO, no en el par inicio/cierre de sesión: cerrar con la X deja la
@@ -205,6 +218,41 @@ public class PresenceService
         if (userId is int uid) q = q.Where(p => p.UserId == uid);
 
         return q.OrderBy(p => p.DisplayName).ThenBy(p => p.StartedAtUtc).ToList();
+    }
+
+    // ── Mi jornada (cada quien la suya) ──────────────────────────────────────────
+
+    /// <summary>
+    /// Las jornadas PROPIAS de un rango de días locales, para que cada quien vea su asistencia.
+    ///
+    /// SIN parámetro de usuario a propósito: no es un descuido de ergonomía, es lo que hace que
+    /// este método no pueda convertirse nunca en un IDOR. Un id por parámetro —aunque hoy lo
+    /// protegiera una guarda— basta que un llamador futuro lo pase mal para filtrar la asistencia
+    /// de otra persona. Aquí solo hay un usuario posible: el de la sesión.
+    ///
+    /// Tampoco barre las caídas (CerrarCaidas cierra las de TODOS y convertiría una consulta en
+    /// escritura de filas ajenas): una jornada caída aún sin barrer se muestra «en curso» con su
+    /// duración calculada hasta el último latido, que es la verdad disponible.
+    /// </summary>
+    public List<MiJornada> MisJornadas(DateTime desdeLocal, DateTime hastaLocal)
+    {
+        AuthorizationGuard.RequireLoggedIn(_currentUser);
+        if (_currentUser.UserId is not int userId) return [];
+
+        // Por UserId y NO por DeveloperId: DeveloperId es una copia opcional tomada al entrar, y
+        // las jornadas anteriores a ligar la ficha lo tienen en null — se perderían del total.
+        var desde = desdeLocal.Date.ToUniversalTime();
+        var hasta = hastaLocal.Date.AddDays(1).ToUniversalTime();   // el último día, completo
+
+        return _db.WorkPresences.AsNoTracking()
+            .Where(p => p.UserId == userId && p.StartedAtUtc >= desde && p.StartedAtUtc < hasta)
+            .OrderBy(p => p.StartedAtUtc)
+            .ToList()
+            // Se proyecta y no se devuelve la entidad: State y StateNote NO salen de aquí. El
+            // estado es del momento y no se historiza (ver WorkPresence); devolver la fila entera
+            // dejaría esa política sostenida solo por disciplina de quien la consuma.
+            .Select(p => new MiJornada(p.StartedAtUtc, p.EndedAtUtc, p.Duracion, p.EndReason, p.Origin))
+            .ToList();
     }
 
     // ── Interno ──────────────────────────────────────────────────────────────────
