@@ -51,7 +51,7 @@ public class ConfigurationControl : UserControl
     private CheckBox _chkDigest = null!;
     private ComboBox _cbxDigestFreq = null!;
     private TextBox _txtDigestRecipients = null!;
-    private TextBox _txtUltimaVersion = null!, _txtUrlDescarga = null!, _txtNotasVersion = null!;
+    private TextBox _txtUltimaVersion = null!, _txtUrlDescarga = null!, _txtNotasVersion = null!, _txtFeedVelopack = null!;
     // Freshdesk
     private TextBox _txtFreshDeskDomain = null!;
     private TextBox _txtFreshDeskApiKey = null!;
@@ -360,6 +360,8 @@ public class ConfigurationControl : UserControl
         y += 40;
         AddField(scroll, "Última versión publicada (solo números, p. ej. 1.2.0):", ref _txtUltimaVersion, ref y, false, "1.2.0");
         AddField(scroll, "Enlace de descarga (https://…  o  \\\\servidor\\compartido\\Administrador.exe):", ref _txtUrlDescarga, ref y, false, "");
+        AddField(scroll, "Feed de actualización automática (Velopack) — carpeta o URL con los releases.*.json. Vacío = solo aviso manual:",
+            ref _txtFeedVelopack, ref y, false, "https://…/actualizaciones");
 
         scroll.Controls.Add(new Label { Text = "Novedades de esa versión (lo que verá el equipo):", Location = new Point(30, y), AutoSize = true, Font = AppTheme.DefaultFont });
         y += 22;
@@ -466,6 +468,7 @@ public class ConfigurationControl : UserControl
         _txtUltimaVersion.Text = _settings.Get(UpdateNotice.KeyLatestVersion) ?? "";
         _txtUrlDescarga.Text   = _settings.Get(UpdateNotice.KeyDownloadUrl) ?? "";
         _txtNotasVersion.Text  = _settings.Get(UpdateNotice.KeyReleaseNotes) ?? "";
+        _txtFeedVelopack.Text  = _settings.Get(UpdateService.KeyFeedUrl) ?? "";
         // Freshdesk
         _chkFreshDeskEnabled.Checked = _settings.Get(SettingsService.Keys.FreshDeskEnabled) == "true";
         _txtFreshDeskDomain.Text = _settings.Get(SettingsService.Keys.FreshDeskDomain) ?? "";
@@ -554,6 +557,7 @@ public class ConfigurationControl : UserControl
             _settings.Set(UpdateNotice.KeyLatestVersion, _txtUltimaVersion.Text.Trim(), false, "Última versión publicada de la aplicación");
             _settings.Set(UpdateNotice.KeyDownloadUrl,   _txtUrlDescarga.Text.Trim(),   false, "Enlace de descarga de la última versión");
             _settings.Set(UpdateNotice.KeyReleaseNotes,  _txtNotasVersion.Text.Trim(),  false, "Novedades de la última versión");
+            _settings.Set(UpdateService.KeyFeedUrl,     _txtFeedVelopack.Text.Trim(),  false, "Feed de actualización automática (Velopack)");
             // Freshdesk
             _settings.Set(SettingsService.Keys.FreshDeskEnabled, _chkFreshDeskEnabled.Checked ? "true" : "false", false, "Freshdesk habilitado");
             if (!string.IsNullOrWhiteSpace(_txtFreshDeskDomain.Text))

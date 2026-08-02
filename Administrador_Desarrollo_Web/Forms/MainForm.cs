@@ -38,6 +38,20 @@ public class MainForm : ResponsiveForm
     /// <summary>Distingue "cerrar de verdad" de "minimizar a la bandeja".</summary>
     private bool _salirDeVerdad;
 
+    /// <summary>
+    /// Cierre ordenado pedido desde fuera (aplicar una actualización, por ejemplo). Pasa por
+    /// OnFormClosing, que es donde se avisa del despliegue en curso, se cierra la jornada y se
+    /// consolidan los cronómetros. Devuelve false si el cierre se canceló.
+    /// </summary>
+    public bool CerrarOrdenadamente()
+    {
+        _salirDeVerdad = true;
+        Close();
+        if (IsDisposed) return true;
+        _salirDeVerdad = false;   // alguien canceló: se deja como estaba
+        return false;
+    }
+
     // ── Estado de los avisos de SLA ──────────────────────────────
     /// <summary>Decide de qué SLA toca avisar en cada revisión (ver <see cref="SlaAlertTracker"/>).</summary>
     private readonly SlaAlertTracker _slaAlertas = new();
@@ -293,6 +307,17 @@ public class MainForm : ResponsiveForm
             DeploymentCtrl.CancelarDespliegue();
         }
 
+        // Salir con la actualización a medio bajar: se pierde y hay que empezar de cero.
+        if (e.CloseReason == CloseReason.UserClosing
+            && _sp.GetService(typeof(UpdateService)) is UpdateService upd && upd.DescargaEnCurso)
+        {
+            var r = MessageBox.Show(
+                "Se está DESCARGANDO una actualización. Si cierras ahora, la descarga se pierde." +
+                Environment.NewLine + Environment.NewLine + "¿Cerrar de todos modos?",
+                "Descarga en curso", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            if (r != DialogResult.Yes) { e.Cancel = true; _salirDeVerdad = false; return; }
+        }
+
         // La jornada se cierra al salir de verdad. Con la X (que solo esconde a la bandeja) NO se
         // cierra: la aplicación sigue viva vigilando SLA, y eso es seguir conectado.
         TerminarPresencia();
@@ -311,6 +336,13 @@ public class MainForm : ResponsiveForm
         // Cierre limpio: consolidar el tiempo real de cualquier cronómetro activo
         // para no perderlo ni dejar sesiones huérfanas que inflen el tiempo.
         try { ((WorkSessionService)_sp.GetService(typeof(WorkSessionService))!).PauseAllActive(); } catch { }
+
+        // La actualización descargada se arma AQUÍ y no al terminar la descarga: el updater de
+        // Velopack solo espera 60 segundos a ver morir este proceso, y entre bajarla y salir de
+        // verdad pasan horas. Va al final, después de cerrar la jornada y consolidar los
+        // cronómetros: lo último que ocurre es el reemplazo de archivos.
+        try { ((UpdateService)_sp.GetService(typeof(UpdateService))!).AplicarAlSalir(); } catch { }
+
         base.OnFormClosing(e);
     }
 
@@ -509,35 +541,40 @@ public class MainForm : ResponsiveForm
     /// arranque y una sola vez por versión (la memoria vive en %APPDATA%): un aviso que sale en
     /// cada ciclo se cierra por reflejo y deja de leerse.
     /// </summary>
-    private void RevisarVersion()
+    private async void RevisarVersion()
     {
         try
         {
-            if (_sp.GetService(typeof(SettingsService)) is not SettingsService settings) return;
+            if (_sp.GetService(typeof(UpdateService)) is not UpdateService updates) return;
 
             var estado = UpdateNoticeState.Cargar();
-            var aviso = UpdateNotice.Evaluar(
-                settings.Get(UpdateNotice.KeyLatestVersion),
-                settings.Get(UpdateNotice.KeyDownloadUrl),
-                settings.Get(UpdateNotice.KeyReleaseNotes),
-                AppVersion.Actual,
-                estado.UltimaVersionAvisada);
-            if (aviso == null) return;
+            // Consulta el feed de Velopack si esta copia se instaló con él; si es portátil, cae al
+            // aviso manual de AppSettings. Va con await para no bloquear el arranque mientras
+            // responde la red.
+            var oferta = await updates.BuscarAsync(estado.UltimaVersionAvisada);
+            if (oferta == null || IsDisposed) return;
 
             // Se anota ANTES de mostrar: si la ventana falla al abrirse, es preferible perder un
-            // aviso que repetirlo en cada arranque.
-            estado.UltimaVersionAvisada = aviso.VersionTexto;
-            try { estado.Guardar(); } catch { /* sin memoria, a lo sumo se repite */ }
+            // aviso que repetirlo en cada arranque. Solo en el modo manual — en el automático el
+            // feed es la fuente de verdad y volver a ofrecerlo no molesta: el botón dirá
+            // «Reiniciar» si ya está descargada.
+            if (oferta.Modo == ModoActualizacion.AvisoManual)
+            {
+                estado.UltimaVersionAvisada = oferta.VersionTexto;
+                try { estado.Guardar(); } catch { /* sin memoria, a lo sumo se repite */ }
+            }
 
             if (!Visible || WindowState == FormWindowState.Minimized)
             {
-                _trayIcon?.ShowBalloonTip(10_000, $"Versión {aviso.VersionTexto} disponible",
-                    "Ábrela cuando puedas para ver cómo actualizar.", ToolTipIcon.Info);
+                _trayIcon?.ShowBalloonTip(10_000, $"Versión {oferta.VersionTexto} disponible",
+                    oferta.Modo == ModoActualizacion.Automatica
+                        ? "Ábrela para instalarla; se aplica al cerrar."
+                        : "Ábrela cuando puedas para ver cómo actualizar.", ToolTipIcon.Info);
                 return;
             }
 
             // Show y no ShowDialog: es un aviso, no un trámite para empezar a trabajar.
-            new UpdateNoticeForm(aviso).Show(this);
+            new UpdateNoticeForm(oferta, updates).Show(this);
         }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Aviso de versión: {ex.Message}"); }
     }

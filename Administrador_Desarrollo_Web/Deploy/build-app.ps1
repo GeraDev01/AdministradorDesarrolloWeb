@@ -53,7 +53,15 @@ param(
     [string] $SignThumbprint,
     [string] $SignPfx,
     [string] $SignPfxPassword,
-    [string] $TimestampUrl = 'http://timestamp.digicert.com'
+    [string] $TimestampUrl = 'http://timestamp.digicert.com',
+
+    # ── Actualización automática (Velopack) ─────────────────────────────────────
+    # Con -Velopack se publica en carpeta (no en .exe único) y se genera con vpk un instalador
+    # más el paquete de actualización. Ver LEEME.md.
+    [switch] $Velopack,
+    [string] $VelopackVersion,
+    [string] $VelopackFeedDir,
+    [string] $VelopackChannel = 'win'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -190,20 +198,36 @@ try {
     Write-Paso 'Publicando (esto tarda: incluye el runtime de .NET)'
     if (Test-Path $OutputDir) { Remove-Item $OutputDir -Recurse -Force }
 
-    # IncludeAllContentForSelfExtract mete también Plantillas\*.docx y las librerías nativas
-    # (SQLite, WebView2) dentro del .exe; sin eso "un solo archivo" no sería cierto.
-    dotnet publish $proyecto `
-        -c Release `
-        -r win-x64 `
-        --self-contained true `
-        -p:EmbedDbConnection=true `
-        -p:PublishSingleFile=true `
-        -p:IncludeAllContentForSelfExtract=true `
-        -p:EnableCompressionInSingleFile=true `
-        -p:DebugType=none `
-        -o $OutputDir
+    if ($Velopack) {
+        # SIN PublishSingleFile: vpk empaqueta una CARPETA, y las actualizaciones delta comparan
+        # archivo por archivo. Con todo dentro de un .exe, cada actualización bajaría los 150 MB
+        # completos y se perdería la única ventaja de las deltas.
+        dotnet publish $proyecto `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:EmbedDbConnection=true `
+            -p:DebugType=none `
+            -o $OutputDir
 
-    if ($LASTEXITCODE -ne 0) { throw "dotnet publish devolvió $LASTEXITCODE" }
+        if ($LASTEXITCODE -ne 0) { throw "dotnet publish devolvió $LASTEXITCODE" }
+    }
+    else {
+        # IncludeAllContentForSelfExtract mete también Plantillas\*.docx y las librerías nativas
+        # (SQLite, WebView2) dentro del .exe; sin eso "un solo archivo" no sería cierto.
+        dotnet publish $proyecto `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:EmbedDbConnection=true `
+            -p:PublishSingleFile=true `
+            -p:IncludeAllContentForSelfExtract=true `
+            -p:EnableCompressionInSingleFile=true `
+            -p:DebugType=none `
+            -o $OutputDir
+
+        if ($LASTEXITCODE -ne 0) { throw "dotnet publish devolvió $LASTEXITCODE" }
+    }
 }
 finally {
     # El recurso lleva credenciales: no debe quedarse en el árbol de fuentes.
@@ -213,7 +237,9 @@ finally {
     }
 }
 
-$exe = Get-ChildItem $OutputDir -Filter '*.exe' | Select-Object -First 1
+$exe = Get-ChildItem $OutputDir -Filter 'Administrador_Desarrollo_Web.exe' |
+       Select-Object -First 1
+if (-not $exe) { $exe = Get-ChildItem $OutputDir -Filter '*.exe' | Select-Object -First 1 }
 
 # ── 5. Firmar ──────────────────────────────────────────────────────────────────
 # Sin firma el .exe funciona igual, así que esto es opcional a propósito: quien no tenga
@@ -256,7 +282,73 @@ else {
     Write-Host "  la primera vez que cada quien lo abra. Ver Deploy\LEEME.md." -ForegroundColor Yellow
 }
 
-# ── 6. Resultado ───────────────────────────────────────────────────────────────
+# ── 6. Empaquetar con Velopack ─────────────────────────────────────────────────
+if ($Velopack) {
+    Write-Paso 'Empaquetando con Velopack'
+
+    if (-not (Get-Command vpk -ErrorAction SilentlyContinue)) {
+        throw "No se encontró 'vpk'. Instálalo una vez con:  dotnet tool install -g vpk"
+    }
+
+    # La versión sale del .csproj si no se pasa: así no hay dos números que mantener sincronizados
+    # a mano (y un desajuste haría que el aviso de versión no cuadre con lo publicado).
+    $version = $VelopackVersion
+    if (-not $version) {
+        $version = ([xml](Get-Content $proyecto)).Project.PropertyGroup.Version |
+                   Where-Object { $_ } | Select-Object -First 1
+        if (-not $version) { throw "No se pudo leer <Version> del .csproj. Pasa -VelopackVersion." }
+        Write-Host "  Versión tomada del .csproj: $version" -ForegroundColor DarkGray
+    }
+
+    $feedDir = $VelopackFeedDir
+    if (-not $feedDir) { $feedDir = Join-Path (Split-Path $OutputDir -Parent) 'velopack' }
+    New-Item -ItemType Directory -Force -Path $feedDir | Out-Null
+
+    # -o es el feed: vpk lee de ahí las versiones ANTERIORES para generar el paquete delta. Si se
+    # apunta a una carpeta vacía, la primera entrega es completa y las siguientes ya son deltas.
+    $vpkArgs = @(
+        'pack',
+        '--packId',      'AdministradorDesarrolloWeb',
+        '--packVersion', $version,
+        '--packDir',     $OutputDir,
+        '--mainExe',     'Administrador_Desarrollo_Web.exe',
+        '--packTitle',   'Administrador de Desarrollo',
+        '--packAuthors', 'Soltum',
+        '--channel',     $VelopackChannel,
+        '-o',            $feedDir
+    )
+    $icono = Join-Path $PSScriptRoot '..\Assets\app.ico'
+    if (Test-Path $icono) { $vpkArgs += @('--icon', (Resolve-Path $icono).Path) }
+    # La firma se le pasa a vpk para que firme TAMBIÉN el instalador y el updater, no solo el .exe.
+    if ($SignThumbprint) {
+        $vpkArgs += @('--signParams', "/fd sha256 /tr $TimestampUrl /td sha256 /sha1 $SignThumbprint")
+    }
+    elseif ($SignPfx) {
+        # Las comillas internas van escapadas como \" : Windows PowerShell 5.1 NO las escapa al
+        # invocar un ejecutable nativo, y sin la barra el argumento se parte en dos y vpk aborta
+        # con «Unrecognized command or argument». Hacen falta porque la ruta del .pfx puede llevar
+        # espacios.
+        $sp = "/fd sha256 /tr $TimestampUrl /td sha256 /f \`"$SignPfx\`""
+        if ($SignPfxPassword) { $sp += " /p $SignPfxPassword" }
+        $vpkArgs += @('--signParams', $sp)
+    }
+
+    & vpk @vpkArgs
+    if ($LASTEXITCODE -ne 0) { throw "vpk devolvió $LASTEXITCODE" }
+
+    Write-Paso 'Listo (Velopack)'
+    Write-Host "  Feed: $feedDir"
+    Get-ChildItem $feedDir | Sort-Object Name | ForEach-Object {
+        Write-Host ("    {0}  ({1:N1} MB)" -f $_.Name, ($_.Length / 1MB))
+    }
+    Write-Host "`n  Sube TODO el contenido de esa carpeta al mismo sitio (Blob o carpeta de red)" -ForegroundColor DarkGray
+    Write-Host "  y captura esa ubicación en Configuración → Aviso de versión nueva → Feed." -ForegroundColor DarkGray
+    Write-Host "  La primera vez, cada quien instala con el Setup.exe; de ahí en adelante se" -ForegroundColor DarkGray
+    Write-Host "  actualiza solo." -ForegroundColor DarkGray
+    return
+}
+
+# ── 7. Resultado ───────────────────────────────────────────────────────────────
 Write-Paso 'Listo'
 Write-Host "  $($exe.FullName)"
 Write-Host "  $([Math]::Round($exe.Length / 1MB, 1)) MB — un solo archivo, sin instalación ni configuración."

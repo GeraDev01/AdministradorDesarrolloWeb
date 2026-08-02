@@ -6,6 +6,7 @@ using Administrador_Desarrollo_Web.Forms;
 using Administrador_Desarrollo_Web.Forms.Controls;
 using Administrador_Desarrollo_Web.Models;
 using Administrador_Desarrollo_Web.Services;
+using Velopack;
 
 namespace Administrador_Desarrollo_Web;
 
@@ -14,6 +15,28 @@ internal static class Program
     [STAThread]
     static void Main()
     {
+        // PRIMERA línea de todo, antes del mutex de instancia única y de cualquier otra cosa.
+        // Velopack reinvoca este mismo ejecutable con argumentos especiales al instalar, actualizar
+        // y desinstalar; esas invocaciones hacen su trabajo y terminan el proceso aquí mismo. Si el
+        // mutex corriera antes, el instalador se vería como «ya hay una instancia» y no haría nada.
+        //
+        // Un fallo aquí NO puede impedir que la aplicación abra: se anota y se sigue sin
+        // actualización automática. Los hooks terminan el proceso DENTRO de Run(), así que este
+        // catch solo se alcanza en un arranque normal.
+        Exception? fallaVelopack = null;
+        try
+        {
+            VelopackApp.Build()
+                // APAGADO a propósito. Encendido —su valor por omisión— abrir el .exe con un
+                // paquete ya descargado dispara la aplicación y el Exit DENTRO de Run(), o sea
+                // ANTES del mutex: la ventana que la persona pidió nunca aparece, y el updater
+                // intenta reemplazar la carpeta mientras la instancia de la bandeja sigue viva con
+                // sus DLL abiertas desde ahí. Aplicar es decisión de UpdateService, en el cierre.
+                .SetAutoApplyOnStartup(false)
+                .Run();
+        }
+        catch (Exception ex) { fallaVelopack = ex; }
+
         ApplicationConfiguration.Initialize();
         Application.SetHighDpiMode(HighDpiMode.SystemAware);
 
@@ -35,6 +58,11 @@ internal static class Program
 
         var loggerFactory = LoggingSetup.Configure(logsPath);
         var logger = loggerFactory.CreateLogger("Program");
+
+        // El fallo de Velopack, si lo hubo, se registra ahora: en su momento no había log todavía
+        // (a propósito — una segunda instancia no debe abrir el archivo de registro).
+        if (fallaVelopack != null)
+            logger.LogWarning(fallaVelopack, "Velopack no pudo inicializarse; se sigue sin actualización automática.");
 
         Application.ThreadException += (_, e) =>
         {
@@ -126,6 +154,7 @@ internal static class Program
         services.AddSingleton<ForumService>();
         services.AddSingleton<SprintService>();
         services.AddSingleton<CommitmentAlertService>();
+        services.AddSingleton<UpdateService>();
 
         services.AddTransient<LoginForm>();
         services.AddTransient<MainForm>();

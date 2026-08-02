@@ -199,46 +199,84 @@ Tres cosas antes de decidirlo:
 acceso directo en el menú Inicio y la desinstalación desde Windows. Para LibreOffice basta con
 detectarlo al arrancar y avisar con un enlace de descarga: son 350 MB que la mayoría ya tiene.
 
-## ¿Cómo se manejan las actualizaciones?
+## Actualizaciones
 
-Hoy: **sí, hay que volver a descargar el .exe y reemplazarlo.** No se pierde nada — la configuración
-vive en `%APPDATA%\AdministradorDesarrolloWeb\` y los datos en la base, no dentro del ejecutable.
+Hay **dos formas de repartir**, y las dos funcionan a la vez. La aplicación detecta sola en cuál
+está y se comporta en consecuencia.
 
-Un detalle técnico que condiciona todo lo demás: **un .exe en ejecución no se puede sobrescribir a sí
-mismo** en Windows. Cualquier actualización automática necesita un segundo proceso que espere a que
-la aplicación cierre, reemplace el archivo y la vuelva a abrir.
+El detalle técnico que condiciona todo: **un .exe en ejecución no puede sobrescribirse a sí mismo**
+en Windows. Por eso la copia portátil nunca podrá actualizarse sola, y por eso Velopack necesita
+instalar en una carpeta con estructura propia.
 
-Tres caminos, de menor a mayor esfuerzo:
+En cualquiera de las dos, **sube la versión en `Administrador_Desarrollo_Web.csproj`** (`Version`,
+`FileVersion`, `AssemblyVersion`) en cada entrega: si no, no hay nada que comparar y el aviso nunca
+sale.
 
-**1. Aviso dentro de la aplicación (lo más rentable aquí).** Al iniciar sesión, comparar la versión
-del ejecutable contra la última publicada y, si hay una nueva, mostrar un aviso con el enlace de
-descarga y las novedades. Sigue siendo descarga manual, pero nadie se queda meses atrás sin
-enterarse.
+### A) Copia portátil (lo de siempre) — aviso manual
 
-La subida a Azure Blob ya está resuelta y se reutiliza tal cual. Lo que **no** sirve es la tabla
-`AppRelease`: esa lleva las versiones de los **sistemas web que esta herramienta despliega**
-(cuelga de `AppSystem` y de `DeploymentJob`), no las de la herramienta misma. Haría falta una tabla
-aparte —o simplemente un `AppSetting` con la última versión y su URL, que para un solo producto
-alcanza.
+```powershell
+.\build-app.ps1 -ConnectionString "..."
+```
 
-**2. Actualización automática con [Velopack](https://velopack.io/)** (gratis, .NET, sucesor de
-Squirrel). Descarga la nueva versión en segundo plano, la aplica al cerrar y resuelve solo el
-problema del ejecutable en uso. Requiere cambiar el empaquetado: Velopack usa su propio formato en
-vez del .exe único.
+Sale un `.exe` único que se copia donde sea. **No se actualiza solo**, pero sí avisa: al entrar
+compara su versión contra la publicada y, si hay una nueva, muestra las novedades y el enlace.
 
-**3. MSIX + App Installer.** Es lo que recomienda Microsoft y Windows actualiza solo. Pero exige
-firma obligatoria (sin certificado ni se instala), un cambio de empaquetado completo y un servidor
-donde publicar el `.appinstaller`. Solo tiene sentido si ya se compró el certificado.
+Se publica en **Configuración → Aviso de versión nueva**: última versión, enlace de descarga y
+novedades. Orden correcto: subir la versión en el `.csproj` → publicar → subir el .exe → *recién
+entonces* capturar la versión ahí. Al revés, todo el equipo ve un aviso que apunta a un archivo que
+todavía no existe.
 
-**Recomendación:** empezar por el punto 1. Si el equipo crece o las entregas se vuelven frecuentes,
-pasar a Velopack — pero solo después de tener el certificado, porque una actualización automática que
-dispara SmartScreen en cada versión es peor que no tenerla.
+### B) Instalada con Velopack — actualización automática
 
-En cualquier caso, **subir la versión en `Administrador_Desarrollo_Web.csproj`** (`Version`,
-`FileVersion`, `AssemblyVersion`) en cada entrega: si no, no hay nada que comparar.
+```powershell
+# Una sola vez por equipo de trabajo:
+dotnet tool install -g vpk
+
+# En cada entrega:
+.\build-app.ps1 -ConnectionString "..." -Velopack -VelopackFeedDir "C:\ruta\al\feed"
+```
+
+Qué cambia: se publica en **carpeta** en vez de en un .exe único (`vpk` empaqueta una carpeta, y las
+actualizaciones **delta** comparan archivo por archivo — con todo dentro de un solo .exe, cada
+actualización bajaría los 150 MB completos y se perdería la única ventaja).
+
+Qué sale en el feed:
+
+- `AdministradorDesarrolloWeb-win-Setup.exe` — el instalador; es lo que reparte **la primera vez**.
+- `...-full.nupkg` y `...-delta.nupkg` — los paquetes de actualización.
+- `releases.win.json` — el índice que la aplicación consulta.
+
+**Sube TODO el contenido de esa carpeta al mismo sitio** (contenedor de Blob o carpeta de red) y
+captura esa ubicación en **Configuración → Feed de actualización automática**. El `-VelopackFeedDir`
+debe apuntar a una copia local del feed **con las versiones anteriores dentro**: de ahí saca `vpk`
+la base para generar el delta. Si apuntas a una carpeta vacía, la entrega sale completa (funciona,
+pero pesa).
+
+De ahí en adelante: cada quien recibe el aviso al entrar, pulsa **Actualizar ahora**, se descarga en
+segundo plano y **se instala al salir de la aplicación**.
+
+Aquí importa una precisión: «salir» significa **bandeja → Salir**, no cerrar la ventana con la X
+(que solo la esconde). El updater de Velopack espera a que el proceso muera de verdad. Quien quiera
+aplicarla en el momento pulsa **Reiniciar ahora**: la aplicación se cierra por su camino normal
+—avisando si hay un despliegue en curso, cerrando la jornada y guardando los cronómetros— y vuelve
+a abrirse ya actualizada.
+
+### Lo que NO cambia con Velopack
+
+**El aviso de SmartScreen.** Velopack automatiza la descarga, no la reputación: sin certificado de
+firma, el instalador y **cada actualización** siguen disparando el aviso. Si vas a firmar, pásale el
+certificado al script (`-SignThumbprint` o `-SignPfx`): en modo Velopack se le entrega también a
+`vpk`, que firma el instalador y el actualizador además del ejecutable.
+
+### Sobre la tabla AppRelease
+
+No sirve para esto: lleva las versiones de los **sistemas web que esta herramienta despliega**
+(cuelga de `AppSystem` y de `DeploymentJob`), no las de la herramienta misma. Por eso la versión
+publicada y el feed viven en `AppSettings`, que además ya está blindada contra escritura para el
+login restringido: los desarrolladores la leen, solo el administrador la escribe.
 
 ## Archivos
 
-- `build-app.ps1` — genera el recurso cifrado, publica el .exe único y opcionalmente lo firma.
+- `build-app.ps1` — genera el recurso cifrado, publica (portátil o Velopack), firma y empaqueta.
 - `crear-login-desarrollador.sql` — crea `app_dev` con permisos mínimos.
 - `devbuild.bin` — recurso temporal con credenciales. **Nunca versionarlo.**
