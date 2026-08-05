@@ -587,6 +587,9 @@ public class TicketLinkControl : UserControl
         var btnOk    = new Button { Text = "Vincular", DialogResult = DialogResult.OK, Location = new Point(10, 100), Width = 100 };
         notesForm.Controls.AddRange([txtNotes, btnOk]);
         notesForm.AcceptButton = btnOk;
+        // Este diálogo se arma a mano y no hereda de ResponsiveForm, así que el arreglo del Enter
+        // hay que pedirlo: sin esto, bajar de renglón en las notas vincula y cierra.
+        EntradaDeTexto.PermitirSaltoDeLinea(notesForm);
 
         if (notesForm.ShowDialog() != DialogResult.OK) return;
 

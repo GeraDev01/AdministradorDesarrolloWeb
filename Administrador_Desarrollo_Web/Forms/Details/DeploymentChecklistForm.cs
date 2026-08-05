@@ -5,10 +5,10 @@ namespace Administrador_Desarrollo_Web.Forms.Details;
 /// <summary>
 /// El paso previo al despliegue: los hechos del sistema arriba (versión, destino, respaldo) y
 /// debajo los puntos que la persona tiene que confirmar. «Desplegar» no se habilita hasta que
-/// están todos marcados.
+/// están todos marcados y hay una nota escrita.
 ///
 /// Sustituye a un MessageBox de «¿seguro?», que se contesta que sí por reflejo. Lo que aquí se
-/// marque queda escrito con el despliegue como evidencia.
+/// marque y se escriba queda con el despliegue como evidencia.
 /// </summary>
 public class DeploymentChecklistForm : ResponsiveForm
 {
@@ -21,8 +21,11 @@ public class DeploymentChecklistForm : ResponsiveForm
     /// <summary>Las claves de los puntos marcados (solo válido si el diálogo aceptó).</summary>
     public List<string> Marcados { get; } = [];
 
-    /// <summary>La nota libre que escribió quien despliega, o null.</summary>
-    public string? Nota => string.IsNullOrWhiteSpace(_txtNota.Text) ? null : _txtNota.Text.Trim();
+    /// <summary>
+    /// La justificación que escribió quien despliega (solo válida si el diálogo aceptó: sin ella
+    /// no acepta).
+    /// </summary>
+    public string Nota => _txtNota.Text.Trim();
 
     public DeploymentChecklistForm(string version, string destino, string respaldo, bool sinRespaldo)
     {
@@ -89,9 +92,23 @@ public class DeploymentChecklistForm : ResponsiveForm
         }
 
         y += 6;
-        Controls.Add(new Label { Text = "Nota (opcional): ticket, autorización, quién pidió el despliegue…", Location = new Point(18, y), AutoSize = true, Font = AppTheme.SmallFont, ForeColor = AppTheme.TextSecondary });
+        Controls.Add(new Label
+        {
+            Text = "Nota (obligatoria): ticket, autorización, quién pidió el despliegue…",
+            Location = new Point(18, y), AutoSize = true, Font = AppTheme.BoldFont
+        });
+        y += 20;
+        // El porqué, igual que en cada punto: las casillas siempre salen marcadas —no se puede
+        // desplegar de otro modo—, así que esto es lo único que distingue un despliegue de otro.
+        Controls.Add(new Label
+        {
+            Text = "El checklist dice qué se revisó; la nota, por qué se despliega ahora.",
+            Location = new Point(18, y), AutoSize = false, Size = new Size(566, 18),
+            Font = AppTheme.SmallFont, ForeColor = AppTheme.TextSecondary
+        });
         y += 20;
         _txtNota = new TextBox { Location = new Point(18, y), Width = 566, Height = 50, Multiline = true, AcceptsReturn = true };
+        _txtNota.TextChanged += (_, _) => PintarBoton();
         Controls.Add(_txtNota);
         y += 62;
 
@@ -123,9 +140,20 @@ public class DeploymentChecklistForm : ResponsiveForm
 
     private void PintarBoton()
     {
-        int faltan = _casillas.Count(c => !c.Checked);
+        int puntos = _casillas.Count(c => !c.Checked);
+        bool faltaNota = !DeploymentChecklist.NotaSuficiente(_txtNota.Text);
+        int faltan = puntos + (faltaNota ? 1 : 0);
+
         _btnDesplegar.Enabled = faltan == 0;
-        _btnDesplegar.Text = faltan == 0 ? "🚀 Desplegar" : $"Faltan {faltan}";
+        // Cuando lo único que falta es la nota se dice, en vez de un «Falta 1» que manda a buscar
+        // qué casilla quedó suelta.
+        _btnDesplegar.Text = faltan switch
+        {
+            0                     => "🚀 Desplegar",
+            _ when puntos == 0    => "Falta la nota",
+            1                     => "Falta 1",
+            _                     => $"Faltan {faltan}"
+        };
     }
 
     private void Aceptar()
@@ -137,6 +165,13 @@ public class DeploymentChecklistForm : ResponsiveForm
             Marcados.Add((string)c.Tag!);
 
         if (DeploymentChecklist.Faltantes(Marcados).Count > 0) { PintarBoton(); return; }
+
+        if (!DeploymentChecklist.NotaSuficiente(_txtNota.Text))
+        {
+            PintarBoton();
+            _txtNota.Focus();
+            return;
+        }
 
         DialogResult = DialogResult.OK;
         Close();

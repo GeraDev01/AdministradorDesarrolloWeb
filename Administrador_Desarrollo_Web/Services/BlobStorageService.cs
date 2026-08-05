@@ -29,8 +29,24 @@ public class BlobStorageService
 
     public BlobStorageService(SettingsService settings) => _settings = settings;
 
-    public bool IsConfigured =>
-        !string.IsNullOrEmpty(_settings.Get(SettingsService.Keys.AzureBlobConnectionString));
+    /// <summary>
+    /// La conexión sale de la base y la lee cualquier equipo: se guarda cifrada con
+    /// <c>SharedSecretProtector</c>, no con la cuenta de Windows de quien la capturó. Un
+    /// administrador la captura una vez y con eso queda para todos.
+    /// </summary>
+    public bool IsConfigured => ConexionEnEfecto() != null;
+
+    private string? ConexionEnEfecto() =>
+        _settings.Get(SettingsService.Keys.AzureBlobConnectionString) is { Length: > 0 } guardada
+            ? guardada
+            : null;
+
+    /// <summary>Contenedor configurado, o el de por omisión. Un valor vacío cuenta como no puesto:
+    /// guardarlo en blanco es la forma de volver al valor por omisión.</summary>
+    private string ContenedorEnEfecto() =>
+        _settings.Get(SettingsService.Keys.AzureBlobContainer) is { Length: > 0 } guardado
+            ? guardado
+            : "despliegues";
 
     // ── Carpetas configurables ──────────────────────────────────────────────────
 
@@ -155,10 +171,9 @@ public class BlobStorageService
 
     private BlobContainerClient Contenedor()
     {
-        var connStr = _settings.Get(SettingsService.Keys.AzureBlobConnectionString)
+        var connStr = ConexionEnEfecto()
             ?? throw new InvalidOperationException("Azure Blob Storage no está configurado. Ve a Configuración y agrega la connection string.");
-        var container = _settings.Get(SettingsService.Keys.AzureBlobContainer) ?? "despliegues";
-        return new BlobContainerClient(connStr, container);
+        return new BlobContainerClient(connStr, ContenedorEnEfecto());
     }
 
     /// <summary>
@@ -175,13 +190,13 @@ public class BlobStorageService
         string? connectionString = null, string? contenedor = null, CancellationToken ct = default)
     {
         var connStr = string.IsNullOrWhiteSpace(connectionString)
-            ? _settings.Get(SettingsService.Keys.AzureBlobConnectionString)
+            ? ConexionEnEfecto()
             : connectionString.Trim();
         if (string.IsNullOrWhiteSpace(connStr))
             return (false, "Falta la connection string de Azure Blob Storage.");
 
         var nombre = string.IsNullOrWhiteSpace(contenedor)
-            ? (_settings.Get(SettingsService.Keys.AzureBlobContainer) ?? "despliegues")
+            ? ContenedorEnEfecto()
             : contenedor.Trim();
 
         try

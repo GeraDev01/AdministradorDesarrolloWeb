@@ -175,6 +175,9 @@ public class MainForm : ResponsiveForm
             AddNav(pnlNav, "🔐", "Usuarios",           "users");
             AddNav(pnlNav, "📋", "Bitácora",            "audit");
             AddNav(pnlNav, "⚙",  "Configuración",       "config");
+            // Va al final del grupo, después de Configuración: es la única pantalla cuya operación
+            // no tiene deshacer, y no debe quedar a un resbalón de las que se usan a diario.
+            AddNav(pnlNav, "🧹", "Limpieza de datos",   "data-cleanup");
 
             _currentGroupItems = null; // fin de grupos
         }
@@ -1038,6 +1041,7 @@ public class MainForm : ResponsiveForm
             "users"           => (UserControl)_sp.GetService(typeof(UserManagementControl))!,
             "audit"           => (UserControl)_sp.GetService(typeof(AuditLogControl))!,
             "config"          => (UserControl)_sp.GetService(typeof(ConfigurationControl))!,
+            "data-cleanup"    => (UserControl)_sp.GetService(typeof(DataCleanupControl))!,
             "activities-admin" => (UserControl)_sp.GetService(typeof(ActivitiesAdminControl))!,
             "sla-admin"       => (UserControl)_sp.GetService(typeof(SlaAdminControl))!,
             "sla-compliance"  => (UserControl)_sp.GetService(typeof(SlaComplianceControl))!,
@@ -1089,6 +1093,7 @@ public class MainForm : ResponsiveForm
             "users"             => "🔐  Gestión de Usuarios",
             "audit"             => "📋  Bitácora de Auditoría",
             "config"            => "⚙  Configuración",
+            "data-cleanup"      => "🧹  Limpieza de datos",
             "activities-admin" => "🧩  Actividades libres del equipo",
             "sla-admin"       => "⏱  SLA y recordatorios",
             "sla-compliance"  => "📊  Cumplimiento de SLA",

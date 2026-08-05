@@ -95,10 +95,12 @@ public static class ResponsiveLayout
 }
 
 /// <summary>
-/// Base de los diálogos de la aplicación: aplica <see cref="ResponsiveLayout.Ajustar"/> al abrirse.
+/// Base de los diálogos de la aplicación. Al abrirse aplica dos arreglos transversales:
+/// <see cref="ResponsiveLayout.Ajustar"/> y <see cref="EntradaDeTexto.PermitirSaltoDeLinea"/>.
 ///
-/// Va en <c>OnLoad</c> y no en el constructor a propósito: para entonces el formulario ya fijó su
-/// tamaño y su borde en su propio <c>BuildUI</c>, así que hay algo real que ajustar.
+/// Van en <c>OnLoad</c> y no en el constructor a propósito: para entonces el formulario ya construyó
+/// sus controles y fijó su tamaño y su borde en su propio <c>BuildUI</c>, así que hay algo real
+/// sobre lo que actuar.
 /// </summary>
 public class ResponsiveForm : Form
 {
@@ -107,5 +109,10 @@ public class ResponsiveForm : Form
         base.OnLoad(e);
         try { ResponsiveLayout.Ajustar(this); }
         catch { /* un ajuste de tamaño jamás debe impedir que se abra la ventana */ }
+
+        // Aquí y no en cada diálogo: el Enter que guardaba a media frase se olvidó de encender en
+        // cuarenta y tantos cuadros, y volvería a olvidarse en el siguiente que se agregue.
+        try { EntradaDeTexto.PermitirSaltoDeLinea(this); }
+        catch { /* ídem */ }
     }
 }

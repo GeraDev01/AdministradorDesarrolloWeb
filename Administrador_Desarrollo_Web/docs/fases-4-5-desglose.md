@@ -27,11 +27,14 @@ contrario. **Compila después de cada tarea** (`dotnet build`) y no avances si h
 - **Seguridad**:
   - `Security/PasswordHasher.cs`: BCrypt (`Hash`/`Verify`).
   - `Security/SecretProtector.cs`: DPAPI (`Protect`/`Unprotect`/`TryUnprotect`), scope CurrentUser.
-    **Úsalo para cifrar cualquier secreto** (PAT, connection strings) antes de guardarlo en BD.
+    **Solo para archivos locales del equipo** (`dbprovider.json`, `devops-personal.json`), donde el
+    aislamiento por cuenta de Windows es lo que se busca.
+  - `Security/SharedSecretProtector.cs`: **el que va en la BD**. Cualquier secreto que se guarde en
+    la base compartida usa éste, no DPAPI: con DPAPI solo lo podía leer la PC que lo escribió.
 - **Configuración**: `Services/SettingsService.cs` — `Get(key)`, `Set(key, value, isSecret, desc)`.
   Tiene `SettingsService.Keys` con constantes (ya existe `AzureSqlConnectionString`,
   `AzureBlobConnectionString`, `AzureBlobContainer`, `DefaultDeployFolder`). Los valores con
-  `isSecret:true` se guardan cifrados con DPAPI automáticamente.
+  `isSecret:true` se guardan cifrados automáticamente con `SharedSecretProtector` (portables).
 - **Sesión y roles**: `Services/CurrentUserContext.cs` (`User`, `IsLoggedIn`, `IsAdmin`).
   `Models/User.cs`: enum `UserRole { Admin=0, Operaciones=1 }`, campos `DeveloperId` (FK opcional
   a `Developer`), `MustChangePassword`. `Services/AuthService.cs`: Login, CreateUser, UpdateUser,

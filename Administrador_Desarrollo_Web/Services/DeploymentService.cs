@@ -404,8 +404,14 @@ public class DeploymentService
                     await DeployToTargetAsync(db, job, target, entradas, respaldar, idx, targets.Count, onStatus, progress, ct);
                     reloj.Stop();
 
-                    target.LastDeployedAt = DateTime.UtcNow;
-                    target.LastReleaseId  = releaseId;
+                    // Lo que responde «¿qué tiene este servidor, quién se lo puso y cuándo?» sin
+                    // reconstruirlo leyendo la bitácora entera. Se guarda por servidor y en cuanto
+                    // termina: si el despliegue falla en el siguiente, lo ya publicado queda igual
+                    // de registrado.
+                    target.LastDeployedAt      = DateTime.UtcNow;
+                    target.LastReleaseId       = releaseId;
+                    target.LastDeployedById    = _currentUser.User?.Id;
+                    target.LastDeploymentJobId = job.Id;
                     await db.SaveChangesAsync(ct);
 
                     progress.Report($"  ✅  {target.Nombre} completado en {reloj.Elapsed.TotalSeconds:0.0}s  ·  🕐 {DateTime.Now:HH:mm:ss}");
@@ -502,7 +508,17 @@ public class DeploymentService
         IProgress<DeployStatus>? onStatus, IProgress<string> progress, CancellationToken ct)
     {
         var (host, explicitTls) = FtpRetryPolicy.ParseHost(target.Host);
-        var password = SecretProtector.TryUnprotect(target.Contrasena, out var plain) ? plain : target.Contrasena;
+
+        // Sin fallback al valor crudo. Antes, cuando no se podía descifrar, se mandaba el texto
+        // CIFRADO como contraseña: el servidor contestaba «530 User cannot log in» y el problema
+        // parecía de las credenciales del FTP y no de esta aplicación. Hoy solo puede pasar con una
+        // contraseña heredada que se capturó en otra PC (cifrado DPAPI, atado a esa cuenta de
+        // Windows), y lo que hay que hacer es recapturarla una vez — ya queda legible para todos.
+        if (!SharedSecretProtector.TryUnprotect(target.Contrasena, out var password))
+            throw new InvalidOperationException(
+                $"No se pudo descifrar la contraseña del servidor «{target.Nombre}» en este equipo. " +
+                "Se guardó desde otra PC con el cifrado anterior. Un administrador debe volver a " +
+                "capturarla en Despliegues → Servidores (una sola vez: a partir de ahí la usan todos).");
 
         // Avance global = (servidores ya terminados + fracción de archivos del actual) / total.
         void Estado(string detalle, int done)
@@ -624,7 +640,7 @@ public class DeploymentService
                     Host         = jt.Host,
                     Puerto       = jt.Puerto,
                     Usuario      = jt.Usuario,
-                    Contrasena   = SecretProtector.Protect(jt.Contrasena),
+                    Contrasena   = SharedSecretProtector.Protect(jt.Contrasena),
                     RutaRemota   = jt.RutaRemota,
                     URL          = jt.URL,
                     IsActive     = true
@@ -636,7 +652,7 @@ public class DeploymentService
                 existing.Host       = jt.Host;
                 existing.Puerto     = jt.Puerto;
                 existing.Usuario    = jt.Usuario;
-                existing.Contrasena = SecretProtector.Protect(jt.Contrasena);
+                existing.Contrasena = SharedSecretProtector.Protect(jt.Contrasena);
                 existing.RutaRemota = jt.RutaRemota;
                 existing.URL        = jt.URL;
                 updated++;

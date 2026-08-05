@@ -30,6 +30,20 @@ cuenta con permisos completos — sirve para probar, no para repartir.
 Resultado: `dist\desarrollador\Administrador_Desarrollo_Web.exe`, ~64 MB, un solo archivo. Se copia
 y se ejecuta; no requiere instalar .NET ni nada más.
 
+## Qué NO lleva dentro (y por qué no hace falta)
+
+En el `.exe` va la conexión a la base y nada más. El Blob Storage y los servidores FTP **no** se
+incrustan, y aun así nadie tiene que capturarlos: viven en la base y se cifran con una llave común
+de la aplicación —no con la cuenta de Windows de quien los capturó—, así que **cualquier ejecutable
+los lee**.
+
+Eso es lo que permite que Operaciones trabaje desde cualquier PC: un servidor dado de alta hoy desde
+un equipo lo usan todos los demás enseguida, **sin republicar nada**.
+
+Incrustarlos, en cambio, solo habría servido para arrancar contra una base vacía —una vez en la vida
+del sistema— y a cambio cada `.exe` repartido llevaría dentro las contraseñas de todos los servidores
+de producción. Ver `Docs\Conexion-portable.md`.
+
 ## De dónde sale la conexión
 
 Precedencia, de mayor a menor (`DbConnectionResolver`):
@@ -93,7 +107,11 @@ nombre de la misma cuenta y el SLA dejaría de probar quién atendió.
 
 La URL de organización y el proyecto sí salen de la configuración compartida (no son secretos), por
 eso `app_dev` puede LEER `AppSettings` aunque no modificarla. Los valores marcados como secretos ahí
-están cifrados con DPAPI del usuario que los capturó, así que otra persona solo ve texto cifrado.
+sí están cifrados, pero con una llave común de la aplicación —tienen que serlo: son credenciales de
+equipo (Blob, FTP) que cualquier PC debe poder usar—. Es decir: **quien tenga el ejecutable y acceso
+de lectura a la base puede recuperarlos**. Lo que de verdad los acota es este login restringido y el
+acceso a la red, no el cifrado. Un secreto que deba ser *personal* no va en `AppSettings`: va en el
+equipo de cada quien, como el PAT.
 
 El PAT necesita permiso **Work Items → Read & write**. El botón «Probar conexión» del diálogo
 confirma con qué cuenta quedó autenticado.

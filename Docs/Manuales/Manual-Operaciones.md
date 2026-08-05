@@ -39,7 +39,7 @@ Esto no es un detalle cosmético: de aquí depende que los despliegues programad
 
 - **Cerrar con la ✕ no cierra la aplicación.** La manda a la bandeja del sistema (junto al reloj) y sale un globo que dice *"Sigo aquí"*. Sigue corriendo.
 - **Solo se abre una vez.** Si vuelves a abrir el ejecutable estando ya corriendo, no arranca otra: la que ya estaba se pone al frente, aunque estuviera en la bandeja. Importa aquí más que en ningún lado: dos instancias podrían pelearse un mismo despliegue programado.
-- **💬 Foro.** Arriba del menú tienes el foro del equipo, igual que todos los demás roles: publicaciones con comentarios anidados, ❤ y búsqueda. Se explica a detalle en el Manual del Desarrollador.
+- **💬 Foro.** Arriba del menú tienes el foro del equipo, igual que todos los demás roles: publicaciones con comentarios anidados, ❤, búsqueda, enlaces pulsables e imágenes adjuntas (o pegadas con Ctrl+V). Se explica a detalle en el Manual del Desarrollador.
 - **Tu estado.** Junto a tu nombre, arriba a la derecha, marcas si estás disponible, ocupado, en reunión, comiendo o en un descanso. El administrador lo ve en su pantalla *Quién está*. Se guarda a qué hora entras y sales; el estado solo se ve en vivo y no queda historial.
 - Para **volver a la ventana**: doble clic en el ícono de la bandeja, o clic derecho → **Abrir**.
 - Para **cerrar de verdad**: clic derecho en el ícono de la bandeja → **Salir**.
@@ -250,6 +250,30 @@ No puedes corregirlo ni borrarlo. Haz esto:
 
 - **🌍 Abrir URL**: selecciona un servidor y pulsa el botón (o da doble clic en la fila) para abrir su URL en el navegador. Si no tiene URL: *"Este servidor no tiene URL configurada."*
 - **📊 Excel**: exporta la lista completa de servidores a un archivo de Excel; te pide dónde guardarlo y al terminar muestra la ruta.
+
+---
+
+## Despliegues → pestaña 📊 Estado
+
+Es la foto de **cómo están los servidores ahora**: qué versión tiene cada uno, quién se la puso y cuándo. Sirve para lo de todos los días — *«¿ya quedó el sandbox?»*, *«¿a cuáles les falta?»*, *«¿quién subió esto?»*— sin tener que leer el historial hacia atrás.
+
+| Columna | Qué significa |
+|---|---|
+| Servidor | Nombre del destino. |
+| Sistema / Versión desplegada | Lo que tiene publicado hoy. |
+| Última publicada | La versión más nueva que existe de ese sistema. |
+| Estado | ✅ Al día · ⚠ Atrasado · ○ Sin desplegar. |
+| Última actualización / Hace | Cuándo fue, en fecha y en lenguaje llano («hace 3 h»). |
+| Quién lo desplegó | Quien lanzó ese despliegue. |
+| Despliegue # | Número del trabajo, por si hay que reportarlo. |
+
+Arriba sale el resumen: *"22 servidor(es) · ✅ 18 al día · ⚠ 3 atrasado(s) · ○ 1 sin desplegar nunca"*.
+
+Marca la casilla **Solo atrasados** y te queda justo la lista de lo que falta por subir. Con **📜 Ver ese despliegue** (o doble clic en la fila) saltas al Historial con ese despliegue ya seleccionado, para leer su log completo.
+
+Si acabas de desplegar y no ves el cambio, pulsa **🔄 Actualizar**.
+
+> En despliegues antiguos la columna **Quién lo desplegó** puede decir «—»: ese dato se empezó a guardar a partir de esta versión.
 
 ---
 

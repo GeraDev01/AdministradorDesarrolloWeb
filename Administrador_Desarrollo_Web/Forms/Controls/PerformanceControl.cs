@@ -675,6 +675,8 @@ public class PerformanceControl : UserControl
         var ok = AppTheme.MakePrimaryButton("Aceptar", 100); ok.Location = new Point(196, 100); ok.DialogResult = DialogResult.OK;
         var cancel = AppTheme.MakeSecondaryButton("Cancelar", 100); cancel.Location = new Point(306, 100); cancel.DialogResult = DialogResult.Cancel;
         f.Controls.AddRange([txt, ok, cancel]); f.AcceptButton = ok; f.CancelButton = cancel;
+        // Diálogo armado a mano (no hereda de ResponsiveForm): el Enter hay que reclamarlo aquí.
+        EntradaDeTexto.PermitirSaltoDeLinea(f);
         return f.ShowDialog() == DialogResult.OK ? txt.Text : "";
     }
 

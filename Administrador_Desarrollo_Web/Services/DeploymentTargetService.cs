@@ -1,5 +1,6 @@
 using Administrador_Desarrollo_Web.Data;
 using Administrador_Desarrollo_Web.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace Administrador_Desarrollo_Web.Services;
 
@@ -36,6 +37,30 @@ public class DeploymentTargetService
     {
         t.Id, t.Nombre, t.Host, t.Puerto, t.Usuario, t.RutaRemota, t.URL, t.IsActive
     };
+
+    /// <summary>
+    /// El servidor RASTREADO y con los valores de la base, listo para editarlo y guardarlo.
+    ///
+    /// El <c>AppDbContext</c> es Singleton y vive lo que dura la sesión, así que lo que quedó
+    /// rastreado hace media hora puede estar viejo: el despliegue escribe desde su propio contexto,
+    /// y otro equipo pudo corregir el servidor mientras tanto. <c>Find</c> por sí solo devolvería esa
+    /// copia vieja sin ir a la base; el <c>Reload</c> es lo que garantiza que se edite lo que hay
+    /// hoy y no se pisen cambios ajenos al guardar.
+    ///
+    /// Devuelve null si ya no existe (alguien lo eliminó desde otro equipo).
+    /// </summary>
+    public DeploymentTarget? ParaEditar(int targetId) => Rastreado(targetId);
+
+    private DeploymentTarget? Rastreado(int targetId)
+    {
+        var t = _db.DeploymentTargets.Find(targetId);
+        if (t == null) return null;
+
+        var entrada = _db.Entry(t);
+        entrada.Reload();
+        // Reload deja la entrada en Detached cuando la fila ya no está en la base.
+        return entrada.State == EntityState.Detached ? null : t;
+    }
 
     public (bool ok, string mensaje, DeploymentTarget? servidor) Crear(DeploymentTarget nuevo)
     {
@@ -98,7 +123,7 @@ public class DeploymentTargetService
             throw new AuthorizationException("Solo un administrador puede dar de baja un servidor.");
         }
 
-        var t = _db.DeploymentTargets.Find(targetId);
+        var t = Rastreado(targetId);
         if (t == null) return (false, "El servidor ya no existe.");
         if (!t.IsActive) return (false, "El servidor ya estaba dado de baja.");
 
@@ -118,7 +143,7 @@ public class DeploymentTargetService
         if (!PuedeEditar(_currentUser))
             throw new AuthorizationException("Solo un administrador puede reactivar un servidor.");
 
-        var t = _db.DeploymentTargets.Find(targetId);
+        var t = Rastreado(targetId);
         if (t == null) return (false, "El servidor ya no existe.");
         if (t.IsActive) return (false, "El servidor ya estaba activo.");
 

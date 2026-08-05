@@ -17,15 +17,17 @@ public partial class DeploymentControl : UserControl
     private readonly ReportService _report;
     private readonly CurrentUserContext _currentUser;
     private readonly DeploymentTargetService _targets;
+    private readonly ServerStatusService _serverStatus;
 
     private TabControl _tabs = null!;
 
     public DeploymentControl(AppDbContext db, DeploymentService deploy, BlobStorageService blob,
         BackupService backup, AuditService audit, ReportService report, CurrentUserContext currentUser,
-        DeploymentTargetService targets)
+        DeploymentTargetService targets, ServerStatusService serverStatus)
     {
         _db = db; _deploy = deploy; _blob = blob; _backup = backup;
         _audit = audit; _report = report; _currentUser = currentUser; _targets = targets;
+        _serverStatus = serverStatus;
         BuildUI();
     }
 
@@ -42,6 +44,9 @@ public partial class DeploymentControl : UserControl
         _tabs.TabPages.Add(BuildSystemsTab());
         _tabs.TabPages.Add(BuildServersTab());
         if (_currentUser.IsAdmin) _tabs.TabPages.Add(BuildProfilesTab());
+        // Estado va junto al Historial y lo ven los dos roles: es de consulta, y saber qué versión
+        // tiene cada servidor es justo lo que necesita quien despliega, no solo quien administra.
+        _tabs.TabPages.Add(BuildEstadoTab());
         _tabs.TabPages.Add(BuildHistoryTab());
         if (_currentUser.IsAdmin)
         {
@@ -64,6 +69,7 @@ public partial class DeploymentControl : UserControl
         else if (text.Contains("Sistemas"))  { LoadSystems(); }
         else if (text.Contains("Servidores")) LoadServers();
         else if (text.Contains("Perfiles"))  LoadProfiles();
+        else if (text.Contains("Estado"))    LoadEstado();
         else if (text.Contains("Historial")) LoadHistory();
         // El explorador de blobs va contra la red: se puebla el combo al entrar, pero el listado
         // solo cuando el usuario lo pide, para no lanzar peticiones a Azure con cada clic de pestaña.

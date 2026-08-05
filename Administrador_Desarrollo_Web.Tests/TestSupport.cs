@@ -8,13 +8,19 @@ namespace Administrador_Desarrollo_Web.Tests;
 /// <summary>Crea una BD SQLite temporal ya migrada (mismo patrón que los smoke tests).</summary>
 internal static class TestDb
 {
-    public static AppDbContext New()
+    public static AppDbContext New() => NewConOpciones().db;
+
+    /// <summary>
+    /// La misma base, devolviendo además sus opciones. Las necesita todo servicio que abre su propio
+    /// contexto en vez de usar el compartido (los que borran o despliegan en segundo plano).
+    /// </summary>
+    public static (AppDbContext db, DbContextOptions<AppDbContext> opts) NewConOpciones()
     {
         var path = Path.Combine(Path.GetTempPath(), "advtest_" + Guid.NewGuid().ToString("N") + ".db");
         var opts = new DbContextOptionsBuilder<AppDbContext>().UseSqlite($"Data Source={path}").Options;
         var db = new AppDbContext(opts);
         DatabaseMigrator.EnsureUpToDate(db);
-        return db;
+        return (db, opts);
     }
 }
 

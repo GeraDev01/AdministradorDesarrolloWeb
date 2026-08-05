@@ -84,8 +84,10 @@ public class DeploymentTargetDetailForm : ResponsiveForm
         Result.Nombre = _txtNombre.Text.Trim(); Result.Host = _txtHost.Text.Trim(); Result.Puerto = (int)_nudPort.Value;
         Result.Usuario = _txtUser.Text.Trim(); Result.RutaRemota = _txtRemote.Text.Trim();
         Result.URL = string.IsNullOrWhiteSpace(_txtUrl.Text) ? null : _txtUrl.Text.Trim(); Result.IsActive = _chkActive.Checked;
+        // Cifrado portable: esta contraseña la va a leer cualquier equipo del equipo desde la base
+        // compartida, no solo el que la capturó.
         if (!string.IsNullOrWhiteSpace(_txtPass.Text))
-            Result.Contrasena = SecretProtector.Protect(_txtPass.Text);
+            Result.Contrasena = SharedSecretProtector.Protect(_txtPass.Text);
         DialogResult = DialogResult.OK; Close();
     }
 }

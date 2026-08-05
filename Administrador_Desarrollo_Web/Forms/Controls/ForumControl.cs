@@ -261,9 +261,15 @@ public class ForumControl : UserControl
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
         };
 
+        // Las miniaturas NO se pintan aquí a propósito: el muro se recarga en cada tecla del
+        // buscador, y traer las de cien publicaciones sería mover megas por la red para adornar.
+        // El número basta para saber que hay algo que ver, y el hilo ya las enseña.
+        var pieTexto = $"{(t.YoDiMeGusta ? "❤" : "♡")} {t.MeGusta}      💬 {t.Comentarios} comentario(s)";
+        if (t.Imagenes > 0) pieTexto += $"      🖼 {t.Imagenes} imagen(es)";
+
         var pie = new Label
         {
-            Text = $"{(t.YoDiMeGusta ? "❤" : "♡")} {t.MeGusta}      💬 {t.Comentarios} comentario(s)",
+            Text = pieTexto,
             Location = new Point(14, 104), AutoSize = true,
             Font = AppTheme.SmallFont, ForeColor = t.YoDiMeGusta ? AppTheme.Danger : AppTheme.TextSecondary
         };
@@ -315,15 +321,23 @@ public class ForumControl : UserControl
         // Título del hilo de cada entrada, para que un comentario no salga huérfano en la rejilla.
         var titulos = _auditoria.Where(p => p.EsPublicacion).ToDictionary(p => p.Id, p => p.Title ?? "");
 
+        // Solo el número: una entrada que era una captura sin texto saldría en blanco, y en una
+        // rejilla de auditoría «no dijo nada» y «puso una imagen» no pueden verse igual.
+        var conImagenes = _forum.ConteoImagenes(_auditoria.Select(p => p.Id).ToList());
+
         _grid.Rows.Clear();
         foreach (var p in _auditoria)
         {
+            var texto = Extracto(p.TextoVisible);
+            if (!p.Eliminado && conImagenes.TryGetValue(p.Id, out var n) && n > 0)
+                texto = texto.Length == 0 ? $"🖼 {n} imagen(es)" : $"🖼 {n}  ·  {texto}";
+
             int i = _grid.Rows.Add(
                 p.CreatedAtUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm"),
                 p.AuthorName,
                 p.EsPublicacion ? $"{ForumService.IconoTema(p.Topic)} Publicación" : "↩ Comentario",
                 p.EsPublicacion ? (p.Title ?? "") : (titulos.TryGetValue(p.RootId, out var t) ? t : $"#{p.RootId}"),
-                Extracto(p.TextoVisible),
+                texto,
                 p.Eliminado ? "🗑 Retirada" : p.EditedAtUtc != null ? "✏ Editada" : "");
 
             if (p.Eliminado) _grid.Rows[i].DefaultCellStyle.ForeColor = AppTheme.TextSecondary;
@@ -356,7 +370,7 @@ public class ForumControl : UserControl
         using var frm = new ForumPostForm();
         if (frm.ShowDialog(FindForm()) != DialogResult.OK) return;
 
-        var (ok, mensaje, post) = _forum.Publicar(frm.Titulo, frm.Cuerpo, frm.Tema, frm.Etiquetas);
+        var (ok, mensaje, post) = _forum.Publicar(frm.Titulo, frm.Cuerpo, frm.Tema, frm.Etiquetas, frm.ImagenesNuevas);
         if (!ok)
         {
             MessageBox.Show(mensaje, "No se pudo publicar", MessageBoxButtons.OK, MessageBoxIcon.Warning);

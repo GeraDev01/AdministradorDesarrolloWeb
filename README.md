@@ -19,7 +19,7 @@ Aplicación de escritorio (**WinForms · .NET 10**) para gestionar un equipo de 
 - Permisos, desempeño (puntajes/aprobaciones), evaluaciones e hitos, actividades libres.
 - **SLA**: compromisos por prioridad, recordatorios automáticos, escalamiento y tablero de cumplimiento.
 - Sugerencias del equipo: cada quien elige si su propuesta es **pública o solo para el administrador**, y si se abre a votación.
-- **Foro** del equipo (todos los roles): publicaciones con **comentarios anidados**, ❤, temas y etiquetas, en dos vistas — **muro** con tarjetas para el día a día y **auditoría** en rejilla con búsqueda para reconstruir una conversación. Nada se borra: lo retirado conserva su hueco en el hilo.
+- **Foro** del equipo (todos los roles): publicaciones con **comentarios anidados**, ❤, temas y etiquetas, **enlaces pulsables** e **imágenes incrustadas** (adjuntas o pegadas del portapapeles), en dos vistas — **muro** con tarjetas para el día a día y **auditoría** en rejilla con búsqueda para reconstruir una conversación. Nada se borra: lo retirado conserva su hueco en el hilo.
 
 **Despliegue e infraestructura**
 - Despliegues por **perfil** o por **selección directa de servidores** (estilo Blobup), con respaldo previo por servidor, streaming y reintentos.

@@ -82,12 +82,31 @@ Dos pestañas de lo mismo: **🗂 Muro** (tarjetas con scroll, para el día a d�
 
 Clic en cualquier parte de una tarjeta del muro abre su hilo. El muro se ordena por **última actividad**: un hilo viejo que revive vuelve a subir.
 
+### Enlaces
+
+Escribe la dirección tal cual —`https://dev.azure.com/...`, o `www.ejemplo.com`— y en el hilo queda **pulsable**: un clic la abre en tu navegador. Si la dirección es larga, ponle nombre con `[ver el ticket 4821](https://dev.azure.com/...)` y se leerá *ver el ticket 4821*.
+
+Al pasar el ratón por encima verás **a dónde lleva de verdad** antes de pulsar. Solo se vuelven pulsables las direcciones web (`http` y `https`); cualquier otra cosa se queda como texto y no se abre.
+
+### Imágenes
+
+Hasta **6 imágenes** por publicación o comentario (PNG, JPG, GIF o BMP):
+
+- **🖼 Adjuntar imagen** — las eliges del disco.
+- **📋 Pegar captura** — o directamente **Ctrl+V** sobre el cuadro de texto: recortas con `Win+Shift+S` y la pegas ahí mismo, sin pasar por guardarla en el disco.
+
+En el hilo se ven como miniaturas; **un clic la abre completa** y el botón derecho la guarda. Una publicación puede ser solo una captura con su título: si adjuntas una imagen, el texto puede quedarse corto o vacío.
+
+Las imágenes muy grandes se reducen solas al guardarlas, así que no hace falta que las recortes antes.
+
 ### Lo que puedes cambiar de lo tuyo
 
 - **✏ Editar** — solo lo que tú escribiste. Queda marcado *(editado)*.
 - **🗑 Retirar** — solo lo tuyo (el administrador puede retirar cualquier cosa).
 
-> **Retirar no borra.** La entrada se queda con un aviso *«(contenido eliminado por su autor)»* en su lugar del hilo. Es a propósito: si desapareciera, las respuestas que le contestan dejarían de tener sentido. Su **texto** ya no aparece en las búsquedas.
+Al editar también puedes **quitar** una imagen que ya habías puesto (la ✖ de su miniatura) o añadir otras.
+
+> **Retirar no borra.** La entrada se queda con un aviso *«(contenido eliminado por su autor)»* en su lugar del hilo. Es a propósito: si desapareciera, las respuestas que le contestan dejarían de tener sentido. Su **texto** ya no aparece en las búsquedas, y sus **imágenes dejan de verse** — tampoco para el administrador.
 >
 > Dicho de otro modo: **lo que escribas queda**, aunque lo retires. Piénsalo como una conversación de trabajo, no como un chat que se borra.
 
@@ -365,9 +384,13 @@ Columnas de la tabla: *ID*, *Objetivo* (el requerimiento o la actividad), *Ticke
 | 🟢 En plazo | Vigente y todavía no toca recordatorio | Nada por ahora |
 | 🔔 Toca comentar | Vigente y ya llegó la hora del recordatorio | Comenta el ticket |
 | ⚠ Fuera de plazo | Vigente pero ya pasó la fecha límite | Comenta cuanto antes; el administrador ya recibe el escalamiento |
-| ✅ Cumplido | El administrador lo dio por atendido | Nada; es historial |
+| ✅ Cumplido | Se dio por atendido — por el administrador, o solo al cerrarse su ticket en DevOps dentro del plazo | Nada; es historial |
 | ❌ Vencido | Pasó de fecha y se cerró como incumplido | Nada; es historial |
-| ⚪ Cancelado | El administrador lo dejó sin efecto | Nada; es historial |
+| ⚪ Cancelado | Se dejó sin efecto, o su ticket se descartó en DevOps (*Removed*) | Nada; es historial |
+
+**Cuando cierras el ticket en DevOps, el compromiso se cierra solo.** Al mover el work item a *Done*, *Closed* o *Completed*, su SLA sale de la lista en el siguiente refresco y dejan de llegarte recordatorios: no hay que avisar a nadie ni comentar «ya quedó». Queda ✅ Cumplido si lo cerraste **dentro del plazo** y ❌ Vencido si fue después — lo que se mide es la fecha de cierre real en DevOps, no el momento en que la aplicación se entera, así que un fin de semana sin abrirla no te perjudica.
+
+> Si un compromiso de un ticket ya cerrado te sigue apareciendo, es que ese ticket **no se ha sincronizado** desde que lo cerraste: la aplicación mira el estado que tiene guardado, no pregunta a DevOps en cada refresco. Con la siguiente sincronización se acomoda.
 
 ### El PAT personal de Azure DevOps
 

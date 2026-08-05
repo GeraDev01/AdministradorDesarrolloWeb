@@ -14,6 +14,12 @@
     Por omisión toma la connection string que TÚ tengas configurada en este equipo
     (%APPDATA%\AdministradorDesarrolloWeb\dbprovider.json). Puedes pasar otra con -ConnectionString.
 
+    Se incrusta la conexión a la BASE y nada más. El Blob Storage y los servidores FTP viven en esa
+    base y se cifran con una llave común de la aplicación (no con la cuenta de Windows de quien los
+    capturó), así que cualquier ejecutable los lee: un servidor dado de alta hoy desde cualquier PC
+    lo usan todas las demás enseguida, sin republicar nada. Incrustarlos aquí sería meter las
+    contraseñas de producción en un .exe a cambio de nada.
+
     IMPORTANTE: la cadena queda incrustada en el .exe con cifrado simétrico cuya llave está en el
     propio binario. Eso es OFUSCACIÓN, no seguridad: cualquiera con el ejecutable puede recuperar
     la contraseña. Usa un login de SQL restringido — ver crear-login-desarrollador.sql.

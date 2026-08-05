@@ -43,6 +43,11 @@
     <Error Condition="!Exists('Deploy\devbuild.bin')" Text="Falta Deploy\devbuild.bin. Publica con Deploy\build-app.ps1, que genera ese recurso a partir de la conexión configurada." />
   </Target>
 
+  <!-- Se incrusta la conexión a la BASE y nada más. El Blob y los servidores FTP viven en esa base
+       y se cifran con una llave común (Security\SharedSecretProtector.cs), así que cualquier
+       ejecutable los lee: incrustarlos sería repartir las contraseñas de producción en un .exe a
+       cambio de nada. Ver Docs\Conexion-portable.md. -->
+
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.*" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.*" />

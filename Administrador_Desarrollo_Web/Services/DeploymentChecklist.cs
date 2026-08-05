@@ -43,9 +43,32 @@ public static class DeploymentChecklist
         Puntos.Where(p => !marcados.Contains(p.Clave)).ToList();
 
     /// <summary>
+    /// Mínimo de caracteres de la nota, que es obligatoria en todos los despliegues.
+    ///
+    /// Las casillas responden «¿se revisó?» y siempre salen marcadas —no se puede desplegar de otro
+    /// modo—, así que por sí solas no distinguen un despliegue de otro. La nota es lo único que
+    /// responde «¿por qué este despliegue, ahora?», y esa es justo la pregunta que nadie puede
+    /// reconstruir un mes después.
+    ///
+    /// El mínimo es bajo a propósito: «CAB-233» es una justificación legítima y completa. Lo que se
+    /// busca impedir es el punto o el espacio que se teclea para que el botón se encienda; medir la
+    /// calidad de la nota no es trabajo de una validación.
+    /// </summary>
+    public const int MinimoNota = 3;
+
+    /// <summary>Si la nota alcanza para valer como justificación escrita.</summary>
+    public static bool NotaSuficiente(string? nota) =>
+        (nota ?? string.Empty).Trim().Length >= MinimoNota;
+
+    /// <summary>
     /// El texto que queda guardado con el despliegue. Es la evidencia: quién confirmó qué, cuándo,
     /// y los hechos del despliegue que NO dependen de que alguien los marque (versión, destino y
     /// respaldo salen del sistema, no de la buena fe de quien despliega).
+    ///
+    /// Acepta <paramref name="nota"/> vacía aunque la nota sea obligatoria: quien la exige es el
+    /// diálogo, donde está la persona que puede escribirla. Este método solo redacta lo que pasó, y
+    /// tiene que poder redactar también un despliegue sin nota —los anteriores a esta regla— sin
+    /// inventar una.
     /// </summary>
     public static string Evidencia(
         string usuario, DateTime cuandoLocal, string version, string destino, string respaldo,

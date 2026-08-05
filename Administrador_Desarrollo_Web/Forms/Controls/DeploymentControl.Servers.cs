@@ -69,7 +69,16 @@ public partial class DeploymentControl
 
     private void LoadServers()
     {
-        _servers = _db.DeploymentTargets.Include(t => t.LastRelease).ThenInclude(r => r!.AppSystem)
+        // AsNoTracking OBLIGATORIO, por lo mismo que en el Historial: el AppDbContext es Singleton y
+        // el despliegue corre en su PROPIO contexto. Sin esto, la resolución de identidad devuelve
+        // las instancias que quedaron rastreadas ANTES de desplegar, y las columnas «Últ.
+        // actualización» y «Versión desplegada» se quedaban congeladas en lo que decían al abrir la
+        // pantalla, aunque en la base ya estuvieran al día.
+        //
+        // Como quedan DESRASTREADAS, editar no puede trabajar sobre estas instancias: SrvEdit_Click
+        // pide una rastreada y fresca con _targets.ParaEditar.
+        _servers = _db.DeploymentTargets.AsNoTracking()
+            .Include(t => t.LastRelease).ThenInclude(r => r!.AppSystem)
             .OrderBy(t => t.Nombre).ToList();
         _gridServers.Rows.Clear();
         foreach (var t in _servers)
@@ -101,8 +110,19 @@ public partial class DeploymentControl
 
     private void SrvEdit_Click(object? s, EventArgs e)
     {
-        var t = SelectedServer();
-        if (t == null) { MessageBox.Show("Selecciona un servidor.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+        var seleccionado = SelectedServer();
+        if (seleccionado == null) { MessageBox.Show("Selecciona un servidor.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+
+        // La instancia de la rejilla viene sin rastrear (ver LoadServers): guardar sobre ella no
+        // haría nada. Se pide la rastreada y al día, que además es lo correcto si alguien más la
+        // cambió desde otro equipo mientras esta pantalla estaba abierta.
+        var t = _targets.ParaEditar(seleccionado.Id);
+        if (t == null)
+        {
+            MessageBox.Show("Ese servidor ya no existe: alguien lo eliminó.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            LoadServers();
+            return;
+        }
 
         // El estado previo se captura ANTES de abrir el formulario: éste edita la misma instancia
         // rastreada por EF, así que después del diálogo los valores originales ya no existen.
@@ -157,7 +177,7 @@ public partial class DeploymentControl
             var json = File.ReadAllText(dlg.FileName);
             var (added, updated) = _deploy.ImportTargetsFromJson(json);
             _audit.Record(AuditAction.Create, "DeploymentTarget", null, $"Importación JSON: {added} nuevos, {updated} actualizados");
-            MessageBox.Show($"Importación completada.\n\nNuevos: {added}\nActualizados: {updated}\n\nLas contraseñas se guardaron cifradas (DPAPI).",
+            MessageBox.Show($"Importación completada.\n\nNuevos: {added}\nActualizados: {updated}\n\nLas contraseñas se guardaron cifradas en la base compartida: el resto del equipo puede desplegar con ellas sin volver a capturarlas.",
                 "Listo", MessageBoxButtons.OK, MessageBoxIcon.Information);
             LoadServers();
         }

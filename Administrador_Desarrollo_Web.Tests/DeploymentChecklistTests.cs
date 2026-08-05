@@ -79,6 +79,8 @@ public class DeploymentChecklistTests
     [Fact]
     public void LaEvidencia_SinNota_NoDejaLaEtiquetaVacia()
     {
+        // La nota es obligatoria en el diálogo, pero el redactor sigue aceptándola vacía: tiene que
+        // poder escribir la evidencia de los despliegues anteriores a esa regla sin inventar una.
         var texto = DeploymentChecklist.Evidencia("Ana", Cuando, "v1", "1 servidor", "todos", TodasLasClaves, null);
         Assert.DoesNotContain("Nota:", texto);
     }
@@ -90,5 +92,45 @@ public class DeploymentChecklistTests
         // un despliegue sale mal.
         var texto = DeploymentChecklist.Evidencia("Ana", Cuando, "v1", "1 servidor", "ninguno", TodasLasClaves, null);
         Assert.Contains("Respaldo previo: ninguno", texto);
+    }
+
+    // ── La nota, que es obligatoria en todos los despliegues ─────────────────────────────────
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("\r\n\t ")]
+    public void SinNota_NoAlcanza(string? nota)
+    {
+        Assert.False(DeploymentChecklist.NotaSuficiente(nota));
+    }
+
+    [Theory]
+    [InlineData(".")]
+    [InlineData("..")]
+    [InlineData(" x ")]
+    public void NotaDeRelleno_NoAlcanza(string nota)
+    {
+        // El caso que la regla viene a impedir: la tecla que se pulsa para que el botón se encienda.
+        Assert.False(DeploymentChecklist.NotaSuficiente(nota));
+    }
+
+    [Theory]
+    [InlineData("CAB-233")]
+    [InlineData("#44")]
+    [InlineData("  Ticket 4412: lo pidió Soporte  ")]
+    public void NotaConUnaReferenciaReal_Alcanza(string nota)
+    {
+        // Una referencia corta es una justificación completa: el mínimo no mide redacción.
+        Assert.True(DeploymentChecklist.NotaSuficiente(nota));
+    }
+
+    [Fact]
+    public void LaNotaSeMideSinEspacios()
+    {
+        // Si el trim no se aplicara, tres espacios pasarían el mínimo y la regla no protegería nada.
+        Assert.Equal(3, DeploymentChecklist.MinimoNota);
+        Assert.False(DeploymentChecklist.NotaSuficiente(new string(' ', DeploymentChecklist.MinimoNota)));
     }
 }

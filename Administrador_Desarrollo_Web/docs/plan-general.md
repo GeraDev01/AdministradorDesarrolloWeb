@@ -35,8 +35,12 @@ Hoy existe solo el andamiaje vacío de un proyecto **.NET 10 Windows Forms**
   opcional con Azure DevOps** para importar work items (bugs/tareas/historias). El PAT y la
   URL/proyecto se guardan cifrados en `AppSetting`; la integración está **desactivada por
   defecto** y solo se activa si el Admin la configura. (Ver Fase 5.)
-- Secretos (contraseñas FTP, connection string de Azure): cifrados con **DPAPI**
-  (`System.Security.Cryptography.ProtectedData`, scope CurrentUser).
+- Secretos que viven en la BD y son de equipo (contraseñas FTP, connection string de Azure):
+  cifrados con `Security/SharedSecretProtector.cs` (AES-256 con llave derivada de una constante
+  del ensamblado), **portables entre equipos**: los captura uno y los usan todos. Es ofuscación,
+  no seguridad; lo que protege es el acceso a la base.
+- Secretos personales o locales del equipo (`dbprovider.json`, PAT de DevOps): **DPAPI**
+  (`Security/SecretProtector.cs`, scope CurrentUser). Ahí el aislamiento por cuenta es el objetivo.
 
 ## Arquitectura
 Proyecto único con carpetas por capa:
@@ -102,7 +106,7 @@ Program.cs   Bootstrap DI + migración + arranque del LoginForm
   - `AppRelease`: una **versión** de un `AppSystem` (Version SemVer/etiqueta, **Changelog**
     editable, ZipBlobUrl, Checksum, Tamaño, CreatedBy, CreatedAt). Historial de versiones por sistema.
   - `DeploymentTarget` (servidor FTP), **alineado al JSON del usuario**: `Nombre`, `Host`
-    (incluye esquema `ftps://`), `Puerto`, `Usuario`, `Contrasena` (**cifrada DPAPI** en BD),
+    (incluye esquema `ftps://`), `Puerto`, `Usuario`, `Contrasena` (**cifrada, portable** en BD),
     `RutaRemota`, `URL` (opcional), más `LastDeployedAt` y `LastReleaseId` (última versión
     desplegada a ese destino). Importable desde un archivo JSON con ese formato.
   - `DeploymentProfile`: selección nombrada de `DeploymentTarget` (a qué grupo desplegar).

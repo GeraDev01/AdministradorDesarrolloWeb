@@ -111,11 +111,21 @@ Al abrir una publicación se ve arriba, y debajo sus comentarios **anidados**: c
 
 La sangría **se corta a los cinco niveles**: más allá la conversación se va al margen derecho y deja de leerse, así que los comentarios siguientes cuelgan del último nivel.
 
+### Enlaces e imágenes
+
+Las direcciones escritas en el texto se vuelven **pulsables** al leer el hilo; con `[nombre](dirección)` se les puede poner nombre. Solo se abren `http` y `https` —todo lo demás se queda como texto—, y al pasar el ratón se ve el destino real antes de pulsar: un enlace del foro acaba abriendo algo en la máquina de quien lee, así que ahí no hay margen.
+
+Cada entrada admite hasta **6 imágenes** (PNG, JPG, GIF, BMP), desde el disco o pegadas del portapapeles. Se guardan **dentro de la base**, reducidas y con una miniatura aparte: el muro y el hilo pintan la miniatura y el original solo viaja cuando alguien la abre. En la rejilla de auditoría, una entrada con imágenes se marca **🖼 n** en la columna *Texto*, para que una captura sin texto no salga en blanco.
+
+> Vigila el **tamaño de la base** si el equipo se apoya mucho en capturas: el tope es de 4 MB por imagen ya reducida. *🧹 Limpieza de datos → Foro del equipo* se lleva publicaciones, comentarios, imágenes y ❤ juntos.
+
 ### Nada se borra
 
 **🗑 Retirar** no borra: conserva la entrada y sustituye su texto por *«(contenido eliminado por su autor)»*. Es deliberado — un hilo con respuestas que contestan a algo que ya no está es **peor** de auditar que ver un hueco marcado. Por lo mismo, **editar deja constancia**: la entrada queda marcada *(editado)*.
 
 En la búsqueda, el **texto** de lo retirado ya no se encuentra (si se pudiera, retirarlo no serviría de nada), pero **el título de una publicación retirada sí**, para poder auditarla.
+
+Sus **imágenes dejan de servirse** en cuanto se retira la entrada — tampoco a ti. Es la misma regla que el texto: si una captura se siguiera viendo, retirar no querría decir nada. Las filas siguen en la base, como el cuerpo del mensaje; lo que cambia es que no salen.
 
 ### Lo que solo puede el administrador
 
@@ -493,6 +503,22 @@ Título en pantalla: *⏱ SLA y recordatorios*. Un SLA es un compromiso de atenc
 
 Las filas activas, sin comentarios y fuera de plazo se pintan con fondo rojo claro.
 
+### Cierre automático por el estado del ticket
+
+Un SLA cuyo work item ya terminó en Azure DevOps **se cierra solo**, sin que nadie lo marque:
+
+| Estado del ticket | Cómo queda el SLA |
+|---|---|
+| *Done* · *Closed* · *Completed* **dentro del plazo** | ✅ Cumplido |
+| *Done* · *Closed* · *Completed* **fuera del plazo** | ❌ Vencido |
+| *Removed* · *Cancelled* | ⚪ Cancelado (no cuenta como incumplimiento) |
+
+Se compara contra la **fecha de cierre real** del ticket (su última modificación en DevOps), no contra el momento en que la aplicación lo detecta: si nadie entra en tres días, un ticket cerrado a tiempo no puede acabar contando como vencido por eso.
+
+Se revisa al abrir *SLA*, *Mis SLA* y *Cumplimiento*, al pulsar **🔔 Revisar vencidos** y en el ciclo de avisos. Solo mira el estado **ya sincronizado** en local: si tu filtro de sincronización excluye los estados cerrados, esos tickets nunca se refrescan y sus SLA se quedan abiertos. Los cambios quedan en la bitácora y en las notas del compromiso.
+
+**Un SLA ya marcado *Vencido* no se resucita**, aunque después se cierre su ticket: ese incumplimiento ya se escaló y hay constancia. Si consideras que se entregó, usa **✔ Cumplido**, que sí deja rastro de quién lo decidió.
+
 ### Asignar un SLA
 1. Pulsa **➕ Asignar SLA**.
 2. En **Aplicar a:** elige *Requerimiento* o *Actividad libre*. En la lista de **Objetivo** solo aparecen requerimientos abiertos (ni entregados ni cancelados) y actividades abiertas.
@@ -695,6 +721,30 @@ Al terminar verás uno de estos mensajes en la barra de estado: *"✅ Despliegue
 **🧹 Limpiar** vacía la consola y la barra de progreso para dejarla lista (queda deshabilitado mientras hay un despliegue corriendo, para no borrar a media corrida).
 
 **El despliegue no se interrumpe si cambias de pantalla.** Puedes irte a otra sección mientras corre: al volver a la pestaña *Desplegar* encontrarás su consola, su barra y su estado intactos. Lo que sí lo cancela es **cerrar la aplicación** o **cerrar sesión**; en ambos casos, si hay un despliegue en curso, la aplicación avisa antes —*"Hay un DESPLIEGUE EN CURSO. Si cierras la aplicación se cancela. ¿Cerrar de todos modos?"* o *"...Si cierras sesión se cancela (lo ya subido se queda como esté). ¿Cerrar sesión de todos modos?"*— y solo continúa si aceptas.
+
+### Pestaña 📊 Estado
+
+Contesta la pregunta que se hace en caliente: **qué versión tiene cada servidor ahora mismo, quién se la puso y cuándo**. El Historial cuenta lo que pasó ordenado por despliegue; ésta cuenta cómo quedaron las cosas, servidor por servidor.
+
+| Columna | Qué significa |
+|---|---|
+| Servidor | Nombre del destino. |
+| Sistema / Versión desplegada | Lo que tiene publicado hoy. |
+| Última publicada | La versión más reciente que existe de ese sistema. |
+| Estado | ✅ Al día · ⚠ Atrasado · ○ Sin desplegar. |
+| Última actualización / Hace | Cuándo se desplegó, en fecha exacta y en lenguaje llano. |
+| Quién lo desplegó | Quien lanzó ese despliegue. |
+| Despliegue # | Número del trabajo en el Historial. |
+
+Arriba hay un resumen de una línea: *"22 servidor(es) · ✅ 18 al día · ⚠ 3 atrasado(s) · ○ 1 sin desplegar nunca"*.
+
+**Botones:** 🔄 Actualizar · **📜 Ver ese despliegue** (salta al Historial con ese despliegue ya seleccionado, para leer su log completo; también con doble clic en la fila) · 🌍 Abrir URL · 📊 Excel.
+
+**Casillas:** *Solo atrasados* deja a la vista únicamente los que no tienen la última versión — es la lista de pendientes. *Incluir dados de baja* agrega los servidores desactivados, en gris.
+
+> «Atrasado» se calcula contra la versión **más reciente registrada** del mismo sistema, tomando la fecha de alta y no el texto: «1.10» es posterior a «1.9» aunque alfabéticamente sea menor.
+>
+> En **Quién lo desplegó** puede salir «—» en despliegues antiguos: ese dato se empezó a guardar a partir de esta versión, y no se inventa hacia atrás.
 
 ### Pestaña 📜 Historial
 
@@ -1131,13 +1181,17 @@ Título en pantalla: *⚙ Configuración*. Es una sola página larga con desplaz
 - **💾 Guardar BD** (en la sección *Base de datos*) — guarda **únicamente** el proveedor y su connection string.
 - **💾 Guardar configuración general** (hasta abajo) — guarda **todo lo demás**.
 
-Los datos sensibles (connection string de Azure, PAT de DevOps, API Key de Freshdesk, contraseña de correo) se guardan **cifrados con DPAPI**, atados a este equipo y usuario de Windows.
+Los datos sensibles (connection string de Azure, PAT de DevOps, API Key de Freshdesk, contraseña de correo) se guardan **cifrados en la base compartida**. Los captura un administrador una sola vez y **los usan todos los equipos**: no hay que repetirlos PC por PC.
+
+> **Si vienes de una versión anterior**, esos valores estaban cifrados con la cuenta de Windows que los capturó y solo servían en esa PC. La aplicación los convierte sola al abrirla, pero solo puede convertir los que ese equipo alcance a descifrar: abre la aplicación **en la PC donde se capturaron**. Lo que ninguna pueda leer, captúralo una vez más aquí y listo.
+
+La contraseña del **PAT personal de DevOps** es la excepción y sigue siendo de cada quien: se guarda en su propia computadora, no en la base (ver *Mis SLA → 🔑 Mi PAT*).
 
 ### ☁ Azure Blob Storage
 
 | Campo | Qué poner |
 |---|---|
-| Connection string (cifrada con DPAPI) | La cadena completa de la cuenta de almacenamiento, tal cual la copias del portal (*Cuenta de almacenamiento → Claves de acceso → Cadena de conexión*) |
+| Connection string (se guarda cifrada) | La cadena completa de la cuenta de almacenamiento, tal cual la copias del portal (*Cuenta de almacenamiento → Claves de acceso → Cadena de conexión*). Capturarla aquí basta para todo el equipo |
 | Nombre del contenedor | Por ejemplo `despliegues` |
 | Carpeta de versiones | Dónde van los ZIP de las versiones. Vacío = `releases` |
 | Carpeta de respaldos de la base de datos | Vacío = `backups` |

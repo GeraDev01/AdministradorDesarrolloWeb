@@ -380,6 +380,8 @@ public static class DatabaseMigrator
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DevOpsTickets"" ADD COLUMN ""AssignedToUniqueName"" TEXT"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""AppSystems"" ADD COLUMN ""DefaultBlobFolder"" TEXT"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DeploymentProfiles"" ADD COLUMN ""IsAdHoc"" INTEGER NOT NULL DEFAULT 0"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DeploymentTargets"" ADD COLUMN ""LastDeployedById"" INTEGER"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DeploymentTargets"" ADD COLUMN ""LastDeploymentJobId"" INTEGER"); } catch { }
 
         db.Database.ExecuteSqlRaw(@"
             CREATE TABLE IF NOT EXISTS ""WatchedTickets"" (
@@ -830,6 +832,26 @@ public static class DatabaseMigrator
             );");
         try { db.Database.ExecuteSqlRaw(@"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_ForumLike_Unico"" ON ""ForumLikes""(""PostId"",""UserId"")"); } catch { }
 
+        // Imágenes incrustadas en una publicación o comentario. Thumb es la miniatura: es lo que se
+        // pinta, y por eso va en su propia columna en vez de recalcularse en cada refresco.
+        db.Database.ExecuteSqlRaw(@"
+            CREATE TABLE IF NOT EXISTS ""ForumAttachments"" (
+                ""Id""               INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                ""PostId""           INTEGER NOT NULL,
+                ""FileName""         TEXT    NOT NULL,
+                ""ContentType""      TEXT    NOT NULL,
+                ""Bytes""            BLOB    NOT NULL,
+                ""Thumb""            BLOB    NOT NULL,
+                ""SizeBytes""        INTEGER NOT NULL DEFAULT 0,
+                ""Width""            INTEGER NOT NULL DEFAULT 0,
+                ""Height""           INTEGER NOT NULL DEFAULT 0,
+                ""Orden""            INTEGER NOT NULL DEFAULT 0,
+                ""UploadedByUserId"" INTEGER NOT NULL DEFAULT 0,
+                ""CreatedAtUtc""     TEXT    NOT NULL,
+                CONSTRAINT ""FK_ForumAtt_Post"" FOREIGN KEY (""PostId"") REFERENCES ""ForumPosts""(""Id"") ON DELETE CASCADE
+            );");
+        try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_ForumAtt_Post"" ON ""ForumAttachments""(""PostId"",""Orden"")"); } catch { }
+
         // ── Presencia en vivo y registro de asistencia ─────────────
         db.Database.ExecuteSqlRaw(@"
             CREATE TABLE IF NOT EXISTS ""WorkPresences"" (
@@ -1140,6 +1162,10 @@ CREATE TABLE [SlaCommitments] (
         Exec("IF COL_LENGTH('DevOpsTickets','AssignedToUniqueName') IS NULL ALTER TABLE [DevOpsTickets] ADD [AssignedToUniqueName] nvarchar(256) NULL;");
         Exec("IF COL_LENGTH('AppSystems','DefaultBlobFolder') IS NULL ALTER TABLE [AppSystems] ADD [DefaultBlobFolder] nvarchar(200) NULL;");
         Exec("IF COL_LENGTH('DeploymentProfiles','IsAdHoc') IS NULL ALTER TABLE [DeploymentProfiles] ADD [IsAdHoc] bit NOT NULL DEFAULT 0;");
+        // Quién dejó la versión que hoy tiene cada servidor, y de qué despliegue salió. Sin FK, igual
+        // que DeploymentJob.StartedById: es historia, y dar de baja a un usuario no debe borrarla.
+        Exec("IF COL_LENGTH('DeploymentTargets','LastDeployedById') IS NULL ALTER TABLE [DeploymentTargets] ADD [LastDeployedById] int NULL;");
+        Exec("IF COL_LENGTH('DeploymentTargets','LastDeploymentJobId') IS NULL ALTER TABLE [DeploymentTargets] ADD [LastDeploymentJobId] int NULL;");
         ExecIndex("AuditLogs", "IX_Audit_Timestamp", "Timestamp", "[Timestamp]");
         ExecIndex("AuditLogs", "IX_Audit_Correlation", "CorrelationId", "[CorrelationId]");
 
@@ -1405,6 +1431,27 @@ CREATE TABLE [ForumLikes] (
 );");
         Exec(@"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IX_ForumLike_Unico' AND object_id=OBJECT_ID('ForumLikes'))
 CREATE UNIQUE INDEX [IX_ForumLike_Unico] ON [ForumLikes]([PostId],[UserId]);");
+
+        // Imágenes incrustadas. Thumb es la miniatura: es lo que se pinta, y por eso va en su propia
+        // columna en vez de recalcularse en cada refresco del muro.
+        Exec(@"
+IF OBJECT_ID(N'[ForumAttachments]', N'U') IS NULL
+CREATE TABLE [ForumAttachments] (
+    [Id] int IDENTITY(1,1) NOT NULL CONSTRAINT [PK_ForumAttachments] PRIMARY KEY,
+    [PostId] int NOT NULL,
+    [FileName] nvarchar(260) NOT NULL,
+    [ContentType] nvarchar(100) NOT NULL,
+    [Bytes] varbinary(max) NOT NULL,
+    [Thumb] varbinary(max) NOT NULL,
+    [SizeBytes] bigint NOT NULL DEFAULT 0,
+    [Width] int NOT NULL DEFAULT 0,
+    [Height] int NOT NULL DEFAULT 0,
+    [Orden] int NOT NULL DEFAULT 0,
+    [UploadedByUserId] int NOT NULL DEFAULT 0,
+    [CreatedAtUtc] datetime2 NOT NULL,
+    CONSTRAINT [FK_ForumAtt_Post] FOREIGN KEY ([PostId]) REFERENCES [ForumPosts]([Id]) ON DELETE CASCADE
+);");
+        ExecIndex("ForumAttachments", "IX_ForumAtt_Post", "PostId", "[PostId],[Orden]");
 
         // ── Presencia en vivo y registro de asistencia ─────────────
         Exec(@"

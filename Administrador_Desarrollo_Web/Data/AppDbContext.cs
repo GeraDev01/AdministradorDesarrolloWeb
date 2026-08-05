@@ -84,6 +84,7 @@ public class AppDbContext : DbContext
     // Foro del equipo
     public DbSet<ForumPost> ForumPosts => Set<ForumPost>();
     public DbSet<ForumLike> ForumLikes => Set<ForumLike>();
+    public DbSet<ForumAttachment> ForumAttachments => Set<ForumAttachment>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -435,6 +436,17 @@ public class AppDbContext : DbContext
         {
             e.HasOne(l => l.Post).WithMany().HasForeignKey(l => l.PostId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(l => new { l.PostId, l.UserId }).IsUnique();   // un «me gusta» por persona
+        });
+
+        // Imágenes incrustadas. El original y la miniatura van en la misma fila, pero SOLO la
+        // miniatura se proyecta al pintar: traer los dos en cada refresco del muro sería mover
+        // decenas de MB por la red para enseñar recuadros de 200 píxeles.
+        modelBuilder.Entity<ForumAttachment>(e =>
+        {
+            e.HasOne(a => a.Post).WithMany().HasForeignKey(a => a.PostId).OnDelete(DeleteBehavior.Cascade);
+            e.Property(a => a.FileName).IsRequired().HasMaxLength(260);
+            e.Property(a => a.ContentType).IsRequired().HasMaxLength(100);
+            e.HasIndex(a => new { a.PostId, a.Orden });
         });
 
         // Bitácora de tramos trabajados (sin FK a propósito: registro histórico de tiempo por día).

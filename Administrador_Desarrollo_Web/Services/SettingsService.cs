@@ -74,7 +74,7 @@ public class SettingsService
 
         if (setting.IsSecret && setting.Value != null)
         {
-            if (SecretProtector.TryUnprotect(setting.Value, out var plain))
+            if (SharedSecretProtector.TryUnprotect(setting.Value, out var plain))
                 return plain;
             return null;
         }
@@ -90,7 +90,9 @@ public class SettingsService
             _db.AppSettings.Add(setting);
         }
 
-        setting.Value = (isSecret && value != null) ? SecretProtector.Protect(value) : value;
+        // Cifrado PORTABLE, no DPAPI: esta fila la comparte todo el equipo. Con DPAPI solo la podía
+        // leer la PC que la escribió, y recapturarla en otra rompía a la primera.
+        setting.Value = (isSecret && value != null) ? SharedSecretProtector.Protect(value) : value;
         setting.IsSecret = isSecret;
         if (description != null) setting.Description = description;
 

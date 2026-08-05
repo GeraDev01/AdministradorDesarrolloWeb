@@ -10,10 +10,25 @@ public record ForumTarjeta(
     int Comentarios,
     int MeGusta,
     bool YoDiMeGusta,
-    DateTime UltimaActividadUtc);
+    DateTime UltimaActividadUtc,
+    int Imagenes = 0);
 
 /// <summary>Una entrada del hilo, con su nivel de anidamiento ya calculado para pintarla.</summary>
 public record ForumNodo(ForumPost Post, int Nivel, int MeGusta, bool YoDiMeGusta);
+
+/// <summary>
+/// Una imagen lista para adjuntar. La preparan los formularios (recortar, reescalar y sacar la
+/// miniatura son cosa de System.Drawing); el servicio solo comprueba que sea lo que dice ser.
+/// </summary>
+public record ForumImagenNueva(string NombreArchivo, byte[] Bytes, byte[] Miniatura, int Ancho, int Alto);
+
+/// <summary>
+/// Una imagen ya publicada, SIN el original: solo la miniatura. El original se pide aparte con
+/// <see cref="ForumService.BytesDeImagen"/> y solo cuando alguien la abre.
+/// </summary>
+public record ForumImagen(
+    int Id, int PostId, string NombreArchivo, string TipoContenido,
+    long Bytes, int Ancho, int Alto, byte[] Miniatura);
 
 /// <summary>Lo elegido en los filtros del foro. null = no filtrar.</summary>
 public record ForumFiltro(
@@ -34,6 +49,12 @@ public record ForumFiltro(
 /// <b>Nada se borra de verdad.</b> Retirar marca la entrada y sustituye el texto por un aviso: un
 /// hilo con respuestas que contestan a algo que ya no existe es peor de auditar que ver un «mensaje
 /// eliminado». Lo mismo vale para editar, que deja constancia de que se editó y cuándo.
+///
+/// Una entrada puede llevar <b>imágenes</b> incrustadas y <b>enlaces</b> en su texto. Los enlaces no
+/// se guardan aparte: se reconocen al pintar (véase <see cref="ForumRichText"/>), así que buscar
+/// sigue encontrando la dirección dentro del cuerpo. Las imágenes sí son filas propias
+/// (<see cref="ForumAttachment"/>), y siguen la misma regla que el texto: al retirar una entrada
+/// dejan de servirse: si la captura se siguiera viendo, retirar no querría decir nada.
 /// </summary>
 public class ForumService
 {
@@ -50,6 +71,16 @@ public class ForumService
     public const int MaxCuerpo = 20_000;
     public const int MaxEtiquetas = 300;
 
+    /// <summary>Imágenes por entrada. Más que esto deja de ser una publicación y pasa a ser un álbum.</summary>
+    public const int MaxImagenes = 6;
+
+    /// <summary>
+    /// Tope por imagen YA reescalada. La base es compartida y se lee por red: una captura de
+    /// pantalla normal ronda los 200 KB, así que 4 MB deja sitio de sobra sin que un hilo con
+    /// fotos de móvil convierta el muro en una descarga.
+    /// </summary>
+    public const long MaxBytesImagen = 4L * 1024 * 1024;
+
     /// <summary>Hasta dónde se puede responder a una respuesta. Más allá, la sangría se come la pantalla
     /// y la conversación deja de leerse; los comentarios más profundos cuelgan del último nivel.</summary>
     public const int ProfundidadMaxima = 5;
@@ -57,18 +88,24 @@ public class ForumService
     // ── Publicar y comentar ──────────────────────────────────────────────────────
 
     public (bool ok, string mensaje, ForumPost? post) Publicar(
-        string? titulo, string? cuerpo, ForumTopic tema, string? etiquetas = null)
+        string? titulo, string? cuerpo, ForumTopic tema, string? etiquetas = null,
+        IReadOnlyList<ForumImagenNueva>? imagenes = null)
     {
         AuthorizationGuard.RequireLoggedIn(_currentUser);
         if (_currentUser.UserId is not int userId) return (false, "No hay una sesión válida.", null);
 
         titulo = (titulo ?? "").Trim();
         cuerpo = NormalizarCuerpo(cuerpo);
+        int cuantasImagenes = imagenes?.Count ?? 0;
 
         if (titulo.Length < 3) return (false, "Escribe un título (al menos 3 caracteres).", null);
         if (titulo.Length > MaxTitulo) return (false, $"El título no puede pasar de {MaxTitulo} caracteres.", null);
-        if (cuerpo.Length < 5) return (false, "Escribe algo que compartir (al menos 5 caracteres).", null);
+        // Con imágenes, el texto puede ser corto o no estar: una captura con su título ya dice algo.
+        if (cuantasImagenes == 0 && cuerpo.Length < 5) return (false, "Escribe algo que compartir (al menos 5 caracteres).", null);
         if (cuerpo.Length > MaxCuerpo) return (false, $"La publicación no puede pasar de {MaxCuerpo:N0} caracteres.", null);
+
+        var (imgOk, imgMensaje) = ValidarImagenes(imagenes, 0);
+        if (!imgOk) return (false, imgMensaje, null);
 
         var post = new ForumPost
         {
@@ -90,18 +127,28 @@ public class ForumService
         post.RootId = post.Id;
         _db.SaveChanges();
 
-        _audit.Record(AuditAction.Create, "ForumPost", post.Id.ToString(), $"Publicación en el foro: {titulo}");
+        GuardarImagenes(post.Id, imagenes, 0);
+
+        _audit.Record(AuditAction.Create, "ForumPost", post.Id.ToString(),
+            $"Publicación en el foro: {titulo}" + (cuantasImagenes > 0 ? $" ({cuantasImagenes} imagen/es)" : ""));
         return (true, "Publicado.", post);
     }
 
-    public (bool ok, string mensaje, ForumPost? comentario) Comentar(int parentId, string? cuerpo)
+    public (bool ok, string mensaje, ForumPost? comentario) Comentar(
+        int parentId, string? cuerpo, IReadOnlyList<ForumImagenNueva>? imagenes = null)
     {
         AuthorizationGuard.RequireLoggedIn(_currentUser);
         if (_currentUser.UserId is not int userId) return (false, "No hay una sesión válida.", null);
 
         cuerpo = NormalizarCuerpo(cuerpo);
-        if (cuerpo.Length < 1) return (false, "Escribe tu comentario.", null);
+        int cuantasImagenes = imagenes?.Count ?? 0;
+
+        // Una captura sola es un comentario legítimo: «así se ve el error».
+        if (cuerpo.Length < 1 && cuantasImagenes == 0) return (false, "Escribe tu comentario o adjunta una imagen.", null);
         if (cuerpo.Length > MaxCuerpo) return (false, $"El comentario no puede pasar de {MaxCuerpo:N0} caracteres.", null);
+
+        var (imgOk, imgMensaje) = ValidarImagenes(imagenes, 0);
+        if (!imgOk) return (false, imgMensaje, null);
 
         var padre = _db.ForumPosts.AsNoTracking().FirstOrDefault(p => p.Id == parentId);
         if (padre == null) return (false, "Esa entrada ya no existe. Actualiza el hilo.", null);
@@ -128,14 +175,18 @@ public class ForumService
         _db.ForumPosts.Add(comentario);
         _db.SaveChanges();
 
+        GuardarImagenes(comentario.Id, imagenes, 0);
+
         _audit.Record(AuditAction.Create, "ForumPost", comentario.Id.ToString(),
-            $"Comentario en el hilo #{padre.RootId}");
+            $"Comentario en el hilo #{padre.RootId}" + (cuantasImagenes > 0 ? $" ({cuantasImagenes} imagen/es)" : ""));
         return (true, "Comentario publicado.", comentario);
     }
 
     // ── Editar, retirar, fijar, cerrar ───────────────────────────────────────────
 
-    public (bool ok, string mensaje) Editar(int postId, string? titulo, string? cuerpo)
+    public (bool ok, string mensaje) Editar(
+        int postId, string? titulo, string? cuerpo,
+        IReadOnlyList<ForumImagenNueva>? imagenesNuevas = null, IReadOnlyList<int>? quitarImagenes = null)
     {
         AuthorizationGuard.RequireLoggedIn(_currentUser);
 
@@ -146,8 +197,21 @@ public class ForumService
             return (false, "Solo puedes editar lo que tú escribiste.");
 
         cuerpo = NormalizarCuerpo(cuerpo);
-        if (cuerpo.Length < 1) return (false, "El texto no puede quedar vacío.");
+
+        // Las que se quitan son solo las de ESTA entrada: un id de otra publicación se ignora en vez
+        // de dejar que alguien borre por ahí las imágenes de un tercero.
+        var aQuitar = quitarImagenes is { Count: > 0 }
+            ? _db.ForumAttachments.Where(a => a.PostId == postId && quitarImagenes.Contains(a.Id)).ToList()
+            : [];
+
+        int yaTiene = _db.ForumAttachments.Count(a => a.PostId == postId) - aQuitar.Count;
+        int quedaran = yaTiene + (imagenesNuevas?.Count ?? 0);
+
+        if (cuerpo.Length < 1 && quedaran == 0) return (false, "El texto no puede quedar vacío.");
         if (cuerpo.Length > MaxCuerpo) return (false, $"El texto no puede pasar de {MaxCuerpo:N0} caracteres.");
+
+        var (imgOk, imgMensaje) = ValidarImagenes(imagenesNuevas, yaTiene);
+        if (!imgOk) return (false, imgMensaje);
 
         if (post.EsPublicacion)
         {
@@ -159,9 +223,22 @@ public class ForumService
 
         post.Body = cuerpo;
         post.EditedAtUtc = DateTime.UtcNow;   // queda constancia: un foro auditable no edita en silencio
+
+        // La imagen que se quita se borra de verdad, no se marca. Editar ya sustituye el cuerpo
+        // anterior sin conservarlo; guardar en cambio los MB de una captura que su autor retiró del
+        // texto sería incoherente y caro. Lo que queda constancia es de que se editó y cuándo.
+        if (aQuitar.Count > 0) _db.ForumAttachments.RemoveRange(aQuitar);
         _db.SaveChanges();
 
-        _audit.Record(AuditAction.Update, "ForumPost", post.Id.ToString(), "Entrada del foro editada");
+        // Max() sobre int? y no DefaultIfEmpty(-1): esa forma no la sabe traducir EF y reventaba al
+        // editar CUALQUIER entrada, llevara imágenes o no.
+        int siguiente = (_db.ForumAttachments.Where(a => a.PostId == postId).Max(a => (int?)a.Orden) ?? -1) + 1;
+        GuardarImagenes(postId, imagenesNuevas, siguiente);
+
+        var detalle = "Entrada del foro editada";
+        if (aQuitar.Count > 0) detalle += $"; {aQuitar.Count} imagen/es quitada/s";
+        if (imagenesNuevas is { Count: > 0 }) detalle += $"; {imagenesNuevas.Count} imagen/es añadida/s";
+        _audit.Record(AuditAction.Update, "ForumPost", post.Id.ToString(), detalle);
         return (true, "Editado.");
     }
 
@@ -279,13 +356,22 @@ public class ForumService
         var conteoLikes = likes.GroupBy(l => l.PostId).ToDictionary(g => g.Key, g => g.Count());
         var mios = likes.Where(l => l.UserId == userId).Select(l => l.PostId).ToHashSet();
 
+        // Solo el número: las miniaturas del muro se piden aparte y únicamente para lo que se ve.
+        var conteoImagenes = _db.ForumAttachments.AsNoTracking()
+            .Where(a => raices.Contains(a.PostId))
+            .GroupBy(a => a.PostId)
+            .Select(g => new { g.Key, N = g.Count() })
+            .ToDictionary(x => x.Key, x => x.N);
+
         return publicaciones
             .Select(p => new ForumTarjeta(
                 p,
                 conteoComentarios.TryGetValue(p.Id, out var c) ? c : 0,
                 conteoLikes.TryGetValue(p.Id, out var m) ? m : 0,
                 mios.Contains(p.Id),
-                ultimaActividad.TryGetValue(p.Id, out var u) ? u : p.CreatedAtUtc))
+                ultimaActividad.TryGetValue(p.Id, out var u) ? u : p.CreatedAtUtc,
+                // Una entrada retirada no enseña sus imágenes ni las anuncia.
+                p.Eliminado ? 0 : conteoImagenes.TryGetValue(p.Id, out var i) ? i : 0))
             .OrderByDescending(t => t.Post.Pinned)
             .ThenByDescending(t => t.UltimaActividadUtc)
             .Take(tope)
@@ -346,6 +432,135 @@ public class ForumService
     {
         AuthorizationGuard.RequireLoggedIn(_currentUser);
         return _db.ForumPosts.AsNoTracking().FirstOrDefault(p => p.Id == postId);
+    }
+
+    // ── Imágenes ─────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Las imágenes de un conjunto de entradas, agrupadas por entrada y CON LA MINIATURA, no con el
+    /// original: es lo que se pinta en el hilo. Las entradas retiradas no devuelven ninguna.
+    /// </summary>
+    public Dictionary<int, List<ForumImagen>> ImagenesDe(IEnumerable<int> postIds)
+    {
+        AuthorizationGuard.RequireLoggedIn(_currentUser);
+
+        var ids = postIds as IReadOnlyCollection<int> ?? postIds.ToList();
+        if (ids.Count == 0) return [];
+
+        // Solo las de entradas vivas: si una captura se siguiera viendo después de retirar la
+        // entrada, retirarla no serviría de nada — la misma razón por la que se oculta el texto.
+        var vivas = _db.ForumPosts.AsNoTracking()
+            .Where(p => ids.Contains(p.Id) && p.DeletedAtUtc == null)
+            .Select(p => p.Id)
+            .ToHashSet();
+        if (vivas.Count == 0) return [];
+
+        return _db.ForumAttachments.AsNoTracking()
+            .Where(a => vivas.Contains(a.PostId))
+            .OrderBy(a => a.PostId).ThenBy(a => a.Orden).ThenBy(a => a.Id)
+            .Select(a => new ForumImagen(a.Id, a.PostId, a.FileName, a.ContentType, a.SizeBytes, a.Width, a.Height, a.Thumb))
+            .ToList()
+            .GroupBy(a => a.PostId)
+            .ToDictionary(g => g.Key, g => g.ToList());
+    }
+
+    /// <summary>Las imágenes de una sola entrada, para el formulario de edición.</summary>
+    public List<ForumImagen> ImagenesDeEntrada(int postId) =>
+        ImagenesDe([postId]).TryGetValue(postId, out var l) ? l : [];
+
+    /// <summary>
+    /// Cuántas imágenes tiene cada entrada, sin traer ni miniaturas. Es lo que necesita una rejilla
+    /// —la de auditoría— donde solo hay que saber que las hay, no enseñarlas.
+    /// </summary>
+    public Dictionary<int, int> ConteoImagenes(IEnumerable<int> postIds)
+    {
+        AuthorizationGuard.RequireLoggedIn(_currentUser);
+
+        var ids = postIds as IReadOnlyCollection<int> ?? postIds.ToList();
+        if (ids.Count == 0) return [];
+
+        return _db.ForumAttachments.AsNoTracking()
+            .Where(a => ids.Contains(a.PostId))
+            .GroupBy(a => a.PostId)
+            .Select(g => new { g.Key, N = g.Count() })
+            .ToDictionary(x => x.Key, x => x.N);
+    }
+
+    /// <summary>
+    /// El original de una imagen, para abrirla o guardarla. Vacío si no existe o si su entrada está
+    /// retirada — el mismo criterio que <see cref="ImagenesDe"/>, comprobado también aquí porque
+    /// este es el camino por el que salen los bytes de verdad.
+    /// </summary>
+    public (byte[] bytes, string nombre, string tipo) BytesDeImagen(int imagenId)
+    {
+        AuthorizationGuard.RequireLoggedIn(_currentUser);
+
+        var img = _db.ForumAttachments.AsNoTracking()
+            .Where(a => a.Id == imagenId)
+            .Select(a => new { a.Bytes, a.FileName, a.ContentType, a.PostId })
+            .FirstOrDefault();
+        if (img == null) return ([], "", "");
+
+        bool viva = _db.ForumPosts.AsNoTracking().Any(p => p.Id == img.PostId && p.DeletedAtUtc == null);
+        return viva ? (img.Bytes, img.FileName, img.ContentType) : ([], "", "");
+    }
+
+    /// <summary>
+    /// Comprueba que lo adjuntado sea de verdad una imagen y quepa. El tipo se decide por los BYTES:
+    /// con la extensión bastaría llamar «captura.png» a un ejecutable para colarlo, y estas cosas se
+    /// acaban volcando a un archivo temporal que se abre con el programa asociado.
+    /// </summary>
+    private static (bool ok, string mensaje) ValidarImagenes(IReadOnlyList<ForumImagenNueva>? imagenes, int yaTiene)
+    {
+        if (imagenes == null || imagenes.Count == 0) return (true, "");
+
+        if (yaTiene + imagenes.Count > MaxImagenes)
+            return (false, $"No se pueden poner más de {MaxImagenes} imágenes en una entrada.");
+
+        foreach (var i in imagenes)
+        {
+            if (i.Bytes.Length == 0) return (false, $"«{i.NombreArchivo}» está vacía.");
+            if (i.Bytes.Length > MaxBytesImagen)
+                return (false, $"«{i.NombreArchivo}» pesa {ForumMedia.Tamano(i.Bytes.Length)} y el tope es {ForumMedia.Tamano(MaxBytesImagen)}.");
+            if (ForumMedia.TipoDeImagen(i.Bytes) == null)
+                return (false, $"«{i.NombreArchivo}» no es una imagen (se admiten PNG, JPG, GIF y BMP).");
+        }
+        return (true, "");
+    }
+
+    private void GuardarImagenes(int postId, IReadOnlyList<ForumImagenNueva>? imagenes, int desdeOrden)
+    {
+        if (imagenes == null || imagenes.Count == 0) return;
+
+        for (int i = 0; i < imagenes.Count; i++)
+        {
+            var img = imagenes[i];
+            _db.ForumAttachments.Add(new ForumAttachment
+            {
+                PostId           = postId,
+                FileName         = NombreLimpio(img.NombreArchivo),
+                ContentType      = ForumMedia.TipoDeImagen(img.Bytes) ?? "image/png",
+                Bytes            = img.Bytes,
+                // Sin miniatura, la del hilo sería el original: se pinta el original y ya está.
+                Thumb            = img.Miniatura.Length > 0 ? img.Miniatura : img.Bytes,
+                SizeBytes        = img.Bytes.Length,
+                Width            = img.Ancho,
+                Height           = img.Alto,
+                Orden            = desdeOrden + i,
+                UploadedByUserId = _currentUser.UserId ?? 0,
+                CreatedAtUtc     = DateTime.UtcNow
+            });
+        }
+        _db.SaveChanges();
+    }
+
+    /// <summary>El nombre se vuelca a disco al abrir la imagen: nada de rutas ni de caracteres raros.</summary>
+    private static string NombreLimpio(string? nombre)
+    {
+        var n = Path.GetFileName((nombre ?? "").Trim());
+        foreach (var c in Path.GetInvalidFileNameChars()) n = n.Replace(c, '_');
+        if (n.Length > 120) n = n[..120];
+        return n.Length == 0 ? "imagen.png" : n;
     }
 
     // ── Utilidades ───────────────────────────────────────────────────────────────

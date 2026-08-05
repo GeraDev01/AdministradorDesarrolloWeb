@@ -130,9 +130,11 @@ internal static class Program
         services.AddSingleton<RemoteBackupService>();
         services.AddSingleton<DeploymentService>();
         services.AddSingleton<DeploymentTargetService>();
+        services.AddSingleton<ServerStatusService>();
         services.AddSingleton<DeploymentScheduleService>();
         services.AddSingleton<BackupService>();
         services.AddSingleton<DataMigrationService>();
+        services.AddSingleton<SharedSecretMigrationService>();
         services.AddSingleton<NotificationService>();
         services.AddSingleton<AzureDevOpsService>();
         services.AddSingleton<FreshDeskService>();
@@ -155,6 +157,7 @@ internal static class Program
         services.AddSingleton<SprintService>();
         services.AddSingleton<CommitmentAlertService>();
         services.AddSingleton<UpdateService>();
+        services.AddSingleton<DataCleanupService>();
 
         services.AddTransient<LoginForm>();
         services.AddTransient<MainForm>();
@@ -208,6 +211,7 @@ internal static class Program
         services.AddTransient<TemplatesControl>();
         services.AddTransient<PresenceControl>();
         services.AddTransient<ForumControl>();
+        services.AddTransient<DataCleanupControl>();
 
         var provider = services.BuildServiceProvider();
 
@@ -317,6 +321,11 @@ internal static class Program
             logger.LogInformation("Seed completado.");
         }
         catch (Exception ex) { logger.LogError(ex, "Error en seed"); }
+
+        // Secretos compartidos: pasa al cifrado portable lo que este equipo alcance a descifrar, para
+        // que las contraseñas FTP y la conexión del Blob dejen de estar atadas a la PC que las
+        // capturó. Va fuera del try anterior y no lanza: con un login restringido falla y es normal.
+        provider.GetRequiredService<SharedSecretMigrationService>().EjecutarSeguro();
 
         return (DbConnectionStatus.Ok(), seededAdminPwd);
     }

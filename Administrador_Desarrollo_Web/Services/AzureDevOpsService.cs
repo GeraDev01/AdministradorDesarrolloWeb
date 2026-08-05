@@ -927,7 +927,12 @@ public class AzureDevOpsService
 
     private static string Recortar(string s) => string.IsNullOrEmpty(s) ? "(sin detalle)" : (s.Length <= 300 ? s : s[..300]);
 
-    private static RequirementStatus MapStatus(string state) => state.ToLowerInvariant() switch
+    /// <summary>
+    /// Traduce el estado del work item al estado local. Es público porque no solo sirve para
+    /// importar: <see cref="SlaDevOpsReconciler"/> necesita distinguir «entregado» de «cancelado»
+    /// para decidir cómo cerrar el SLA de un ticket que ya se acabó.
+    /// </summary>
+    public static RequirementStatus MapStatus(string state) => state.ToLowerInvariant() switch
     {
         "new" or "to do" or "proposed"                              => RequirementStatus.PorEstimar,
         "approved" or "committed" or "backlog"                      => RequirementStatus.Estimado,

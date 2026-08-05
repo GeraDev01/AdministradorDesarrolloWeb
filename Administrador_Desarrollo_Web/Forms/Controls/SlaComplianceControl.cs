@@ -87,6 +87,11 @@ public class SlaComplianceControl : UserControl
         var desdeUtc = _dtDesde.Value.Date.ToUniversalTime();
         var hastaUtc = _dtHasta.Value.Date.AddDays(1).ToUniversalTime();   // fin de día inclusivo
 
+        // Se cierra primero lo que DevOps ya terminó. Sin esto, un ticket entregado a tiempo pero con
+        // el SLA aún abierto se contaba aquí como incumplimiento en cuanto pasaba su fecha: justo el
+        // número que un jefe mira para juzgar al equipo.
+        SlaDevOpsReconciler.Aplicar(_db, null, DateTime.UtcNow);
+
         var slas = _db.SlaCommitments.Include(s => s.Developer)
             .Where(s => s.DueAtUtc >= desdeUtc && s.DueAtUtc < hastaUtc)
             .AsNoTracking()

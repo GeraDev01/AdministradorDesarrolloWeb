@@ -133,10 +133,31 @@ public class SlaService
             .Include(s => s.Activity)
             .Include(s => s.Developer);
 
+    /// <summary>
+    /// Cierra los SLA cuyo ticket de DevOps ya terminó, antes de leer. Se hace en la LECTURA a
+    /// propósito: es lo que hace que la pantalla se corrija sola al abrirla, sin depender de que
+    /// alguien lance una sincronización. Solo mira datos ya sincronizados en local — no toca la red.
+    ///
+    /// Con <paramref name="developerId"/> se acota a esa persona: refrescar «Mis SLA» no debe
+    /// reescribir los compromisos del resto del equipo.
+    /// </summary>
+    public int ReconciliarConDevOps(int? developerId = null, DateTime? nowUtc = null)
+    {
+        var cerrados = SlaDevOpsReconciler.Aplicar(_db, developerId, nowUtc ?? DateTime.UtcNow);
+        if (cerrados.Count == 0) return 0;
+
+        _audit.Record(AuditAction.Update, "SlaCommitment",
+            string.Join(",", cerrados.Select(c => c.SlaId)),
+            $"{cerrados.Count} SLA cerrado(s) automáticamente por el estado de su ticket en DevOps: " +
+            string.Join("; ", cerrados.Select(c => $"#{c.TicketExternalId} «{c.EstadoTicket}» → {c.Nuevo}")));
+        return cerrados.Count;
+    }
+
     /// <summary>SLA vigentes de un desarrollador (los suyos, o cualquiera si es admin).</summary>
     public List<SlaCommitment> DeDesarrollador(int developerId, bool soloActivos = true)
     {
         AuthorizationGuard.RequireOwnershipOrAdmin(_currentUser, developerId);
+        ReconciliarConDevOps(developerId);
         var q = ConDetalle().Where(s => s.DeveloperId == developerId);
         if (soloActivos) q = q.Where(s => s.Status == SlaStatus.Activo);
         return q.OrderBy(s => s.DueAtUtc).AsNoTracking().ToList();
@@ -145,6 +166,7 @@ public class SlaService
     public List<SlaCommitment> Todos(SlaStatus? estado = null, int? developerId = null)
     {
         AuthorizationGuard.RequireAdmin(_currentUser);
+        ReconciliarConDevOps(developerId);
         var q = ConDetalle();
         if (estado is SlaStatus e) q = q.Where(s => s.Status == e);
         if (developerId is int d) q = q.Where(s => s.DeveloperId == d);
@@ -158,6 +180,8 @@ public class SlaService
     {
         AuthorizationGuard.RequireOwnershipOrAdmin(_currentUser, developerId);
         var ahora = nowUtc ?? DateTime.UtcNow;
+        // Antes de molestar a nadie: un ticket ya cerrado en DevOps no genera recordatorio.
+        ReconciliarConDevOps(developerId, ahora);
         return ConDetalle()
             .Where(s => s.DeveloperId == developerId && s.Status == SlaStatus.Activo)
             .AsNoTracking()
@@ -178,6 +202,11 @@ public class SlaService
     public List<SlaCommitment> RevisarVencimientos(DateTime? nowUtc = null)
     {
         var ahora = nowUtc ?? DateTime.UtcNow;
+
+        // Primero se cierra lo que DevOps ya dio por terminado. Sin este paso, un ticket entregado a
+        // tiempo acababa marcado como vencido y escalado al jefe como incumplimiento — es el correo
+        // más caro que puede mandar la aplicación, porque acusa a alguien que sí cumplió.
+        ReconciliarConDevOps(null, ahora);
 
         var vencidos = _db.SlaCommitments
             .Where(s => s.Status == SlaStatus.Activo && s.DueAtUtc < ahora)
