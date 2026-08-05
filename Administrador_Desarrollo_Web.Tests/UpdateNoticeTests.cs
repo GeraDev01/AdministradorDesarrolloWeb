@@ -1,4 +1,4 @@
-using Administrador_Desarrollo_Web.Data;
+﻿using Administrador_Desarrollo_Web.Data;
 using Administrador_Desarrollo_Web.Services;
 using Xunit;
 
@@ -100,15 +100,15 @@ public class UpdateNoticeTests
     // ── El enlace ────────────────────────────────────────────────────────────────
 
     [Theory]
-    [InlineData("https://blob.core.windows.net/app/Administrador.exe")]
+    [InlineData("https://blob.core.windows.net/app/Líder.exe")]
     [InlineData("http://intranet/app.exe")]
-    [InlineData(@"\\servidor\compartido\Administrador.exe")]
+    [InlineData(@"\\servidor\compartido\Líder.exe")]
     public void UrlValida_AceptaEnlaceYRutaDeRed(string url) => Assert.True(UpdateNotice.UrlValida(url));
 
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    [InlineData("pídeselo al jefe")]
+    [InlineData("pídeselo al líder")]
     [InlineData("javascript:alert(1)")]
     public void UrlValida_RechazaLoDemas(string? url) => Assert.False(UpdateNotice.UrlValida(url));
 

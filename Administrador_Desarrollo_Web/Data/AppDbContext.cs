@@ -39,6 +39,7 @@ public class AppDbContext : DbContext
     public DbSet<WorkSession> WorkSessions => Set<WorkSession>();
     public DbSet<WorkInterval> WorkIntervals => Set<WorkInterval>();
     public DbSet<DevActivity> DevActivities => Set<DevActivity>();
+    public DbSet<DevActivityAttachment> DevActivityAttachments => Set<DevActivityAttachment>();
     public DbSet<SlaCommitment> SlaCommitments => Set<SlaCommitment>();
     public DbSet<ScheduledDeployment> ScheduledDeployments => Set<ScheduledDeployment>();
 
@@ -113,7 +114,13 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<LeaveRequest>(e =>
         {
             e.Property(l => l.Type).HasConversion<int>();
+            e.Property(l => l.Status).HasConversion<int>();
+            e.Property(l => l.AttachmentFileName).HasMaxLength(260);
+            e.Ignore(l => l.EndDate);
+            e.Ignore(l => l.EsSolicitudDelDesarrollador);
             e.HasOne(l => l.Developer).WithMany().HasForeignKey(l => l.DeveloperId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(l => new { l.DeveloperId, l.Date });   // «mis permisos», por fecha
+            e.HasIndex(l => l.Status);                        // la bandeja de pendientes del admin
         });
 
         modelBuilder.Entity<Requirement>(e =>
@@ -251,6 +258,8 @@ public class AppDbContext : DbContext
             e.HasOne(p => p.Criterion).WithMany().HasForeignKey(p => p.CriterionId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(p => p.Requirement).WithMany().HasForeignKey(p => p.RequirementId).IsRequired(false).OnDelete(DeleteBehavior.SetNull);
             e.Property(p => p.ApprovalStatus).HasConversion<int>();
+            e.Property(p => p.EvidenceUrl).HasMaxLength(500);
+            e.Ignore(p => p.AdmiteReplica);
             e.HasIndex(p => p.ApprovalStatus);
         });
 
@@ -261,6 +270,18 @@ public class AppDbContext : DbContext
             e.Property(a => a.Title).IsRequired().HasMaxLength(200);
             e.HasOne(a => a.Developer).WithMany().HasForeignKey(a => a.DeveloperId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(a => new { a.DeveloperId, a.Status });
+        });
+
+        // Evidencia de las actividades libres. Cascada desde la actividad: si la actividad se
+        // borra (solo se permite cuando no tiene tiempo registrado), sus archivos se van con ella.
+        modelBuilder.Entity<DevActivityAttachment>(e =>
+        {
+            e.HasOne(a => a.Activity).WithMany().HasForeignKey(a => a.ActivityId).OnDelete(DeleteBehavior.Cascade);
+            e.Property(a => a.FileName).IsRequired().HasMaxLength(260);
+            e.Property(a => a.ContentType).IsRequired().HasMaxLength(100);
+            e.Property(a => a.Description).HasMaxLength(400);
+            e.Ignore(a => a.EsImagen);
+            e.HasIndex(a => a.ActivityId);
         });
 
         // Compromisos de SLA. Mismo patrón de objetivo doble que WorkSession.
@@ -344,7 +365,11 @@ public class AppDbContext : DbContext
 
         // Integración tickets
         modelBuilder.Entity<DevOpsTicket>(e =>
-            e.HasIndex(t => t.ExternalId).IsUnique());
+        {
+            e.HasIndex(t => t.ExternalId).IsUnique();
+            e.Ignore(t => t.SinPrioridadDefinida);
+            e.Ignore(t => t.SinEstimar);
+        });
 
         modelBuilder.Entity<FreshDeskTicket>(e =>
             e.HasIndex(t => t.ExternalId).IsUnique());

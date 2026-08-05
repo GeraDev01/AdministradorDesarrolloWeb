@@ -285,7 +285,14 @@ public class AzureDevOpsControl : UserControl
 
         int activeFilters = _columnFilters.Count + (q.Length > 0 ? 1 : 0) + (title.Length > 0 ? 1 : 0);
         var note = activeFilters > 0 ? $"  |  🔎 {activeFilters} filtro(s) activo(s)" : "";
-        _lblStatus.Text = $"{filtered.Count} de {_all.Count} tickets  |  Última sync: {_all.MaxBy(t => t.SyncedAt)?.SyncedAt.ToLocalTime():dd/MM/yyyy HH:mm}  |  Vigilados: {_watchedIds.Count}{note}";
+
+        // Lo que falta por priorizar. Se cuenta sobre los ABIERTOS: exigir prioridad de algo ya
+        // cerrado no cambia ninguna decisión.
+        int sinPrioridad = _all.Count(t => t.SinPrioridadDefinida && !AzureDevOpsService.EsCerrado(t.State));
+        var pendiente = sinPrioridad > 0 ? $"  |  ⚠ {sinPrioridad} sin prioridad definida" : "";
+
+        _lblStatus.Text = $"{filtered.Count} de {_all.Count} tickets  |  Última sync: {_all.MaxBy(t => t.SyncedAt)?.SyncedAt.ToLocalTime():dd/MM/yyyy HH:mm}  |  Vigilados: {_watchedIds.Count}{note}{pendiente}";
+        _lblStatus.ForeColor = sinPrioridad > 0 ? AppTheme.Warning : AppTheme.TextSecondary;
     }
 
     // Búsqueda de texto global: recorre todos los campos relevantes (AND con los filtros de columna).
@@ -999,7 +1006,13 @@ public class AzureDevOpsControl : UserControl
             mover.DropDownItems.Add(destino, null, (_, _) => CambiarEstadoAsync(ticket, destino));
         }
         if (mover.DropDownItems.Count > 0) menu.Items.Add(mover);
-        menu.Items.Add("🔧  Cambiar prioridad…", null, (_, _) => CambiarPrioridadAsync(ticket));
+        menu.Items.Add(ticket.SinPrioridadDefinida ? "🔧  Definir prioridad (pendiente)…" : "🔧  Cambiar prioridad…",
+                       null, (_, _) => CambiarPrioridadAsync(ticket));
+        menu.Items.Add("🔍  Ficha: regresiones y devoluciones…", null, (_, _) =>
+        {
+            using var frm = new DevOpsTicketFichaForm(_devOps, ticket);
+            frm.ShowDialog(FindForm());
+        });
 
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(
@@ -1049,7 +1062,7 @@ public class AzureDevOpsControl : UserControl
         if (frm.ShowDialog(FindForm()) != DialogResult.OK) return;
         try
         {
-            await _devOps.ChangePriorityAsync(ticket.ExternalId, frm.SelectedPriority);
+            await _devOps.ChangePriorityAsync(ticket.ExternalId, frm.SelectedPriority, _currentUser.UserId);
             _audit.Record(AuditAction.Update, "DevOpsTicket", ticket.ExternalId.ToString(),
                 $"Prioridad cambiada a {frm.SelectedPriority} ({SlaPolicyStore.NombrePrioridad(frm.SelectedPriority)}) en DevOps");
             LoadData();

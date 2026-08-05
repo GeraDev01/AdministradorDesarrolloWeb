@@ -1,4 +1,4 @@
-using Administrador_Desarrollo_Web.Data;
+﻿using Administrador_Desarrollo_Web.Data;
 using Administrador_Desarrollo_Web.Models;
 using Administrador_Desarrollo_Web.Services;
 using Administrador_Desarrollo_Web.Forms.Details;
@@ -75,7 +75,7 @@ public class MyVacationsControl : UserControl
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Estado",       Name = "Status",  FillWeight = 13 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Adjunto",      Name = "Attach",  FillWeight = 8  });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Mi comentario",           Name = "Comment", FillWeight = 22 });
-        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Respuesta / motivo del jefe", Name = "Review",  FillWeight = 22 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Respuesta / motivo del líder", Name = "Review",  FillWeight = 22 });
         _grid.CellDoubleClick += (_, ev) => { if (ev.RowIndex >= 0) BtnViewAttachment_Click(null, EventArgs.Empty); };
         _grid.SelectionChanged += (_, _) => UpdateViewButton();
 

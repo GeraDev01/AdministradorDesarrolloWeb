@@ -1,4 +1,4 @@
-using Administrador_Desarrollo_Web.Data;
+﻿using Administrador_Desarrollo_Web.Data;
 using Administrador_Desarrollo_Web.Models;
 using Administrador_Desarrollo_Web.Services;
 using Microsoft.EntityFrameworkCore;
@@ -57,7 +57,7 @@ public class DeveloperProfilesControl : UserControl
 
         _lblDevName = new Label { Location = new Point(4, y), AutoSize = false, Size = new Size(560, 26), Font = AppTheme.HeaderFont, ForeColor = AppTheme.SidebarActive, Text = "Selecciona un desarrollador" };
         scroll.Controls.Add(_lblDevName); y += 28;
-        scroll.Controls.Add(new Label { Text = "🔒 Información confidencial · visible solo para el administrador.", Location = new Point(4, y), AutoSize = true, Font = AppTheme.SmallFont, ForeColor = AppTheme.TextSecondary }); y += 26;
+        scroll.Controls.Add(new Label { Text = "🔒 Información confidencial · visible solo para el líder.", Location = new Point(4, y), AutoSize = true, Font = AppTheme.SmallFont, ForeColor = AppTheme.TextSecondary }); y += 26;
 
         Campo(scroll, "Fortalezas", ref _txtStrengths, ref y, 70);
         Campo(scroll, "Debilidades / áreas de mejora", ref _txtWeaknesses, ref y, 70);

@@ -1,4 +1,4 @@
-namespace Administrador_Desarrollo_Web.Data;
+﻿namespace Administrador_Desarrollo_Web.Data;
 
 /// <summary>
 /// Estado de la conexión con la base del equipo, tal como lo pinta el indicador (● verde / ● rojo)
@@ -27,7 +27,7 @@ public sealed record DbConnectionStatus(bool Conectado, string Titulo, string De
         new(false,
             "No se pudo conectar a la base de datos del equipo",
             "Este ejecutable no trae la conexión del equipo y en este equipo no hay ninguna " +
-            "configurada. Pide al administrador el ejecutable publicado con Deploy\\build-app.ps1. " +
+            "configurada. Pide al líder el ejecutable publicado con Deploy\\build-app.ps1. " +
             "La aplicación no trabaja con una base local.");
 
     /// <summary>Rojo: hay conexión configurada, pero el servidor no respondió.</summary>

@@ -1,4 +1,4 @@
-namespace Administrador_Desarrollo_Web.Services;
+﻿namespace Administrador_Desarrollo_Web.Services;
 
 /// <summary>Se lanza cuando la sesión actual no tiene permiso para una operación. La UI la
 /// captura y la muestra como aviso; en la web se traduce a 403.</summary>
@@ -21,7 +21,7 @@ public static class AuthorizationGuard
     public static void RequireAdmin(ICurrentUser user)
     {
         if (!user.IsAdmin)
-            throw new AuthorizationException("Esta operación requiere permisos de administrador.");
+            throw new AuthorizationException("Esta operación requiere permisos de líder.");
     }
 
     /// <summary>Permite la operación solo si es el propio desarrollador dueño de los datos o un admin.</summary>
@@ -40,7 +40,7 @@ public static class AuthorizationGuard
     {
         RequireLoggedIn(user);
         if (user.IsAdmin || user.IsOperaciones) return;
-        throw new AuthorizationException("Esta operación es del área de despliegues (Administrador u Operaciones).");
+        throw new AuthorizationException("Esta operación es del área de despliegues (Líder u Operaciones).");
     }
 
     /// <summary>
@@ -53,6 +53,6 @@ public static class AuthorizationGuard
     {
         RequireLoggedIn(user);
         if (user.IsAdmin || user.IsDesarrollador) return;
-        throw new AuthorizationException($"Esta operación es {ambito} (Administrador o Desarrollador).");
+        throw new AuthorizationException($"Esta operación es {ambito} (Líder o Desarrollador).");
     }
 }

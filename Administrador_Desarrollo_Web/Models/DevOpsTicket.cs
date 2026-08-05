@@ -24,5 +24,29 @@ public class DevOpsTicket
     public string Url { get; set; } = "";
     public int CommentCount { get; set; }
 
+    // ── Prioridad definida por el líder ──────────────────────────────────
+    /// <summary>
+    /// Cuándo se fijó la prioridad DESDE esta aplicación. Es distinto de <see cref="Priority"/>:
+    /// ese campo siempre trae algo porque DevOps le pone 2 por omisión a todo, así que no sirve
+    /// para saber si alguien la pensó. Null = nadie la ha definido todavía.
+    /// </summary>
+    public DateTime? PriorityConfirmedAt { get; set; }
+    public int? PriorityConfirmedByUserId { get; set; }
+
+    // ── Estimación del desarrollador ─────────────────────────────────────
+    /// <summary>
+    /// Horas estimadas por quien tiene el ticket. Se escribe también en el campo Effort del work
+    /// item, para que valga fuera de esta aplicación. Null = todavía no lo ha estimado.
+    /// </summary>
+    public double? EstimatedHours { get; set; }
+    public DateTime? EstimatedAt { get; set; }
+    public int? EstimatedByDeveloperId { get; set; }
+
+    /// <summary>Le falta lo que el líder tiene que definir en todo ticket.</summary>
+    public bool SinPrioridadDefinida => PriorityConfirmedAt == null;
+
+    /// <summary>Está asignado y quien lo tiene todavía no dijo cuánto le va a llevar.</summary>
+    public bool SinEstimar => EstimatedHours == null && !string.IsNullOrWhiteSpace(AssignedTo);
+
     public ICollection<TicketLink> TicketLinks { get; set; } = [];
 }

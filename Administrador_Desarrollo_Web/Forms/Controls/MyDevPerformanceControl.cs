@@ -1,4 +1,4 @@
-using Administrador_Desarrollo_Web.Data;
+﻿using Administrador_Desarrollo_Web.Data;
 using Administrador_Desarrollo_Web.Models;
 using Administrador_Desarrollo_Web.Services;
 using Administrador_Desarrollo_Web.Forms.Details;
@@ -24,8 +24,11 @@ public class MyDevPerformanceControl : UserControl
     private NumericUpDown _nudYear = null!;
     private DataGridView _gridMine = null!, _gridIndiv = null!, _gridTeam = null!, _gridTickets = null!, _gridPoints = null!;
     private Label _kpiApproved = null!, _kpiPending = null!, _kpiRejected = null!, _kpiRank = null!, _kpiTime = null!;
-    private Label _kpiTeam = null!, _kpiTickets = null!;
-    private readonly ToolTip _toolTip = new();
+    private Label _kpiTeam = null!, _kpiTickets = null!, _kpiActivityTime = null!, _kpiNivel = null!;
+    private readonly ToolTip _toolTip = new() { AutoPopDelay = 20000 };
+
+    /// <summary>Entradas de «Mis actividades y puntos», para poder corregir la seleccionada.</summary>
+    private List<PointEntry> _myPoints = [];
 
     public MyDevPerformanceControl(AppDbContext db, CurrentUserContext currentUser, AuditService audit,
         WorkSessionService work, PerformanceScoringService scoring)
@@ -56,7 +59,7 @@ public class MyDevPerformanceControl : UserControl
             Margin = Padding.Empty, Padding = new Padding(10, 8, 10, 5), CellBorderStyle = TableLayoutPanelCellBorderStyle.None
         };
         toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 330f));
+        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 580f));
         toolbar.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
 
         var periodFlow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false };
@@ -73,18 +76,29 @@ public class MyDevPerformanceControl : UserControl
 
         var btns = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false };
         var btnNew = AppTheme.MakePrimaryButton("📝 Registrar actividad", 190); btnNew.Margin = new Padding(4, 2, 0, 0); btnNew.Click += BtnRegister_Click;
+        var btnEdit = AppTheme.MakeSecondaryButton("✏ Corregir", 110); btnEdit.Margin = new Padding(4, 2, 0, 0); btnEdit.Click += BtnEditEntry_Click;
+        var btnReplicar = AppTheme.MakeSecondaryButton("🗣 Replicar", 115); btnReplicar.Margin = new Padding(4, 2, 0, 0); btnReplicar.Click += BtnReplicar_Click;
         var btnReload = AppTheme.MakeSecondaryButton("🔄 Recargar", 110); btnReload.Margin = new Padding(4, 2, 0, 0); btnReload.Click += (_, _) => LoadData();
-        btns.Controls.AddRange([btnNew, btnReload]);
+        _toolTip.SetToolTip(btnEdit, "Corrige una actividad tuya de «Mis actividades y puntos».\n" +
+                                     "Puedes mientras no esté aprobada — también si te la rechazaron.");
+        _toolTip.SetToolTip(btnReplicar, "¿Te rechazaron una actividad y no estás de acuerdo?\n" +
+                                         "Argumenta y vuelve a mandarla a revisión.");
+        btns.Controls.AddRange([btnNew, btnEdit, btnReplicar, btnReload]);
         toolbar.Controls.Add(btns, 1, 0);
 
         // ── KPIs (mis puntos) ────────────────────────────────────
         var kpiFlow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, AutoScroll = true, Padding = new Padding(10, 4, 10, 4), BackColor = AppTheme.ContentBg };
+        kpiFlow.Controls.Add(MakeKpi("🎓 Mi nivel", out _kpiNivel, AppTheme.HeaderBg));
         kpiFlow.Controls.Add(MakeKpi("👥 Mi equipo", out _kpiTeam, AppTheme.SidebarActive));
         kpiFlow.Controls.Add(MakeKpi("✅ Aprobado (mes)", out _kpiApproved, AppTheme.Success));
         kpiFlow.Controls.Add(MakeKpi("⏳ En revisión", out _kpiPending, AppTheme.Warning));
         kpiFlow.Controls.Add(MakeKpi("❌ Rechazado", out _kpiRejected, AppTheme.Danger));
         kpiFlow.Controls.Add(MakeKpi("🏅 Mi posición", out _kpiRank, AppTheme.TextPrimary));
         kpiFlow.Controls.Add(MakeKpi("⏱ Tiempo dedicado (total)", out _kpiTime, AppTheme.HeaderBg));
+        // Dos relojes distintos a propósito: el de arriba es lo que midió el cronómetro sobre
+        // requerimientos y actividades; este es lo que el desarrollador DECLARÓ al registrar sus
+        // actividades del mes. Sumarlos contaría dos veces el trabajo cronometrado.
+        kpiFlow.Controls.Add(MakeKpi("🕒 Tiempo de actividades (mes)", out _kpiActivityTime, AppTheme.Warning));
         kpiFlow.Controls.Add(MakeKpi("🔷 Tickets DevOps (abiertos)", out _kpiTickets, AppTheme.SidebarActive));
 
         // ── Tabs: asignaciones + rankings (solo puntos) ──────────
@@ -119,12 +133,18 @@ public class MyDevPerformanceControl : UserControl
         // Mis actividades/puntos: aquí el desarrollador ve el estado de sus autocalificaciones y de
         // los puntos que le asignó el jefe, con el MOTIVO cuando algo se rechaza.
         _gridPoints = AppTheme.MakeGrid(); _gridPoints.MultiSelect = false;
-        _gridPoints.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Fecha",    Name = "Date",   FillWeight = 11 });
-        _gridPoints.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Criterio", Name = "Crit",   FillWeight = 26 });
-        _gridPoints.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Puntos",   Name = "Pts",    FillWeight = 8  });
-        _gridPoints.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Origen",   Name = "Origin", FillWeight = 13 });
-        _gridPoints.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Estado",   Name = "State",  FillWeight = 13 });
-        _gridPoints.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Motivo / comentario del jefe", Name = "Review", FillWeight = 29 });
+        _gridPoints.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "ID",       Name = "Id",     Width = 45, FillWeight = 5 });
+        _gridPoints.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Fecha",    Name = "Date",   FillWeight = 10 });
+        _gridPoints.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Qué hiciste", Name = "Crit", FillWeight = 22 });
+        _gridPoints.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Puntos",   Name = "Pts",    FillWeight = 7  });
+        _gridPoints.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "⏱ Tiempo", Name = "Time",   FillWeight = 10 });
+        _gridPoints.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "🔗 Item",  Name = "Link",   FillWeight = 8  });
+        _gridPoints.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Origen",   Name = "Origin", FillWeight = 12 });
+        _gridPoints.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Estado",   Name = "State",  FillWeight = 11 });
+        _gridPoints.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "🔁",       Name = "Round",  FillWeight = 5  });
+        _gridPoints.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Motivo / comentario del líder", Name = "Review", FillWeight = 22 });
+        // Doble clic sobre la fila: si tiene enlace lo abre; es el gesto que ya usa la reja de tickets.
+        _gridPoints.CellDoubleClick += GridPoints_CellDoubleClick;
 
         tabs.TabPages.Add(WrapTab("  📋  Mis asignaciones  ", _gridMine));
         tabs.TabPages.Add(WrapTab("  🔷  Mis tickets DevOps  ", _gridTickets));
@@ -174,10 +194,12 @@ public class MyDevPerformanceControl : UserControl
     {
         var devId = _currentUser.DeveloperId;
         _gridMine.Rows.Clear(); _gridIndiv.Rows.Clear(); _gridTeam.Rows.Clear(); _gridTickets.Rows.Clear(); _gridPoints.Rows.Clear();
+        _myPoints = [];   // si no, «Corregir» seguiría resolviendo contra la carga anterior
         if (devId == null)
         {
-            _kpiApproved.Text = _kpiPending.Text = _kpiRejected.Text = _kpiRank.Text = _kpiTime.Text = _kpiTeam.Text = _kpiTickets.Text = "—";
-            _gridMine.Rows.Add("", "Tu cuenta no está vinculada a un desarrollador. Contacta al administrador.", "", "", "", "");
+            _kpiApproved.Text = _kpiPending.Text = _kpiRejected.Text = _kpiRank.Text = _kpiTime.Text =
+                _kpiTeam.Text = _kpiTickets.Text = _kpiActivityTime.Text = _kpiNivel.Text = "—";
+            _gridMine.Rows.Add("", "Tu cuenta no está vinculada a un desarrollador. Contacta al líder.", "", "", "", "");
             return;
         }
         int month = _cbxMonth.SelectedIndex + 1;
@@ -197,14 +219,22 @@ public class MyDevPerformanceControl : UserControl
     {
         var yo = _db.Developers
             .Where(d => d.Id == devId)
-            .Select(d => new { d.TeamId, d.TeamRole, NombreEquipo = d.Team != null ? d.Team.Name : null })
+            .Select(d => new { d.TeamId, d.TeamRole, d.Seniority, NombreEquipo = d.Team != null ? d.Team.Name : null })
             .FirstOrDefault();
+
+        // El nivel decide qué actividades le tocan («(Junior)», «(Mid)», «(Senior)») y si compite en
+        // el ranking: tenerlo a la vista evita que se entere por un «— de N» sin explicación.
+        _kpiNivel.Text = NivelDesarrolladorUi.Etiqueta(yo?.Seniority);
+        _kpiNivel.ForeColor = NivelDesarrolladorUi.Color(yo?.Seniority);
+        _toolTip.SetToolTip(_kpiNivel,
+            NivelDesarrolladorUi.Explicacion(yo?.Seniority)
+            ?? "Nivel registrado en tu ficha. Lo mantiene el líder.");
 
         if (yo?.TeamId == null || yo.NombreEquipo == null)
         {
             _kpiTeam.Text = "Sin equipo";
             _kpiTeam.ForeColor = AppTheme.TextSecondary;
-            _toolTip.SetToolTip(_kpiTeam, "No estás asignado a ningún equipo. Contacta al administrador.");
+            _toolTip.SetToolTip(_kpiTeam, "No estás asignado a ningún equipo. Contacta al líder.");
             return;
         }
 
@@ -223,17 +253,33 @@ public class MyDevPerformanceControl : UserControl
 
     private void LoadKpis(int devId, int year, int month)
     {
-        var mine = _db.PointEntries
-            .Where(p => p.DeveloperId == devId && p.Year == year && p.Month == month)
-            .Select(p => new { p.Points, p.ApprovalStatus })
-            .ToList();
-        int approved = mine.Where(p => p.ApprovalStatus == PointApprovalStatus.Aprobado).Sum(p => p.Points);
-        int pending  = mine.Where(p => p.ApprovalStatus == PointApprovalStatus.Pendiente).Sum(p => p.Points);
+        // Delegado en el servicio: es la misma fuente que usa el administrador, así el desarrollador
+        // no ve un total distinto del que se le revisa.
+        var t = _scoring.DevMonthlyTotals(devId, year, month);
 
-        _kpiApproved.Text = (approved >= 0 ? "+" : "") + approved;
-        _kpiPending.Text  = "+" + pending;
-        _kpiRejected.Text = mine.Count(p => p.ApprovalStatus == PointApprovalStatus.Rechazado).ToString();
+        _kpiApproved.Text = (t.Approved >= 0 ? "+" : "") + t.Approved;
+        _kpiPending.Text  = "+" + t.Pending;
+        _kpiRejected.Text = t.RejectedCount.ToString();
         _kpiTime.Text = WorkSessionService.Format(_work.GetTotalSecondsByDeveloper(devId));
+        _toolTip.SetToolTip(_kpiTime,
+            "Todo lo que ha medido el cronómetro sobre tus requerimientos y actividades libres,\n" +
+            "desde siempre. No depende del mes elegido arriba.");
+
+        int declarado = t.MinutesApproved + t.MinutesPending;
+        _kpiActivityTime.Text = FormatoMinutos(declarado);
+        _kpiActivityTime.ForeColor = declarado > 0 ? AppTheme.Warning : AppTheme.TextSecondary;
+        _toolTip.SetToolTip(_kpiActivityTime,
+            $"Tiempo que declaraste al registrar tus actividades de este mes.\n" +
+            $"  • Ya aprobado: {FormatoMinutos(t.MinutesApproved)}\n" +
+            $"  • En revisión: {FormatoMinutos(t.MinutesPending)}\n" +
+            "Lo rechazado no se cuenta. Es independiente del cronómetro.");
+    }
+
+    /// <summary>Minutos como «3h 20m» / «45m» / «—». Los totales declarados se capturan en minutos.</summary>
+    private static string FormatoMinutos(int minutos)
+    {
+        if (minutos <= 0) return "—";
+        return minutos >= 60 ? $"{minutos / 60}h {minutos % 60:00}m" : $"{minutos}m";
     }
 
     private void LoadMyAssignments(int devId)
@@ -271,7 +317,7 @@ public class MyDevPerformanceControl : UserControl
                 _gridTickets.Rows[i].DefaultCellStyle.ForeColor = AppTheme.TextSecondary;
         }
         if (tickets.Count == 0)
-            _gridTickets.Rows.Add("", "", "(no encontramos tickets de DevOps a tu nombre — revisa tu correo con el administrador)", "", "");
+            _gridTickets.Rows.Add("", "", "(no encontramos tickets de DevOps a tu nombre — revisa tu correo con el líder)", "", "");
     }
 
     private void GridTickets_CellDoubleClick(object? s, DataGridViewCellEventArgs e)
@@ -285,37 +331,190 @@ public class MyDevPerformanceControl : UserControl
     // Muestra el MOTIVO/comentario cuando algo se rechaza, que es lo que el dev necesita ver.
     private void LoadMyPoints(int devId)
     {
-        var pts = _db.PointEntries
+        // Entidades completas (no una proyección): «Corregir» necesita precargar comentario,
+        // tiempo, enlace y captura en el formulario, y el tooltip necesita la descripción del
+        // criterio. AsNoTracking porque el AppDbContext es Singleton y esto es solo lectura.
+        _myPoints = _db.PointEntries
             .Where(p => p.DeveloperId == devId)
             .Include(p => p.Criterion)
             .OrderByDescending(p => p.Date).ThenByDescending(p => p.Id)
-            .Select(p => new
-            {
-                p.Date, Criterio = p.Criterion.Name, p.Points, p.ApprovalStatus,
-                EsAuto = p.SubmittedByDeveloperId != null, p.ReviewComment
-            })
+            .AsNoTracking()
             .ToList();
 
-        foreach (var p in pts)
+        foreach (var p in _myPoints)
         {
+            bool esAuto = p.SubmittedByDeveloperId != null;
             int i = _gridPoints.Rows.Add(
+                p.Id,
                 p.Date.ToLocalTime().ToString("dd/MM/yyyy"),
-                p.Criterio,
+                p.Criterion?.Name ?? "—",
                 (p.Points >= 0 ? "+" : "") + p.Points,
-                p.EsAuto ? "Autocalificación" : "Asignado por jefe",
+                FormatoMinutos(p.MinutesSpent ?? 0),
+                string.IsNullOrWhiteSpace(p.EvidenceUrl) ? "" : "🔗",
+                esAuto ? "Autocalificación" : "Asignado por líder",
                 ApprovalLabel(p.ApprovalStatus),
+                p.ReviewRound > 0 ? $"×{p.ReviewRound}" : "",
                 // El motivo importa sobre todo cuando se rechaza; si no hay, se deja vacío.
                 string.IsNullOrWhiteSpace(p.ReviewComment) ? (p.ApprovalStatus == PointApprovalStatus.Rechazado ? "(sin motivo registrado)" : "") : p.ReviewComment);
 
-            var estadoCell = _gridPoints.Rows[i].Cells["State"];
+            var fila = _gridPoints.Rows[i];
+            var estadoCell = fila.Cells["State"];
             estadoCell.Style.ForeColor = ApprovalColor(p.ApprovalStatus);
             estadoCell.Style.Font = AppTheme.BoldFont;
             if (p.ApprovalStatus == PointApprovalStatus.Rechazado)
-                _gridPoints.Rows[i].Cells["Review"].Style.ForeColor = AppTheme.Danger;
+                fila.Cells["Review"].Style.ForeColor = AppTheme.Danger;
+
+            // Qué significaba el criterio: es la misma duda de cuando se registra, pero ahora
+            // mirando el histórico («¿por qué esto valió 3 y aquello 5?»).
+            fila.Cells["Crit"].ToolTipText = string.IsNullOrWhiteSpace(p.Criterion?.Description)
+                ? "(esta actividad no tiene descripción)"
+                : p.Criterion!.Description!;
+
+            if (!string.IsNullOrWhiteSpace(p.EvidenceUrl))
+            {
+                fila.Cells["Link"].ToolTipText = $"{p.EvidenceUrl}\n\n(doble clic en la fila para abrirlo)";
+                fila.Cells["Link"].Style.ForeColor = AppTheme.SidebarActive;
+            }
+            if (!string.IsNullOrWhiteSpace(p.Comment))
+                fila.Cells["Crit"].ToolTipText += $"\n\nTu comentario:\n{p.Comment}";
+
+            if (esAuto)
+                fila.Cells["Id"].ToolTipText = p.ApprovalStatus switch
+                {
+                    PointApprovalStatus.Pendiente => "En revisión. Todavía puedes corregirla con «✏ Corregir».",
+                    PointApprovalStatus.Rechazado => "Rechazada. Puedes corregirla, y con «🗣 Replicar» argumentar y devolverla a revisión.",
+                    _ => "Aprobada: ya no se puede modificar."
+                };
+
+            // Todo el ida y vuelta, que es lo que explica en qué quedó la discusión.
+            if (!string.IsNullOrWhiteSpace(p.ReviewHistory))
+            {
+                fila.Cells["Review"].ToolTipText = p.ReviewHistory!.Replace("\n", Environment.NewLine);
+                fila.Cells["Round"].ToolTipText = $"Ha ido y vuelto {p.ReviewRound} vez/veces.\n\n" +
+                                                  p.ReviewHistory!.Replace("\n", Environment.NewLine);
+                fila.Cells["Round"].Style.ForeColor = AppTheme.Warning;
+            }
         }
 
-        if (pts.Count == 0)
-            _gridPoints.Rows.Add("", "(no tienes actividades ni puntos registrados)", "", "", "", "");
+        if (_myPoints.Count == 0)
+            _gridPoints.Rows.Add("", "", "(no tienes actividades ni puntos registrados)", "", "", "", "", "", "", "");
+    }
+
+    private void GridPoints_CellDoubleClick(object? s, DataGridViewCellEventArgs e)
+    {
+        if (e.RowIndex < 0) return;
+        var entrada = EntradaSeleccionada();
+        if (entrada == null) return;
+
+        // Con enlace, abrirlo es lo que se espera del doble clic; sin él, lo útil es corregir.
+        if (!string.IsNullOrWhiteSpace(entrada.EvidenceUrl)) AbrirEnlace(entrada.EvidenceUrl!);
+        else BtnEditEntry_Click(null, EventArgs.Empty);
+    }
+
+    private static void AbrirEnlace(string url)
+    {
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true }); }
+        catch (Exception ex) { MessageBox.Show($"No se pudo abrir el enlace:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+    }
+
+    private PointEntry? EntradaSeleccionada()
+    {
+        if (_gridPoints.CurrentRow?.Cells["Id"].Value is not int id) return null;
+        return _myPoints.FirstOrDefault(p => p.Id == id);
+    }
+
+    /// <summary>
+    /// Corrige una autocalificación propia que siga pendiente. Reabre el mismo formulario de
+    /// registro con los valores ya capturados: el desarrollador no tiene que volver a adjuntar la
+    /// captura ni reescribir el comentario para arreglar un dato.
+    /// </summary>
+    private void BtnEditEntry_Click(object? s, EventArgs e)
+    {
+        var entrada = EntradaSeleccionada();
+        if (entrada == null)
+        {
+            MessageBox.Show("Selecciona una actividad en la pestaña «📝 Mis actividades y puntos».",
+                "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        // Se avisa aquí además de validarlo en el servicio para no abrir un formulario que no va a
+        // poder guardarse.
+        if (entrada.SubmittedByDeveloperId == null)
+        {
+            MessageBox.Show("Esos puntos te los asignó el líder: no se corrigen desde aquí.",
+                "No editable", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        if (entrada.ApprovalStatus == PointApprovalStatus.Aprobado)
+        {
+            MessageBox.Show("La actividad ya fue aprobada y no se puede modificar.",
+                "No editable", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        using var frm = new SelfPointEntryForm(_db, entrada.DeveloperId, entrada);
+        if (frm.ShowDialog(FindForm()) != DialogResult.OK || frm.Result == null) return;
+
+        try
+        {
+            var (ok, mensaje) = _scoring.EditarAutocalificacion(entrada.Id, frm.Result, _currentUser);
+            if (!ok) { MessageBox.Show(mensaje, "No se pudo guardar", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+
+            _audit.Record(AuditAction.Update, "PointEntry", entrada.Id.ToString(), "Autocalificación corregida por el desarrollador");
+            MessageBox.Show(mensaje, "Guardado", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            LoadData();
+        }
+        catch (AuthorizationException ex)
+        {
+            MessageBox.Show(ex.Message, "Sin permiso", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    /// <summary>
+    /// Réplica a un rechazo: el desarrollador argumenta y la actividad vuelve a revisión. Antes un
+    /// rechazo era el final del camino y el desacuerdo se iba a un chat donde no queda constancia.
+    /// </summary>
+    private void BtnReplicar_Click(object? s, EventArgs e)
+    {
+        var entrada = EntradaSeleccionada();
+        if (entrada == null)
+        {
+            MessageBox.Show("Selecciona una actividad rechazada en la pestaña «📝 Mis actividades y puntos».",
+                "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        // Se avisa aquí además de validarlo en el servicio, para no abrir un diálogo inútil.
+        if (!entrada.AdmiteReplica)
+        {
+            MessageBox.Show(entrada.ApprovalStatus switch
+                {
+                    PointApprovalStatus.Aprobado  => "Esta actividad ya fue aprobada: no hay nada que replicar.",
+                    PointApprovalStatus.Pendiente => "Esta actividad ya está en revisión; espera la respuesta.",
+                    _ => "Esos puntos te los asignó el líder, no son una autocalificación tuya."
+                },
+                "No se puede replicar", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        using var frm = new PointEntryReplyForm(entrada);
+        if (frm.ShowDialog(FindForm()) != DialogResult.OK) return;
+
+        try
+        {
+            var (ok, mensaje) = _scoring.Replicar(entrada.Id, frm.Argumento, _currentUser);
+            if (!ok) { MessageBox.Show(mensaje, "No se pudo enviar", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+
+            _audit.Record(AuditAction.Update, "PointEntry", entrada.Id.ToString(),
+                "Autocalificación replicada por el desarrollador y devuelta a revisión");
+            MessageBox.Show(mensaje, "Enviada", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            LoadData();
+        }
+        catch (AuthorizationException ex)
+        {
+            MessageBox.Show(ex.Message, "Sin permiso", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
     }
 
     private static string ApprovalLabel(PointApprovalStatus s) => s switch
@@ -389,7 +588,7 @@ public class MyDevPerformanceControl : UserControl
         var devId = _currentUser.DeveloperId;
         if (devId == null) { MessageBox.Show("Tu cuenta no está vinculada a un desarrollador.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
         if (!_db.ScoringCriteria.Any(c => c.IsActive && c.Scope != CriterionScope.Equipo && c.DefaultPoints > 0))
-        { MessageBox.Show("No hay criterios positivos disponibles. Pide al administrador que configure algunos.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+        { MessageBox.Show("Todavía no hay actividades que puedas registrar. Pídeselas al líder.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
 
         using var frm = new SelfPointEntryForm(_db, devId.Value);
         if (frm.ShowDialog(FindForm()) != DialogResult.OK || frm.Result == null) return;

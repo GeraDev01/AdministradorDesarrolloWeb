@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using Administrador_Desarrollo_Web.Data;
@@ -21,8 +21,15 @@ public class AuthService
         _audit = audit;
     }
 
-    private const int MaxFailedAttempts = 5;
-    private const int LockoutMinutes = 15;
+    /// <summary>
+    /// Públicas porque las pantallas explican la regla al usuario («5 intentos / 15 minutos») y
+    /// tenerla escrita a mano en la UI garantizaba que un día dejaran de coincidir.
+    /// </summary>
+    public const int MaxFailedAttempts = 5;
+    public const int LockoutMinutes = 15;
+
+    /// <summary>¿La cuenta está bloqueada AHORA por intentos fallidos?</summary>
+    public static bool EstaBloqueado(User u) => u.LockoutUntil is DateTime until && until > DateTime.UtcNow;
 
     public (bool success, string message, User? user) Login(string username, string password)
     {
@@ -32,9 +39,13 @@ public class AuthService
         if (user == null)
             return (false, "Usuario o contraseña incorrectos.", null);
 
-        // Bloqueo temporal por intentos fallidos.
-        if (user.LockoutUntil is DateTime until && until > DateTime.UtcNow)
-            return (false, $"Cuenta bloqueada temporalmente por intentos fallidos. Reintenta a las {until.ToLocalTime():HH:mm}.", null);
+        // Bloqueo temporal por intentos fallidos. Se relee de la base: el AppDbContext es Singleton
+        // y la entidad rastreada podría traer un bloqueo ya vencido —o ya levantado por el
+        // administrador desde otro equipo— y dejar fuera a quien sí puede entrar.
+        _db.Entry(user).Reload();
+        if (EstaBloqueado(user))
+            return (false, $"Cuenta bloqueada temporalmente por intentos fallidos. " +
+                           $"Reintenta a las {user.LockoutUntil!.Value.ToLocalTime():HH:mm} o pide al líder que la desbloquee.", null);
 
         if (!PasswordHasher.Verify(password, user.PasswordHash))
         {
@@ -98,7 +109,7 @@ public class AuthService
         var admin = new User
         {
             Username = "admin",
-            FullName = "Administrador",
+            FullName = "Líder",
             PasswordHash = PasswordHasher.Hash(temp),
             Role = UserRole.Admin,
             IsActive = true,
@@ -110,8 +121,52 @@ public class AuthService
         return temp;
     }
 
+    /// <summary>
+    /// AsNoTracking: el AppDbContext es Singleton y esta lista alimenta una pantalla que se
+    /// recarga sola. Con entidades rastreadas, el estado de bloqueo se quedaba pegado al de la
+    /// primera carga aunque otro equipo lo hubiera cambiado, y era justo el dato que el
+    /// administrador viene a consultar aquí.
+    /// </summary>
     public List<User> GetAllUsers() =>
-        _db.Users.Include(u => u.Developer).OrderBy(u => u.FullName).ToList();
+        _db.Users.Include(u => u.Developer).OrderBy(u => u.FullName).AsNoTracking().ToList();
+
+    /// <summary>
+    /// Levanta el bloqueo por intentos fallidos de una cuenta. Sin esto el bloqueo solo caducaba
+    /// por tiempo: quien se equivocaba 5 veces quedaba fuera 15 minutos aunque el administrador
+    /// estuviera a un lado y pudiera confirmar su identidad.
+    ///
+    /// Limpia también el contador de intentos, no solo la fecha: dejarlo en 4 haría que el
+    /// siguiente error volviera a bloquear la cuenta de inmediato, que es lo contrario de
+    /// desbloquearla. NO toca la contraseña — para eso está <see cref="ResetPassword"/>.
+    /// </summary>
+    public (bool success, string message) DesbloquearCuenta(int userId)
+    {
+        AuthorizationGuard.RequireAdmin(_currentUser);
+
+        var user = _db.Users.FirstOrDefault(u => u.Id == userId);
+        if (user == null) return (false, "Usuario no encontrado.");
+
+        // El bloqueo lo escribe el equipo donde falló el login, no este: lo rastreado está viejo.
+        _db.Entry(user).Reload();
+
+        bool estaba = EstaBloqueado(user);
+        if (!estaba && user.FailedLoginCount == 0)
+            return (false, $"«{user.Username}» no está bloqueado. No hay nada que levantar.");
+
+        var hasta = user.LockoutUntil;
+        user.LockoutUntil = null;
+        user.FailedLoginCount = 0;
+        _db.SaveChanges();
+
+        _audit.Record(AuditAction.Update, "User", user.Id.ToString(),
+            estaba
+                ? $"Bloqueo por intentos fallidos levantado por el líder (vencía {hasta!.Value.ToLocalTime():dd/MM/yyyy HH:mm})"
+                : $"Contador de intentos fallidos reiniciado por el líder");
+
+        return (true, estaba
+            ? $"Cuenta «{user.Username}» desbloqueada. Ya puede iniciar sesión."
+            : $"Contador de intentos de «{user.Username}» reiniciado.");
+    }
 
     public (bool success, string message) CreateUser(User user, string password)
     {
@@ -201,9 +256,9 @@ public class AuthService
         if (user.Role == UserRole.Admin)
         {
             _audit.RecordDenied(AuditAction.Delete, "User", userId.ToString(),
-                $"Intento de eliminar la cuenta de administrador «{user.Username}».");
+                $"Intento de eliminar la cuenta de líder «{user.Username}».");
             return (false,
-                $"«{user.Username}» es administrador y no se puede eliminar. " +
+                $"«{user.Username}» es líder y no se puede eliminar. " +
                 "Cámbiale el rol primero si de verdad quieres darlo de baja.");
         }
 

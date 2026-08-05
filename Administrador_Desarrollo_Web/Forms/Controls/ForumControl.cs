@@ -149,7 +149,14 @@ public class ForumControl : UserControl
         _cbxAutorAud.SelectedIndex = 0;
         _cbxAutorAud.SelectedIndexChanged += (_, _) => LoadAuditoria();
 
-        barra.Controls.AddRange([_txtBuscarAud, _cbxTemaAud, _cbxAutorAud]);
+        // El borrado real vive AQUÍ y no en el muro: la auditoría es la vista desde la que el
+        // administrador ya está revisando qué se publicó, y desde la que puede ver de un vistazo
+        // cuántas entradas cuelgan del hilo que va a eliminar.
+        var btnEliminar = AppTheme.MakeDangerButton("🗑 Eliminar publicación", 200);
+        btnEliminar.Margin = new Padding(8, 3, 0, 2);
+        btnEliminar.Click += (_, _) => EliminarDesdeAuditoria();
+
+        barra.Controls.AddRange([_txtBuscarAud, _cbxTemaAud, _cbxAutorAud, btnEliminar]);
 
         _grid = AppTheme.MakeGrid();
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Cuándo",  Name = "Cuando", FillWeight = 14 });
@@ -356,6 +363,56 @@ public class ForumControl : UserControl
     {
         if (fila < 0 || fila >= _auditoria.Count) return;
         AbrirHilo(_auditoria[fila].RootId);
+    }
+
+    /// <summary>
+    /// Elimina de verdad la publicación completa a la que pertenece la fila seleccionada. Se actúa
+    /// siempre sobre la RAÍZ del hilo aunque lo seleccionado sea un comentario: no hay forma de
+    /// borrar «media publicación», y decírselo antes evita que crea que solo quitó el comentario.
+    /// </summary>
+    private void EliminarDesdeAuditoria()
+    {
+        int fila = _grid.CurrentRow?.Index ?? -1;
+        if (fila < 0 || fila >= _auditoria.Count)
+        {
+            MessageBox.Show("Selecciona una entrada de la lista.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var seleccionada = _auditoria[fila];
+        // El filtro pudo dejar fuera la raíz aunque el comentario sí se vea: se pide a la base.
+        var raiz = _auditoria.FirstOrDefault(p => p.Id == seleccionada.RootId) ?? _forum.Obtener(seleccionada.RootId);
+        if (raiz == null)
+        {
+            MessageBox.Show("No se encontró la publicación de esa entrada. Recarga la lista.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        int comentarios = _auditoria.Count(p => p.RootId == raiz.Id && p.Id != raiz.Id);
+        string aviso = seleccionada.Id == raiz.Id
+            ? ""
+            : "\n\nOJO: seleccionaste un COMENTARIO. Se eliminará la publicación entera a la que pertenece.";
+
+        if (MessageBox.Show(
+                $"¿Eliminar por completo la publicación «{raiz.Title}» de {raiz.AuthorName}?\n\n" +
+                (comentarios == 0 ? "No tiene comentarios." : $"Se irán también sus {comentarios} comentario(s).") +
+                aviso +
+                "\n\nEsto NO es «Retirar»: el contenido y sus imágenes se borran de la base de datos y " +
+                "no se puede deshacer. En la bitácora quedará constancia con título y autor.",
+                "Eliminar publicación completa", MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
+                MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+
+        try
+        {
+            var (ok, mensaje) = _forum.EliminarPublicacion(raiz.Id);
+            MessageBox.Show(mensaje, ok ? "Eliminada" : "No se pudo",
+                MessageBoxButtons.OK, ok ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+            LoadData();
+        }
+        catch (AuthorizationException ex)
+        {
+            MessageBox.Show(ex.Message, "Sin permiso", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
     }
 
     private void AbrirHilo(int rootId)

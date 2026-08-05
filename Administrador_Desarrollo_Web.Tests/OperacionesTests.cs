@@ -1,4 +1,4 @@
-using Administrador_Desarrollo_Web.Data;
+﻿using Administrador_Desarrollo_Web.Data;
 using Administrador_Desarrollo_Web.Models;
 using Administrador_Desarrollo_Web.Services;
 using Xunit;
@@ -101,7 +101,7 @@ public class OperacionesTests
         t!.Host = "ftps://otro-host.com";
         var ex = Assert.Throws<AuthorizationException>(() => e.Targets.Editar(t, null));
 
-        Assert.Contains("administrador", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("líder", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -213,7 +213,7 @@ public class OperacionesTests
 
         var denegado = e.Db.AuditLogs.Single(l => l.Outcome == AuditOutcome.Denegado);
         Assert.Equal(AuditAction.Delete, denegado.Action);
-        Assert.Contains("sin ser administrador", denegado.Details);
+        Assert.Contains("sin ser líder", denegado.Details);
     }
 
     // ── Guarda de rol ───────────────────────────────────────────────────────────

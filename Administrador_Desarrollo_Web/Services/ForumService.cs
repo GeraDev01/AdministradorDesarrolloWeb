@@ -1,4 +1,4 @@
-using Administrador_Desarrollo_Web.Data;
+﻿using Administrador_Desarrollo_Web.Data;
 using Administrador_Desarrollo_Web.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -263,8 +263,70 @@ public class ForumService
         _audit.Record(AuditAction.Delete, "ForumPost", post.Id.ToString(),
             post.AuthorUserId == _currentUser.UserId
                 ? "Entrada del foro retirada por su autor"
-                : $"Entrada del foro retirada por un administrador (autor: {post.AuthorName})");
+                : $"Entrada del foro retirada por un líder (autor: {post.AuthorName})");
         return (true, "Entrada retirada. El hilo conserva el hueco para que se siga entendiendo.");
+    }
+
+    /// <summary>
+    /// Borra una publicación ENTERA y de verdad: la entrada raíz, todos sus comentarios (a
+    /// cualquier profundidad), sus imágenes y sus «me gusta». Solo administrador.
+    ///
+    /// Es la excepción deliberada a la regla de «nada se borra» que rige el resto del foro.
+    /// <see cref="Retirar"/> deja el hueco porque quitar un mensaje del medio de una conversación
+    /// la vuelve ilegible; aquí no queda conversación que proteger — se va el hilo completo, así
+    /// que no hay respuestas huérfanas. Es la vía para lo que no debería haberse publicado nunca
+    /// (algo confidencial, un desahogo, contenido subido por error), donde dejar el aviso de
+    /// «contenido eliminado» y el título a la vista sigue señalando lo que se quiso quitar.
+    ///
+    /// El rastro NO se pierde: antes de borrar se guarda en la bitácora una instantánea con el
+    /// título, el autor, las fechas y cuánto se llevó por delante. Desaparece el contenido, no el
+    /// hecho de que existió y de quién lo retiró.
+    /// </summary>
+    public (bool ok, string mensaje) EliminarPublicacion(int rootId)
+    {
+        AuthorizationGuard.RequireAdmin(_currentUser);
+
+        var raiz = Fresco(rootId);
+        if (raiz == null) return (false, "Esa publicación ya no existe. Actualiza el muro.");
+        if (!raiz.EsPublicacion)
+            return (false, "Eso es un comentario, no una publicación. Para quitarlo usa «Retirar».");
+
+        // Todo el hilo cuelga de RootId, incluida la propia raíz (su RootId es su Id).
+        var delHilo = _db.ForumPosts.Where(p => p.RootId == rootId).ToList();
+        if (delHilo.All(p => p.Id != raiz.Id)) delHilo.Add(raiz);   // hilo viejo sin RootId bien puesto
+
+        var ids = delHilo.Select(p => p.Id).ToList();
+        int comentarios = delHilo.Count(p => !p.EsPublicacion);
+
+        var imagenes = _db.ForumAttachments.Where(a => ids.Contains(a.PostId)).ToList();
+        var likes = _db.ForumLikes.Where(l => ids.Contains(l.PostId)).ToList();
+
+        // Instantánea ANTES de borrar: es lo único que quedará de la publicación.
+        var instantanea = new
+        {
+            raiz.Id, raiz.Title, raiz.AuthorName, raiz.AuthorUserId,
+            Tema = raiz.Topic.ToString(), raiz.Tags,
+            raiz.CreatedAtUtc, raiz.EditedAtUtc,
+            Comentarios = comentarios, Imagenes = imagenes.Count, MeGusta = likes.Count
+        };
+
+        // El orden importa: la autorreferencia ParentId es NoAction (SQL Server rechaza una cascada
+        // sobre la misma tabla), así que los comentarios más profundos se van primero y la raíz al
+        // final. Las imágenes y los «me gusta» se borran explícitamente en lugar de confiar en la
+        // cascada: las tablas creadas por DatabaseMigrator no siempre la traen.
+        _db.ForumAttachments.RemoveRange(imagenes);
+        _db.ForumLikes.RemoveRange(likes);
+        _db.ForumPosts.RemoveRange(delHilo.OrderByDescending(p => p.Depth).ThenByDescending(p => p.Id));
+        _db.SaveChanges();
+
+        _audit.RecordDetailed(AuditAction.Delete, "ForumPost", rootId.ToString(),
+            $"Publicación del foro ELIMINADA por completo por un líder: «{raiz.Title}» " +
+            $"(autor: {raiz.AuthorName}) — {comentarios} comentario(s), {imagenes.Count} imagen(es).",
+            AuditOutcome.Exito, oldValues: instantanea);
+
+        return (true, comentarios == 0
+            ? "Publicación eliminada."
+            : $"Publicación eliminada junto con sus {comentarios} comentario(s).");
     }
 
     /// <summary>Fija o suelta una publicación. Solo administrador: es el muro de todos.</summary>

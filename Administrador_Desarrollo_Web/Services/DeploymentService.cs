@@ -517,7 +517,7 @@ public class DeploymentService
         if (!SharedSecretProtector.TryUnprotect(target.Contrasena, out var password))
             throw new InvalidOperationException(
                 $"No se pudo descifrar la contraseña del servidor «{target.Nombre}» en este equipo. " +
-                "Se guardó desde otra PC con el cifrado anterior. Un administrador debe volver a " +
+                "Se guardó desde otra PC con el cifrado anterior. Un líder debe volver a " +
                 "capturarla en Despliegues → Servidores (una sola vez: a partir de ahí la usan todos).");
 
         // Avance global = (servidores ya terminados + fracción de archivos del actual) / total.

@@ -1,4 +1,4 @@
-using Administrador_Desarrollo_Web.Data;
+﻿using Administrador_Desarrollo_Web.Data;
 using Administrador_Desarrollo_Web.Models;
 using Administrador_Desarrollo_Web.Services;
 using Xunit;
@@ -147,12 +147,12 @@ public class DeveloperSelfServiceTests
         var (db, svc) = NuevoEntornoVacaciones();
         var id = CrearSolicitud(db, VacationStatus.Aprobada);
         var v = db.VacationRequests.Find(id)!;
-        v.ReviewComment = "Aprobada por el jefe.";
+        v.ReviewComment = "Aprobada por el líder.";
         db.SaveChanges();
 
         svc.Cancelar(id);
 
-        Assert.Contains("Aprobada por el jefe.", db.VacationRequests.Find(id)!.ReviewComment);
+        Assert.Contains("Aprobada por el líder.", db.VacationRequests.Find(id)!.ReviewComment);
     }
 
     // ── Pertenencia ─────────────────────────────────────────────────────────────

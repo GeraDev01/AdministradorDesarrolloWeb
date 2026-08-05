@@ -147,7 +147,7 @@ public class SprintControl : UserControl
         {
             toolbar.Controls.Add(new Label
             {
-                Text = "Solo consulta — el sprint lo arma el administrador",
+                Text = "Solo consulta — el sprint lo arma el líder",
                 AutoSize = true, ForeColor = AppTheme.TextSecondary, Font = AppTheme.SmallFont,
                 Margin = new Padding(4, 10, 0, 0)
             });

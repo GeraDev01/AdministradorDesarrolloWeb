@@ -1,4 +1,4 @@
-using Administrador_Desarrollo_Web.Models;
+﻿using Administrador_Desarrollo_Web.Models;
 using Administrador_Desarrollo_Web.Services;
 
 namespace Administrador_Desarrollo_Web.Forms.Details;
@@ -65,7 +65,7 @@ public class SuggestionForm : ResponsiveForm
 
         _chkAnon = new CheckBox
         {
-            Text = "Enviar sin mostrar mi nombre al administrador",
+            Text = "Enviar sin mostrar mi nombre al líder",
             Location = new Point(20, y), AutoSize = true, Checked = soloLectura && ver!.Anonymous, Enabled = !soloLectura
         };
         Controls.Add(_chkAnon);
@@ -109,7 +109,7 @@ public class SuggestionForm : ResponsiveForm
                 ? (_chkVotacion.Checked
                     ? "Aparece en «Propuestas del equipo» y tus compañeros pueden apoyarla."
                     : "Aparece en «Propuestas del equipo», pero nadie podrá votarla.")
-                : "Solo la verá el administrador. No aparece en el tablero del equipo ni se puede votar.";
+                : "Solo la verá el líder. No aparece en el tablero del equipo ni se puede votar.";
         }
         _cbxVisibilidad.SelectedIndexChanged += (_, _) => PintarVotacion();
         _chkVotacion.CheckedChanged += (_, _) => PintarVotacion();
@@ -124,7 +124,7 @@ public class SuggestionForm : ResponsiveForm
                 Location = new Point(20, y), AutoSize = true, Font = AppTheme.BoldFont, ForeColor = ColorEstado(ver.Status)
             });
             y += 24;
-            Controls.Add(new Label { Text = "Respuesta del administrador:", Location = new Point(20, y), AutoSize = true, Font = AppTheme.SmallFont, ForeColor = AppTheme.TextSecondary });
+            Controls.Add(new Label { Text = "Respuesta del líder:", Location = new Point(20, y), AutoSize = true, Font = AppTheme.SmallFont, ForeColor = AppTheme.TextSecondary });
             y += 20;
             var resp = new TextBox
             {

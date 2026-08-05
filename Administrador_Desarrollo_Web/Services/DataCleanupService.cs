@@ -1,4 +1,4 @@
-using Administrador_Desarrollo_Web.Data;
+﻿using Administrador_Desarrollo_Web.Data;
 using Administrador_Desarrollo_Web.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -388,7 +388,7 @@ public class DataCleanupService
             "nada más; las fichas de desarrollador se conservan",
             c => UsuariosBorrables(c).CountAsync(c.Ct),
             c => UsuariosBorrables(c).ExecuteDeleteAsync(c.Ct),
-            Advertencia: "Nunca borra cuentas de administrador ni la tuya: quedarse fuera de la aplicación no tiene vuelta atrás."),
+            Advertencia: "Nunca borra cuentas de líder ni la tuya: quedarse fuera de la aplicación no tiene vuelta atrás."),
 
         new(ClaveBitacora, "Administración", "Bitácora de auditoría",
             "nada más; esta limpieza sí queda registrada",

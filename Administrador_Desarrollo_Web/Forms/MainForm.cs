@@ -200,6 +200,8 @@ public class MainForm : ResponsiveForm
             // pantalla del administrador en modo consulta (el servicio filtra qué tipos ve).
             AddNav(pnlNav, "📚", "Plantillas",       "templates");
             AddNav(pnlNav, "🏖", "Mis Vacaciones",   "my-vacations");
+            // Junto a vacaciones: para quien lo usa es el mismo trámite, pedir tiempo fuera.
+            AddNav(pnlNav, "🙋", "Mis Permisos",     "my-leaves");
             AddNav(pnlNav, "💡", "Sugerencias",      "my-suggestions");
         }
         else if (_currentUser.IsOperaciones)
@@ -533,7 +535,7 @@ public class MainForm : ResponsiveForm
             _btnEstado.FlatAppearance.MouseOverBackColor = ControlPaint.Light(color, 0.15f);
             new ToolTip().SetToolTip(_btnEstado,
                 string.IsNullOrWhiteSpace(nota)
-                    ? "Tu estado, visible para el administrador. Clic para cambiarlo."
+                    ? "Tu estado, visible para el líder. Clic para cambiarlo."
                     : $"{PresenceService.Etiqueta(estado)} — {nota}");
         }
         catch { /* sin base, el botón se queda como esté */ }
@@ -760,7 +762,7 @@ public class MainForm : ResponsiveForm
         if (_currentUser.IsDesarrollador)
             return key is "notifications" or "forum" or "dashboard" or "my-performance" or "my-assignments"
                        or "my-devops-tickets" or "my-activities" or "my-evaluations" or "my-sla"
-                       or "my-vacations" or "my-suggestions" or "templates" or "sprint" or "my-presence";
+                       or "my-vacations" or "my-leaves" or "my-suggestions" or "templates" or "sprint" or "my-presence";
 
         return false;
     }
@@ -1056,6 +1058,7 @@ public class MainForm : ResponsiveForm
             "my-activities"   => (UserControl)_sp.GetService(typeof(MyActivitiesControl))!,
             "my-evaluations"  => (UserControl)_sp.GetService(typeof(MyEvaluationsControl))!,
             "my-vacations"    => (UserControl)_sp.GetService(typeof(MyVacationsControl))!,
+            "my-leaves"       => (UserControl)_sp.GetService(typeof(MyLeavesControl))!,
             _                 => (UserControl)_sp.GetService(typeof(DashboardControl))!
         };
             if (KeepAliveKeys.Contains(key)) _keepAlive[key] = ctrl;
@@ -1108,6 +1111,7 @@ public class MainForm : ResponsiveForm
             "my-activities"   => "🧩  Mis Actividades",
             "my-evaluations"  => "📄  Mis Evaluaciones",
             "my-vacations"    => "🏖  Mis Vacaciones",
+            "my-leaves"       => "🙋  Mis Permisos",
             _                 => ""
         };
 

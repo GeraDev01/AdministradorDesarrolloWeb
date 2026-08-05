@@ -1,4 +1,4 @@
-using Administrador_Desarrollo_Web.Forms.Details;
+﻿using Administrador_Desarrollo_Web.Forms.Details;
 using Administrador_Desarrollo_Web.Models;
 using Administrador_Desarrollo_Web.Services;
 
@@ -117,7 +117,7 @@ public class TemplatesControl : UserControl
         {
             acciones.Controls.Add(new Label
             {
-                Text = "Solo consulta — las plantillas las administra el administrador",
+                Text = "Solo consulta — las plantillas las administra el líder",
                 AutoSize = true, ForeColor = AppTheme.TextSecondary, Font = AppTheme.SmallFont,
                 Margin = new Padding(4, 10, 0, 0)
             });

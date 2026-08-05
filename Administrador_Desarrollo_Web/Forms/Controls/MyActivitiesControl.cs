@@ -23,6 +23,7 @@ public class MyActivitiesControl : UserControl
     private System.Windows.Forms.Timer _timer = null!;
 
     private List<DevActivity> _rows = [];
+    private Button _btnEvidencia = null!;
     private int? _selectedId;
     private bool _loading;
 
@@ -55,7 +56,7 @@ public class MyActivitiesControl : UserControl
             BackColor = AppTheme.ContentBg, CellBorderStyle = TableLayoutPanelCellBorderStyle.None
         };
         toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 560f));
+        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 700f));
         toolbar.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
 
         var izq = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, BackColor = AppTheme.ContentBg };
@@ -73,9 +74,11 @@ public class MyActivitiesControl : UserControl
         var btns = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, BackColor = AppTheme.ContentBg };
         _btnNew    = AppTheme.MakePrimaryButton("➕ Nueva actividad", 165); _btnNew.Margin = new Padding(4, 2, 0, 0); _btnNew.Click += BtnNew_Click;
         _btnEdit   = AppTheme.MakeSecondaryButton("✏ Editar", 100);        _btnEdit.Margin = new Padding(4, 2, 0, 0); _btnEdit.Click += BtnEdit_Click;
+        // La evidencia es lo que convierte «estuve 6 h en esto» en algo que el jefe puede revisar.
+        _btnEvidencia = AppTheme.MakeSecondaryButton("📎 Evidencia", 130);  _btnEvidencia.Margin = new Padding(4, 2, 0, 0); _btnEvidencia.Click += BtnEvidencia_Click;
         _btnClose  = AppTheme.MakeSecondaryButton("✔ Cerrar", 110);        _btnClose.Margin = new Padding(4, 2, 0, 0); _btnClose.Click += BtnCloseOrReopen_Click;
         _btnDelete = AppTheme.MakeDangerButton("🗑 Eliminar", 110);         _btnDelete.Margin = new Padding(4, 2, 0, 0); _btnDelete.Click += BtnDelete_Click;
-        btns.Controls.AddRange([_btnNew, _btnEdit, _btnClose, _btnDelete]);
+        btns.Controls.AddRange([_btnNew, _btnEdit, _btnEvidencia, _btnClose, _btnDelete]);
         toolbar.Controls.Add(btns, 1, 0);
 
         _grid = AppTheme.MakeGrid();
@@ -85,7 +88,8 @@ public class MyActivitiesControl : UserControl
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Estado",    Name = "State", FillWeight = 12 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Creada",    Name = "Created", FillWeight = 12 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "⏱ Tiempo dedicado", Name = "Time", FillWeight = 15 });
-        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Descripción", Name = "Desc", FillWeight = 18 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "📎", Name = "Files", FillWeight = 5 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Descripción", Name = "Desc", FillWeight = 16 });
         _grid.SelectionChanged += (_, _) => OnRowSelected();
         _grid.CellDoubleClick += (_, ev) => { if (ev.RowIndex >= 0) BtnEdit_Click(null, EventArgs.Empty); };
 
@@ -137,15 +141,26 @@ public class MyActivitiesControl : UserControl
         _loading = true;
         _grid.Rows.Clear();
 
+        // Solo el número de evidencias; los archivos se piden al abrir la ficha.
+        var evidencias = _activities.ConteoEvidencias(_rows.Select(a => a.Id));
+
         foreach (var a in _rows)
         {
+            int cuantas = evidencias.GetValueOrDefault(a.Id);
             int i = _grid.Rows.Add(a.Id, a.Title,
                 a.Status == DevActivityStatus.Abierta ? "🟢 Abierta" : "⚪ Cerrada",
                 a.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy"),
                 WorkSessionService.Format(_work.GetTotalSecondsByActivity(a.Id)),
+                cuantas > 0 ? $"📎 {cuantas}" : "",
                 a.Description ?? "");
-            _grid.Rows[i].Cells["State"].Style.ForeColor = a.Status == DevActivityStatus.Abierta ? AppTheme.Success : AppTheme.TextSecondary;
-            _grid.Rows[i].Cells["State"].Style.Font = AppTheme.BoldFont;
+
+            var fila = _grid.Rows[i];
+            fila.Cells["State"].Style.ForeColor = a.Status == DevActivityStatus.Abierta ? AppTheme.Success : AppTheme.TextSecondary;
+            fila.Cells["State"].Style.Font = AppTheme.BoldFont;
+            fila.Cells["Desc"].ToolTipText = string.IsNullOrWhiteSpace(a.Description) ? "(sin descripción)" : a.Description!;
+            fila.Cells["Files"].ToolTipText = cuantas > 0
+                ? $"{cuantas} evidencia(s). Ábrelas con «📎 Evidencia»."
+                : "Sin evidencia. Adjunta capturas o documentos con «📎 Evidencia».";
         }
 
         DataGridViewRow? target = null;
@@ -179,6 +194,9 @@ public class MyActivitiesControl : UserControl
         _btnDelete.Enabled = hay;
         _btnClose.Enabled = hay;
         _btnClose.Text = hay && !abierta ? "↩ Reabrir" : "✔ Cerrar";
+        // Habilitado también en las cerradas: se pueden CONSULTAR sus evidencias; el servicio es
+        // quien impide agregar o quitar mientras la actividad no se reabra.
+        _btnEvidencia.Enabled = hay;
     }
 
     private void RefreshTimerPanel()
@@ -261,6 +279,24 @@ public class MyActivitiesControl : UserControl
         using var frm = new DevActivityForm(a);
         if (frm.ShowDialog(FindForm()) != DialogResult.OK) return;
         Ejecutar(() => _activities.Renombrar(a.Id, frm.Titulo, frm.Descripcion), avisarExito: false);
+    }
+
+    /// <summary>
+    /// Ficha de la actividad con su evidencia: aquí el desarrollador adjunta las capturas y los
+    /// documentos que justifican lo que hizo. Es lo mismo que después ve el administrador.
+    /// </summary>
+    private void BtnEvidencia_Click(object? s, EventArgs e)
+    {
+        if (Seleccionada() is not { } a)
+        { MessageBox.Show("Selecciona una actividad.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+
+        // En una actividad cerrada la ficha queda de consulta: el servicio no admite cambios hasta
+        // reabrirla, y enseñar botones que van a fallar es peor que no enseñarlos.
+        bool soloLectura = a.Status == DevActivityStatus.Cerrada;
+
+        using var frm = new DevActivityDetailForm(_activities, _work, a, soloLectura);
+        frm.ShowDialog(FindForm());
+        LoadData();
     }
 
     private void BtnCloseOrReopen_Click(object? s, EventArgs e)

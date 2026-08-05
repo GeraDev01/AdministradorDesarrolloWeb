@@ -1,6 +1,7 @@
 using Administrador_Desarrollo_Web.Data;
 using Administrador_Desarrollo_Web.Models;
 using Administrador_Desarrollo_Web.Services;
+using Administrador_Desarrollo_Web.Forms.Details;
 using Microsoft.EntityFrameworkCore;
 
 namespace Administrador_Desarrollo_Web.Forms.Controls;
@@ -53,7 +54,7 @@ public class ActivitiesAdminControl : UserControl
             BackColor = AppTheme.ContentBg, CellBorderStyle = TableLayoutPanelCellBorderStyle.None
         };
         toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 410f));   // ancho de los botones + sus márgenes
+        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 570f));   // ancho de los botones + sus márgenes
         toolbar.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
 
         var filtros = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, BackColor = AppTheme.ContentBg };
@@ -71,10 +72,12 @@ public class ActivitiesAdminControl : UserControl
         toolbar.Controls.Add(filtros, 0, 0);
 
         var btns = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, BackColor = AppTheme.ContentBg };
+        // Primero y como acción principal: es lo que contesta «¿en qué se fue ese tiempo?».
+        var btnDetalle  = AppTheme.MakePrimaryButton("🔍 Ver detalle", 150);   btnDetalle.Margin = new Padding(4, 2, 0, 0); btnDetalle.Click += BtnDetalle_Click;
         var btnSesiones = AppTheme.MakeSecondaryButton("🕑 Ver sesiones", 150); btnSesiones.Margin = new Padding(4, 2, 0, 0); btnSesiones.Click += BtnSesiones_Click;
         var btnExport   = AppTheme.MakeSecondaryButton("📊 Exportar", 120);     btnExport.Margin = new Padding(4, 2, 0, 0); btnExport.Click += BtnExport_Click;
         var btnReload   = AppTheme.MakeSecondaryButton("🔄 Recargar", 110);     btnReload.Margin = new Padding(4, 2, 0, 0); btnReload.Click += (_, _) => LoadData();
-        btns.Controls.AddRange([btnSesiones, btnExport, btnReload]);
+        btns.Controls.AddRange([btnDetalle, btnSesiones, btnExport, btnReload]);
         toolbar.Controls.Add(btns, 1, 0);
 
         // ── KPIs ─────────────────────────────────────────────────
@@ -92,8 +95,11 @@ public class ActivitiesAdminControl : UserControl
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Creada",        Name = "Created", FillWeight = 10 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Cerrada",       Name = "Closed",  FillWeight = 10 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "⏱ Tiempo",      Name = "Time",    FillWeight = 12 });
-        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Descripción",   Name = "Desc",    FillWeight = 22 });
-        _grid.CellDoubleClick += (_, ev) => { if (ev.RowIndex >= 0) BtnSesiones_Click(null, EventArgs.Empty); };
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "📎",            Name = "Files",   FillWeight = 5  });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Descripción",   Name = "Desc",    FillWeight = 20 });
+        // Doble clic abre la ficha completa, no la lista de sesiones: la pregunta habitual sobre una
+        // actividad es «¿qué era esto?», y eso lo contesta la descripción, no los tramos de reloj.
+        _grid.CellDoubleClick += (_, ev) => { if (ev.RowIndex >= 0) BtnDetalle_Click(null, EventArgs.Empty); };
 
         var pnlGrid = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10, 4, 10, 10), BackColor = AppTheme.ContentBg, Margin = Padding.Empty };
         pnlGrid.Controls.Add(_grid);
@@ -137,22 +143,38 @@ public class ActivitiesAdminControl : UserControl
 
         _rows = _activities.TodasParaAdministrador(devId, estado);
 
+        // Solo el número de evidencias, sin traer ni un byte: la rejilla únicamente necesita saber
+        // que las hay. El archivo se pide al abrir la ficha.
+        var evidencias = _activities.ConteoEvidencias(_rows.Select(a => a.Id));
+
         _grid.Rows.Clear();
         int totalSegundos = 0;
         foreach (var a in _rows)
         {
             int seg = _work.GetTotalSecondsByActivity(a.Id);
             totalSegundos += seg;
+            int cuantas = evidencias.GetValueOrDefault(a.Id);
             int i = _grid.Rows.Add(a.Id, a.Developer?.FullName ?? "—", a.Title,
                 a.Status == DevActivityStatus.Abierta ? "🟢 Abierta" : "⚪ Cerrada",
                 a.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy"),
                 a.ClosedAt?.ToLocalTime().ToString("dd/MM/yyyy") ?? "—",
                 WorkSessionService.Format(seg),
+                cuantas > 0 ? $"📎 {cuantas}" : "",
                 a.Description ?? "");
-            _grid.Rows[i].Cells["State"].Style.ForeColor = a.Status == DevActivityStatus.Abierta ? AppTheme.Success : AppTheme.TextSecondary;
-            _grid.Rows[i].Cells["State"].Style.Font = AppTheme.BoldFont;
+
+            var fila = _grid.Rows[i];
+            fila.Cells["State"].Style.ForeColor = a.Status == DevActivityStatus.Abierta ? AppTheme.Success : AppTheme.TextSecondary;
+            fila.Cells["State"].Style.Font = AppTheme.BoldFont;
+
+            // La descripción es lo que la celda recorta y justo lo que hay que leer para entender
+            // la actividad: entera en el tooltip, y completa en «🔍 Ver detalle».
+            fila.Cells["Desc"].ToolTipText = string.IsNullOrWhiteSpace(a.Description)
+                ? "(sin descripción)"
+                : a.Description!;
+            if (cuantas > 0)
+                fila.Cells["Files"].ToolTipText = $"{cuantas} evidencia(s) adjunta(s). Ábrelas con «🔍 Ver detalle».";
         }
-        if (_rows.Count == 0) _grid.Rows.Add("", "", "(no hay actividades con ese filtro)", "", "", "", "", "");
+        if (_rows.Count == 0) _grid.Rows.Add("", "", "(no hay actividades con ese filtro)", "", "", "", "", "", "");
 
         _kpiTotal.Text = _rows.Count.ToString();
         _kpiAbiertas.Text = _rows.Count(a => a.Status == DevActivityStatus.Abierta).ToString();
@@ -161,6 +183,24 @@ public class ActivitiesAdminControl : UserControl
 
     private DevActivity? Seleccionada() =>
         _grid.CurrentRow?.Cells["Id"].Value is int id ? _rows.FirstOrDefault(a => a.Id == id) : null;
+
+    /// <summary>
+    /// Ficha completa de la actividad: descripción entera, tiempo, sesiones y la evidencia que
+    /// adjuntó el desarrollador. En solo lectura: la evidencia de una actividad ajena se consulta
+    /// y se guarda, no se cambia — eso es del dueño.
+    /// </summary>
+    private void BtnDetalle_Click(object? s, EventArgs e)
+    {
+        if (Seleccionada() is not { } a)
+        {
+            MessageBox.Show("Selecciona una actividad.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        using var frm = new DevActivityDetailForm(_activities, _work, a, soloLectura: true);
+        frm.ShowDialog(FindForm());
+        LoadData();   // el conteo de evidencia pudo cambiar desde otra máquina mientras estaba abierta
+    }
 
     private void BtnSesiones_Click(object? s, EventArgs e)
     {
@@ -195,13 +235,19 @@ public class ActivitiesAdminControl : UserControl
         var path = _report.PromptSaveDialog("ActividadesLibres");
         if (path == null) return;
 
+        // Los totales se resuelven UNA vez antes de exportar: dentro del lambda serían dos consultas
+        // por fila (y el conteo de evidencia, una tercera).
+        var segundos = _rows.ToDictionary(a => a.Id, a => _work.GetTotalSecondsByActivity(a.Id));
+        var evidencias = _activities.ConteoEvidencias(_rows.Select(a => a.Id));
+
         _report.ExportToExcel(_rows,
-            ["ID", "Desarrollador", "Actividad", "Estado", "Creada", "Cerrada", "Tiempo", "Segundos", "Descripción"],
+            ["ID", "Desarrollador", "Actividad", "Estado", "Creada", "Cerrada", "Tiempo", "Segundos", "Evidencias", "Descripción"],
             a => [a.Id, a.Developer?.FullName ?? "", a.Title,
                   a.Status == DevActivityStatus.Abierta ? "Abierta" : "Cerrada",
                   a.CreatedAt.ToLocalTime(), a.ClosedAt?.ToLocalTime(),
-                  WorkSessionService.Format(_work.GetTotalSecondsByActivity(a.Id)),
-                  _work.GetTotalSecondsByActivity(a.Id),
+                  WorkSessionService.Format(segundos.GetValueOrDefault(a.Id)),
+                  segundos.GetValueOrDefault(a.Id),
+                  evidencias.GetValueOrDefault(a.Id),
                   a.Description ?? ""],
             "Actividades libres", path);
 

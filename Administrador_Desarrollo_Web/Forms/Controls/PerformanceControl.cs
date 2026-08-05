@@ -1,4 +1,4 @@
-using Administrador_Desarrollo_Web.Data;
+﻿using Administrador_Desarrollo_Web.Data;
 using Administrador_Desarrollo_Web.Models;
 using Administrador_Desarrollo_Web.Services;
 using Administrador_Desarrollo_Web.Forms.Details;
@@ -329,7 +329,7 @@ public class PerformanceControl : UserControl
 
         var btns = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false };
         var btnAssign = AppTheme.MakePrimaryButton("🏅 Asignar puntos", 145); btnAssign.Margin = new Padding(4, 2, 0, 0); btnAssign.Click += BtnAssignPoints_Click;
-        var btnView   = AppTheme.MakeSecondaryButton("👁 Ver captura", 140); btnView.Margin = new Padding(4, 2, 0, 0); btnView.Click += BtnViewShot_Click;
+        var btnView   = AppTheme.MakeSecondaryButton("👁 Ver evidencia", 155); btnView.Margin = new Padding(4, 2, 0, 0); btnView.Click += BtnViewShot_Click;
         var btnDel    = AppTheme.MakeDangerButton("🗑 Eliminar seleccionadas", 190); btnDel.Margin = new Padding(4, 2, 0, 0); btnDel.Click += BtnDelEntries_Click;
         btns.Controls.AddRange([btnAssign, btnView, btnDel]);
         toolbar.Controls.Add(btns, 1, 0);
@@ -342,8 +342,10 @@ public class PerformanceControl : UserControl
         _gridEntries.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Puntos",         Name = "Pts",     FillWeight = 8  });
         _gridEntries.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Estado",         Name = "State",   FillWeight = 11 });
         _gridEntries.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Fecha",          Name = "Date",    FillWeight = 12 });
-        _gridEntries.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Requerimiento",  Name = "Req",     FillWeight = 12 });
-        _gridEntries.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "📷",             Name = "Shot",    FillWeight = 5  });
+        _gridEntries.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Requerimiento",  Name = "Req",     FillWeight = 11 });
+        _gridEntries.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "⏱ Tiempo",       Name = "Time",    FillWeight = 9  });
+        _gridEntries.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "📷",             Name = "Shot",    FillWeight = 4  });
+        _gridEntries.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "🔗",             Name = "Link",    FillWeight = 4  });
         _gridEntries.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Comentario",     Name = "Comment", FillWeight = 18 });
 
         _gridEntries.CellDoubleClick += (_, _) => BtnViewShot_Click(null, EventArgs.Empty);
@@ -361,21 +363,50 @@ public class PerformanceControl : UserControl
         if (_gridEntries.CurrentRow?.Cells["Id"].Value is not int id)
         { MessageBox.Show("Selecciona una entrada.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
         var pe = _entries.FirstOrDefault(p => p.Id == id);
-        if (pe?.Screenshot == null || pe.Screenshot.Length == 0)
-        { MessageBox.Show("Esta entrada no tiene captura.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
-        try
+        if (pe == null) { MessageBox.Show("La entrada ya no existe. Recarga la lista.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+        MostrarEvidencia(pe);
+    }
+
+    /// <summary>
+    /// Abre la ficha con TODA la evidencia (captura, comentario, tiempo y enlace al item). Antes
+    /// este botón solo abría la imagen, así que para revisar había que leer el comentario truncado
+    /// en la celda y el enlace no se veía en ninguna parte.
+    /// </summary>
+    private void MostrarEvidencia(PointEntry pe)
+    {
+        using var frm = new PointEntryEvidenceForm(pe);
+        frm.ShowDialog(FindForm());
+    }
+
+    /// <summary>Minutos declarados como «3h 20m» / «45m» / «—».</summary>
+    private static string FormatoMinutos(int minutos)
+    {
+        if (minutos <= 0) return "—";
+        return minutos >= 60 ? $"{minutos / 60}h {minutos % 60:00}m" : $"{minutos}m";
+    }
+
+    /// <summary>
+    /// Tooltips de evidencia en la fila: el comentario completo (la celda lo trunca) y la URL del
+    /// item. Así se puede triar sin abrir la ficha de cada entrada.
+    /// </summary>
+    private static void DecorarEvidencia(DataGridViewRow fila, PointEntry pe)
+    {
+        if (!string.IsNullOrWhiteSpace(pe.Comment))
+            fila.Cells["Comment"].ToolTipText = pe.Comment;
+
+        if (!string.IsNullOrWhiteSpace(pe.EvidenceUrl))
         {
-            var dir = Path.Combine(Path.GetTempPath(), "advweb_shot_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(dir);
-            var name = string.IsNullOrWhiteSpace(pe.ScreenshotFileName) ? "captura.png" : pe.ScreenshotFileName!;
-            foreach (var c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
-            var path = Path.Combine(dir, name);
-            File.WriteAllBytes(path, pe.Screenshot);
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+            fila.Cells["Link"].ToolTipText = $"{pe.EvidenceUrl}\n\n(doble clic en la fila para ver la evidencia completa)";
+            fila.Cells["Link"].Style.ForeColor = AppTheme.SidebarActive;
         }
-        catch (Exception ex)
+
+        if (!string.IsNullOrWhiteSpace(pe.Criterion?.Description))
+            fila.Cells["Crit"].ToolTipText = pe.Criterion!.Description!;
+
+        if (pe.MinutesSpent is int m && m > 0)
         {
-            MessageBox.Show($"No se pudo abrir la captura:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            fila.Cells["Time"].Style.ForeColor = AppTheme.Success;
+            fila.Cells["Time"].ToolTipText = $"{m} minutos declarados por el desarrollador.";
         }
     }
 
@@ -401,12 +432,15 @@ public class PerformanceControl : UserControl
                 EntryStateLabel(pe.ApprovalStatus),
                 pe.Date.ToLocalTime().ToString("dd/MM/yyyy"),
                 pe.Requirement != null ? $"#{pe.Requirement.Id}" : "—",
+                FormatoMinutos(pe.MinutesSpent ?? 0),
                 pe.Screenshot != null ? "📷" : "",
+                string.IsNullOrWhiteSpace(pe.EvidenceUrl) ? "" : "🔗",
                 pe.Comment ?? "");
             _gridEntries.Rows[i].Cells["Pts"].Style.ForeColor = pe.Points >= 0 ? AppTheme.Success : AppTheme.Danger;
             _gridEntries.Rows[i].Cells["Pts"].Style.Font = AppTheme.BoldFont;
             _gridEntries.Rows[i].Cells["State"].Style.ForeColor = pe.ApprovalStatus switch
             { PointApprovalStatus.Aprobado => AppTheme.Success, PointApprovalStatus.Rechazado => AppTheme.Danger, _ => AppTheme.Warning };
+            DecorarEvidencia(_gridEntries.Rows[i], pe);
         }
     }
 
@@ -455,7 +489,7 @@ public class PerformanceControl : UserControl
         var btnReject  = AppTheme.MakeDangerButton("❌ Rechazar", 120); btnReject.Margin = new Padding(4, 2, 0, 0); btnReject.Click += BtnRejectPending_Click;
         // El desarrollador ya no puede escribir el puntaje: esta es la única vía para cambiarlo.
         var btnAdjust  = AppTheme.MakeSecondaryButton("✏ Ajustar puntos", 150); btnAdjust.Margin = new Padding(4, 2, 0, 0); btnAdjust.Click += BtnAdjustPendingPoints_Click;
-        var btnShot    = AppTheme.MakeSecondaryButton("👁 Ver captura", 140); btnShot.Margin = new Padding(4, 2, 0, 0); btnShot.Click += BtnPendingShot_Click;
+        var btnShot    = AppTheme.MakeSecondaryButton("👁 Ver evidencia", 155); btnShot.Margin = new Padding(4, 2, 0, 0); btnShot.Click += BtnPendingShot_Click;
         var btnReload  = AppTheme.MakeSecondaryButton("🔄 Recargar", 110); btnReload.Margin = new Padding(4, 2, 0, 0); btnReload.Click += (_, _) => LoadPending();
         btns.Controls.AddRange([btnApprove, btnReject, btnAdjust, btnShot, btnReload]);
         toolbar.Controls.Add(btns, 1, 0);
@@ -468,9 +502,14 @@ public class PerformanceControl : UserControl
         _gridPending.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Puntos", Name = "Pts",   FillWeight = 7  });
         _gridPending.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Período", Name = "Period", FillWeight = 9 });
         _gridPending.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Fecha", Name = "Date",   FillWeight = 10 });
-        _gridPending.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Req.", Name = "Req",     FillWeight = 7  });
+        _gridPending.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Req.", Name = "Req",     FillWeight = 6  });
+        // Una entrada que vuelve por tercera vez no es una propuesta nueva: saberlo antes de abrirla
+        // cambia cómo se revisa.
+        _gridPending.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "🔁", Name = "Round",    FillWeight = 4  });
+        _gridPending.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "⏱ Tiempo", Name = "Time", FillWeight = 8 });
         _gridPending.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "📷", Name = "Shot",      FillWeight = 4  });
-        _gridPending.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Comentario", Name = "Comment", FillWeight = 23 });
+        _gridPending.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "🔗", Name = "Link",      FillWeight = 4  });
+        _gridPending.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Comentario", Name = "Comment", FillWeight = 21 });
         _gridPending.CellDoubleClick += (_, _) => BtnPendingShot_Click(null, EventArgs.Empty);
 
         var pnlGrid = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10, 4, 10, 10), Margin = Padding.Empty, BackColor = AppTheme.ContentBg };
@@ -510,10 +549,28 @@ public class PerformanceControl : UserControl
                 (p.Points >= 0 ? "+" : "") + p.Points, period,
                 p.Date.ToLocalTime().ToString("dd/MM/yyyy"),
                 p.Requirement != null ? $"#{p.Requirement.Id}" : "—",
+                p.ReviewRound > 0 ? $"×{p.ReviewRound}" : "",
+                FormatoMinutos(p.MinutesSpent ?? 0),
                 p.Screenshot != null ? "📷" : "",
+                string.IsNullOrWhiteSpace(p.EvidenceUrl) ? "" : "🔗",
                 p.Comment ?? "");
-            _gridPending.Rows[i].Cells["Pts"].Style.ForeColor = AppTheme.Success;
-            _gridPending.Rows[i].Cells["Pts"].Style.Font = AppTheme.BoldFont;
+            var filaP = _gridPending.Rows[i];
+            filaP.Cells["Pts"].Style.ForeColor = AppTheme.Success;
+            filaP.Cells["Pts"].Style.Font = AppTheme.BoldFont;
+            DecorarEvidencia(filaP, p);
+
+            if (p.ReviewRound > 0)
+            {
+                filaP.Cells["Round"].Style.ForeColor = AppTheme.Warning;
+                filaP.Cells["Round"].Style.Font = AppTheme.BoldFont;
+                filaP.Cells["Round"].ToolTipText =
+                    $"El desarrollador ya replicó {p.ReviewRound} vez/veces.\n\n" +
+                    (string.IsNullOrWhiteSpace(p.ReviewHistory)
+                        ? "(sin historial)"
+                        : p.ReviewHistory!.Replace("\n", Environment.NewLine));
+                // La fila se marca entera: es una decisión que ya se tomó y se está discutiendo.
+                filaP.DefaultCellStyle.BackColor = Color.FromArgb(255, 248, 220);
+            }
         }
     }
 
@@ -536,6 +593,11 @@ public class PerformanceControl : UserControl
             r.ApprovalStatus = PointApprovalStatus.Aprobado;
             r.ReviewedByUserId = _currentUser.User?.Id;
             r.ReviewedAt = now;
+
+            // Si venía de una réplica, que quede escrito cómo terminó la discusión.
+            if (r.ReviewRound > 0)
+                PerformanceScoringService.AnotarEnHistorial(r,
+                    $"Aprobada por {_currentUser.Username ?? "el líder"} tras la réplica.");
         }
         _db.SaveChanges();
         _audit.Record(AuditAction.Update, "PointEntry", string.Join(",", ids), $"{rows.Count} autocalificación(es) aprobada(s)");
@@ -582,7 +644,7 @@ public class PerformanceControl : UserControl
         _db.SaveChanges();
 
         _audit.Record(AuditAction.Update, "PointEntry", entrada.Id.ToString(),
-            $"Puntos ajustados por el administrador: {anteriores} → {nuevos} ({entrada.Criterion.Name})");
+            $"Puntos ajustados por el líder: {anteriores} → {nuevos} ({entrada.Criterion.Name})");
         LoadPending(); LoadRanking(); LoadEntries();
         MessageBox.Show($"Puntaje ajustado de {anteriores} a {nuevos}. La entrada sigue pendiente de aprobación.",
             "Listo", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -603,6 +665,14 @@ public class PerformanceControl : UserControl
             r.ReviewedByUserId = _currentUser.User?.Id;
             r.ReviewedAt = now;
             r.ReviewComment = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+
+            // Solo a partir de la primera réplica: en un rechazo normal el historial estaría de más,
+            // porque el motivo ya se ve en su columna. Desde que hay discusión, en cambio, hace
+            // falta que las dos mitades queden juntas y en orden.
+            if (r.ReviewRound > 0)
+                PerformanceScoringService.AnotarEnHistorial(r,
+                    $"Rechazada de nuevo por {_currentUser.Username ?? "el líder"}: " +
+                    (string.IsNullOrWhiteSpace(reason) ? "(sin motivo)" : reason.Trim()));
         }
         _db.SaveChanges();
         _audit.Record(AuditAction.Update, "PointEntry", string.Join(",", ids), $"{rows.Count} autocalificación(es) rechazada(s)");
@@ -652,19 +722,8 @@ public class PerformanceControl : UserControl
         if (_gridPending.CurrentRow?.Cells["Id"].Value is not int id)
         { MessageBox.Show("Selecciona una entrada.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
         var pe = _pending.FirstOrDefault(p => p.Id == id);
-        if (pe?.Screenshot == null || pe.Screenshot.Length == 0)
-        { MessageBox.Show("Esta entrada no tiene captura.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
-        try
-        {
-            var dir = Path.Combine(Path.GetTempPath(), "advweb_shot_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(dir);
-            var name = string.IsNullOrWhiteSpace(pe.ScreenshotFileName) ? "captura.png" : pe.ScreenshotFileName!;
-            foreach (var c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
-            var path = Path.Combine(dir, name);
-            File.WriteAllBytes(path, pe.Screenshot);
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
-        }
-        catch (Exception ex) { MessageBox.Show($"No se pudo abrir la captura:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        if (pe == null) { MessageBox.Show("La entrada ya no está pendiente. Recarga la lista.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+        MostrarEvidencia(pe);
     }
 
     private static string Prompt(string text, string caption)

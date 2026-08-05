@@ -1,4 +1,4 @@
-using Administrador_Desarrollo_Web.Data;
+﻿using Administrador_Desarrollo_Web.Data;
 using Administrador_Desarrollo_Web.Models;
 using Administrador_Desarrollo_Web.Services;
 using Microsoft.EntityFrameworkCore;
@@ -70,7 +70,7 @@ public class SuggestionServiceTests
         var db = TestDb.New();
         SeedDev(db, 5);
         var cu = Ctx.As(UserRole.Desarrollador, developerId: 5, userId: 10);   // Username = "desarrollador"
-        Svc(db, cu).Enviar(SuggestionCategory.Departamento, "Cambiar al jefe", "cuerpo delicado", anonima: true);
+        Svc(db, cu).Enviar(SuggestionCategory.Departamento, "Cambiar al líder", "cuerpo delicado", anonima: true);
 
         // Ninguna entrada estampa al autor, ni ata la entidad Suggestion a un usuario: no se puede cruzar.
         Assert.DoesNotContain(db.AuditLogs, a => a.UserName == cu.Username);
@@ -335,7 +335,7 @@ public class SuggestionServiceTests
         var votable = new Suggestion { Visibility = SuggestionVisibility.Publica, OpenToVoting = true };
         var sinVoto = new Suggestion { Visibility = SuggestionVisibility.Publica, OpenToVoting = false };
 
-        Assert.Contains("Solo administrador", SuggestionService.EtiquetaAlcance(privada));
+        Assert.Contains("Solo líder", SuggestionService.EtiquetaAlcance(privada));
         Assert.Contains("se vota", SuggestionService.EtiquetaAlcance(votable));
         Assert.Contains("sin votación", SuggestionService.EtiquetaAlcance(sinVoto));
     }

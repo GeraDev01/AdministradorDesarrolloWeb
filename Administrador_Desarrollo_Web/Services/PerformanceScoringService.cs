@@ -1,4 +1,4 @@
-using Administrador_Desarrollo_Web.Data;
+﻿using Administrador_Desarrollo_Web.Data;
 using Administrador_Desarrollo_Web.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -107,12 +107,27 @@ public class PerformanceScoringService
     {
         var mine = _db.PointEntries
             .Where(p => p.DeveloperId == devId && p.Year == year && p.Month == month)
-            .Select(p => new { p.Points, p.ApprovalStatus }).ToList();
+            .Select(p => new { p.Points, p.ApprovalStatus, p.MinutesSpent }).ToList();
         return new DevMonthly(
             Approved: mine.Where(p => p.ApprovalStatus == PointApprovalStatus.Aprobado).Sum(p => p.Points),
             Pending:  mine.Where(p => p.ApprovalStatus == PointApprovalStatus.Pendiente).Sum(p => p.Points),
             Rejected: mine.Where(p => p.ApprovalStatus == PointApprovalStatus.Rechazado).Sum(p => p.Points),
-            RejectedCount: mine.Count(p => p.ApprovalStatus == PointApprovalStatus.Rechazado));
+            RejectedCount: mine.Count(p => p.ApprovalStatus == PointApprovalStatus.Rechazado),
+            // El tiempo declarado se contabiliza aparte de los puntos: son dos medidas distintas
+            // (cuánto trabajó vs. cuánto se le reconoció) y mezclarlas escondería una de las dos.
+            MinutesApproved: mine.Where(p => p.ApprovalStatus == PointApprovalStatus.Aprobado).Sum(p => p.MinutesSpent ?? 0),
+            MinutesPending:  mine.Where(p => p.ApprovalStatus == PointApprovalStatus.Pendiente).Sum(p => p.MinutesSpent ?? 0));
+    }
+
+    /// <summary>
+    /// Minutos declarados por un desarrollador en el período, contando solo lo aprobado más lo que
+    /// sigue en revisión. Lo rechazado no suma: si el jefe no reconoció la actividad, su tiempo
+    /// tampoco debe engrosar el total.
+    /// </summary>
+    public int MinutosDeclarados(int devId, int year, int month)
+    {
+        var t = DevMonthlyTotals(devId, year, month);
+        return t.MinutesApproved + t.MinutesPending;
     }
 
     /// <summary>
@@ -143,18 +158,12 @@ public class PerformanceScoringService
         AuthorizationGuard.RequireLoggedIn(currentUser);
         AuthorizationGuard.RequireOwnershipOrAdmin(currentUser, borrador.DeveloperId);
 
-        var criterio = _db.ScoringCriteria.FirstOrDefault(c => c.Id == borrador.CriterionId);
-        if (criterio == null)      return (false, "El criterio seleccionado ya no existe.", null);
-        if (!criterio.IsActive)    return (false, $"El criterio «{criterio.Name}» fue desactivado.", null);
-        if (criterio.Scope == CriterionScope.Equipo)
-            return (false, $"«{criterio.Name}» es un criterio de equipo: no se puede autocalificar.", null);
-        if (criterio.DefaultPoints <= 0)
-            return (false, $"«{criterio.Name}» no otorga puntos positivos. Los descuentos los aplica el administrador.", null);
-
-        if (borrador.Month is < 1 or > 12) return (false, "Mes inválido.", null);
+        var (valido, error, criterio, enlace) = ValidarBorrador(borrador);
+        if (!valido) return (false, error, null);
 
         // Campos que el desarrollador NO decide.
-        borrador.Points = criterio.DefaultPoints;
+        borrador.Points = criterio!.DefaultPoints;
+        borrador.EvidenceUrl = enlace;
         borrador.ApprovalStatus = PointApprovalStatus.Pendiente;
         borrador.SubmittedByDeveloperId = borrador.DeveloperId;
         borrador.AssignedByUserId = null;
@@ -167,9 +176,204 @@ public class PerformanceScoringService
         _db.SaveChanges();
         return (true, $"Actividad registrada (+{borrador.Points} pts). Queda pendiente de aprobación.", borrador);
     }
+
+    /// <summary>
+    /// Corrige una autocalificación que el desarrollador ya envió: criterio, período, comentario,
+    /// tiempo dedicado, enlace de evidencia, captura y requerimiento.
+    ///
+    /// Se puede mientras NO esté aprobada — pendiente o rechazada. Una rechazada suele estarlo
+    /// justamente por algo que se puede arreglar (faltaba el enlace, el período estaba mal), y
+    /// obligar a registrarla de nuevo hacía perder la captura, el comentario y el hilo de la
+    /// conversación. Aprobada sí se cierra: cambiar después del visto bueno aquello sobre lo que se
+    /// dio el visto bueno vaciaría de sentido la aprobación.
+    ///
+    /// Corregir NO la devuelve a revisión: para eso está <see cref="Replicar"/>, que es donde el
+    /// desarrollador argumenta. Son dos actos distintos y mezclarlos dejaría al administrador
+    /// entradas reabiertas sin una palabra que explique por qué.
+    ///
+    /// Igual que al registrar, el puntaje se reevalúa desde el criterio: si el desarrollador
+    /// cambia de criterio al corregir, los puntos siguen al criterio nuevo.
+    /// </summary>
+    public (bool ok, string mensaje) EditarAutocalificacion(
+        int entryId, PointEntry cambios, ICurrentUser currentUser)
+    {
+        AuthorizationGuard.RequireLoggedIn(currentUser);
+
+        var entrada = _db.PointEntries.FirstOrDefault(p => p.Id == entryId);
+        if (entrada == null) return (false, "La actividad ya no existe. Actualiza la lista.");
+
+        // El AppDbContext es Singleton: el estado de aprobación pudo cambiarlo el jefe desde otro
+        // equipo hace un momento. Sin releer, se editaría una entrada ya aprobada creyéndola pendiente.
+        _db.Entry(entrada).Reload();
+
+        AuthorizationGuard.RequireOwnershipOrAdmin(currentUser, entrada.DeveloperId);
+
+        if (entrada.SubmittedByDeveloperId == null)
+            return (false, "Esa entrada la asignó el líder, no se edita desde aquí.");
+
+        if (entrada.ApprovalStatus == PointApprovalStatus.Aprobado)
+            return (false, "La actividad ya fue aprobada y no se puede modificar.");
+
+        // El desarrollador nunca cambia de dueño la entrada: se valida sobre el dueño real.
+        cambios.DeveloperId = entrada.DeveloperId;
+        var (valido, error, criterio, enlace) = ValidarBorrador(cambios);
+        if (!valido) return (false, error);
+
+        entrada.CriterionId    = cambios.CriterionId;
+        entrada.Points         = criterio!.DefaultPoints;
+        entrada.Year           = cambios.Year;
+        entrada.Month          = cambios.Month;
+        entrada.Comment        = string.IsNullOrWhiteSpace(cambios.Comment) ? null : cambios.Comment.Trim();
+        entrada.RequirementId  = cambios.RequirementId;
+        entrada.MinutesSpent   = cambios.MinutesSpent;
+        entrada.EvidenceUrl    = enlace;
+        entrada.Screenshot     = cambios.Screenshot;
+        entrada.ScreenshotFileName = cambios.ScreenshotFileName;
+
+        _db.SaveChanges();
+        return (true, entrada.ApprovalStatus == PointApprovalStatus.Rechazado
+            ? $"Actividad corregida (+{entrada.Points} pts). Sigue rechazada: usa «Replicar» para mandarla otra vez a revisión."
+            : $"Actividad actualizada (+{entrada.Points} pts). Sigue pendiente de aprobación.");
+    }
+
+    /// <summary>Tope del argumento de una réplica. Da para explicarse, no para un ensayo.</summary>
+    public const int MaxArgumento = 1000;
+
+    /// <summary>
+    /// El desarrollador responde a un rechazo y devuelve la actividad a revisión.
+    ///
+    /// Antes un rechazo era el final del camino: si el jefe se había equivocado, o si faltaba un
+    /// dato que sí existía, no había forma de decirlo dentro de la aplicación y la discusión se iba
+    /// a un chat donde no queda constancia. Ahora el desacuerdo vive en la misma entrada.
+    ///
+    /// El argumento es OBLIGATORIO: una réplica vacía es volver a mandar lo mismo esperando otra
+    /// respuesta, y le devuelve al administrador un trabajo que ya hizo sin darle nada nuevo que
+    /// valorar. El motivo del rechazo no se pierde: pasa al historial antes de limpiarse.
+    /// </summary>
+    public (bool ok, string mensaje) Replicar(int entryId, string? argumento, ICurrentUser currentUser)
+    {
+        AuthorizationGuard.RequireLoggedIn(currentUser);
+
+        var entrada = _db.PointEntries.FirstOrDefault(p => p.Id == entryId);
+        if (entrada == null) return (false, "La actividad ya no existe. Actualiza la lista.");
+
+        _db.Entry(entrada).Reload();   // el jefe pudo reabrirla o aprobarla desde otro equipo
+        AuthorizationGuard.RequireOwnershipOrAdmin(currentUser, entrada.DeveloperId);
+
+        if (entrada.SubmittedByDeveloperId == null)
+            return (false, "Esa entrada la asignó el líder; no es una autocalificación tuya que puedas replicar.");
+
+        if (entrada.ApprovalStatus != PointApprovalStatus.Rechazado)
+            return (false, entrada.ApprovalStatus == PointApprovalStatus.Aprobado
+                ? "Esta actividad ya fue aprobada: no hay nada que replicar."
+                : "Esta actividad ya está en revisión; espera la respuesta.");
+
+        argumento = (argumento ?? "").Trim();
+        if (argumento.Length == 0)
+            return (false, "Escribe por qué crees que debería aprobarse: es lo que el líder va a leer.");
+        if (argumento.Length > MaxArgumento)
+            return (false, $"El argumento no puede pasar de {MaxArgumento} caracteres.");
+
+        // El motivo del rechazo se guarda ANTES de limpiarlo: es la mitad de la conversación que
+        // se está discutiendo, y dejar la entrada «pendiente» con un comentario de rechazo pegado
+        // haría creer que ya la volvieron a responder.
+        if (!string.IsNullOrWhiteSpace(entrada.ReviewComment))
+            AnotarEnHistorial(entrada, $"Rechazada: {entrada.ReviewComment}");
+
+        AnotarEnHistorial(entrada, $"Réplica de {currentUser.Username ?? "el desarrollador"}: {argumento}");
+
+        entrada.ApprovalStatus = PointApprovalStatus.Pendiente;
+        entrada.ReviewRound++;
+        entrada.ReviewComment = null;
+        entrada.ReviewedByUserId = null;
+        entrada.ReviewedAt = null;
+
+        _db.SaveChanges();
+        return (true, $"Enviada de nuevo a revisión (vuelta {entrada.ReviewRound + 1}). El líder verá tu argumento.");
+    }
+
+    /// <summary>Tope del historial. Un ida y vuelta muy largo no debe crecer sin límite.</summary>
+    private const int MaxHistorial = 8000;
+
+    /// <summary>
+    /// Agrega una línea fechada al historial de revisión sin borrar lo anterior. Lo usan tanto la
+    /// réplica del desarrollador como el rechazo del administrador, para que la conversación se lea
+    /// completa y en orden desde los dos lados.
+    /// </summary>
+    public static void AnotarEnHistorial(PointEntry entrada, string linea)
+    {
+        var sello = $"[{DateTime.Now:dd/MM/yyyy HH:mm}] {linea.Trim()}";
+        entrada.ReviewHistory = string.IsNullOrWhiteSpace(entrada.ReviewHistory)
+            ? sello
+            : entrada.ReviewHistory + "\n" + sello;
+
+        // Se recorta por el PRINCIPIO: lo último que se dijo es lo que hace falta para decidir.
+        if (entrada.ReviewHistory.Length > MaxHistorial)
+            entrada.ReviewHistory = "(…)\n" + entrada.ReviewHistory[^MaxHistorial..];
+    }
+
+    /// <summary>
+    /// Tope del tiempo declarable en UNA entrada: los minutos que caben en el mes al que se
+    /// atribuye. No es un límite de política sino de realidad — sirve para atajar el dedazo
+    /// («600» por «60») sin rechazar un registro legítimamente grande.
+    /// </summary>
+    public const int MaxMinutosDeclarados = 31 * 24 * 60;
+
+    /// <summary>
+    /// Reglas comunes a registrar y editar. Devuelve el criterio ya resuelto y el enlace
+    /// normalizado para que quien llama no vuelva a consultarlos.
+    /// </summary>
+    private (bool ok, string error, ScoringCriterion? criterio, string? enlace) ValidarBorrador(PointEntry b)
+    {
+        var criterio = _db.ScoringCriteria.FirstOrDefault(c => c.Id == b.CriterionId);
+        if (criterio == null)   return (false, "El criterio seleccionado ya no existe.", null, null);
+        if (!criterio.IsActive) return (false, $"El criterio «{criterio.Name}» fue desactivado.", null, null);
+        if (criterio.Scope == CriterionScope.Equipo)
+            return (false, $"«{criterio.Name}» es un criterio de equipo: no se puede autocalificar.", null, null);
+        if (criterio.DefaultPoints <= 0)
+            return (false, $"«{criterio.Name}» no otorga puntos positivos. Los descuentos los aplica el líder.", null, null);
+
+        if (b.Month is < 1 or > 12) return (false, "Mes inválido.", null, null);
+
+        if (b.MinutesSpent is int min)
+        {
+            if (min < 0) return (false, "El tiempo dedicado no puede ser negativo.", null, null);
+            if (min > MaxMinutosDeclarados)
+                return (false, $"El tiempo dedicado no puede pasar de {MaxMinutosDeclarados / 60} horas en un solo registro.", null, null);
+            if (min == 0) b.MinutesSpent = null;   // «0 minutos» y «no lo capturé» son lo mismo
+        }
+
+        var (enlaceOk, enlaceError, enlace) = NormalizarEnlace(b.EvidenceUrl);
+        if (!enlaceOk) return (false, enlaceError, null, null);
+
+        return (true, "", criterio, enlace);
+    }
+
+    /// <summary>
+    /// Valida el enlace de evidencia. Solo se aceptan http y https porque el administrador lo abre
+    /// con el navegador del sistema al revisar: admitir cualquier esquema (file:, un protocolo
+    /// registrado por otra aplicación…) convertiría un campo de texto que llena el desarrollador
+    /// en una forma de hacer que el jefe ejecute algo con un clic.
+    /// </summary>
+    public static (bool ok, string error, string? url) NormalizarEnlace(string? enlace)
+    {
+        enlace = (enlace ?? "").Trim();
+        if (enlace.Length == 0) return (true, "", null);
+        if (enlace.Length > 500) return (false, "El enlace no puede pasar de 500 caracteres.", null);
+
+        if (!Uri.TryCreate(enlace, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            return (false, "El enlace debe ser una dirección completa que empiece con http:// o https:// " +
+                           "(copia la del PR, work item o ticket desde la barra del navegador).", null);
+
+        return (true, "", enlace);
+    }
 }
 
 // EsNivelLead va al FINAL y con default: el record es posicional y hay construcciones que no lo pasan.
 public sealed record DevScore(int DeveloperId, string FullName, int Total, int Positive, int Negative, int Count, List<PointEntry> Entries, bool EsNivelLead = false);
 public sealed record TeamScore(int TeamId, string Name, int MembersSum, int TeamOwn, int Total, int MemberCount);
-public sealed record DevMonthly(int Approved, int Pending, int Rejected, int RejectedCount);
+// Los minutos van al FINAL y con default: el record es posicional y hay construcciones previas
+// (y pruebas) que solo pasan los cuatro campos de puntos.
+public sealed record DevMonthly(int Approved, int Pending, int Rejected, int RejectedCount,
+                                int MinutesApproved = 0, int MinutesPending = 0);

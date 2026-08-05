@@ -274,7 +274,7 @@ public class ConfigurationControl : UserControl
         AddSection(scroll, "📄  Documentos de vacaciones y firmas", ref y);
         AddField(scroll, "Departamento (por defecto en la solicitud):", ref _txtVacDepto, ref y, false, "DESARROLLO");
         AddField(scroll, "Puesto (por defecto):", ref _txtVacPuesto, ref y, false, "Desarrollador Web");
-        AddField(scroll, "Jefe directo (nombre que firma la autorización):", ref _txtVacJefe, ref y, false, "GERARDO TELLEZ");
+        AddField(scroll, "Líder directo (nombre que firma la autorización):", ref _txtVacJefe, ref y, false, "GERARDO TELLEZ");
 
         scroll.Controls.Add(new Label { Text = "Ruta de LibreOffice (soffice.exe) — COMPARTIDA, el valor por omisión del equipo; cada quien puede fijar la suya en su computadora:", Location = new Point(30, y), AutoSize = true, Font = AppTheme.DefaultFont });
         y += 22;
@@ -310,8 +310,8 @@ public class ConfigurationControl : UserControl
         AddField(scroll, "Servidor IMAP:", ref _txtImapHost, ref y, false, "outlook.office365.com  /  imap.gmail.com");
         AddField(scroll, "Puerto IMAP:", ref _txtImapPort, ref y, false, "993");
         AddField(scroll, "Carpeta para ingerir requerimientos:", ref _txtReqFolder, ref y, false, "INBOX");
-        AddField(scroll, "Correo del jefe para escalamientos de SLA vencido:", ref _txtSlaEmail, ref y, false,
-            "jefe@empresa.com   (varios separados por ; )");
+        AddField(scroll, "Correo del líder para escalamientos de SLA vencido:", ref _txtSlaEmail, ref y, false,
+            "líder@empresa.com   (varios separados por ; )");
         scroll.Controls.Add(new Label
         {
             Text = "Si se deja vacío, los avisos de SLA vencido llegan a la propia cuenta de la aplicación.",
@@ -346,7 +346,7 @@ public class ConfigurationControl : UserControl
         scroll.Controls.Add(_cbxDigestFreq);
         y += 28;
         AddField(scroll, "Destinatarios del resumen (correos separados por ; ). Vacío = usa el de escalamiento de SLA o la propia cuenta:",
-            ref _txtDigestRecipients, ref y, false, "jefe@empresa.com; lider@empresa.com");
+            ref _txtDigestRecipients, ref y, false, "líder@empresa.com; lider@empresa.com");
 
         // ── Aviso de versión nueva ────────────────────────────────
         AddSection(scroll, "⬆  Aviso de versión nueva", ref y);
@@ -359,7 +359,7 @@ public class ConfigurationControl : UserControl
         });
         y += 40;
         AddField(scroll, "Última versión publicada (solo números, p. ej. 1.2.0):", ref _txtUltimaVersion, ref y, false, "1.2.0");
-        AddField(scroll, "Enlace de descarga (https://…  o  \\\\servidor\\compartido\\Administrador.exe):", ref _txtUrlDescarga, ref y, false, "");
+        AddField(scroll, "Enlace de descarga (https://…  o  \\\\servidor\\compartido\\Líder.exe):", ref _txtUrlDescarga, ref y, false, "");
         AddField(scroll, "Feed de actualización automática (Velopack) — carpeta o URL con los releases.*.json. Vacío = solo aviso manual:",
             ref _txtFeedVelopack, ref y, false, "https://…/actualizaciones");
 
@@ -568,7 +568,7 @@ public class ConfigurationControl : UserControl
             // Documentos de vacaciones (se guardan aunque estén vacíos para permitir limpiar)
             _settings.Set(SettingsService.Keys.VacationDepartamento, _txtVacDepto.Text.Trim(), false, "Departamento en solicitud de vacaciones");
             _settings.Set(SettingsService.Keys.VacationPuestoDefault, _txtVacPuesto.Text.Trim(), false, "Puesto por defecto en solicitud");
-            _settings.Set(SettingsService.Keys.VacationJefeDirecto, _txtVacJefe.Text.Trim(), false, "Jefe directo que autoriza");
+            _settings.Set(SettingsService.Keys.VacationJefeDirecto, _txtVacJefe.Text.Trim(), false, "Líder directo que autoriza");
             _settings.Set(SettingsService.Keys.LibreOfficePath, _txtLibreOffice.Text.Trim(), false, "Ruta de soffice.exe (LibreOffice)");
 
             // Correo
@@ -582,7 +582,7 @@ public class ConfigurationControl : UserControl
             _settings.Set(SettingsService.Keys.EmailImapHost, _txtImapHost.Text.Trim(), false, "IMAP host");
             _settings.Set(SettingsService.Keys.EmailImapPort, _txtImapPort.Text.Trim(), false, "IMAP port");
             _settings.Set(SettingsService.Keys.EmailRequirementsFolder, string.IsNullOrWhiteSpace(_txtReqFolder.Text) ? "INBOX" : _txtReqFolder.Text.Trim(), false, "Carpeta de ingesta");
-            _settings.Set(SettingsService.Keys.SlaEscalationEmail, _txtSlaEmail.Text.Trim(), false, "Correo del jefe para escalamientos de SLA");
+            _settings.Set(SettingsService.Keys.SlaEscalationEmail, _txtSlaEmail.Text.Trim(), false, "Correo del líder para escalamientos de SLA");
 
             _lblStatus.ForeColor = AppTheme.Success;
             _lblStatus.Text = "✓  Configuración guardada correctamente.";

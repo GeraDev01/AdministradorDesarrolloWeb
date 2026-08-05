@@ -1,4 +1,4 @@
-using Administrador_Desarrollo_Web.Data;
+﻿using Administrador_Desarrollo_Web.Data;
 using Administrador_Desarrollo_Web.Forms.Details;
 using Administrador_Desarrollo_Web.Models;
 using Administrador_Desarrollo_Web.Services;
@@ -31,7 +31,7 @@ public class MyDevOpsTicketsControl : UserControl
 
     // Filtros
     private ComboBox _cbxEstado = null!, _cbxTipo = null!, _cbxIteracion = null!, _cbxDias = null!;
-    private CheckBox _chkSoloAbiertos = null!;
+    private CheckBox _chkSoloAbiertos = null!, _chkSinEstimar = null!;
     private Button _btnSync = null!;
     private readonly ToolTip _tip = new();
     private bool _suspenderFiltros;
@@ -126,11 +126,18 @@ public class MyDevOpsTicketsControl : UserControl
             ((ComboBox)c).SelectedIndexChanged += (_, _) => Filter();
         _chkSoloAbiertos.CheckedChanged += (_, _) => Filter();
 
+        _chkSinEstimar = new CheckBox
+        {
+            Text = "Solo sin estimar", AutoSize = true,
+            Font = AppTheme.DefaultFont, Margin = new Padding(4, 7, 8, 0)
+        };
+        _chkSinEstimar.CheckedChanged += (_, _) => Filter();
+
         var btnLimpiar = AppTheme.MakeSecondaryButton("Limpiar", 80, 26);
         btnLimpiar.Margin = new Padding(0, 3, 0, 0);
         btnLimpiar.Click += (_, _) => LimpiarFiltros();
 
-        filtros.Controls.AddRange([_cbxDias, _cbxEstado, _cbxTipo, _cbxIteracion, _chkSoloAbiertos, btnLimpiar]);
+        filtros.Controls.AddRange([_cbxDias, _cbxEstado, _cbxTipo, _cbxIteracion, _chkSoloAbiertos, _chkSinEstimar, btnLimpiar]);
 
         // ── Cuerpo: grid + mensaje de vacío superpuesto ──────────────
         var pnlBody = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10, 4, 10, 4), BackColor = AppTheme.ContentBg };
@@ -147,6 +154,7 @@ public class MyDevOpsTicketsControl : UserControl
             Col("Prioridad", "Priority", 85),
             Col("Iteración", "IterationPath", 150),
             Col("Pts", "StoryPoints", 45),
+            Col("⏱ Est.", "EstimatedHours", 70),
             Col("💬", "CommentCount", 42),
             Col("Actualizado", "UpdatedAtExternal", 120)
         );
@@ -247,6 +255,7 @@ public class MyDevOpsTicketsControl : UserControl
             _cbxEstado.SelectedIndex = _cbxTipo.SelectedIndex = _cbxIteracion.SelectedIndex = 0;
             _cbxDias.SelectedIndex = Array.FindIndex(Ventanas, v => v.Dias == MyDevOpsTicketFilter.DiasPorOmision);
             _chkSoloAbiertos.Checked = true;
+            _chkSinEstimar.Checked = false;
         }
         finally { _suspenderFiltros = false; }
         Filter();
@@ -278,7 +287,7 @@ public class MyDevOpsTicketsControl : UserControl
         {
             _mine = [];
             ShowEmpty("Tu cuenta no está vinculada a un desarrollador, así que no hay tickets que mostrar.\n" +
-                      "Pide a un administrador que vincule tu usuario a tu ficha de desarrollador.");
+                      "Pide a un líder que vincule tu usuario a tu ficha de desarrollador.");
             Filter();
             return;
         }
@@ -333,6 +342,11 @@ public class MyDevOpsTicketsControl : UserControl
             _chkSoloAbiertos.Checked,
             VentanaSeleccionada()), DateTime.UtcNow);
 
+        // Lo que te asignaron y todavía no dijiste cuánto te va a llevar. Se cuenta solo sobre lo
+        // ABIERTO: pedir la estimación de un ticket ya cerrado no sirve para planear nada.
+        if (_chkSinEstimar.Checked)
+            data = data.Where(t => t.SinEstimar && !AzureDevOpsService.EsCerrado(t.State)).ToList();
+
         _grid.DataSource = data;
         if (_mine.Count > 0) _lblEmpty.Visible = false;
 
@@ -340,6 +354,26 @@ public class MyDevOpsTicketsControl : UserControl
             data.Count, _mine.Count,
             _mine.Count(t => !AzureDevOpsService.EsCerrado(t.State)),
             _mine.Count > 0 ? _mine.Max(t => t.SyncedAt) : null);
+
+        PintarPendientesDeEstimar();
+    }
+
+    /// <summary>
+    /// Aviso de lo que falta por estimar. No bloquea nada: si una sincronización trae doscientos
+    /// tickets viejos, dejar a alguien sin poder trabajar hasta estimarlos todos sería peor que el
+    /// problema que resuelve.
+    /// </summary>
+    private void PintarPendientesDeEstimar()
+    {
+        int faltan = _mine.Count(t => t.SinEstimar && !AzureDevOpsService.EsCerrado(t.State));
+
+        _chkSinEstimar.Text = faltan > 0 ? $"Solo sin estimar ({faltan})" : "Solo sin estimar";
+        _chkSinEstimar.ForeColor = faltan > 0 ? AppTheme.Warning : AppTheme.TextPrimary;
+        _chkSinEstimar.Font = faltan > 0 ? AppTheme.BoldFont : AppTheme.DefaultFont;
+        _tip.SetToolTip(_chkSinEstimar, faltan > 0
+            ? $"Tienes {faltan} ticket(s) asignados sin estimar.\n" +
+              "Clic derecho sobre uno → «⏱ Estimar»; se guarda en el campo Effort del work item."
+            : "Todos tus tickets abiertos están estimados.");
     }
 
     // ── Formato del grid ──────────────────────────────────────────
@@ -374,10 +408,44 @@ public class MyDevOpsTicketsControl : UserControl
         if (ticket == null) return;
 
         var menu = new ContextMenuStrip();
+        menu.Items.Add(ticket.SinEstimar ? "⏱  Estimar (pendiente)…" : "⏱  Cambiar mi estimación…",
+                       null, (_, _) => EstimarAsync(ticket));
+        menu.Items.Add("🔍  Ficha: regresiones y devoluciones…", null, (_, _) => VerFicha(ticket));
+        menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("🔗  Abrir en Azure DevOps", null, (_, _) => OpenInDevOps(ticket));
         menu.Items.Add("💬  Ver / agregar comentarios", null, (_, _) => ShowCommentsDialog(ticket));
         menu.Items.Add("🔧  Cambiar prioridad…", null, (_, _) => CambiarPrioridadAsync(ticket));
         menu.Show(_grid, e.Location);
+    }
+
+    /// <summary>
+    /// Captura la estimación y la escribe en el campo Effort del work item. Se puede volver a
+    /// estimar: una estimación que resultó equivocada y no se corrige deja de servir para planear.
+    /// </summary>
+    private async void EstimarAsync(DevOpsTicket ticket)
+    {
+        using var frm = new EstimarTicketForm(ticket);
+        if (frm.ShowDialog(FindForm()) != DialogResult.OK) return;
+
+        try
+        {
+            var (ok, escrito, mensaje) = await _devOps.EstimarTicketAsync(
+                ticket.ExternalId, frm.Horas, _currentUser.DeveloperId);
+            LoadData();
+            MessageBox.Show(mensaje, ok && escrito ? "Estimado" : "Con aviso",
+                MessageBoxButtons.OK, ok && escrito ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"No se pudo estimar:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    /// <summary>Regresiones (bugs hijos) y cuántas veces le devolvieron el ticket.</summary>
+    private void VerFicha(DevOpsTicket ticket)
+    {
+        using var frm = new DevOpsTicketFichaForm(_devOps, ticket);
+        frm.ShowDialog(FindForm());
     }
 
     // ── Cambiar prioridad en DevOps (con el PAT personal) ─────────
@@ -387,7 +455,7 @@ public class MyDevOpsTicketsControl : UserControl
         if (frm.ShowDialog(FindForm()) != DialogResult.OK) return;
         try
         {
-            await _devOps.ChangePriorityAsync(ticket.ExternalId, frm.SelectedPriority);
+            await _devOps.ChangePriorityAsync(ticket.ExternalId, frm.SelectedPriority, _currentUser.UserId);
             LoadData();
             MessageBox.Show(
                 $"Prioridad del ticket #{ticket.ExternalId} cambiada a {frm.SelectedPriority} " +

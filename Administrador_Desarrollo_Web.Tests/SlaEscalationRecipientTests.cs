@@ -1,4 +1,4 @@
-using Administrador_Desarrollo_Web.Services;
+﻿using Administrador_Desarrollo_Web.Services;
 using Xunit;
 
 namespace Administrador_Desarrollo_Web.Tests;
@@ -36,21 +36,21 @@ public class SlaEscalationRecipientTests
     {
         var s = NuevoSettings(out _);
         s.Set(SettingsService.Keys.EmailAddress, "app@empresa.com");
-        s.Set(SettingsService.Keys.SlaEscalationEmail, "jefe@empresa.com");
+        s.Set(SettingsService.Keys.SlaEscalationEmail, "líder@empresa.com");
 
-        Assert.Equal(["jefe@empresa.com"], Resolver(s));
+        Assert.Equal(["líder@empresa.com"], Resolver(s));
     }
 
     [Fact]
     public void AdmiteVariosCorreosSeparadosPorPuntoYComaOComa()
     {
         var s = NuevoSettings(out _);
-        s.Set(SettingsService.Keys.SlaEscalationEmail, " jefe@empresa.com ; gerente@empresa.com , jefe@empresa.com ");
+        s.Set(SettingsService.Keys.SlaEscalationEmail, " líder@empresa.com ; gerente@empresa.com , líder@empresa.com ");
 
         var destinos = Resolver(s);
 
         Assert.Equal(2, destinos.Count);                  // el duplicado se descarta
-        Assert.Contains("jefe@empresa.com", destinos);
+        Assert.Contains("líder@empresa.com", destinos);
         Assert.Contains("gerente@empresa.com", destinos);
     }
 
@@ -68,9 +68,9 @@ public class SlaEscalationRecipientTests
     {
         var s = NuevoSettings(out _);
         s.Set(SettingsService.Keys.EmailAddress, "app@empresa.com");
-        s.Set(SettingsService.Keys.SlaEscalationEmail, "esto-no-es-correo; jefe@empresa.com");
+        s.Set(SettingsService.Keys.SlaEscalationEmail, "esto-no-es-correo; líder@empresa.com");
 
-        Assert.Equal(["jefe@empresa.com"], Resolver(s));
+        Assert.Equal(["líder@empresa.com"], Resolver(s));
     }
 
     [Fact]

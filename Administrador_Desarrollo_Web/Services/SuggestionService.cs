@@ -1,4 +1,4 @@
-using Administrador_Desarrollo_Web.Data;
+﻿using Administrador_Desarrollo_Web.Data;
 using Administrador_Desarrollo_Web.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -224,7 +224,7 @@ public class SuggestionService
             if (!esAutor)
                 return (false, "Solo puedes eliminar tus propias sugerencias.");
             if (!PuedeEliminar(sug.Status))
-                return (false, "Ya no puedes eliminarla: el administrador empezó a atenderla.");
+                return (false, "Ya no puedes eliminarla: el líder empezó a atenderla.");
         }
 
         bool eraAnonima = sug.Anonymous;
@@ -249,14 +249,14 @@ public class SuggestionService
 
     public static string EtiquetaVisibilidad(SuggestionVisibility v) => v switch
     {
-        SuggestionVisibility.SoloAdministrador => "Solo administrador",
+        SuggestionVisibility.SoloAdministrador => "Solo líder",
         _                                      => "Pública (todo el equipo)"
     };
 
     /// <summary>Una línea para la lista: quién la ve y si se puede votar.</summary>
     public static string EtiquetaAlcance(Suggestion s) => s.Visibility switch
     {
-        SuggestionVisibility.SoloAdministrador => "🔒 Solo administrador",
+        SuggestionVisibility.SoloAdministrador => "🔒 Solo líder",
         _ when s.OpenToVoting                  => "👥 Pública · se vota",
         _                                      => "👥 Pública · sin votación"
     };

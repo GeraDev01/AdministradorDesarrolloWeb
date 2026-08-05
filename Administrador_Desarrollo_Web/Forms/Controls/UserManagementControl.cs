@@ -1,4 +1,4 @@
-using Administrador_Desarrollo_Web.Data;
+﻿using Administrador_Desarrollo_Web.Data;
 using Administrador_Desarrollo_Web.Models;
 using Administrador_Desarrollo_Web.Services;
 using Administrador_Desarrollo_Web.Forms.Details;
@@ -11,6 +11,7 @@ public class UserManagementControl : UserControl
     private readonly AuthService _auth;
     private DataGridView _grid = null!;
     private List<User> _allUsers = [];
+    private readonly ToolTip _tip = new() { AutoPopDelay = 15000 };
 
     public UserManagementControl(AppDbContext db, AuthService auth) { _db = db; _auth = auth; BuildUI(); LoadData(); }
 
@@ -38,16 +39,21 @@ public class UserManagementControl : UserControl
         var btnNew    = AppTheme.MakePrimaryButton("➕ Nuevo usuario", 140);
         var btnEdit   = AppTheme.MakeSecondaryButton("✏ Editar", 108);
         var btnReset  = AppTheme.MakeSecondaryButton("🔑 Reset pwd", 120);
+        var btnUnlock = AppTheme.MakeSecondaryButton("🔓 Desbloquear", 140);
         var btnToggle = AppTheme.MakeSecondaryButton("⚡ Activar/Desact.", 150);
         var btnDelete = AppTheme.MakeDangerButton("🗑 Eliminar", 120);
-        foreach (var b in new[] { btnNew, btnEdit, btnReset, btnToggle, btnDelete })
+        foreach (var b in new[] { btnNew, btnEdit, btnReset, btnUnlock, btnToggle, btnDelete })
             b.Margin = new Padding(0, 2, 8, 0);
         btnNew.Click    += BtnNew_Click;
         btnEdit.Click   += BtnEdit_Click;
         btnReset.Click  += BtnReset_Click;
+        btnUnlock.Click += BtnUnlock_Click;
         btnToggle.Click += BtnToggle_Click;
         btnDelete.Click += BtnDelete_Click;
-        btnFlow.Controls.AddRange([btnNew, btnEdit, btnReset, btnToggle, btnDelete]);
+        _tip.SetToolTip(btnUnlock,
+            $"Levanta el bloqueo por intentos fallidos ({AuthService.MaxFailedAttempts} errores bloquean " +
+            $"{AuthService.LockoutMinutes} minutos).\nNo cambia la contraseña: para eso usa «Reset pwd».");
+        btnFlow.Controls.AddRange([btnNew, btnEdit, btnReset, btnUnlock, btnToggle, btnDelete]);
 
         // Grid
         _grid = AppTheme.MakeGrid();
@@ -56,6 +62,7 @@ public class UserManagementControl : UserControl
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Nombre",   Name = "Name",     FillWeight = 30 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Rol",      Name = "Role",     FillWeight = 15 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Activo",   Name = "Active",   FillWeight = 10 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Acceso",   Name = "Lock",     FillWeight = 22 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Alta",     Name = "Created",  FillWeight = 20 });
         _grid.CellDoubleClick += (_, _) => BtnEdit_Click(null, EventArgs.Empty);
 
@@ -80,10 +87,35 @@ public class UserManagementControl : UserControl
                 UserRole.Desarrollador => "Desarrollador",
                 _                     => u.Role.ToString()
             };
+            bool bloqueado = AuthService.EstaBloqueado(u);
+            string acceso = bloqueado
+                ? $"🔒 Hasta {u.LockoutUntil!.Value.ToLocalTime():HH:mm}"
+                : u.FailedLoginCount > 0
+                    ? $"⚠ {u.FailedLoginCount}/{AuthService.MaxFailedAttempts} fallidos"
+                    : "";
+
             int i = _grid.Rows.Add(u.Id, u.Username, u.FullName, roleLabel,
                 u.IsActive ? "✓" : "✗",
+                acceso,
                 u.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm"));
             if (!u.IsActive) _grid.Rows[i].DefaultCellStyle.ForeColor = AppTheme.TextSecondary;
+
+            var celdaAcceso = _grid.Rows[i].Cells["Lock"];
+            if (bloqueado)
+            {
+                celdaAcceso.Style.ForeColor = AppTheme.Danger;
+                celdaAcceso.Style.Font = AppTheme.BoldFont;
+                celdaAcceso.ToolTipText =
+                    $"Bloqueada por {AuthService.MaxFailedAttempts} intentos fallidos hasta las " +
+                    $"{u.LockoutUntil!.Value.ToLocalTime():HH:mm}. Usa «🔓 Desbloquear» para levantarlo ya.";
+            }
+            else if (u.FailedLoginCount > 0)
+            {
+                celdaAcceso.Style.ForeColor = AppTheme.Warning;
+                celdaAcceso.ToolTipText =
+                    $"Lleva {u.FailedLoginCount} intento(s) fallido(s). A los {AuthService.MaxFailedAttempts} " +
+                    $"la cuenta se bloquea {AuthService.LockoutMinutes} minutos.";
+            }
         }
     }
 
@@ -126,6 +158,28 @@ public class UserManagementControl : UserControl
         if (ok) LoadData();
     }
 
+    /// <summary>
+    /// Levanta el bloqueo por intentos fallidos. Antes solo caducaba por tiempo, así que el
+    /// administrador no podía hacer nada por alguien que estuviera esperando junto a él.
+    /// </summary>
+    private void BtnUnlock_Click(object? s, EventArgs e)
+    {
+        var u = SelectedUser();
+        if (u == null) { MessageBox.Show("Selecciona un usuario.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+
+        try
+        {
+            var (ok, msg) = _auth.DesbloquearCuenta(u.Id);
+            LoadData();   // el estado cambió (o se descubrió que ya no estaba bloqueado): refrescar
+            MessageBox.Show(msg, ok ? "Listo" : "Sin cambios",
+                MessageBoxButtons.OK, ok ? MessageBoxIcon.Information : MessageBoxIcon.Information);
+        }
+        catch (AuthorizationException ex)
+        {
+            MessageBox.Show(ex.Message, "Sin permiso", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
     private void BtnToggle_Click(object? s, EventArgs e)
     {
         var u = SelectedUser();
@@ -143,7 +197,7 @@ public class UserManagementControl : UserControl
         if (u.Role == UserRole.Admin)
         {
             MessageBox.Show(
-                $"«{u.Username}» es administrador y no se puede eliminar.\n\n" +
+                $"«{u.Username}» es líder y no se puede eliminar.\n\n" +
                 "Si de verdad quieres darlo de baja, cámbiale antes el rol o desactívalo.",
                 "No permitido", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;

@@ -118,6 +118,10 @@ public static class DatabaseMigrator
                 ""ReviewedByUserId""       INTEGER,
                 ""ReviewedAt""             TEXT,
                 ""ReviewComment""          TEXT,
+                ""MinutesSpent""           INTEGER,
+                ""EvidenceUrl""            TEXT,
+                ""ReviewRound""            INTEGER NOT NULL DEFAULT 0,
+                ""ReviewHistory""          TEXT,
                 CONSTRAINT ""FK_PE_Developers""
                     FOREIGN KEY (""DeveloperId"") REFERENCES ""Developers""(""Id"") ON DELETE CASCADE,
                 CONSTRAINT ""FK_PE_ScoringCriteria""
@@ -137,6 +141,12 @@ public static class DatabaseMigrator
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PointEntries"" ADD COLUMN ""ReviewedByUserId"" INTEGER"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PointEntries"" ADD COLUMN ""ReviewedAt"" TEXT"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PointEntries"" ADD COLUMN ""ReviewComment"" TEXT"); } catch { }
+        // Parches idempotentes: evidencia de la actividad (tiempo declarado y enlace al item).
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PointEntries"" ADD COLUMN ""MinutesSpent"" INTEGER"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PointEntries"" ADD COLUMN ""EvidenceUrl"" TEXT"); } catch { }
+        // Réplica del desarrollador a un rechazo.
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PointEntries"" ADD COLUMN ""ReviewRound"" INTEGER NOT NULL DEFAULT 0"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PointEntries"" ADD COLUMN ""ReviewHistory"" TEXT"); } catch { }
 
         // ── Sesiones de trabajo (cronómetro por item) ───────────────
         db.Database.ExecuteSqlRaw(@"
@@ -174,9 +184,28 @@ public static class DatabaseMigrator
                 ""ApprovedBy""   TEXT,
                 ""Notes""        TEXT,
                 ""CreatedAt""    TEXT    NOT NULL,
+                ""Status""                  INTEGER NOT NULL DEFAULT 1,
+                ""RequestedByDeveloperId""  INTEGER,
+                ""ReviewedById""            INTEGER,
+                ""ReviewedAt""              TEXT,
+                ""ReviewComment""           TEXT,
+                ""AttachmentBytes""         BLOB,
+                ""AttachmentFileName""      TEXT,
                 CONSTRAINT ""FK_LR_Dev"" FOREIGN KEY (""DeveloperId"") REFERENCES ""Developers""(""Id"") ON DELETE CASCADE
             );
         ");
+
+        // Flujo de solicitud/aprobación y justificante en permisos (BDs ya existentes).
+        // DEFAULT 1 = Aprobada: lo que hay en el histórico lo capturó el administrador al CONCEDER
+        // el permiso, no es una solicitud esperando respuesta. Dejarlo en Pendiente le llenaría la
+        // bandeja de trámites ya resueltos hace meses.
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""LeaveRequests"" ADD COLUMN ""Status"" INTEGER NOT NULL DEFAULT 1"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""LeaveRequests"" ADD COLUMN ""RequestedByDeveloperId"" INTEGER"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""LeaveRequests"" ADD COLUMN ""ReviewedById"" INTEGER"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""LeaveRequests"" ADD COLUMN ""ReviewedAt"" TEXT"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""LeaveRequests"" ADD COLUMN ""ReviewComment"" TEXT"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""LeaveRequests"" ADD COLUMN ""AttachmentBytes"" BLOB"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""LeaveRequests"" ADD COLUMN ""AttachmentFileName"" TEXT"); } catch { }
 
         // ── Infraestructura Azure ─────────────────────────────────
         db.Database.ExecuteSqlRaw(@"
@@ -378,6 +407,12 @@ public static class DatabaseMigrator
         // Parches idempotentes sobre tablas ya existentes
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DevOpsTickets"" ADD COLUMN ""CommentCount"" INTEGER NOT NULL DEFAULT 0"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DevOpsTickets"" ADD COLUMN ""AssignedToUniqueName"" TEXT"); } catch { }
+        // Prioridad definida por el líder y estimación del desarrollador.
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DevOpsTickets"" ADD COLUMN ""PriorityConfirmedAt"" TEXT"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DevOpsTickets"" ADD COLUMN ""PriorityConfirmedByUserId"" INTEGER"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DevOpsTickets"" ADD COLUMN ""EstimatedHours"" REAL"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DevOpsTickets"" ADD COLUMN ""EstimatedAt"" TEXT"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DevOpsTickets"" ADD COLUMN ""EstimatedByDeveloperId"" INTEGER"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""AppSystems"" ADD COLUMN ""DefaultBlobFolder"" TEXT"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DeploymentProfiles"" ADD COLUMN ""IsAdHoc"" INTEGER NOT NULL DEFAULT 0"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DeploymentTargets"" ADD COLUMN ""LastDeployedById"" INTEGER"); } catch { }
@@ -565,6 +600,23 @@ public static class DatabaseMigrator
                 CONSTRAINT ""FK_Act_Dev"" FOREIGN KEY (""DeveloperId"") REFERENCES ""Developers""(""Id"") ON DELETE CASCADE
             );
         ");
+
+        // Evidencia adjunta a las actividades libres (capturas, documentos).
+        db.Database.ExecuteSqlRaw(@"
+            CREATE TABLE IF NOT EXISTS ""DevActivityAttachments"" (
+                ""Id""               INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                ""ActivityId""       INTEGER NOT NULL,
+                ""FileName""         TEXT    NOT NULL,
+                ""ContentType""      TEXT    NOT NULL DEFAULT 'application/octet-stream',
+                ""Bytes""            BLOB    NOT NULL,
+                ""SizeBytes""        INTEGER NOT NULL DEFAULT 0,
+                ""Description""      TEXT,
+                ""UploadedByUserId"" INTEGER NOT NULL DEFAULT 0,
+                ""CreatedAtUtc""     TEXT    NOT NULL,
+                CONSTRAINT ""FK_ActAdj_Act"" FOREIGN KEY (""ActivityId"") REFERENCES ""DevActivities""(""Id"") ON DELETE CASCADE
+            );
+        ");
+        try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_DevActivityAttachments_ActivityId"" ON ""DevActivityAttachments""(""ActivityId"")"); } catch { }
 
         // Carpeta de destino de la versión en Blob Storage (QA, Productivo, un cliente…).
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""AppReleases"" ADD COLUMN ""TargetFolder"" TEXT"); } catch { }
@@ -1037,9 +1089,29 @@ CREATE INDEX [{indice}] ON [{tabla}]({columnas});");
         Exec("IF COL_LENGTH('PointEntries','ReviewComment') IS NULL ALTER TABLE [PointEntries] ADD [ReviewComment] nvarchar(max) NULL;");
         ExecIndex("PointEntries", "IX_PointEntries_ApprovalStatus", "ApprovalStatus", "[ApprovalStatus]");
 
+        // Evidencia de la actividad: tiempo declarado y enlace al item de DevOps (PR/ticket).
+        Exec("IF COL_LENGTH('PointEntries','MinutesSpent') IS NULL ALTER TABLE [PointEntries] ADD [MinutesSpent] int NULL;");
+        Exec("IF COL_LENGTH('PointEntries','EvidenceUrl') IS NULL ALTER TABLE [PointEntries] ADD [EvidenceUrl] nvarchar(500) NULL;");
+
+        // Réplica del desarrollador a un rechazo.
+        Exec("IF COL_LENGTH('PointEntries','ReviewRound') IS NULL ALTER TABLE [PointEntries] ADD [ReviewRound] int NOT NULL DEFAULT 0;");
+        Exec("IF COL_LENGTH('PointEntries','ReviewHistory') IS NULL ALTER TABLE [PointEntries] ADD [ReviewHistory] nvarchar(max) NULL;");
+
         // Adjunto de respaldo en solicitudes de vacaciones.
         Exec("IF COL_LENGTH('VacationRequests','AttachmentBytes') IS NULL ALTER TABLE [VacationRequests] ADD [AttachmentBytes] varbinary(max) NULL;");
         Exec("IF COL_LENGTH('VacationRequests','AttachmentFileName') IS NULL ALTER TABLE [VacationRequests] ADD [AttachmentFileName] nvarchar(260) NULL;");
+
+        // Permisos: flujo de solicitud/aprobación y justificante adjunto.
+        // DEFAULT 1 = Aprobada, por lo mismo que en la rama SQLite: el histórico son permisos ya
+        // concedidos por el administrador, no solicitudes pendientes de responder.
+        Exec("IF COL_LENGTH('LeaveRequests','Status') IS NULL ALTER TABLE [LeaveRequests] ADD [Status] int NOT NULL DEFAULT 1;");
+        Exec("IF COL_LENGTH('LeaveRequests','RequestedByDeveloperId') IS NULL ALTER TABLE [LeaveRequests] ADD [RequestedByDeveloperId] int NULL;");
+        Exec("IF COL_LENGTH('LeaveRequests','ReviewedById') IS NULL ALTER TABLE [LeaveRequests] ADD [ReviewedById] int NULL;");
+        Exec("IF COL_LENGTH('LeaveRequests','ReviewedAt') IS NULL ALTER TABLE [LeaveRequests] ADD [ReviewedAt] datetime2 NULL;");
+        Exec("IF COL_LENGTH('LeaveRequests','ReviewComment') IS NULL ALTER TABLE [LeaveRequests] ADD [ReviewComment] nvarchar(max) NULL;");
+        Exec("IF COL_LENGTH('LeaveRequests','AttachmentBytes') IS NULL ALTER TABLE [LeaveRequests] ADD [AttachmentBytes] varbinary(max) NULL;");
+        Exec("IF COL_LENGTH('LeaveRequests','AttachmentFileName') IS NULL ALTER TABLE [LeaveRequests] ADD [AttachmentFileName] nvarchar(260) NULL;");
+        ExecIndex("LeaveRequests", "IX_LeaveRequests_Status", "Status", "[Status]");
 
         // Tabla WorkSessions (FK a Developers sin cascada para evitar rutas múltiples de cascada).
         Exec(@"
@@ -1075,6 +1147,24 @@ CREATE TABLE [DevActivities] (
     CONSTRAINT [FK_Act_Dev] FOREIGN KEY ([DeveloperId]) REFERENCES [Developers]([Id]) ON DELETE CASCADE
 );");
         ExecIndex("DevActivities", "IX_DevActivities_DeveloperId_Status", "DeveloperId", "[DeveloperId],[Status]");
+
+        // Evidencia adjunta a las actividades libres.
+        Exec(@"
+IF OBJECT_ID(N'[DevActivityAttachments]', N'U') IS NULL
+   AND OBJECT_ID(N'[DevActivities]', N'U') IS NOT NULL
+CREATE TABLE [DevActivityAttachments] (
+    [Id] int IDENTITY(1,1) NOT NULL CONSTRAINT [PK_DevActivityAttachments] PRIMARY KEY,
+    [ActivityId] int NOT NULL,
+    [FileName] nvarchar(260) NOT NULL,
+    [ContentType] nvarchar(100) NOT NULL DEFAULT 'application/octet-stream',
+    [Bytes] varbinary(max) NOT NULL,
+    [SizeBytes] bigint NOT NULL DEFAULT 0,
+    [Description] nvarchar(400) NULL,
+    [UploadedByUserId] int NOT NULL DEFAULT 0,
+    [CreatedAtUtc] datetime2 NOT NULL,
+    CONSTRAINT [FK_ActAdj_Act] FOREIGN KEY ([ActivityId]) REFERENCES [DevActivities]([Id]) ON DELETE CASCADE
+);");
+        ExecIndex("DevActivityAttachments", "IX_DevActivityAttachments_ActivityId", "ActivityId", "[ActivityId]");
 
         // RequirementId deja de ser obligatorio (una sesión puede cronometrar una actividad libre).
         // SQL Server no permite alterar la columna mientras la referencian un índice y una FK:
@@ -1160,6 +1250,13 @@ CREATE TABLE [SlaCommitments] (
         Exec("IF COL_LENGTH('Developers','EquipmentSerial') IS NULL ALTER TABLE [Developers] ADD [EquipmentSerial] nvarchar(100) NULL;");
         Exec("IF COL_LENGTH('Requirements','DevOpsReportedSeconds') IS NULL ALTER TABLE [Requirements] ADD [DevOpsReportedSeconds] int NOT NULL DEFAULT 0;");
         Exec("IF COL_LENGTH('DevOpsTickets','AssignedToUniqueName') IS NULL ALTER TABLE [DevOpsTickets] ADD [AssignedToUniqueName] nvarchar(256) NULL;");
+
+        // Prioridad definida por el líder y estimación del desarrollador.
+        Exec("IF COL_LENGTH('DevOpsTickets','PriorityConfirmedAt') IS NULL ALTER TABLE [DevOpsTickets] ADD [PriorityConfirmedAt] datetime2 NULL;");
+        Exec("IF COL_LENGTH('DevOpsTickets','PriorityConfirmedByUserId') IS NULL ALTER TABLE [DevOpsTickets] ADD [PriorityConfirmedByUserId] int NULL;");
+        Exec("IF COL_LENGTH('DevOpsTickets','EstimatedHours') IS NULL ALTER TABLE [DevOpsTickets] ADD [EstimatedHours] float NULL;");
+        Exec("IF COL_LENGTH('DevOpsTickets','EstimatedAt') IS NULL ALTER TABLE [DevOpsTickets] ADD [EstimatedAt] datetime2 NULL;");
+        Exec("IF COL_LENGTH('DevOpsTickets','EstimatedByDeveloperId') IS NULL ALTER TABLE [DevOpsTickets] ADD [EstimatedByDeveloperId] int NULL;");
         Exec("IF COL_LENGTH('AppSystems','DefaultBlobFolder') IS NULL ALTER TABLE [AppSystems] ADD [DefaultBlobFolder] nvarchar(200) NULL;");
         Exec("IF COL_LENGTH('DeploymentProfiles','IsAdHoc') IS NULL ALTER TABLE [DeploymentProfiles] ADD [IsAdHoc] bit NOT NULL DEFAULT 0;");
         // Quién dejó la versión que hoy tiene cada servidor, y de qué despliegue salió. Sin FK, igual

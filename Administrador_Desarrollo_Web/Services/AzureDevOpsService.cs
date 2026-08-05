@@ -1,4 +1,4 @@
-using System.Net.Http.Headers;
+﻿using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using Administrador_Desarrollo_Web.Data;
@@ -155,7 +155,9 @@ public class AzureDevOpsService
             "System.Description", "System.AssignedTo", "System.AreaPath",
             "System.IterationPath", "System.Tags", "System.CreatedDate",
             "System.ChangedDate", "Microsoft.VSTS.Common.Priority",
-            "Microsoft.VSTS.Scheduling.StoryPoints", "System.CommentCount"
+            "Microsoft.VSTS.Scheduling.StoryPoints", "System.CommentCount",
+            // La estimación puede venir puesta desde DevOps: si ya está, no hay que volver a pedirla.
+            F_EFFORT
         });
 
         int added = 0, updated = 0;
@@ -200,7 +202,8 @@ public class AzureDevOpsService
                         UpdatedAtExternal = GetDate(f, "System.ChangedDate"),
                         SyncedAt          = now,
                         Url               = url,
-                        CommentCount      = commentCount
+                        CommentCount      = commentCount,
+                        EstimatedHours    = GetDouble(f, F_EFFORT)
                     });
                     added++;
                 }
@@ -221,6 +224,9 @@ public class AzureDevOpsService
                     existing.SyncedAt          = now;
                     existing.Url               = url;
                     existing.CommentCount      = commentCount;
+                    // DevOps manda cuando trae valor; si allá está vacío se conserva lo capturado
+                    // aquí, que puede ser de hace un momento y aún no haberse escrito allá.
+                    existing.EstimatedHours    = GetDouble(f, F_EFFORT) ?? existing.EstimatedHours;
                     updated++;
                 }
             }
@@ -685,7 +691,12 @@ public class AzureDevOpsService
     /// requerimiento locales, y ajusta el SLA automático de esa asignación según la nueva prioridad.
     /// Devuelve la prioridad aplicada.
     /// </summary>
-    public async Task<int> ChangePriorityAsync(int externalId, int newPriority, CancellationToken ct = default)
+    /// <param name="definidaPorUserId">
+    /// Quién la está definiendo, para dejar constancia de que alguien la pensó. Opcional para no
+    /// obligar al servicio a conocer la sesión: quien llama ya la tiene a mano.
+    /// </param>
+    public async Task<int> ChangePriorityAsync(int externalId, int newPriority,
+                                               int? definidaPorUserId = null, CancellationToken ct = default)
     {
         if (newPriority is < 1 or > 4)
             throw new ArgumentOutOfRangeException(nameof(newPriority), "La prioridad de DevOps debe estar entre 1 (muy alta) y 4 (baja).");
@@ -710,6 +721,10 @@ public class AzureDevOpsService
         if (ticket != null)
         {
             ticket.Priority = newPriority.ToString();
+            // Queda marcado como DEFINIDA por alguien. El campo Priority por sí solo no sirve para
+            // saberlo: DevOps le pone 2 por omisión a todo lo que se crea.
+            ticket.PriorityConfirmedAt = DateTime.UtcNow;
+            ticket.PriorityConfirmedByUserId = definidaPorUserId;
 
             // Reflejar la prioridad en el requerimiento local (mapeo inverso: DevOps 1=muy alta ↔ Crítica).
             var extId = externalId.ToString();
@@ -729,6 +744,196 @@ public class AzureDevOpsService
             _db.SaveChanges();
         }
         return newPriority;
+    }
+
+    // ── Ficha del ticket: regresiones y por cuántas manos pasó ───────────────────
+
+    /// <summary>Campo de DevOps donde vive la estimación. Es el que pidió el equipo.</summary>
+    public const string F_EFFORT = "Microsoft.VSTS.Scheduling.Effort";
+
+    /// <summary>
+    /// Trae de DevOps lo que no cabe en los campos del ticket: los <b>bugs colgados como hijos</b>
+    /// (cada uno es una regresión que provocó) y el <b>historial de asignaciones</b> (por cuántas
+    /// manos pasó y cuántas veces volvió).
+    ///
+    /// Son dos llamadas aparte y a propósito no se hacen durante la sincronización: expandir
+    /// relaciones y bajar revisiones de CADA ticket convertiría un sync de doscientos en varios
+    /// cientos de peticiones. Esto se pide cuando alguien abre la ficha de UNO.
+    /// </summary>
+    public async Task<DevOpsFichaTicket> ObtenerFichaAsync(int externalId, CancellationToken ct = default)
+    {
+        var bugs = await ObtenerBugsHijosAsync(externalId, ct);
+        var asignaciones = await ObtenerHistorialAsignacionAsync(externalId, ct);
+        return new DevOpsFichaTicket(externalId, bugs, asignaciones);
+    }
+
+    /// <summary>
+    /// Los bugs que cuelgan como HIJOS del work item. Se pide el ticket con sus relaciones, se
+    /// filtran las de jerarquía hacia abajo y se consultan esos hijos para quedarse solo con los
+    /// de tipo Bug — la relación no dice el tipo, así que no hay forma de saberlo sin traerlos.
+    /// </summary>
+    public async Task<List<DevOpsBugHijo>> ObtenerBugsHijosAsync(int externalId, CancellationToken ct = default)
+    {
+        var (orgUrl, project, pat) = GetConfig();
+        using var client = BuildClient(pat);
+
+        var resp = await client.GetAsync(
+            $"{orgUrl}/_apis/wit/workitems/{externalId}?$expand=relations&api-version=7.0", ct);
+        if (!resp.IsSuccessStatusCode) return [];
+
+        var hijos = new List<int>();
+        using (var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct)))
+        {
+            if (!doc.RootElement.TryGetProperty("relations", out var rels) || rels.ValueKind != JsonValueKind.Array)
+                return [];
+
+            foreach (var r in rels.EnumerateArray())
+            {
+                // Hierarchy-Forward es «hijo»; Hierarchy-Reverse sería el padre.
+                if (GetStringOrNull(r, "rel") != "System.LinkTypes.Hierarchy-Forward") continue;
+                var url = GetStringOrNull(r, "url");
+                if (url == null) continue;
+
+                var ultimo = url[(url.LastIndexOf('/') + 1)..];
+                if (int.TryParse(ultimo, out int hijoId)) hijos.Add(hijoId);
+            }
+        }
+        if (hijos.Count == 0) return [];
+
+        var resultado = new List<DevOpsBugHijo>();
+        const string campos = "System.Id,System.Title,System.WorkItemType,System.State";
+        foreach (var lote in Batch(hijos, 200))
+        {
+            ct.ThrowIfCancellationRequested();
+            var r2 = await client.GetAsync(
+                $"{orgUrl}/_apis/wit/workitems?ids={string.Join(",", lote)}&fields={campos}&api-version=7.0", ct);
+            if (!r2.IsSuccessStatusCode) continue;
+
+            using var doc2 = JsonDocument.Parse(await r2.Content.ReadAsStringAsync(ct));
+            foreach (var item in doc2.RootElement.GetProperty("value").EnumerateArray())
+            {
+                var f = item.GetProperty("fields");
+                if (!GetString(f, "System.WorkItemType").Equals("Bug", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                int id = item.GetProperty("id").GetInt32();
+                resultado.Add(new DevOpsBugHijo(
+                    id,
+                    GetString(f, "System.Title"),
+                    GetString(f, "System.State"),
+                    $"{orgUrl}/{Uri.EscapeDataString(project)}/_workitems/edit/{id}"));
+            }
+        }
+        return resultado.OrderBy(b => b.Id).ToList();
+    }
+
+    /// <summary>
+    /// Cada vez que el ticket cambió de dueño, según las revisiones del work item. Solo se miran
+    /// las revisiones que TOCARON System.AssignedTo: DevOps genera una por cada edición, y la
+    /// mayoría no cambian el asignado.
+    /// </summary>
+    public async Task<List<DevOpsCambioAsignacion>> ObtenerHistorialAsignacionAsync(
+        int externalId, CancellationToken ct = default)
+    {
+        var (orgUrl, _, pat) = GetConfig();
+        using var client = BuildClient(pat);
+
+        var resp = await client.GetAsync($"{orgUrl}/_apis/wit/workitems/{externalId}/updates?api-version=7.0", ct);
+        if (!resp.IsSuccessStatusCode) return [];
+
+        var cambios = new List<DevOpsCambioAsignacion>();
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+        if (!doc.RootElement.TryGetProperty("value", out var updates)) return [];
+
+        foreach (var u in updates.EnumerateArray())
+        {
+            if (!u.TryGetProperty("fields", out var fields)) continue;
+            if (!fields.TryGetProperty("System.AssignedTo", out var cambio)) continue;
+
+            var (deNombre, _) = LeerIdentidad(cambio, "oldValue");
+            var (aNombre, aEmail) = LeerIdentidad(cambio, "newValue");
+
+            // Sin fecha no se puede ordenar, y el orden es justo lo que da sentido al conteo.
+            DateTime fecha = default;
+            if (u.TryGetProperty("revisedDate", out var rd) && rd.ValueKind == JsonValueKind.String
+                && DateTime.TryParse(rd.GetString(), out var f1)) fecha = f1;
+            else if (fields.TryGetProperty("System.ChangedDate", out var cd)
+                     && cd.TryGetProperty("newValue", out var cdn) && cdn.ValueKind == JsonValueKind.String
+                     && DateTime.TryParse(cdn.GetString(), out var f2)) fecha = f2;
+
+            cambios.Add(new DevOpsCambioAsignacion(fecha,
+                string.IsNullOrWhiteSpace(deNombre) ? null : deNombre,
+                string.IsNullOrWhiteSpace(aNombre) ? null : aNombre,
+                string.IsNullOrWhiteSpace(aEmail) ? null : aEmail));
+        }
+        return cambios.OrderBy(c => c.Fecha).ToList();
+    }
+
+    /// <summary>Lee oldValue/newValue de un cambio de identidad, que puede venir como objeto o texto.</summary>
+    private static (string nombre, string email) LeerIdentidad(JsonElement cambio, string cual)
+    {
+        if (!cambio.TryGetProperty(cual, out var v)) return ("", "");
+        if (v.ValueKind == JsonValueKind.Object)
+            return (v.TryGetProperty("displayName", out var dn) ? dn.GetString() ?? "" : "",
+                    v.TryGetProperty("uniqueName",  out var un) ? un.GetString() ?? "" : "");
+        if (v.ValueKind == JsonValueKind.String) return (v.GetString() ?? "", "");
+        return ("", "");
+    }
+
+    // ── Estimación del desarrollador → campo Effort de DevOps ────────────────────
+
+    /// <summary>
+    /// Guarda la estimación en horas del ticket, en la base local Y en el campo Effort del work
+    /// item. Escribirlo en DevOps es el punto: si solo viviera aquí, para el resto de la empresa
+    /// el ticket seguiría sin estimar.
+    ///
+    /// Si DevOps rechaza el campo —hay plantillas de proceso donde Effort no existe en ese tipo de
+    /// work item— la estimación se guarda igual en local y se devuelve el aviso, en lugar de
+    /// perder lo que la persona acaba de capturar.
+    /// </summary>
+    public async Task<(bool ok, bool escritoEnDevOps, string mensaje)> EstimarTicketAsync(
+        int externalId, double horas, int? developerId, CancellationToken ct = default)
+    {
+        if (horas <= 0) return (false, false, "La estimación tiene que ser mayor que cero.");
+        if (horas > 1000) return (false, false, "Esa estimación no parece real. Si de verdad son más de 1000 horas, pártelo en varios tickets.");
+
+        horas = Math.Round(horas, 2);
+        bool escrito = false;
+        string aviso = "";
+
+        try
+        {
+            var (orgUrl, project, pat) = GetConfig();
+            using var client = BuildClient(pat);
+
+            var patch = new object[] { new { op = "add", path = $"/fields/{F_EFFORT}", value = horas } };
+            var url = $"{orgUrl}/{Uri.EscapeDataString(project)}/_apis/wit/workitems/{externalId}?api-version=7.0";
+            using var msg = new HttpRequestMessage(new HttpMethod("PATCH"), url)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(patch), Encoding.UTF8, "application/json-patch+json")
+            };
+            var resp = await client.SendAsync(msg, ct);
+            if (resp.IsSuccessStatusCode) escrito = true;
+            else aviso = $"DevOps no aceptó el campo Effort ({(int)resp.StatusCode}): " +
+                         Recortar(await resp.Content.ReadAsStringAsync(ct));
+        }
+        catch (Exception ex)
+        {
+            aviso = $"No se pudo escribir en DevOps: {ex.Message}";
+        }
+
+        var ticket = _db.DevOpsTickets.FirstOrDefault(t => t.ExternalId == externalId);
+        if (ticket != null)
+        {
+            ticket.EstimatedHours = horas;
+            ticket.EstimatedAt = DateTime.UtcNow;
+            ticket.EstimatedByDeveloperId = developerId;
+            _db.SaveChanges();
+        }
+
+        return (true, escrito, escrito
+            ? $"Estimado en {horas:0.##} h y guardado en el campo Effort del ticket."
+            : $"Estimado en {horas:0.##} h, pero solo quedó guardado aquí. {aviso}");
     }
 
     // ── Reporte de tiempo cronometrado → DevOps ──────────────────────────────────
@@ -966,7 +1171,7 @@ public class AzureDevOpsService
 
         if (string.IsNullOrEmpty(orgUrl) || string.IsNullOrEmpty(project))
             throw new InvalidOperationException(
-                "Falta la URL de organización o el proyecto de Azure DevOps. Pídelo al administrador.");
+                "Falta la URL de organización o el proyecto de Azure DevOps. Pídelo al líder.");
 
         if (string.IsNullOrEmpty(pat))
             throw new InvalidOperationException(
@@ -1009,7 +1214,7 @@ public class AzureDevOpsService
 
             if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
                 return (false, $"La organización responde, pero no se encontró el proyecto «{project}» " +
-                               "(o tu PAT no tiene acceso a él). Revísalo con el administrador.");
+                               "(o tu PAT no tiene acceso a él). Revísalo con el líder.");
 
             if (!resp.IsSuccessStatusCode)
                 return (false, $"DevOps respondió {(int)resp.StatusCode} {resp.ReasonPhrase}. Revisa el PAT y sus permisos.");

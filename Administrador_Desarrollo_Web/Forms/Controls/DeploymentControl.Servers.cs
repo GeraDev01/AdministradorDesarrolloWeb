@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Administrador_Desarrollo_Web.Models;
 using Administrador_Desarrollo_Web.Services;
 using Administrador_Desarrollo_Web.Forms.Details;
@@ -54,7 +54,7 @@ public partial class DeploymentControl
             var nota = new Label
             {
                 Dock = DockStyle.Top, Height = 20, AutoSize = false, AutoEllipsis = true,
-                Text = "Puedes dar de alta servidores. Para corregir o dar de baja uno existente, pídeselo a un administrador.",
+                Text = "Puedes dar de alta servidores. Para corregir o dar de baja uno existente, pídeselo a un líder.",
                 Font = AppTheme.SmallFont, ForeColor = AppTheme.TextSecondary,
                 TextAlign = ContentAlignment.MiddleLeft
             };

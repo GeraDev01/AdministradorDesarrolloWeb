@@ -93,6 +93,21 @@ public class LoginForm : Form
             Font = AppTheme.SmallFont, ForeColor = Color.FromArgb(148, 163, 184)
         });
 
+        // La versión, discreta pero antes de entrar: es lo primero que hay que preguntar cuando
+        // alguien reporta algo raro, y aquí se lee sin tener que iniciar sesión ni buscar en menús.
+        // Deliberadamente NO consulta cuál es la última publicada: eso vive en la base, y el login
+        // tiene que dibujarse aunque la conexión esté caída.
+        var lblVersion = new Label
+        {
+            Text = $"v{AppVersion.Texto}",
+            Location = new Point(0, 78), AutoSize = true,
+            Font = AppTheme.SmallFont, ForeColor = Color.FromArgb(100, 116, 139)
+        };
+        pnlTitles.Controls.Add(lblVersion);
+        _tip.SetToolTip(lblVersion,
+            $"Versión instalada: {AppVersion.Actual}\n\n" +
+            "Si hay una más nueva, la aplicación te avisa al entrar.");
+
         bannerTbl.Controls.Add(lblIcon, 0, 0);
         bannerTbl.Controls.Add(pnlTitles, 1, 0);
         pnlBanner.Controls.Add(bannerTbl);

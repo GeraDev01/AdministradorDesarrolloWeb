@@ -295,6 +295,16 @@ public class ForumThreadForm : ResponsiveForm
             }
         }
 
+        // Fuera del bloque anterior a propósito: una publicación YA RETIRADA es justo la que el
+        // administrador puede querer borrar del todo, y para ella no se pinta ninguna otra acción.
+        if (_currentUser.IsAdmin && p.EsPublicacion)
+        {
+            var eliminar = AppTheme.MakeDangerButton("🗑 Eliminar publicación", 185, 26);
+            eliminar.Margin = new Padding(0, 0, 6, 0);
+            eliminar.Click += (_, _) => EliminarPublicacion(p);
+            acciones.Controls.Add(eliminar);
+        }
+
         caja.Controls.Add(acciones);
         caja.Height = acciones.Bottom + 12;
         return caja;
@@ -495,5 +505,43 @@ public class ForumThreadForm : ResponsiveForm
         var (ok, mensaje) = _forum.Retirar(p.Id);
         if (!ok) MessageBox.Show(mensaje, "No se pudo", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         Recargar();
+    }
+
+    /// <summary>
+    /// Borrado real de la publicación completa (solo administrador). Se avisa exactamente de cuánto
+    /// se va a llevar por delante: quien pulsa esto no siempre sabe cuántos comentarios cuelgan más
+    /// abajo del hilo, y a diferencia de «Retirar» aquí no queda nada que recuperar.
+    /// </summary>
+    private void EliminarPublicacion(ForumPost p)
+    {
+        // Se cuenta sobre lo que está pintado; el servicio vuelve a resolverlo contra la base.
+        int comentarios = Math.Max(0, _forum.Hilo(_rootId).Count - 1);
+        int imagenes = _imagenes.Values.Sum(v => v.Count);
+
+        var detalle = comentarios == 0 ? "No tiene comentarios." : $"Se irán también sus {comentarios} comentario(s).";
+        if (imagenes > 0) detalle += $"\nSe borrarán {imagenes} imagen(es).";
+
+        if (MessageBox.Show(
+                $"¿Eliminar por completo la publicación «{p.Title}»?\n\n{detalle}\n\n" +
+                "Esto NO es «Retirar»: no queda hueco ni aviso en el muro, el contenido se borra de " +
+                "la base de datos y no se puede deshacer.\n\n" +
+                "En la bitácora quedará constancia de que la eliminaste, con título y autor.",
+                "Eliminar publicación completa", MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
+                MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+
+        try
+        {
+            var (ok, mensaje) = _forum.EliminarPublicacion(p.Id);
+            if (!ok) { MessageBox.Show(mensaje, "No se pudo", MessageBoxButtons.OK, MessageBoxIcon.Warning); Recargar(); return; }
+
+            MessageBox.Show(mensaje, "Eliminada", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            // El hilo que esta ventana muestra ya no existe: recargar solo daría una pantalla vacía.
+            DialogResult = DialogResult.OK;
+            Close();
+        }
+        catch (AuthorizationException ex)
+        {
+            MessageBox.Show(ex.Message, "Sin permiso", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
     }
 }

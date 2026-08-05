@@ -1,4 +1,4 @@
-using Administrador_Desarrollo_Web.Services;
+﻿using Administrador_Desarrollo_Web.Services;
 
 namespace Administrador_Desarrollo_Web.Forms.Details;
 
@@ -112,7 +112,7 @@ public class UpdateNoticeForm : ResponsiveForm
         {
             botones.Controls.Add(new Label
             {
-                Text = "Pídele el instalador al administrador.", AutoSize = true,
+                Text = "Pídele el instalador al líder.", AutoSize = true,
                 ForeColor = AppTheme.TextSecondary, Font = AppTheme.SmallFont, Margin = new Padding(0, 12, 8, 0)
             });
         }

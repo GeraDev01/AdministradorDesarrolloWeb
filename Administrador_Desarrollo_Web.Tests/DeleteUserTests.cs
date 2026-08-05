@@ -1,4 +1,4 @@
-using Administrador_Desarrollo_Web.Data;
+﻿using Administrador_Desarrollo_Web.Data;
 using Administrador_Desarrollo_Web.Models;
 using Administrador_Desarrollo_Web.Security;
 using Administrador_Desarrollo_Web.Services;
@@ -78,7 +78,7 @@ public class DeleteUserTests
         var (ok, mensaje) = e.Auth.DeleteUser(otroAdmin.Id);
 
         Assert.False(ok);
-        Assert.Contains("administrador", mensaje, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("líder", mensaje, StringComparison.OrdinalIgnoreCase);
         Assert.NotNull(e.Db.Users.Find(otroAdmin.Id));
     }
 

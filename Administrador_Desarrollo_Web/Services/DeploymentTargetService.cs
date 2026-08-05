@@ -1,4 +1,4 @@
-using Administrador_Desarrollo_Web.Data;
+﻿using Administrador_Desarrollo_Web.Data;
 using Administrador_Desarrollo_Web.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -94,9 +94,9 @@ public class DeploymentTargetService
         if (!PuedeEditar(_currentUser))
         {
             _audit.RecordDenied(AuditAction.Update, "DeploymentTarget", servidor.Id.ToString(),
-                $"Intento de editar el servidor «{servidor.Nombre}» sin ser administrador.");
+                $"Intento de editar el servidor «{servidor.Nombre}» sin ser líder.");
             throw new AuthorizationException(
-                "Solo un administrador puede modificar un servidor existente. " +
+                "Solo un líder puede modificar un servidor existente. " +
                 "Si hay un dato mal capturado, pídele que lo corrija.");
         }
 
@@ -119,8 +119,8 @@ public class DeploymentTargetService
         if (!PuedeEliminar(_currentUser))
         {
             _audit.RecordDenied(AuditAction.Delete, "DeploymentTarget", targetId.ToString(),
-                "Intento de dar de baja un servidor sin ser administrador.");
-            throw new AuthorizationException("Solo un administrador puede dar de baja un servidor.");
+                "Intento de dar de baja un servidor sin ser líder.");
+            throw new AuthorizationException("Solo un líder puede dar de baja un servidor.");
         }
 
         var t = Rastreado(targetId);
@@ -141,7 +141,7 @@ public class DeploymentTargetService
     public (bool ok, string mensaje) Reactivar(int targetId)
     {
         if (!PuedeEditar(_currentUser))
-            throw new AuthorizationException("Solo un administrador puede reactivar un servidor.");
+            throw new AuthorizationException("Solo un líder puede reactivar un servidor.");
 
         var t = Rastreado(targetId);
         if (t == null) return (false, "El servidor ya no existe.");
