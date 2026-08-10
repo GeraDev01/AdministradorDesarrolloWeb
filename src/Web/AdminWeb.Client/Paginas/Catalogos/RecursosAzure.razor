@@ -61,9 +61,9 @@
     </RadzenCard>
 
     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
-        <RadzenButton Text="➕ Nuevo" Disabled="@_ocupado" Click="@AbrirNuevo" />
-        <RadzenButton Text="✏ Editar" ButtonStyle="ButtonStyle.Light" Disabled="@(_ocupado || _elegido is null)"
-                      Click="@AbrirEdicion" />
+        <RadzenButton Text="Nuevo" Icon="add" Disabled="@_ocupado" Click="@AbrirNuevo" />
+        <RadzenButton Text="Editar" Icon="edit" ButtonStyle="ButtonStyle.Light"
+                      Disabled="@(_ocupado || _elegido is null)" Click="@AbrirEdicion" />
     </RadzenStack>
 
     @if (_capturando)
@@ -129,8 +129,8 @@
                                 Placeholder="Notas (opcional)" />
 
                 <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
-                    <RadzenButton Text="Guardar" Disabled="@_ocupado" Click="@Guardar" />
-                    <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+                    <RadzenButton Text="Guardar" Icon="save" Disabled="@_ocupado" Click="@Guardar" />
+                    <RadzenButton Text="Cancelar" Icon="close" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
                                   Click="@(() => _capturando = false)" />
                 </RadzenStack>
             </RadzenStack>
@@ -158,12 +158,57 @@
                     }
                 </Template>
             </RadzenDataGridColumn>
+            @* El TIPO se queda con la palabra sola, y es una decisión. Sus once etiquetas no forman
+               ninguna escala —un Key Vault no está peor que un Storage Account—, así que un punto de
+               color aquí no diría nada y encima competiría con los dos que sí dicen algo. El 🔴 que
+               llevaba «Redis Cache» era su LOGOTIPO, no una alarma, y estaba justo dos columnas al
+               lado del 🔴 de «Producción», que sí lo era: quitar los dos deshace esa confusión, y
+               reponer uno solo la traería de vuelta. *@
             <RadzenDataGridColumn TItem="RecursoAzureDto" Property="TipoTexto" Title="Tipo" Width="170px"
                                   Visible="@Ver("Tipo")" />
             <RadzenDataGridColumn TItem="RecursoAzureDto" Property="EstadoTexto" Title="Estado" Width="130px"
-                                  Visible="@Ver("Estado")" />
+                                  Visible="@Ver("Estado")">
+                @* Aquí lo que se separa es lo VIVO de lo muerto: «En uso» y «Sin usar» son las dos que
+                   de verdad se contrastan cuando se revisa el gasto, y con los símbolos fuera (✅⬜🧪🗃)
+                   pesaban igual que el resto. A diferencia de Programas, esta rejilla no tiene ningún
+                   color de FILA que ya lo diga, así que si no va aquí no va en ningún sitio.
+
+                   Sí, son dos columnas con punto en la misma tabla, y es a propósito: hablan de cosas
+                   distintas y ninguna sustituye a la otra —un recurso archivado de producción y uno en
+                   uso de desarrollo no se parecen en nada—. Si algún día se decide que es ruido, la
+                   que NO puede faltar es Ambiente. *@
+                <Template Context="r">
+                    <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
+                        <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@ColorDeEstado(r.Estado)"></span>
+                        @r.EstadoTexto
+                    </span>
+                </Template>
+            </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="RecursoAzureDto" Property="AmbienteTexto" Title="Ambiente" Width="140px"
-                                  Visible="@Ver("Ambiente")" />
+                                  Visible="@Ver("Ambiente")">
+                @* El punto de color reemplaza al 🔴 de «Producción», y no era decoración: en un
+                   inventario largo era lo que decía de un vistazo qué recursos NO se tocan. Los cuatro
+                   valores son una escala de riesgo real (Producción > Staging > Compartido >
+                   Desarrollo) y el color la comunica mejor que la palabra.
+
+                   Es el marcado de Componentes/BotonDeEstado.razor, copiado tal cual: lo pinta una
+                   variable del tema —el emoji lo dibujaba el sistema operativo y en modo oscuro seguía
+                   con sus colores de siempre—, el borde lo deja visible aunque un día falte la
+                   variable, y el nombre del ambiente va SIEMPRE al lado, que es lo que salva a quien
+                   no separa el rojo del verde.
+
+                   El color sale del ENUM que ya trae el DTO, no de comparar el texto: comparar la
+                   palabra es lo que deja de funcionar, en silencio, en cuanto alguien cambia una
+                   etiqueta. Y los DESPLEGABLES de filtro de arriba se quedan solo con la palabra
+                   porque su TextProperty es una cadena y no admite marcado; el punto hace falta en la
+                   rejilla, que es lo que se recorre. *@
+                <Template Context="r">
+                    <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
+                        <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@ColorDeAmbiente(r.Ambiente)"></span>
+                        @r.AmbienteTexto
+                    </span>
+                </Template>
+            </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="RecursoAzureDto" Property="GrupoDeRecursos" Title="Resource Group" Width="180px"
                                   Visible="@Ver("Resource Group")">
                 <Template Context="r">@(r.GrupoDeRecursos ?? "—")</Template>
@@ -253,6 +298,44 @@
     private decimal _costoTotal;
 
     private bool Ver(string columna) => !_ocultas.Contains(columna);
+
+    // ── Los colores de los dos puntos de la rejilla ──────────────────────────────
+    //
+    // ATENCIÓN: los dos métodos de abajo DEVUELVEN CSS, NO COLORES. Devuelven la cadena «var(--…)»
+    // literal, que solo significa algo dentro de un atributo style de esta página: quien la resuelve
+    // es el NAVEGADOR, no .NET. Es lo que permite que el mismo recurso se lea bien en tema claro y en
+    // oscuro sin que esta pantalla sepa cuál está puesto. Un hex escrito a mano se vería bien en un
+    // modo e ilegible en el otro, y nadie se enteraría hasta cambiar de modo.
+    //
+    // Viven AQUÍ y no en EtiquetasDeCatalogo porque no los usa nadie más: esta es la única pantalla
+    // que pinta recursos de Azure, y aquel archivo es compartido con el servidor, donde var() no
+    // resuelve. Si mañana hace falta el mismo color en otro sitio, entonces sí conviene subirlos —con
+    // esta misma advertencia pegada.
+
+    /// <summary>
+    /// Color del estado del recurso. Es una escala de ESTADO, no de alarma: «Sin usar» no es un
+    /// error, es un recurso que se está pagando sin que nadie lo use —que es justo lo que hay que
+    /// mirar— y por eso va al ámbar y no al rojo. El rojo aquí está reservado a producción.
+    /// </summary>
+    private static string ColorDeEstado(AzureResourceStatus s) => s switch
+    {
+        AzureResourceStatus.EnUso    => "var(--rz-success)",
+        AzureResourceStatus.EnPrueba => "var(--rz-info)",
+        AzureResourceStatus.NoUsado  => "var(--rz-warning)",
+        _                            => "var(--rz-text-secondary-color)"   // Archivado
+    };
+
+    /// <summary>
+    /// Color del ambiente. Éste SÍ es el semáforo, y es la escala de riesgo de tocar el recurso:
+    /// producción reclama, staging avisa, compartido informa y desarrollo es donde no pasa nada.
+    /// </summary>
+    private static string ColorDeAmbiente(AzureEnvironment a) => a switch
+    {
+        AzureEnvironment.Produccion => "var(--rz-danger)",
+        AzureEnvironment.Staging    => "var(--rz-warning)",
+        AzureEnvironment.Compartido => "var(--rz-info)",
+        _                           => "var(--rz-success)"                 // Desarrollo
+    };
 
     protected override Task OnInitializedAsync() => Buscar();
 

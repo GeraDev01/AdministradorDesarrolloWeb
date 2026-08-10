@@ -59,9 +59,16 @@
                                     Change="@((bool ver) => VerCerrados(ver))" />
                     <RadzenLabel Text="Ver también los cerrados" Component="cerrados" />
 
+                    @* El triángulo va como glifo de la fuente y no como el carácter ⚠: éste lo dibuja
+                       el sistema operativo, se ve distinto en cada equipo y no hereda el color, así
+                       que el aviso rojo salía de su propio color en la mitad de las máquinas. *@
                     <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0"
                                 Style="@($"margin-left:auto;font-weight:600;color:{(d.Urgentes > 0 ? "var(--rz-danger)" : "var(--rz-text-secondary-color)")}")">
-                        @(d.Urgentes > 0 ? $"⚠ {d.Mensaje}" : d.Mensaje)
+                        @if (d.Urgentes > 0)
+                        {
+                            <RadzenIcon Icon="warning" />
+                        }
+                        @d.Mensaje
                     </RadzenText>
                 </RadzenStack>
             </RadzenCard>
@@ -70,8 +77,12 @@
             {
                 <RadzenCard>
                     <RadzenStack Gap="0.75rem">
+                        @* «forum» es el glifo que AzureDevOps.razor usa ya para el botón de comentarios
+                           de un ticket, y esta tarjeta hace exactamente eso: publicar un comentario en
+                           el ticket. Va como <RadzenIcon> porque el contenedor es un RadzenText, que
+                           no tiene parámetro Icon. *@
                         <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
-                            💬 Registrar avance en el ticket #@avance.TicketExternalId
+                            <RadzenIcon Icon="forum" /> Registrar avance en el ticket #@avance.TicketExternalId
                         </RadzenText>
                         <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                             @avance.Objetivo — se publica con TU token, así que en DevOps queda a tu
@@ -108,7 +119,9 @@
                                 {
                                     @* target/rel explícitos: el enlace lo capturó el líder y abre un
                                        sitio externo; sin noopener la pestaña nueva puede manipular esta. *@
-                                    <a href="@s.TicketUrl" target="_blank" rel="noopener">#@t 🔗</a>
+                                    <a href="@s.TicketUrl" target="_blank" rel="noopener">
+                                        #@t <RadzenIcon Icon="open_in_new" />
+                                    </a>
                                 }
                                 else
                                 {
@@ -153,12 +166,19 @@
                                    ofrece en vez de ofrecerlo y rechazarlo al pulsarlo. *@
                                 @if (s.TicketExternalId is not null)
                                 {
-                                    <RadzenButton Text="💬 Registrar avance"
+                                    @* «add» porque este botón NO publica nada: abre el formulario en
+                                       blanco donde se escribe el avance. El que publica de verdad
+                                       está dentro del panel. *@
+                                    <RadzenButton Text="Registrar avance" Icon="add"
                                                   Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                   title="Comenta el ticket en Azure DevOps. Solo si el comentario queda allá cuenta como avance."
                                                   Click="@(() => AbrirAvance(s))" />
                                 }
-                                <RadzenButton Text="⏰ Posponer" ButtonStyle="ButtonStyle.Light"
+                                @* «alarm»: posponer es mover el despertador, y es el mismo glifo con
+                                   el que la aplicación dice «programar para más tarde» en cualquier
+                                   otro sitio. No es un cronómetro (ése es el SLA en sí) ni un reloj
+                                   de pared (ése es el marcaje de jornada). *@
+                                <RadzenButton Text="Posponer" Icon="alarm" ButtonStyle="ButtonStyle.Light"
                                               Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                               title="Aplaza el recordatorio 4 horas. No mueve la fecha límite."
                                               Click="@(() => Posponer(s))" />
@@ -305,25 +325,35 @@
         return falta.TotalHours >= 1 ? $"{(int)falta.TotalHours}h {falta.Minutes}m" : $"{falta.Minutes}m";
     }
 
+    /// <summary>
+    /// El fondo de la fila que reclama. Las variantes «-lighter» del tema están declaradas en rgba,
+    /// así que el tinte se posa sobre el fondo que haya —blanco o grafito— en vez de taparlo. Un
+    /// color claro opaco escrito a mano se veía bien en claro y dejaba la fila ilegible en oscuro.
+    /// </summary>
     private void PintarUrgentes(RowRenderEventArgs<SlaCompromisoDto> fila)
     {
         if (fila.Data.FueraDePlazo || fila.Data.Estado == SlaStatus.Vencido)
-            fila.Attributes["style"] = "background-color: rgba(220, 38, 38, 0.08)";
+            fila.Attributes["style"] = "background-color: var(--rz-danger-lighter)";
         else if (fila.Data.TocaComentar)
-            fila.Attributes["style"] = "background-color: rgba(217, 119, 6, 0.10)";
+            fila.Attributes["style"] = "background-color: var(--rz-warning-lighter)";
     }
 
     /// <summary>
     /// «Toca comentar» es el estado que el escritorio pintaba en ámbar: el recordatorio ya venció, y
     /// mientras no quede constancia en el ticket seguirá insistiendo.
+    /// <para>Solo palabras, sin marcas: es la copia de la función de SlaYRecordatorios con un estado
+    /// más, y como allí tiene su Color() justo debajo. Aquí sobra todavía más que allí, porque esta
+    /// rejilla ADEMÁS pinta la fila entera de ámbar o de rojo con RowRender: el estado estaba dicho
+    /// tres veces antes de llegar al emoji, y de las tres era la única que no obedecía al tema. Las
+    /// dos pantallas tienen que decirlo con las mismas palabras, así que se tocan juntas.</para>
     /// </summary>
     private static string Etiqueta(SlaCompromisoDto s) => s.Estado switch
     {
-        SlaStatus.Activo => s.FueraDePlazo ? "⚠ Fuera de plazo"
-                          : s.TocaComentar ? "🔔 Toca comentar" : "🟢 En plazo",
-        SlaStatus.Cumplido => "✅ Cumplido",
-        SlaStatus.Vencido => "❌ Vencido",
-        _ => "⚪ Cancelado"
+        SlaStatus.Activo => s.FueraDePlazo ? "Fuera de plazo"
+                          : s.TocaComentar ? "Toca comentar" : "En plazo",
+        SlaStatus.Cumplido => "Cumplido",
+        SlaStatus.Vencido => "Vencido",
+        _ => "Cancelado"
     };
 
     private static string Color(SlaCompromisoDto s) => s.Estado switch

@@ -45,21 +45,25 @@
             </RadzenAlert>
         }
 
+        @* El icono va como NOMBRE de la fuente y ya no como emoji dentro del rótulo: un emoji lo
+           dibuja el sistema operativo con su paleta y se queda del mismo color aunque la tarjeta sea
+           de éxito, de aviso o de error. Estos heredan el color de la tarjeta, así que el icono y el
+           número dicen lo mismo. *@
         <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
-            @Tarjeta("🎓 Mi nivel", d.Nivel, "var(--rz-text-secondary-color)", d.ExplicacionNivel)
-            @Tarjeta("👥 Mi equipo", d.Equipo, "var(--rz-info)", d.RolEnEquipo)
-            @Tarjeta("✅ Aprobado (mes)", ConSigno(d.Aprobado), "var(--rz-success)",
+            @Tarjeta("trending_up", "Mi nivel", d.Nivel, "var(--rz-text-secondary-color)", d.ExplicacionNivel)
+            @Tarjeta("groups", "Mi equipo", d.Equipo, "var(--rz-info)", d.RolEnEquipo)
+            @Tarjeta("check_circle", "Aprobado (mes)", ConSigno(d.Aprobado), "var(--rz-success)",
                      "Puntos que ya te aprobaron en el período elegido.")
-            @Tarjeta("⏳ En revisión", ConSigno(d.EnRevision), "var(--rz-warning)",
+            @Tarjeta("pending", "En revisión", ConSigno(d.EnRevision), "var(--rz-warning)",
                      "Puntos que registraste y siguen pendientes de aprobación.")
-            @Tarjeta("❌ Rechazado", d.Rechazadas.ToString(), "var(--rz-danger)",
+            @Tarjeta("cancel", "Rechazado", d.Rechazadas.ToString(), "var(--rz-danger)",
                      "Cuántas actividades te rechazaron en el período. Se corrigen en «Mis Actividades».")
-            @Tarjeta("🏅 Mi posición", d.Posicion, "var(--rz-text-color)", null)
+            @Tarjeta("leaderboard", "Mi posición", d.Posicion, "var(--rz-text-color)", null)
         </RadzenStack>
 
         <RadzenTabs>
             <Tabs>
-                <RadzenTabsItem Text="🏅 Ranking individual">
+                <RadzenTabsItem Text="Ranking individual" Icon="leaderboard">
                     <RadzenDataGrid TItem="RankingPublicoFilaDto" Data="@d.Individual"
                                     IsLoading="@_ocupado" AllowSorting="true" PageSize="25" AllowPaging="true"
                                     EmptyText="Sin puntos aprobados en el mes." RowRender="@ResaltarLaMia">
@@ -78,7 +82,7 @@
                     </RadzenDataGrid>
                 </RadzenTabsItem>
 
-                <RadzenTabsItem Text="👥 Ranking por equipo">
+                <RadzenTabsItem Text="Ranking por equipo" Icon="groups">
                     <RadzenDataGrid TItem="RankingPublicoFilaDto" Data="@d.Equipos"
                                     IsLoading="@_ocupado" AllowSorting="true" PageSize="25" AllowPaging="true"
                                     EmptyText="No hay equipos." RowRender="@ResaltarLaMia">
@@ -138,18 +142,26 @@
     /// Tarjeta de indicador. El título va arriba y pequeño y el dato grande, como en el escritorio:
     /// lo que se busca de un vistazo es el número, no la etiqueta.
     /// </summary>
-    private RenderFragment Tarjeta(string titulo, string valor, string color, string? explicacion) => __builder =>
+    private RenderFragment Tarjeta(string icono, string titulo, string valor, string color, string? explicacion) => __builder =>
     {
         <RadzenCard Style="@($"min-width:210px;border-left:5px solid {color}")" title="@explicacion">
-            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-1">@titulo</RadzenText>
+            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-1">
+                <RadzenIcon Icon="@icono" /> @titulo
+            </RadzenText>
             <RadzenText TextStyle="TextStyle.H6" Style="@($"margin:0;color:{color}")">@valor</RadzenText>
         </RadzenCard>
     };
 
-    /// <summary>Resalta la fila propia (o la del equipo propio); lo decide el servidor, no la pantalla.</summary>
+    /// <summary>
+    /// Resalta la fila propia (o la del equipo propio); lo decide el servidor, no la pantalla.
+    ///
+    /// <para>Es una barra en el canto y no un fondo. El fondo crema que había aquí estaba calibrado
+    /// contra el tema claro: en oscuro dejaba texto claro sobre casi blanco, y la fila propia —justo
+    /// la que uno viene a buscar— era la única ilegible de la tabla.</para>
+    /// </summary>
     private void ResaltarLaMia(RowRenderEventArgs<RankingPublicoFilaDto> args)
     {
-        if (args.Data.EsMio) args.Attributes["style"] = "background-color:#fff8dc";
+        if (args.Data.EsMio) args.Attributes["style"] = "box-shadow:inset 3px 0 0 var(--rz-primary)";
     }
 
     private static string ConSigno(int puntos) => puntos >= 0 ? $"+{puntos}" : puntos.ToString();

@@ -25,8 +25,11 @@
 <RadzenStack Gap="1rem">
     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem" Wrap="FlexWrap.Wrap">
         <RadzenText TextStyle="TextStyle.H5" Style="margin:0">Avisos</RadzenText>
-        <RadzenButton Text="✓  Marcar todo leído" Click="@MarcarTodoLeidoAsync" Disabled="@_ocupado" />
-        <RadzenButton Text="🔄  Recargar" ButtonStyle="ButtonStyle.Light" Click="@LeerAsync" Disabled="@_ocupado" />
+        @* «done» es la palomita a secas: completar algo tuyo. La palomita EN CÍRCULO se reserva para
+           aprobar, que es decidir sobre lo de otro. *@
+        <RadzenButton Text="Marcar todo leído" Icon="done" Click="@MarcarTodoLeidoAsync" Disabled="@_ocupado" />
+        <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Click="@LeerAsync" Disabled="@_ocupado" />
     </RadzenStack>
 
     <RadzenText TextStyle="TextStyle.Caption">
@@ -42,12 +45,20 @@
                     RowRender="@PintarAviso" RowDoubleClick="@AbrirAsync"
                     EmptyText="No tienes avisos.">
         <Columns>
-            @* El punto es el mismo indicador del escritorio: se ve de un golpe cuáles no has abierto. *@
+            @* El punto es el mismo indicador del escritorio: se ve de un golpe cuáles no has abierto.
+               Lo dibujamos nosotros con CSS y ya no es el carácter «●», que es lo mismo que hizo
+               Componentes/BotonDeEstado.razor con los suyos: ese carácter lo resuelve la fuente que
+               tenga cada equipo, así que salía con distinto tamaño y distinta línea base según la
+               máquina, y en una columna de puntos apilados eso se nota. El borde gris no es adorno:
+               si algún día falta la variable de color, el punto se queda hueco pero SE SIGUE VIENDO
+               en vez de desaparecer sin que nadie note que se rompió algo. Y lleva title porque es
+               una marca muda en una columna sin cabecera: sola no se explica. *@
             <RadzenDataGridColumn TItem="AvisoDto" Title="" Width="42px" Sortable="false" Filterable="false">
                 <Template Context="aviso">
                     @if (!aviso.Leido)
                     {
-                        <span style="@($"color:{Azul}")">●</span>
+                        <span title="Sin leer"
+                              style="@($"display:inline-block;width:.55rem;height:.55rem;border-radius:50%;border:1px solid var(--rz-border-color);background:{ColorSinLeer}")"></span>
                     }
                 </Template>
             </RadzenDataGridColumn>
@@ -64,8 +75,18 @@
 </RadzenStack>
 
 @code {
-    /// <summary>El azul del escritorio para el punto de «sin leer» (AppTheme.SidebarActive).</summary>
-    private const string Azul = "#2563eb";
+    /// <summary>
+    /// El punto de «sin leer» va en el ACENTO de la aplicación, no en un color escrito a mano.
+    ///
+    /// Era el azul del escritorio (AppTheme.SidebarActive, #2563eb), copiado para que las dos
+    /// aplicaciones se leyeran igual mientras convivieran. Se rompe esa paridad a propósito: un hex
+    /// fijo no cambia con el tema —en oscuro quedaba apagado sobre el grafito— y, sobre todo, el
+    /// acento existe justo para señalar lo que pide atención, que es lo que este punto es.
+    ///
+    /// No es un color: es la CADENA «var(--…)», que solo tiene sentido dentro de un atributo style
+    /// y la resuelve el navegador. Aquí .NET únicamente la interpola.
+    /// </summary>
+    private const string ColorSinLeer = "var(--rz-primary)";
 
     // EMPIEZA EN NULL, no en lista vacía: Radzen solo lanza el LoadData inicial cuando `Data` le
     // llega nulo. Con una lista vacía la rejilla da por hecho que ya tiene sus datos y jamás pide

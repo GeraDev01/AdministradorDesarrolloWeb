@@ -43,14 +43,18 @@
 <RadzenStack Gap="1rem">
     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.75rem" Wrap="FlexWrap.Wrap">
         <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Mis tickets DevOps</RadzenText>
-        <RadzenButton Text="⟳ Sincronizar mis tickets" Disabled="@(_ocupado || !PuedoSincronizar)"
+        @* Los dos primeros botones se parecen y hacen cosas muy distintas, así que llevan iconos
+           distintos a propósito: «Sincronizar» sale a Azure DevOps —tarda, puede fallar a medias y
+           escribe en nuestra base—, y «Actualizar» solo vuelve a leer lo que ya está guardado aquí.
+           Con el mismo icono, quien tiene prisa pulsa el caro creyendo que pulsa el barato. *@
+        <RadzenButton Text="Sincronizar mis tickets" Icon="sync" Disabled="@(_ocupado || !PuedoSincronizar)"
                       Click="@Sincronizar"
                       title="@(PuedoSincronizar
                                 ? "Trae de Azure DevOps los work items asignados a ti, con tu token personal."
                                 : "Captura tu token en «Mi token de DevOps» para poder sincronizar por tu cuenta.")" />
-        <RadzenButton Text="🔄 Actualizar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+        <RadzenButton Text="Actualizar" Icon="refresh" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                       Disabled="@_ocupado" Click="@Cargar" />
-        <RadzenButton Text="🔑 Mi token de DevOps" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+        <RadzenButton Text="Mi token de DevOps" Icon="key" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                       Disabled="@_ocupado" Click="@(() => Alternar(Panel.Token))" />
     </RadzenStack>
 
@@ -68,21 +72,34 @@
     {
         <RadzenCard>
             <RadzenStack Gap="0.75rem">
-                <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">🔑 Mi token de Azure DevOps</RadzenText>
+                <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                    <RadzenIcon Icon="key" /> Mi token de Azure DevOps
+                </RadzenText>
 
                 <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
                     Los comentarios y los cambios que la aplicación haga en los tickets quedarán
                     firmados en DevOps con TU cuenta; por eso el token es personal y no se comparte.
                 </RadzenText>
+                @* La ruta va contada con verbos y no con las cuatro flechas «→» que llevaba. Dos
+                   motivos: ese carácter no está en los subconjuntos de IBM Plex que se sirven —lo
+                   ponía la fuente de respaldo de cada equipo— y aquí no se puede sustituir por un
+                   icono sin meter cuatro glifos en un renglón de ayuda. Los nombres en inglés se
+                   dejan TAL CUAL porque son lo que se lee en la pantalla de Azure DevOps: traducirlos
+                   obligaría a adivinar dónde hay que pulsar. *@
                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
-                    Cómo obtenerlo: en Azure DevOps → tu foto (arriba a la derecha) → Personal access
-                    tokens → New Token, con permiso «Work Items → Read &amp; write».
+                    Cómo obtenerlo: en Azure DevOps abre tu foto (arriba a la derecha), entra en
+                    Personal access tokens y pulsa New Token, con el permiso «Work Items
+                    (Read &amp; write)».
                 </RadzenText>
 
                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
                             Style="@(TengoToken ? "color:var(--rz-success)" : "")">
+                    @* Sin palomita delante: esto es una cadena que se pinta como texto plano, así que
+                       no hay dónde colgar un componente y el carácter lo acabaría dibujando el
+                       sistema. Tampoco hacía falta — la frase ya empieza diciendo «Ya tienes», y el
+                       verde de que todo está en orden lo pone el Style de arriba. *@
                     @(TengoToken
-                        ? "✓ Ya tienes un token guardado. Escribe uno nuevo solo si lo vas a reemplazar."
+                        ? "Ya tienes un token guardado. Escribe uno nuevo solo si lo vas a reemplazar."
                         : "Sin token configurado.")
                 </RadzenText>
 
@@ -95,15 +112,17 @@
                 </RadzenText>
 
                 <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
-                    <RadzenButton Text="Guardar" Disabled="@_ocupado" Click="@GuardarToken" />
-                    <RadzenButton Text="🔍 Probar conexión" ButtonStyle="ButtonStyle.Light"
+                    <RadzenButton Text="Guardar" Icon="save" Disabled="@_ocupado" Click="@GuardarToken" />
+                    @* El matraz —no la lupa— porque esto no busca nada: lanza una llamada de prueba a
+                       ver qué contesta. Es el mismo botón que en Correo y en Almacenamiento. *@
+                    <RadzenButton Text="Probar conexión" Icon="science" ButtonStyle="ButtonStyle.Light"
                                   Disabled="@_ocupado" Click="@ProbarToken" />
                     @if (TengoToken)
                     {
-                        <RadzenButton Text="🗑 Quitar mi token" ButtonStyle="ButtonStyle.Light"
+                        <RadzenButton Text="Quitar mi token" Icon="delete" ButtonStyle="ButtonStyle.Light"
                                       Disabled="@_ocupado" Click="@QuitarToken" />
                     }
-                    <RadzenButton Text="Cerrar" ButtonStyle="ButtonStyle.Light"
+                    <RadzenButton Text="Cerrar" Icon="close" ButtonStyle="ButtonStyle.Light"
                                   Disabled="@_ocupado" Click="@Cerrar" />
                 </RadzenStack>
             </RadzenStack>
@@ -143,7 +162,9 @@
             <RadzenLabel Text="@EtiquetaSinEstimar()" Component="sinEstimar"
                          Style="@(SinEstimar > 0 ? "color:var(--rz-warning);font-weight:600" : "")" />
 
-            <RadzenButton Text="Limpiar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+            @* El aspa de vaciar un campo, no la de cerrar una ventana: aquí no se cierra nada, se
+               dejan los filtros en blanco. *@
+            <RadzenButton Text="Limpiar" Icon="clear" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                           Disabled="@_ocupado" Click="@LimpiarFiltros" />
         </RadzenStack>
     </RadzenCard>
@@ -167,8 +188,12 @@
                     <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
                         #@ticket.Numero — @ticket.Titulo
                     </RadzenText>
-                    <a href="@ticket.Url" target="_blank" rel="noopener">🔗 Abrir en Azure DevOps</a>
-                    <RadzenButton Text="Cerrar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                    @* La flecha saliendo del marco y no la cadena: la cadena es «hay una URL
+                       asociada», y esto es «te vas de la aplicación a otro sistema». *@
+                    <a href="@ticket.Url" target="_blank" rel="noopener">
+                        <RadzenIcon Icon="open_in_new" /> Abrir en Azure DevOps
+                    </a>
+                    <RadzenButton Text="Cerrar" Icon="close" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                                   Disabled="@_ocupado" Click="@Cerrar" Style="margin-left:auto" />
                 </RadzenStack>
 
@@ -187,7 +212,9 @@
                                de punto flotante no se convierte solo. *@
                             <RadzenNumeric TValue="double" @bind-Value="_horas" Name="horas"
                                            Min="0.25m" Max="1000m" Step="0.25" Style="width:9rem" />
-                            <RadzenButton Text="Guardar estimación" Disabled="@_ocupado" Click="@Estimar" />
+                            @* La balanza, la misma de «Estimación y capacidad»: es «lo que cabe
+                               contra lo que se pide», que es exactamente lo que se decide aquí. *@
+                            <RadzenButton Text="Guardar estimación" Icon="balance" Disabled="@_ocupado" Click="@Estimar" />
                         </RadzenStack>
                         break;
 
@@ -201,7 +228,8 @@
                                      AlignItems="AlignItems.Center" Wrap="FlexWrap.Wrap">
                             <RadzenDropDown TValue="int" @bind-Value="_prioridad" Data="@Prioridades"
                                             TextProperty="Texto" ValueProperty="Valor" Style="min-width:14rem" />
-                            <RadzenButton Text="Cambiar prioridad" Disabled="@_ocupado" Click="@CambiarPrioridad" />
+                            <RadzenButton Text="Cambiar prioridad" Icon="priority_high"
+                                          Disabled="@_ocupado" Click="@CambiarPrioridad" />
                         </RadzenStack>
                         break;
 
@@ -223,7 +251,7 @@
                                     {
                                         <RadzenCard Style="background:var(--rz-base-200)">
                                             <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
-                                                🧑 @c.Autor · @c.CreadoUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                                                <RadzenIcon Icon="person" /> @c.Autor · @c.CreadoUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
                                             </RadzenText>
                                             @* Texto plano y nunca MarkupString: los comentarios los escribe
                                                gente de fuera del equipo y llegan en HTML. *@
@@ -238,7 +266,7 @@
                         <RadzenTextArea @bind-Value="_comentario" Rows="3" Style="width:100%"
                                         Placeholder="Escribe tu comentario…" />
                         <PegarImagen @bind-Imagenes="_evidencias" Maximo="5" />
-                        <RadzenButton Text="Enviar 💬" Disabled="@_ocupado" Click="@Comentar" />
+                        <RadzenButton Text="Enviar" Icon="send" Disabled="@_ocupado" Click="@Comentar" />
                         break;
 
                     case Panel.Ficha:
@@ -266,8 +294,14 @@
                                 <RadzenStack Gap="0.2rem">
                                     @foreach (var bug in ficha.Regresiones)
                                     {
+                                        @* Glifos de la fuente y no los caracteres ✓/●, que cada equipo
+                                           resuelve con la tipografía que tenga a mano. «pending» —el
+                                           círculo con puntos— dice «todavía en curso», que es lo que
+                                           el ● quería decir; un punto macizo no se distingue de una
+                                           viñeta. Es la misma ficha, y la misma pareja, que la de
+                                           AzureDevOps.razor vista por el líder. *@
                                         <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
-                                            @(bug.Cerrado ? "✓" : "●")
+                                            @if (bug.Cerrado) { <RadzenIcon Icon="done" /> } else { <RadzenIcon Icon="pending" /> }
                                             <a href="@bug.Url" target="_blank" rel="noopener">#@bug.Id</a>
                                             — @bug.Titulo (@bug.Estado)
                                         </RadzenText>
@@ -285,9 +319,14 @@
                                 <RadzenStack Gap="0.2rem">
                                     @foreach (var cambio in ficha.Asignaciones)
                                     {
+                                        @* Mismo cambio que en la ficha de AzureDevOps.razor, que es esta
+                                           misma lista para el líder: el chevron de la fuente en lugar del
+                                           carácter «→», que no entra en los subconjuntos de IBM Plex que
+                                           se sirven y lo acababa poniendo la fuente de respaldo del
+                                           equipo. Si se toca uno, tócate el otro. *@
                                         <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
                                             @cambio.FechaUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
-                                            — @TextoOGuion(cambio.De) → @TextoOGuion(cambio.A)
+                                            — @TextoOGuion(cambio.De) <RadzenIcon Icon="chevron_right" /> @TextoOGuion(cambio.A)
                                         </RadzenText>
                                     }
                                 </RadzenStack>
@@ -315,8 +354,11 @@
             <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Tipo" Title="Tipo" Width="115px" />
             <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Titulo" Title="Título" />
             <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Estado" Title="Estado" Width="115px">
+                @* El mapa de estados vive en EstadosDeDevOps y no aquí: era la MISMA tabla copiada en
+                   esta pantalla y en la del líder, y con dos copias se corregía una y se olvidaba la
+                   otra. *@
                 <Template Context="t">
-                    <b style="@($"color:{ColorDeEstado(t.Estado)}")">@t.Estado</b>
+                    <b style="@($"color:{EstadosDeDevOps.Color(t.Estado)}")">@t.Estado</b>
                 </Template>
             </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Prioridad" Title="Prio" Width="80px">
@@ -327,7 +369,10 @@
                                   Width="70px" TextAlign="TextAlign.Right">
                 <Template Context="t">@(t.Puntos?.ToString("0.#") ?? "—")</Template>
             </RadzenDataGridColumn>
-            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="HorasEstimadas" Title="⏱ Est."
+            @* «Est. (h)» ocupa lo mismo que el «⏱ Est.» que había y dice más: la celda enseña 3,5 y
+               hasta ahora no había forma de saber si eran horas o días. Misma cabecera que la columna
+               gemela de AzureDevOps.razor: el desarrollador y el líder miran el mismo dato. *@
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="HorasEstimadas" Title="Est. (h)"
                                   Width="85px" TextAlign="TextAlign.Right">
                 <Template Context="t">
                     <span style="@(t.SinEstimar && !t.Cerrado ? "color:var(--rz-warning)" : "")">
@@ -335,7 +380,9 @@
                     </span>
                 </Template>
             </RadzenDataGridColumn>
-            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Comentarios" Title="💬"
+            @* Se abrevia porque la columna mide 70px, pero se abrevia la PALABRA: «Coment.» se
+               entiende, se busca en el selector de columnas y se ordena con sentido. *@
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Comentarios" Title="Coment."
                                   Width="70px" TextAlign="TextAlign.Right">
                 <Template Context="t">@(t.Comentarios == 0 ? "" : t.Comentarios.ToString())</Template>
             </RadzenDataGridColumn>
@@ -344,21 +391,36 @@
             </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="TicketDevOpsDto" Title="" Width="250px"
                                   Sortable="false" Filterable="false" Pickable="false">
+                @* Los cinco botones de la fila eran emojis dentro del texto. Ahora son iconos de la
+                   fuente y el texto va vacío: un emoji lo dibuja el sistema operativo con su propia
+                   paleta, así que en la fila deshabilitada seguía saliendo a todo color como si se
+                   pudiera pulsar, y en cada equipo del área se veía de otra forma.
+
+                   El title de cada uno se queda y es lo que dice la acción: cinco iconos seguidos sin
+                   texto solo se distinguen si se pueden señalar. *@
                 <Template Context="t">
-                    <RadzenButton Text="@(t.SinEstimar ? "⏱ Estimar" : "⏱")" ButtonStyle="ButtonStyle.Light"
+                    <RadzenButton Text="@(t.SinEstimar ? "Estimar" : "")" Icon="balance"
+                                  ButtonStyle="ButtonStyle.Light"
                                   Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                   Click="@(() => AbrirEstimar(t))"
                                   title="@(t.SinEstimar ? "Pendiente de estimar" : "Cambiar mi estimación")" />
-                    <RadzenButton Text="💬" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                    <RadzenButton Icon="forum" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                   Disabled="@_ocupado" Click="@(() => AbrirComentarios(t))"
                                   title="Ver y agregar comentarios" />
-                    <RadzenButton Text="🔧" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                    <RadzenButton Icon="priority_high" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                   Disabled="@_ocupado" Click="@(() => AbrirPrioridad(t))"
                                   title="Cambiar prioridad" />
-                    <RadzenButton Text="🔍" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                    @* La ficha es un ANÁLISIS del ticket —cuántas regresiones, por cuántas manos
+                       pasó—, no una búsqueda: por eso la lupa sobre barras y no la lupa sola. *@
+                    <RadzenButton Icon="query_stats" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                   Disabled="@_ocupado" Click="@(() => AbrirFicha(t))"
                                   title="Regresiones y devoluciones" />
-                    <RadzenButton Text="@(t.Vigilado ? "🔕" : "🔔")" ButtonStyle="ButtonStyle.Light"
+                    @* La campana dice el ESTADO y no la acción, al revés que los emojis que había: el
+                       recorte de la fuente no trae campana tachada, así que «suena» (con ondas) y
+                       «no suena» (quieta) es lo único que se puede distinguir por forma. Qué pasa al
+                       pulsarla lo dice el title. *@
+                    <RadzenButton Icon="@(t.Vigilado ? "notifications_active" : "notifications")"
+                                  ButtonStyle="ButtonStyle.Light"
                                   Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                   Click="@(() => Vigilar(t))"
                                   title="@(t.Vigilado ? "Dejar de vigilar" : "Vigilar este ticket")" />
@@ -666,15 +728,6 @@
         SinEstimar > 0 ? $"Solo sin estimar ({SinEstimar})" : "Solo sin estimar";
 
     private static string TextoOGuion(string? valor) => string.IsNullOrWhiteSpace(valor) ? "—" : valor;
-
-    private static string ColorDeEstado(string? estado) => (estado ?? "").ToLowerInvariant() switch
-    {
-        "active" or "in progress" or "doing" or "in development" => "#2563EB",
-        "resolved" or "done" or "completed" => "#059669",
-        "closed" => "#6B7280",
-        "new" or "to do" => "#64748B",
-        _ => "inherit"
-    };
 
     public void Dispose()
     {

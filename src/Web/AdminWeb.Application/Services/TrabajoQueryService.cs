@@ -248,7 +248,10 @@ public class TrabajoQueryService(
                     r.Id,
                     r.Title,
                     r.Status, EtiquetasDeTrabajo.Estado(r.Status),
-                    EtiquetasDeTrabajo.Prioridad(r.Priority),
+                    // El enum viaja junto al texto, igual que el estado de la línea de arriba: la
+                    // rejilla pinta con él el punto de urgencia, y sin el valor tendría que deducir
+                    // el color releyendo la palabra.
+                    r.Priority, EtiquetasDeTrabajo.Prioridad(r.Priority),
                     r.EstimateHours,
                     r.CommittedDeliveryDate,
                     r.ProgressPercent,

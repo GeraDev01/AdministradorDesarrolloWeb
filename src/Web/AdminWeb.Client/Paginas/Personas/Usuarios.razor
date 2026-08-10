@@ -38,7 +38,7 @@
 <RadzenStack Gap="1rem">
     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
         <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Usuarios</RadzenText>
-        <RadzenButton Text="➕ Nuevo usuario" Disabled="@_ocupado" Click="@AbrirAlta" />
+        <RadzenButton Text="Nuevo usuario" Icon="add" Disabled="@_ocupado" Click="@AbrirAlta" />
         <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
                       Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
     </RadzenStack>
@@ -119,8 +119,12 @@
                que se desvanece a los cuatro segundos obligaría a restablecerla otra vez. *@
             <RadzenCard Style="border-left:6px solid var(--rz-warning)">
                 <RadzenStack Gap="0.5rem">
+                    @* La misma llave que el botón «Contraseña» de la rejilla de abajo: se pulsa un
+                       botón con llave y aparece una tarjeta con llave, así se ve de un golpe que
+                       esto es lo que ese botón produjo. Va como <RadzenIcon> porque RadzenText no
+                       tiene parámetro Icon. *@
                     <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">
-                        🔑 Contraseña temporal de «@_temporalDe»
+                        <RadzenIcon Icon="vpn_key" /> Contraseña temporal de «@_temporalDe»
                     </RadzenText>
                     <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">
                         <code>@temporal</code>
@@ -130,8 +134,8 @@
                         vuelve a restablecerla.
                     </RadzenText>
                     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
-                        <RadzenButton Text="Copiar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
-                                      Click="@(() => Copiar(temporal))" />
+                        <RadzenButton Text="Copiar" Icon="content_copy" ButtonStyle="ButtonStyle.Light"
+                                      Size="ButtonSize.Small" Click="@(() => Copiar(temporal))" />
                         <RadzenButton Text="Ocultar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                                       Click="@(() => _temporal = null)" />
                     </RadzenStack>
@@ -151,7 +155,11 @@
                     <Template Context="u">@(u.Desarrollador ?? "—")</Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="UsuarioDto" Property="Activo" Title="Activo" Width="90px">
-                    <Template Context="u">@(u.Activo ? "✓" : "✗")</Template>
+                    @* Glifos de la fuente y no ✓/✗, y aquí se nota más que en ninguna otra rejilla:
+                       ésta apaga las filas de los inactivos (RowRender="@ApagarInactivos"), o sea que
+                       justo la marca que más se mira —el aspa— es la que caía sobre un renglón gris.
+                       El glifo se atenúa con la fila; el carácter se quedaba a plena tinta encima. *@
+                    <Template Context="u">@if (u.Activo) { <RadzenIcon Icon="done" /> } else { <RadzenIcon Icon="close" /> }</Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="UsuarioDto" Title="Acceso" Width="200px" Sortable="false">
                     <Template Context="u">
@@ -163,16 +171,29 @@
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="UsuarioDto" Title="" Width="380px" Sortable="false">
                     <Template Context="u">
-                        <RadzenButton Text="✏ Editar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                        @* Los cinco botones llevan ya glifo de la fuente, y hay dos decisiones que
+                           conviene conocer antes de tocarlas:
+                           · «Desbloquear» lleva el candado ABIERTO. Parece obvio y no lo es: un
+                             candado cerrado sobre la palabra «Desbloquear» dice lo contrario de lo
+                             que hace el botón, y el glifo se lee antes que el texto.
+                           · «Activar/Desactivar» ALTERNA entre dos acciones contrarias, así que el
+                             icono va en la MISMA expresión que el texto. Un glifo fijo mentiría en
+                             una de las dos, y puestos en la misma línea no pueden desincronizarse:
+                             si mañana alguien cambia el texto y no el icono, se ve al leerla.
+                           · «vpn_key» (la llave con anilla) y no «key» porque es la que Programas.razor
+                             usa ya para credenciales; las dos llaves de la aplicación se reconocen. *@
+                        <RadzenButton Text="Editar" Icon="edit" ButtonStyle="ButtonStyle.Light"
+                                      Size="ButtonSize.ExtraSmall"
                                       Disabled="@_ocupado" Click="@(() => AbrirEdicion(u))" />
-                        <RadzenButton Text="🔑 Contraseña" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                        <RadzenButton Text="Contraseña" Icon="vpn_key" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                       Disabled="@_ocupado" Click="@(() => Restablecer(u))" />
-                        <RadzenButton Text="🔓 Desbloquear" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                        <RadzenButton Text="Desbloquear" Icon="lock_open" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                       Disabled="@_ocupado" Click="@(() => Desbloquear(u))" />
-                        <RadzenButton Text="@(u.Activo ? "⚡ Desactivar" : "⚡ Activar")"
+                        <RadzenButton Text="@(u.Activo ? "Desactivar" : "Activar")" Icon="@(u.Activo ? "block" : "check_circle")"
                                       ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                       Disabled="@_ocupado" Click="@(() => Alternar(u))" />
-                        <RadzenButton Text="🗑 Eliminar" ButtonStyle="ButtonStyle.Danger" Size="ButtonSize.ExtraSmall"
+                        <RadzenButton Text="Eliminar" Icon="delete" ButtonStyle="ButtonStyle.Danger"
+                                      Size="ButtonSize.ExtraSmall"
                                       Disabled="@_ocupado" Click="@(() => Eliminar(u))" />
                     </Template>
                 </RadzenDataGridColumn>
@@ -332,9 +353,14 @@
             return;
         }
 
+        // «ATENCIÓN:» y no un triángulo: esto es el texto de un diálogo de confirmación, o sea una
+        // cadena pura donde no cabe ningún componente. Aquí el aviso no se puede quitar sin más como
+        // en los resúmenes —es lo único que explica qué se pierde al borrar la cuenta—, así que se
+        // cambia por la palabra, que se lee igual en cualquier equipo y sobrevive a que alguien
+        // copie el diálogo a un correo o a un ticket. Misma convención que Almacenamiento.razor.
         if (!await Avisos.ConfirmarEscribiendoAsync(
                 $"Vas a eliminar la cuenta «{u.Usuario}» ({u.Nombre}).\n\n" +
-                "⚠  Los registros del histórico que le apuntan quedarán sin atribución (puntos " +
+                "ATENCIÓN: los registros del histórico que le apuntan quedarán sin atribución (puntos " +
                 "asignados, revisiones, despliegues iniciados…). La bitácora conserva su nombre.\n\n" +
                 "Si solo quieres quitarle el acceso temporalmente, usa «Desactivar» en su lugar. " +
                 "Esta acción no se puede deshacer.",
@@ -376,10 +402,15 @@
 
     // ── Textos y pintado ─────────────────────────────────────────────────────
 
+    // Esto devuelve una CADENA que se pinta dentro de un <span> con estilo, así que no cabe ningún
+    // componente: las marcas se resuelven con palabras. El candado y el triángulo no eran adorno,
+    // hacían de verbo —sin ellos la celda decía «Hasta 14:30» y «3/5 fallidos», que no se entienden
+    // solos—, así que se cambian por la palabra que le faltaba a cada frase, no se borran a secas.
+    // El aviso lo sigue dando EstiloDeAcceso(u), que pinta este texto con el color del tema.
     private static string Acceso(UsuarioDto u, PantallaDeUsuariosDto datos) =>
-        u.Bloqueado ? $"🔒 Hasta {u.BloqueadoHastaUtc!.Value.ToLocalTime():HH:mm}"
-        : u.IntentosFallidos > 0 ? $"⚠ {u.IntentosFallidos}/{datos.IntentosParaBloquear} fallidos"
-        : u.DebeCambiarContrasena ? "🔑 Contraseña temporal sin cambiar"
+        u.Bloqueado ? $"Bloqueada hasta {u.BloqueadoHastaUtc!.Value.ToLocalTime():HH:mm}"
+        : u.IntentosFallidos > 0 ? $"{u.IntentosFallidos}/{datos.IntentosParaBloquear} intentos fallidos"
+        : u.DebeCambiarContrasena ? "Contraseña temporal sin cambiar"
         : "";
 
     private static string ExplicacionDeAcceso(UsuarioDto u, PantallaDeUsuariosDto datos) =>

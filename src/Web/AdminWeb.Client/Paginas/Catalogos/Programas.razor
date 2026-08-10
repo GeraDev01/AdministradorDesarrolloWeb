@@ -52,11 +52,11 @@
     </RadzenCard>
 
     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
-        <RadzenButton Text="➕ Nuevo" Disabled="@_ocupado" Click="@AbrirNuevo" />
-        <RadzenButton Text="✏ Editar" ButtonStyle="ButtonStyle.Light" Disabled="@(_ocupado || _elegido is null)"
-                      Click="@AbrirEdicion" />
-        <RadzenButton Text="🔐 Ver clave" ButtonStyle="ButtonStyle.Light" Disabled="@(_ocupado || _elegido is null)"
-                      Click="@VerClave" />
+        <RadzenButton Text="Nuevo" Icon="add" Disabled="@_ocupado" Click="@AbrirNuevo" />
+        <RadzenButton Text="Editar" Icon="edit" ButtonStyle="ButtonStyle.Light"
+                      Disabled="@(_ocupado || _elegido is null)" Click="@AbrirEdicion" />
+        <RadzenButton Text="Ver clave" Icon="visibility" ButtonStyle="ButtonStyle.Light"
+                      Disabled="@(_ocupado || _elegido is null)" Click="@VerClave" />
     </RadzenStack>
 
     @if (_capturando)
@@ -133,8 +133,8 @@
                                 Placeholder="Notas (opcional)" />
 
                 <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
-                    <RadzenButton Text="Guardar" Disabled="@_ocupado" Click="@Guardar" />
-                    <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+                    <RadzenButton Text="Guardar" Icon="save" Disabled="@_ocupado" Click="@Guardar" />
+                    <RadzenButton Text="Cancelar" Icon="close" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
                                   Click="@(() => _capturando = false)" />
                 </RadzenStack>
             </RadzenStack>
@@ -145,15 +145,17 @@
     {
         <RadzenCard Style="border-left:4px solid var(--rz-warning)">
             <RadzenStack Gap="0.5rem">
-                <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">🔐 Clave de licencia</RadzenText>
+                <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                    <RadzenIcon Icon="key" /> Clave de licencia
+                </RadzenText>
                 <RadzenText TextStyle="TextStyle.Body2" Style="margin:0"><b>@vista</b></RadzenText>
                 <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
                     Esta consulta quedó anotada en la bitácora con tu nombre.
                 </RadzenText>
                 <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
-                    <RadzenButton Text="Copiar" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light"
-                                  Click="@CopiarClave" />
-                    <RadzenButton Text="Ocultar" Size="ButtonSize.Small"
+                    <RadzenButton Text="Copiar" Icon="content_copy" Size="ButtonSize.Small"
+                                  ButtonStyle="ButtonStyle.Light" Click="@CopiarClave" />
+                    <RadzenButton Text="Ocultar" Icon="visibility_off" Size="ButtonSize.Small"
                                   Click="@(() => _claveVista = null)" />
                 </RadzenStack>
             </RadzenStack>
@@ -182,6 +184,19 @@
                     }
                 </Template>
             </RadzenDataGridColumn>
+            @* LAS TRES DE ABAJO SE QUEDAN CON LA PALABRA SOLA, A PROPÓSITO. Se dice aquí porque otras
+               rejillas (Recursos Azure, Bitácora, Requerimientos) sí recuperaron con un punto de color
+               lo que decían sus emoji, y quien venga a esta va a querer «arreglar» la diferencia.
+
+               ESTADO ya tiene su alarma, y está puesta a nivel de FILA: PintarFila, abajo, pinta el
+               renglón entero en rojo cuando la licencia venció y en ámbar cuando vence en 30 días, con
+               datos que calcula el servidor. Un punto en esta columna sería un SEGUNDO lenguaje de
+               color encima del primero, y los dos discreparían el día que alguien cambie uno —un
+               programa «En uso» con la licencia vencida enseñaría punto verde en fila roja—.
+
+               CATEGORÍA y LICENCIA no tienen escala ninguna: sus once y cinco emoji eran decorativos,
+               ilustraban la palabra en vez de ordenarla. Si algún día hace falta distinguirlas de un
+               vistazo, su sitio es un icono en el formulario de detalle, no un punto en la rejilla. *@
             <RadzenDataGridColumn TItem="ProgramaDto" Property="CategoriaTexto" Title="Categoría" Width="180px"
                                   Visible="@Ver("Categoría")" />
             <RadzenDataGridColumn TItem="ProgramaDto" Property="EstadoTexto" Title="Estado" Width="140px"

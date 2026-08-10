@@ -47,11 +47,29 @@
         <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
             @Tarjeta("% Cumplimiento", TextoDePorcentaje(d.Resumen.PorcentajeCumplimiento),
                      ColorDePorcentaje(d.Resumen.PorcentajeCumplimiento))
-            @Tarjeta("✓ Cumplidos", d.Resumen.Cumplidos.ToString(), "var(--rz-success)")
-            @Tarjeta("⚠ Vencidos", d.Resumen.Vencidos.ToString(), "var(--rz-danger)")
-            @Tarjeta("● En curso", d.Resumen.EnCurso.ToString(), "var(--rz-warning)")
+            @* Los rótulos van SIN marca delante, y las seis tarjetas quedan iguales. Tarjeta() recibe
+               el título como cadena y lo pinta como texto, así que aquí no cabe un componente; pero
+               es que tampoco hace falta: el tercer parámetro ya es la variable de color del tema con
+               la que se pinta la cifra, o sea que «va bien» y «va mal» ya está dicho por algo que
+               obedece al modo oscuro. La palomita y el triángulo eran el mismo dato una segunda vez,
+               y eran lo único de la tarjeta que no cambiaba con el tema —el triángulo, además, hacía
+               que «Vencidos» gritara justo el día en que el número era cero. *@
+            @Tarjeta("Cumplidos", d.Resumen.Cumplidos.ToString(), "var(--rz-success)")
+            @Tarjeta("Vencidos", d.Resumen.Vencidos.ToString(), "var(--rz-danger)")
+            @* «En curso» deja el ámbar de aviso y pasa al informativo: un compromiso que todavía
+               corre no ha hecho nada mal, y pintarlo de aviso ponía en amarillo la mitad del tablero
+               un día normal. El ámbar queda para lo que de verdad reclama. Y por lo mismo se le quitó
+               el punto de delante: no era ni verde ni ámbar, era el carácter ● tal cual, y un punto
+               delante del rótulo va justo en contra de «esto no debe llamar la atención». *@
+            @Tarjeta("En curso", d.Resumen.EnCurso.ToString(), "var(--rz-info)")
+            @* Cancelado NO se pinta de rojo aquí, y es a propósito: cancelar un SLA lo deja «sin
+               efecto», el propio dominio dice que deja de contar como incumplimiento. En rojo se
+               leería como un fracaso más al lado de «Vencidos», que sí lo son. *@
             @Tarjeta("Cancelados", d.Resumen.Cancelados.ToString(), "var(--rz-text-secondary-color)")
-            @Tarjeta("Total", d.Resumen.Total.ToString(), "var(--rz-info)")
+            @* «Total» es un conteo, no un estado: tinta normal y borde neutro, para que no compita
+               con las cinco tarjetas que sí están diciendo cómo vamos. *@
+            @Tarjeta("Total", d.Resumen.Total.ToString(), "var(--rz-text-color)",
+                     borde: "var(--rz-border-color)")
         </RadzenStack>
 
         <RadzenText TextStyle="TextStyle.Caption">@d.Mensaje</RadzenText>
@@ -61,15 +79,21 @@
                         EmptyText="No hay compromisos de SLA con fecha límite en el período elegido.">
             <Columns>
                 <RadzenDataGridColumn TItem="SlaCumplimientoFilaDto" Property="Grupo" Title="Grupo" />
-                <RadzenDataGridColumn TItem="SlaCumplimientoFilaDto" Property="Cumplidos" Title="✓ Cumplidos"
+                @* Las cabeceras van sin marca, igual que las tarjetas de arriba. Tres de las seis la
+                   llevaban y las otras tres no, sin ningún criterio que lo explicara (¿por qué
+                   «Cancelados» y «Total» no?). Y el aviso de «Vencidos» no se pierde al quitarla: la
+                   CELDA ya pinta el número en var(--rz-danger) cuando hay vencidos, que es donde
+                   tiene que estar el rojo —en el dato—, no en un rótulo que estaba rojo aunque el
+                   valor fuera cero. *@
+                <RadzenDataGridColumn TItem="SlaCumplimientoFilaDto" Property="Cumplidos" Title="Cumplidos"
                                       Width="130px" TextAlign="TextAlign.Right" />
-                <RadzenDataGridColumn TItem="SlaCumplimientoFilaDto" Property="Vencidos" Title="⚠ Vencidos"
+                <RadzenDataGridColumn TItem="SlaCumplimientoFilaDto" Property="Vencidos" Title="Vencidos"
                                       Width="130px" TextAlign="TextAlign.Right">
                     <Template Context="fila">
                         <span style="@(fila.Vencidos > 0 ? "color:var(--rz-danger)" : "")">@fila.Vencidos</span>
                     </Template>
                 </RadzenDataGridColumn>
-                <RadzenDataGridColumn TItem="SlaCumplimientoFilaDto" Property="EnCurso" Title="● En curso"
+                <RadzenDataGridColumn TItem="SlaCumplimientoFilaDto" Property="EnCurso" Title="En curso"
                                       Width="120px" TextAlign="TextAlign.Right" />
                 <RadzenDataGridColumn TItem="SlaCumplimientoFilaDto" Property="Cancelados" Title="Cancelados"
                                       Width="130px" TextAlign="TextAlign.Right" />
@@ -130,9 +154,14 @@
         }
     }
 
-    private RenderFragment Tarjeta(string titulo, string valor, string color) => __builder =>
+    /// <summary>
+    /// El borde va aparte del texto porque no siempre coinciden: en la tarjeta de conteo neutro el
+    /// número se pinta con la tinta normal y el borde con el gris de los bordes, y es eso lo que la
+    /// aparta de las que sí están dando un veredicto.
+    /// </summary>
+    private RenderFragment Tarjeta(string titulo, string valor, string color, string? borde = null) => __builder =>
     {
-        <RadzenCard Style="@($"min-width:160px;border-left:5px solid {color}")">
+        <RadzenCard Style="@($"min-width:160px;border-left:5px solid {borde ?? color}")">
             <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-1">@titulo</RadzenText>
             <RadzenText TextStyle="TextStyle.H6" Style="@($"margin:0;color:{color}")">@valor</RadzenText>
         </RadzenCard>

@@ -47,7 +47,10 @@
                             Placeholder="Elige a quién evaluar" Style="min-width:20rem"
                             Disabled="@_ocupado" Change="@(_ => CargarFicha())" />
 
-            <RadzenButton Text="📄 Ver ficha (PDF)" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+            @* «open_in_new» y no «download»: la ficha no baja como archivo, se abre en otra pestaña,
+               y el icono es lo único que avisa de que la aplicación se va a quedar atrás. *@
+            <RadzenButton Text="Ver ficha (PDF)" Icon="open_in_new" ButtonStyle="ButtonStyle.Light"
+                          Size="ButtonSize.Small"
                           Disabled="@(_ocupado || _desarrolladorId is null)" Click="@AbrirFicha" />
             <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
                           Size="ButtonSize.Small" Click="@CargarFicha" Disabled="@_ocupado" />
@@ -64,10 +67,11 @@
     {
         <RadzenTabs>
             <Tabs>
-                <RadzenTabsItem Text="📝 Evaluaciones">
+                @* La misma lista revisada punto por punto que identifica «Evaluaciones» en el menú. *@
+                <RadzenTabsItem Text="Evaluaciones" Icon="fact_check">
                     <RadzenStack Gap="0.75rem">
                         <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
-                            <RadzenButton Text="➕ Nueva evaluación" Disabled="@_ocupado"
+                            <RadzenButton Text="Nueva evaluación" Icon="add" Disabled="@_ocupado"
                                           Click="@AbrirEvaluacionNueva" />
                         </RadzenStack>
 
@@ -117,9 +121,11 @@
                                                     MaxLength="4000" Style="width:100%" />
 
                                     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                                        @* «Registrar» y «Guardar» son la misma acción con dos
+                                           nombres según haya ficha previa o no: un solo icono. *@
                                         <RadzenButton Text="@(_evaluacionId is null ? "Registrar" : "Guardar")"
-                                                      Disabled="@_ocupado" Click="@GuardarEvaluacion" />
-                                        <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                                                      Icon="save" Disabled="@_ocupado" Click="@GuardarEvaluacion" />
+                                        <RadzenButton Text="Cancelar" Icon="close" ButtonStyle="ButtonStyle.Light"
                                                       Disabled="@_ocupado"
                                                       Click="@(() => _capturandoEvaluacion = false)" />
                                     </RadzenStack>
@@ -137,9 +143,12 @@
                                 <RadzenDataGridColumn TItem="EvaluacionDto" Property="Periodo" Title="Periodo" Width="140px">
                                     <Template Context="e">@(e.Periodo ?? "—")</Template>
                                 </RadzenDataGridColumn>
+                                @* Property sigue siendo Calificacion aunque el Template pinte otra
+                                   cosa: es lo que hace que ordenar por esta columna ordene por el
+                                   número y no por la cadena. *@
                                 <RadzenDataGridColumn TItem="EvaluacionDto" Property="Calificacion"
                                                       Title="Calificación" Width="170px">
-                                    <Template Context="e">@e.Estrellas</Template>
+                                    <Template Context="e">@Calificacion(e)</Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="EvaluacionDto" Property="Evaluador" Title="Evaluó" Width="180px">
                                     <Template Context="e">@(e.Evaluador ?? "—")</Template>
@@ -150,10 +159,10 @@
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="EvaluacionDto" Title="" Width="180px" Sortable="false">
                                     <Template Context="e">
-                                        <RadzenButton Text="Editar" ButtonStyle="ButtonStyle.Light"
+                                        <RadzenButton Text="Editar" Icon="edit" ButtonStyle="ButtonStyle.Light"
                                                       Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                       Click="@(() => AbrirEvaluacionDe(e))" />
-                                        <RadzenButton Text="Eliminar" ButtonStyle="ButtonStyle.Light"
+                                        <RadzenButton Text="Eliminar" Icon="delete" ButtonStyle="ButtonStyle.Light"
                                                       Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                       Click="@(() => EliminarEvaluacion(e))" />
                                     </Template>
@@ -163,10 +172,13 @@
                     </RadzenStack>
                 </RadzenTabsItem>
 
-                <RadzenTabsItem Text="🏆 Hitos">
+                @* Bandera y no trofeo: el trofeo es «Desempeño», que es la competencia del mes, y en
+                   toda la aplicación hay un solo icono de premio. Un hito es un punto marcado en el
+                   camino de una persona, que es lo que dice una bandera. *@
+                <RadzenTabsItem Text="Hitos" Icon="flag">
                     <RadzenStack Gap="0.75rem">
                         <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
-                            <RadzenButton Text="➕ Nuevo hito" Disabled="@_ocupado" Click="@AbrirHitoNuevo" />
+                            <RadzenButton Text="Nuevo hito" Icon="add" Disabled="@_ocupado" Click="@AbrirHitoNuevo" />
                         </RadzenStack>
 
                         @if (_capturandoHito)
@@ -198,8 +210,8 @@
 
                                     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
                                         <RadzenButton Text="@(_hitoId is null ? "Registrar" : "Guardar")"
-                                                      Disabled="@_ocupado" Click="@GuardarHito" />
-                                        <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                                                      Icon="save" Disabled="@_ocupado" Click="@GuardarHito" />
+                                        <RadzenButton Text="Cancelar" Icon="close" ButtonStyle="ButtonStyle.Light"
                                                       Disabled="@_ocupado" Click="@(() => _capturandoHito = false)" />
                                     </RadzenStack>
                                 </RadzenStack>
@@ -220,10 +232,10 @@
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="HitoDto" Title="" Width="180px" Sortable="false">
                                     <Template Context="h">
-                                        <RadzenButton Text="Editar" ButtonStyle="ButtonStyle.Light"
+                                        <RadzenButton Text="Editar" Icon="edit" ButtonStyle="ButtonStyle.Light"
                                                       Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                       Click="@(() => AbrirHitoDe(h))" />
-                                        <RadzenButton Text="Eliminar" ButtonStyle="ButtonStyle.Light"
+                                        <RadzenButton Text="Eliminar" Icon="delete" ButtonStyle="ButtonStyle.Light"
                                                       Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                       Click="@(() => EliminarHito(h))" />
                                     </Template>
@@ -291,6 +303,61 @@
         _desarrolladorId is int devId
             ? Descargas.AbrirEnOtraPestanaAsync($"api/evaluaciones/{devId}/ficha").AsTask()
             : Task.CompletedTask;
+
+    // ── Pintado ──────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// La calificación: tantos iconos «star» como puntos tenga, los que faltan en gris, y el «4 / 5»
+    /// SIEMPRE al lado.
+    ///
+    /// <para>Antes esto lo resolvía la propia cadena del contrato con ★★★★☆. Se movió aquí porque una
+    /// cadena no admite marcado y esos dos caracteres no son nuestros: los dibuja la fuente de TEXTO
+    /// del equipo que abra la aplicación, así que se ven distintos en cada máquina y donde no estén
+    /// salen como un cuadro. Los iconos vienen de NUESTRA fuente, que viaja con la aplicación y
+    /// hereda <c>currentColor</c>, de modo que el tema claro y el oscuro los pintan solos.</para>
+    ///
+    /// <para>El número se queda pase lo que pase, y no es redundancia: cinco iconos casi iguales no
+    /// se cuentan de un vistazo, y quien no separa el gris del color no los distingue en absoluto.
+    /// «Sin calificar» sigue siendo solo texto, sin ninguna estrella gris delante, porque una
+    /// evaluación sin nota no es lo mismo que una evaluación de cero.</para>
+    ///
+    /// <para>CUIDADO con el nombre del icono si algún día se toca: la fuente va RECORTADA a 177
+    /// nombres (<c>wwwroot/fuentes/iconos.txt</c>) y ahí NO existen <c>star_border</c> ni
+    /// <c>star_outline</c>. Poner uno de esos no da error de compilación: pinta la PALABRA dentro de
+    /// la celda y nadie se entera hasta verlo. Por eso el hueco es el mismo <c>star</c> en gris.</para>
+    ///
+    /// <para>Está copiado igual en <c>MisEvaluaciones.razor</c> y es a propósito: son las dos caras de
+    /// la misma nota y tienen que verse idénticas, así que lo que se cambie aquí se cambia allí en el
+    /// mismo commit. Si apareciera una tercera pantalla con esto, entonces sí: sacarlo a un componente
+    /// de <c>Componentes/</c> antes que copiarlo otra vez.</para>
+    /// </summary>
+    private static RenderFragment Calificacion(EvaluacionDto e) => __builder =>
+    {
+        <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.35rem">
+            @if (e.Calificacion is int r && r >= 1)
+            {
+                <span style="display:inline-flex;gap:.1rem">
+                    @for (var i = 1; i <= 5; i++)
+                    {
+                        <RadzenIcon Icon="star" Style="@(i <= r ? EstrellaLlena : EstrellaVacia)" />
+                    }
+                </span>
+            }
+            <span>@e.Estrellas</span>
+        </span>
+    };
+
+    /// <summary>
+    /// El tamaño de la estrella. Sin él manda el de la fuente de iconos, bastante más grande, y cinco
+    /// seguidas más el «4 / 5» no caben en los 170px que mide la columna.
+    /// </summary>
+    private const string EstrellaLlena = "font-size:1rem";
+
+    /// <summary>
+    /// El hueco. Mismo icono y VARIABLE DEL TEMA, nunca un gris escrito a mano: un hex se ve bien en
+    /// un modo e ilegible en el otro, y de eso es justo de lo que se viene.
+    /// </summary>
+    private const string EstrellaVacia = "font-size:1rem;color:var(--rz-text-secondary-color)";
 
     // ── Evaluaciones ─────────────────────────────────────────────────────────
 

@@ -58,17 +58,24 @@
     else
     {
         <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.75rem">
-            @Tarjeta("Work items", $"{_datos.Resumen.WorkItems}", Azul)
-            @Tarjeta("Tickets", $"{_datos.Resumen.Tickets}", Turquesa)
-            @Tarjeta("Vínculos", $"{_datos.Resumen.Vinculos}", Morado)
-            @Tarjeta("WI vinculados", Porcentaje(_datos.Resumen.WorkItemsVinculados, _datos.Resumen.WorkItems), Verde)
-            @Tarjeta("Tickets vinculados", Porcentaje(_datos.Resumen.TicketsVinculados, _datos.Resumen.Tickets), Verde)
-            @Tarjeta("Sin vincular", $"{SinVincular()}", Ambar)
+            @* Las tres primeras cuentan TIPOS de cosa (work items, tickets, vínculos) y por eso van a
+               la escala de series, que es la que existe justamente para enumerar sin significar. Las
+               tres últimas sí dicen cómo vamos, y ésas sí van al mapa semántico. *@
+            @Tarjeta("Work items", $"{_datos.Resumen.WorkItems}", Serie1)
+            @Tarjeta("Tickets", $"{_datos.Resumen.Tickets}", Serie2)
+            @Tarjeta("Vínculos", $"{_datos.Resumen.Vinculos}", Serie3)
+            @Tarjeta("WI vinculados", Porcentaje(_datos.Resumen.WorkItemsVinculados, _datos.Resumen.WorkItems), Exito)
+            @Tarjeta("Tickets vinculados", Porcentaje(_datos.Resumen.TicketsVinculados, _datos.Resumen.Tickets), Exito)
+            @Tarjeta("Sin vincular", $"{SinVincular()}", Aviso)
         </RadzenStack>
 
         <RadzenTabs>
             <Tabs>
-                <RadzenTabsItem Text="🔗 Vínculos">
+                @* Reparto de glifos dentro de esta pantalla: «link» para la pestaña que LISTA lo ya
+                   vinculado y «add» para la que vincula, que es el glifo de crear en toda la
+                   aplicación. La entrada del menú se queda —bien— con «hub»: allí hay que decir
+                   «esta pantalla correlaciona dos sistemas», no «esta pantalla tiene enlaces». *@
+                <RadzenTabsItem Text="Vínculos" Icon="link">
                     <RadzenStack Gap="0.75rem">
                         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                      Gap="0.75rem" Wrap="FlexWrap.Wrap">
@@ -136,15 +143,20 @@
                     </RadzenStack>
                 </RadzenTabsItem>
 
-                <RadzenTabsItem Text="➕ Vincular tickets">
+                <RadzenTabsItem Text="Vincular tickets" Icon="add">
                     <RadzenStack Gap="0.75rem">
                         <RadzenRow Gap="1rem">
                             @* ── Azure DevOps ──────────────────────────────────────────── *@
                             <RadzenColumn Size="12" SizeMD="6">
                                 <RadzenCard>
                                     <RadzenStack Gap="0.5rem">
+                                        @* El rombo azul que había aquí no significaba nada: era el
+                                           color corporativo hecho emoji, y en el tema oscuro se
+                                           quedaba azul brillante. «account_tree» es el glifo que
+                                           Menu.cs le dio a Azure DevOps, así que este rótulo y la
+                                           entrada del menú que lleva allí dicen lo mismo. *@
                                         <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">
-                                            🔷 Work item de Azure DevOps
+                                            <RadzenIcon Icon="account_tree" /> Work item de Azure DevOps
                                         </RadzenText>
 
                                         <RadzenTextBox @bind-Value="_doTexto" Placeholder="Buscar work item…"
@@ -191,8 +203,23 @@
                                                 <RadzenDataGridColumn TItem="WorkItemParaVincularDto" Property="Asignado" Title="Asignado" Width="140px">
                                                     <Template Context="w">@(string.IsNullOrWhiteSpace(w.Asignado) ? "—" : w.Asignado)</Template>
                                                 </RadzenDataGridColumn>
-                                                <RadzenDataGridColumn TItem="WorkItemParaVincularDto" Property="Vinculado" Title="🔗" Width="60px">
-                                                    <Template Context="w">@(w.Vinculado ? "🔗" : "")</Template>
+                                                <RadzenDataGridColumn TItem="WorkItemParaVincularDto" Property="Vinculado" Title="Vinculado" Width="60px">
+                                                    @* La cadena SÍ es el icono de «tiene una URL/relación asociada»,
+                                                       que es exactamente lo que esta celda dice. Va como glifo de la
+                                                       fuente y no como emoji para que herede el color de la fila
+                                                       —incluida la atenuada— en vez de pintarse siempre igual.
+
+                                                       La CABECERA, en cambio, es una palabra: Title es además el
+                                                       nombre con el que la columna sale en el selector de columnas y
+                                                       en la ordenación, y ahí una cadena no se lee ni se busca. La
+                                                       celda puede ser un dibujo porque tiene la columna entera de
+                                                       contexto; la cabecera no. *@
+                                                    <Template Context="w">
+                                                        @if (w.Vinculado)
+                                                        {
+                                                            <RadzenIcon Icon="link" />
+                                                        }
+                                                    </Template>
                                                 </RadzenDataGridColumn>
                                             </Columns>
                                         </RadzenDataGrid>
@@ -204,8 +231,14 @@
                             <RadzenColumn Size="12" SizeMD="6">
                                 <RadzenCard>
                                     <RadzenStack Gap="0.5rem">
+                                        @* Pareja del rótulo de la columna de al lado, y es una
+                                           traducción casi literal: «confirmation_number» es el
+                                           boleto troquelado, el mismo objeto que el 🎫 que había, y
+                                           es el glifo que el menú le dio a Freshdesk. Las dos
+                                           columnas quedan rotuladas con los mismos dibujos con los
+                                           que se entra a cada sistema. *@
                                         <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">
-                                            🎫 Ticket de Freshdesk
+                                            <RadzenIcon Icon="confirmation_number" /> Ticket de Freshdesk
                                         </RadzenText>
 
                                         <RadzenTextBox @bind-Value="_fdTexto" Placeholder="Buscar ticket…"
@@ -252,8 +285,16 @@
                                                 <RadzenDataGridColumn TItem="TicketParaVincularDto" Property="Agente" Title="Agente" Width="140px">
                                                     <Template Context="t">@(string.IsNullOrWhiteSpace(t.Agente) ? "—" : t.Agente)</Template>
                                                 </RadzenDataGridColumn>
-                                                <RadzenDataGridColumn TItem="TicketParaVincularDto" Property="Vinculado" Title="🔗" Width="60px">
-                                                    <Template Context="t">@(t.Vinculado ? "🔗" : "")</Template>
+                                                @* Cabecera gemela de la de la rejilla de DevOps: misma palabra, porque
+                                                   las dos rejillas están una al lado de la otra y se comparan a
+                                                   simple vista. *@
+                                                <RadzenDataGridColumn TItem="TicketParaVincularDto" Property="Vinculado" Title="Vinculado" Width="60px">
+                                                    <Template Context="t">
+                                                        @if (t.Vinculado)
+                                                        {
+                                                            <RadzenIcon Icon="link" />
+                                                        }
+                                                    </Template>
                                                 </RadzenDataGridColumn>
                                             </Columns>
                                         </RadzenDataGrid>
@@ -268,7 +309,12 @@
                                 <RadzenTextArea @bind-Value="_notas" Rows="2" MaxLength="500" Style="width:100%"
                                                 Placeholder="Notas del vínculo (opcional): por qué son el mismo trabajo" />
                                 <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
-                                    <RadzenButton Text="🔗 Vincular selección" Disabled="@(_ocupado || !HaySeleccion)"
+                                    @* Misma cadena que su pestaña: es el botón que consuma la acción.
+                                       Y que sea glifo de la fuente importa precisamente aquí, porque
+                                       este botón pasa la mitad del tiempo deshabilitado —mientras no
+                                       hay selección— y un emoji se queda a todo color dentro de un
+                                       botón apagado, diciendo «púlsame». *@
+                                    <RadzenButton Text="Vincular selección" Icon="link" Disabled="@(_ocupado || !HaySeleccion)"
                                                   Click="@Vincular" />
                                     <RadzenButton Text="Limpiar selección" ButtonStyle="ButtonStyle.Light"
                                                   Disabled="@(_ocupado || !HaySeleccion)" Click="@LimpiarSeleccion" />
@@ -283,11 +329,14 @@
 </RadzenStack>
 
 @code {
-    private const string Azul = "#2563eb";
-    private const string Turquesa = "#14b8a6";
-    private const string Morado = "#8b5cf6";
-    private const string Verde = "#22c55e";
-    private const string Ambar = "#f59e0b";
+    // Nombrados por su PAPEL y no por el color que salen. Las series son las del tema y su orden es
+    // fijo en toda la aplicación: nadie elige colores por gusto en su pantalla, que es lo que evita
+    // que dos tableros pinten «work items» de dos colores distintos.
+    private const string Serie1 = "var(--adminweb-serie-1)";
+    private const string Serie2 = "var(--adminweb-serie-2)";
+    private const string Serie3 = "var(--adminweb-serie-3)";
+    private const string Exito  = "var(--rz-success)";
+    private const string Aviso  = "var(--rz-warning)";
 
     private readonly CancellationTokenSource _cancelacion = new();
 
@@ -471,7 +520,11 @@
         (null, null) => "Selecciona un work item a la izquierda y un ticket a la derecha.",
         (null, _) => "Falta elegir el work item de DevOps.",
         (_, null) => "Falta elegir el ticket de Freshdesk.",
-        var (w, t) => $"Se vincularán: DevOps #{w!.Numero} «{w.Titulo}»  ↔  Freshdesk #{t!.Numero} «{t.Asunto}»."
+        // «con» y no el «↔» que había en medio. Es una cadena, así que no cabe un icono, y ese carácter
+        // no está en los subconjuntos de IBM Plex que se sirven (unicode-range en tipografia.css): lo
+        // acababa dibujando la fuente de respaldo del equipo, con el mismo defecto que los emojis. Que
+        // el vínculo va en los dos sentidos ya lo dice la pantalla entera.
+        var (w, t) => $"Se vincularán: DevOps #{w!.Numero} «{w.Titulo}» con Freshdesk #{t!.Numero} «{t.Asunto}»."
     };
 
     private int SinVincular() =>

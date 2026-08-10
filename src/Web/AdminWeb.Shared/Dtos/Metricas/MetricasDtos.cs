@@ -52,12 +52,19 @@ public record MetricaDeRequerimientoDto(
     int Avance)
 {
     /// <summary>
-    /// «faltan 3» / «⚠ atraso 5» / «—». La frase se arma aquí, en el contrato, para que la rejilla y
+    /// «faltan 3» / «atraso 5» / «—». La frase se arma aquí, en el contrato, para que la rejilla y
     /// una futura exportación no la escriban distinto.
+    ///
+    /// <para>El «⚠» que precedía al atraso se fue y no hace falta reponerlo: era redundante desde el
+    /// principio. La rejilla de <c>Metricas.razor</c> ya pinta esa misma celda en rojo y negrita
+    /// cuando <see cref="Atrasado"/>, con el booleano que calcula el servidor — o sea que el símbolo
+    /// solo repetía, en un glifo que dibujaba el sistema operativo y que no obedecía al tema, lo que
+    /// el color ya decía obedeciéndolo. Y si esta frase acaba algún día en una exportación, el aviso
+    /// va en la palabra «atraso», no en un carácter que puede llegar como cuadro vacío.</para>
     /// </summary>
     public string PlazoTexto => DiasParaCompromiso is not int d ? "—"
         : d >= 0 ? $"faltan {d}"
-        : $"⚠ atraso {-d}";
+        : $"atraso {-d}";
 }
 
 /// <summary>La carga abierta de un desarrollador y la antigüedad de lo que arrastra.</summary>

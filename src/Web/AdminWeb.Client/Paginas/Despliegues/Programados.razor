@@ -44,7 +44,10 @@
         <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Despliegues programados</RadzenText>
         <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
                       Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
-        <RadzenButton Text="🗓 Programar despliegue" Disabled="@_ocupado" Click="@AbrirFormulario" />
+        @* El despertador, el mismo de la entrada «Programados» del menú: programar un despliegue es
+           poner una hora a la que algo se dispara solo. Un calendario a secas no diría si es una
+           cita, un festivo o un plazo. *@
+        <RadzenButton Text="Programar despliegue" Icon="alarm" Disabled="@_ocupado" Click="@AbrirFormulario" />
 
         <RadzenCheckBox TValue="bool" @bind-Value="_soloPendientes" Name="soloPendientes"
                         Change="@(_ => Cargar())" Disabled="@_ocupado" />
@@ -146,8 +149,10 @@
                                     Placeholder="Nota de la programación (opcional). Queda como evidencia del despliegue." />
 
                     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
-                        <RadzenButton Text="Programar" Disabled="@_ocupado" Click="@Programar" />
-                        <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                        <RadzenButton Text="Programar" Icon="alarm" Disabled="@_ocupado" Click="@Programar" />
+                        @* El aspa de cerrar: esto abandona el formulario sin agendar nada. La de
+                           abajo, la que cancela una cita ya agendada, es otra cosa y lleva otro. *@
+                        <RadzenButton Text="Cancelar" Icon="close" ButtonStyle="ButtonStyle.Light"
                                       Disabled="@_ocupado" Click="@(() => _capturando = false)" />
                     </RadzenStack>
                 </RadzenStack>
@@ -188,7 +193,9 @@
                     <Template Context="c">
                         @if (c.Estado == ScheduledDeploymentStatus.Programado)
                         {
-                            <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                            @* El círculo con aspa y no el aspa suelta: esto no cierra un formulario,
+                               deja la cita en el estado «Cancelado» de la columna de al lado. *@
+                            <RadzenButton Text="Cancelar" Icon="cancel" ButtonStyle="ButtonStyle.Light"
                                           Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                           Click="@(() => CancelarCita(c))" />
                         }
@@ -329,11 +336,16 @@
             .OrderBy(c => c.CuandoUtc)
             .FirstOrDefault();
 
-        var texto = $"{d.Citas.Count} programación(es)  ·  🕓 {pendientes} pendiente(s)";
+        // Todo esto es una cadena que se pinta como texto plano: no hay dónde colgar un componente,
+        // así que los dibujos que llevaba los acababa dibujando el sistema operativo. El reloj no
+        // separaba nada que no separara ya el punto medio —y la palabra «pendiente(s)» va justo
+        // detrás—, y el triángulo de las perdidas sobra porque ese trozo solo se añade cuando las
+        // hay: que la frase aparezca ES el aviso.
+        var texto = $"{d.Citas.Count} programación(es)  ·  {pendientes} pendiente(s)";
         if (proxima is not null)
             texto += $"  ·  la próxima el {proxima.CuandoUtc.ToLocalTime():dd/MM/yyyy HH:mm}";
         if (perdidas > 0)
-            texto += $"  ·  ⚠ {perdidas} perdida(s)";
+            texto += $"  ·  {perdidas} perdida(s)";
 
         return texto;
     }

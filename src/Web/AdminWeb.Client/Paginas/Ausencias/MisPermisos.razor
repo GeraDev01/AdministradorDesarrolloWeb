@@ -43,11 +43,18 @@
         else
         {
             <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
-                @Indicador("⏳ Esperando respuesta", d.Resumen.EsperandoRespuesta, "var(--rz-warning)",
+                @* Los tres rótulos van SIN adorno delante. Indicador() recibe el título como cadena y
+                   lo pinta como texto plano, así que aquí no cabe colgar un componente; pero es que
+                   tampoco hace falta, porque el tercer parámetro ya es la variable de color del tema
+                   con la que se pinta la cifra —ámbar para lo que espera, verde para lo aprobado— y
+                   ése sí cambia en el modo oscuro. El emoji era la misma información una segunda vez
+                   y encima la única parte del indicador que se quedaba con sus colores de siempre.
+                   Si alguna vez se les quiere icono, se les pone a los tres o la fila queda coja. *@
+                @Indicador("Esperando respuesta", d.Resumen.EsperandoRespuesta, "var(--rz-warning)",
                            "Solicitudes tuyas que el líder todavía no ha resuelto.")
-                @Indicador("✅ Aprobados (este año)", d.Resumen.AprobadosEsteAnio, "var(--rz-success)",
+                @Indicador("Aprobados (este año)", d.Resumen.AprobadosEsteAnio, "var(--rz-success)",
                            "Permisos aprobados con fecha de este año.")
-                @Indicador("📅 Días aprobados (año)", d.Resumen.DiasAprobadosEsteAnio, "var(--rz-info)",
+                @Indicador("Días aprobados (año)", d.Resumen.DiasAprobadosEsteAnio, "var(--rz-info)",
                            "Suma de los días de esos permisos aprobados.")
             </RadzenStack>
 
@@ -115,7 +122,7 @@
                         {
                             <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
                                         Style="color:var(--rz-success)">
-                                📎 @elegido.Nombre (@(elegido.Contenido.Length / 1024) KB)
+                                <RadzenIcon Icon="attach_file" /> @elegido.Nombre (@(elegido.Contenido.Length / 1024) KB)
                             </RadzenText>
                         }
                     </RadzenStack>
@@ -123,7 +130,7 @@
                     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
                         <RadzenButton Text="Solicitar" Icon="send" ButtonStyle="ButtonStyle.Primary"
                                       Click="@Solicitar" Disabled="@_ocupado" />
-                        <RadzenButton Text="Descartar" ButtonStyle="ButtonStyle.Light"
+                        <RadzenButton Text="Descartar" Icon="close" ButtonStyle="ButtonStyle.Light"
                                       Click="@(() => _pidiendo = false)" Disabled="@_ocupado" />
                     </RadzenStack>
                 </RadzenStack>
@@ -135,14 +142,14 @@
             <RadzenCard Style="border-left:5px solid var(--rz-info)">
                 <RadzenStack Gap="0.5rem">
                     <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">
-                        📎 Justificante de la solicitud del @_adjuntandoDescripcion
+                        <RadzenIcon Icon="attach_file" /> Justificante de la solicitud del @_adjuntandoDescripcion
                     </RadzenText>
                     <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                         Hasta @Megas(d) MB. Si ya había uno, este lo reemplaza.
                     </RadzenText>
                     <InputFile OnChange="@(e => AdjuntarAExistente(e, permisoId, d))" />
                     <div>
-                        <RadzenButton Text="Cerrar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                        <RadzenButton Text="Cerrar" Icon="close" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                                       Click="@(() => _adjuntandoEn = null)" Disabled="@_ocupado" />
                     </div>
                 </RadzenStack>
@@ -196,14 +203,15 @@
                         <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" Wrap="FlexWrap.Wrap">
                             @if (p.TieneJustificante)
                             {
-                                <RadzenButton Text="📎 Ver" ButtonStyle="ButtonStyle.Light"
+                                <RadzenButton Text="Ver" Icon="visibility" ButtonStyle="ButtonStyle.Light"
                                               Size="ButtonSize.ExtraSmall"
                                               title="Abre el justificante que subiste."
                                               Click="@(() => VerJustificante(p))" />
                             }
                             @if (p.SePuedeAdjuntar)
                             {
-                                <RadzenButton Text="@(p.TieneJustificante ? "Cambiar" : "📎 Adjuntar")"
+                                <RadzenButton Text="@(p.TieneJustificante ? "Cambiar" : "Adjuntar")"
+                                              Icon="attach_file"
                                               ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                               Disabled="@_ocupado" Click="@(() => AbrirAdjunto(p))" />
                             }
@@ -215,7 +223,7 @@
                             }
                             @if (p.SePuedeEliminar)
                             {
-                                <RadzenButton Text="Eliminar" ButtonStyle="ButtonStyle.Danger"
+                                <RadzenButton Text="Eliminar" Icon="delete" ButtonStyle="ButtonStyle.Danger"
                                               Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                               Click="@(() => EliminarSolicitud(p))" />
                             }

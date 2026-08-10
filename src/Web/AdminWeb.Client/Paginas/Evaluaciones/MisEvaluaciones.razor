@@ -26,7 +26,11 @@
 <RadzenStack Gap="1rem">
     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
         <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Mis evaluaciones</RadzenText>
-        <RadzenButton Text="📄 Descargar mi ficha (PDF)" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+        @* «download» y no «description»: para quien lo usa lo que pasa es que sale un archivo, y el
+           formato ya lo dice el texto entre paréntesis. Un icono de documento describiría el FORMATO
+           y no la acción, que es lo que el botón tiene que anunciar. *@
+        <RadzenButton Text="Descargar mi ficha (PDF)" Icon="download" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small"
                       Disabled="@(_ocupado || _datos?.TieneFicha != true)" Click="@AbrirFicha" />
         <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
                       Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
@@ -46,7 +50,11 @@
             Tus evaluaciones e hitos, tal como los registró tu líder.
         </RadzenText>
 
-        <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">📝 Evaluaciones</RadzenText>
+        @* Los mismos dos iconos que las pestañas de la pantalla del líder: es la misma información
+           vista desde el otro lado, y conviene que se reconozca como tal. *@
+        <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+            <RadzenIcon Icon="fact_check" /> Evaluaciones
+        </RadzenText>
 
         @if (d.Evaluaciones.Count == 0)
         {
@@ -69,7 +77,11 @@
                                 @e.Fecha.ToString("dd/MM/yyyy")
                                 @(string.IsNullOrWhiteSpace(e.Periodo) ? "" : $"  ·  {e.Periodo}")
                             </RadzenText>
-                            <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">@e.Estrellas</RadzenText>
+                            @* Las mismas estrellas que ve el líder en su rejilla. RadzenText tiene
+                               ChildContent, así que aquí sí cabe marcado y entran los iconos tal
+                               cual; si un día dejaran de verse igual en las dos pantallas, la nota
+                               de alguien pasaría a leerse distinta según quién la mire. *@
+                            <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">@Calificacion(e)</RadzenText>
                             <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                                 Evaluó: @(e.Evaluador ?? "—")
                             </RadzenText>
@@ -85,7 +97,9 @@
             }
         }
 
-        <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">🏆 Mis hitos</RadzenText>
+        <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+            <RadzenIcon Icon="flag" /> Mis hitos
+        </RadzenText>
 
         <RadzenDataGrid TItem="HitoDto" Data="@d.Hitos" IsLoading="@_ocupado"
                         AllowSorting="true" AllowPaging="true" PageSize="10"
@@ -123,6 +137,44 @@
     }
 
     private Task AbrirFicha() => Descargas.AbrirEnOtraPestanaAsync("api/evaluaciones/mias/ficha").AsTask();
+
+    /// <summary>
+    /// La calificación: tantos iconos «star» como puntos, los que faltan en gris, y el «4 / 5»
+    /// siempre al lado. Es COPIA LITERAL de <c>Evaluaciones.razor</c>, donde está explicado entero el
+    /// porqué —resumen: ★ y ☆ los ponía la fuente de texto de cada equipo, y los iconos son nuestros
+    /// y obedecen al tema—. Las dos pantallas enseñan la misma nota, así que lo que se cambie en una
+    /// se cambia en la otra EN EL MISMO COMMIT; si algún día hace falta una tercera, este trozo se
+    /// saca a <c>Componentes/</c> en vez de copiarse otra vez.
+    ///
+    /// <para>CUIDADO al tocar el nombre del icono: la fuente va recortada a 177 nombres y no incluye
+    /// <c>star_border</c> ni <c>star_outline</c>. Cualquiera de esos dos compila sin rechistar y pinta
+    /// la palabra en medio de la tarjeta. El hueco es el mismo <c>star</c> en gris justamente por
+    /// eso.</para>
+    /// </summary>
+    private static RenderFragment Calificacion(EvaluacionDto e) => __builder =>
+    {
+        <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.35rem">
+            @if (e.Calificacion is int r && r >= 1)
+            {
+                <span style="display:inline-flex;gap:.1rem">
+                    @for (var i = 1; i <= 5; i++)
+                    {
+                        <RadzenIcon Icon="star" Style="@(i <= r ? EstrellaLlena : EstrellaVacia)" />
+                    }
+                </span>
+            }
+            <span>@e.Estrellas</span>
+        </span>
+    };
+
+    /// <summary>El tamaño de la estrella: el de la fuente de iconos es mayor que el de esta línea.</summary>
+    private const string EstrellaLlena = "font-size:1rem";
+
+    /// <summary>
+    /// El hueco. Variable del tema y nunca un gris escrito a mano: un hex se ve bien en un modo e
+    /// ilegible en el otro, que es de lo que se viene.
+    /// </summary>
+    private const string EstrellaVacia = "font-size:1rem;color:var(--rz-text-secondary-color)";
 
     /// <summary>Un apartado de la evaluación, con su rótulo. Nada si está vacío: el hueco no dice nada.</summary>
     private RenderFragment Bloque(string titulo, string? texto, string color) => __builder =>

@@ -23,8 +23,8 @@
         contra la fecha local de la máquina; en la web ese cálculo lo hace un servidor cuyo día no es
         el de nadie, y el mismo compromiso entraría o no en el recuento según dónde esté hospedado.
       · No hay botón para comentar el ticket desde aquí: el cliente de Azure DevOps todavía no está
-        portado. La columna de comentarios sigue enseñando lo que hay, y el enlace 🔗 lleva al work
-        item.
+        portado. La columna de comentarios sigue enseñando lo que hay, y el número del ticket es un
+        enlace que lleva al work item.
 
     Las horas viajan en UTC y se pintan en la hora de quien mira. Al capturar se hace el camino
     inverso: lo que se teclea es hora local y se convierte antes de enviarlo.
@@ -42,9 +42,15 @@
     @if (_datos is { } d)
     {
         <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
-            @Tarjeta("⏱ Activos", d.Resumen.Activos.ToString(), "var(--rz-info)")
-            @Tarjeta("⚠ Vencen en 24 h", d.Resumen.VencenEn24h.ToString(), "var(--rz-warning)")
-            @Tarjeta("❌ Fuera de plazo", d.Resumen.FueraDePlazo.ToString(), "var(--rz-danger)")
+            @* Las tres tarjetas se quedan solo con su palabra, igual que las de CumplimientoSla: los
+               dos tableros de SLA tienen que leerse igual. Tarjeta() toma el título como cadena, así
+               que no cabría un componente, pero es que el color ya va por parámetro y es una variable
+               del tema. Las marcas eran lo único que no cambiaba en oscuro, y la cruz roja —la más
+               saturada de todo el juego— se llevaba la atención de la fila entera aunque el número
+               fuera cero, que es justo el día en que no hay nada que avisar. *@
+            @Tarjeta("Activos", d.Resumen.Activos.ToString(), "var(--rz-info)")
+            @Tarjeta("Vencen en 24 h", d.Resumen.VencenEn24h.ToString(), "var(--rz-warning)")
+            @Tarjeta("Fuera de plazo", d.Resumen.FueraDePlazo.ToString(), "var(--rz-danger)")
         </RadzenStack>
 
         <RadzenCard>
@@ -56,8 +62,10 @@
                                 AllowClear="true" Placeholder="Todos" Disabled="@_ocupado"
                                 Change="@(_ => Cargar())" Style="min-width:11rem" />
 
-                <RadzenButton Text="➕ Asignar SLA" Disabled="@_ocupado" Click="@AbrirFormulario" />
-                <RadzenButton Text="🔔 Revisar vencidos" ButtonStyle="ButtonStyle.Light"
+                <RadzenButton Text="Asignar SLA" Icon="add" Disabled="@_ocupado" Click="@AbrirFormulario" />
+                @* «autorenew» y no «refresh»: esto no vuelve a leer la lista, vuelve a EVALUAR los
+                   vencimientos y escala lo que encuentre incumplido. Escribe, y el glifo lo dice. *@
+                <RadzenButton Text="Revisar vencidos" Icon="autorenew" ButtonStyle="ButtonStyle.Light"
                               Disabled="@_ocupado" Click="@RevisarVencidos" />
 
                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0" Style="margin-left:auto">
@@ -145,7 +153,9 @@
                         {
                             @if (!string.IsNullOrWhiteSpace(s.TicketUrl))
                             {
-                                <a href="@s.TicketUrl" target="_blank" rel="noopener">#@t 🔗</a>
+                                <a href="@s.TicketUrl" target="_blank" rel="noopener">
+                                    #@t <RadzenIcon Icon="open_in_new" />
+                                </a>
                             }
                             else
                             {
@@ -184,15 +194,19 @@
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="SlaCompromisoDto" Title="" Width="180px" Sortable="false">
                     <Template Context="s">
+                        @* «done» es la palomita sola: cerrar un compromiso es darlo por hecho, no
+                           aprobar el trabajo de nadie. «cancel» es el aspa en círculo, y aquí no
+                           significa «cerrar esta ventana» sino el estado del dominio Cancelado, que
+                           es lo que el botón deja escrito. *@
                         @if (s.Estado is not (SlaStatus.Cumplido or SlaStatus.Cancelado))
                         {
-                            <RadzenButton Text="✔ Cumplido" ButtonStyle="ButtonStyle.Light"
+                            <RadzenButton Text="Cumplido" Icon="done" ButtonStyle="ButtonStyle.Light"
                                           Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                           Click="@(() => MarcarCumplido(s))" />
                         }
                         @if (s.Estado != SlaStatus.Cancelado)
                         {
-                            <RadzenButton Text="✖ Cancelar" ButtonStyle="ButtonStyle.Light"
+                            <RadzenButton Text="Cancelar" Icon="cancel" ButtonStyle="ButtonStyle.Light"
                                           Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                           Click="@(() => CancelarSla(s))" />
                         }
@@ -203,8 +217,13 @@
 
         <RadzenCard>
             <RadzenStack Gap="0.75rem">
+                @* El glifo va como <RadzenIcon> porque RadzenText no tiene parámetro Icon. Y no es
+                   capricho cambiar el carácter ⚙ por él: ese carácter lo resuelven en muchos equipos
+                   con una fuente distinta a la del texto, así que sale con otro grosor y otra línea
+                   base; el de la fuente se alinea. «settings» es el correcto aquí porque esto es de
+                   verdad configuración, que es lo único para lo que el menú reserva el engranaje. *@
                 <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
-                    ⚙ Plazos automáticos por prioridad
+                    <RadzenIcon Icon="settings" /> Plazos automáticos por prioridad
                 </RadzenText>
                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                     Cuando la sincronización con Azure DevOps asigne un ticket, se le creará un SLA con
@@ -438,12 +457,17 @@
         return true;
     }
 
+    /// <summary>
+    /// El fondo de la fila que reclama. Las variantes «-lighter» del tema están declaradas en rgba,
+    /// así que el tinte se posa sobre el fondo que haya —blanco o grafito— en vez de taparlo. Un
+    /// color claro opaco escrito a mano se veía bien en claro y dejaba la fila ilegible en oscuro.
+    /// </summary>
     private void PintarFueraDePlazo(RowRenderEventArgs<SlaCompromisoDto> fila)
     {
         if (fila.Data.FueraDePlazo || fila.Data.Estado == SlaStatus.Vencido)
-            fila.Attributes["style"] = "background-color: rgba(220, 38, 38, 0.08)";
+            fila.Attributes["style"] = "background-color: var(--rz-danger-lighter)";
         else if (fila.Data.TocaComentar)
-            fila.Attributes["style"] = "background-color: rgba(217, 119, 6, 0.10)";
+            fila.Attributes["style"] = "background-color: var(--rz-warning-lighter)";
     }
 
     private RenderFragment Tarjeta(string titulo, string valor, string color) => __builder =>
@@ -465,13 +489,19 @@
     /// <summary>
     /// Un activo pasado de fecha se enseña como «fuera de plazo» aunque su estado siga siendo Activo:
     /// se mide el plazo, no la etiqueta. Es la misma regla que aplica el reporte de cumplimiento.
+    /// <para>Solo palabras, sin marcas delante: esto devuelve una CADENA y su hermana Color(), justo
+    /// debajo, devuelve la variable del tema con la que se pinta esa misma etiqueta. O sea que el
+    /// estado ya se distingue por palabra Y por color; el emoji era una tercera capa que no obedecía
+    /// a ninguna de las dos, y el «⚪» de Cancelado era además invisible en el tema claro, que es el
+    /// que se usa casi siempre. Si se toca una rama, tocar también la de MisSla.razor: las dos
+    /// pantallas tienen que decir el estado con las mismas palabras.</para>
     /// </summary>
     private static string Etiqueta(SlaCompromisoDto s) => s.Estado switch
     {
-        SlaStatus.Activo => s.FueraDePlazo ? "⚠ Fuera de plazo" : "🟢 En plazo",
-        SlaStatus.Cumplido => "✅ Cumplido",
-        SlaStatus.Vencido => "❌ Vencido",
-        _ => "⚪ Cancelado"
+        SlaStatus.Activo => s.FueraDePlazo ? "Fuera de plazo" : "En plazo",
+        SlaStatus.Cumplido => "Cumplido",
+        SlaStatus.Vencido => "Vencido",
+        _ => "Cancelado"
     };
 
     private static string Color(SlaCompromisoDto s) => s.Estado switch

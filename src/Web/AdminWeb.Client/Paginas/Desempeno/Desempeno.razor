@@ -61,7 +61,10 @@
 
     <RadzenTabs>
         <Tabs>
-            <RadzenTabsItem Text="🏅 Ranking mensual">
+            @* Los rótulos de las pestañas llevaban emoji. Un emoji lo dibuja el sistema operativo con
+               su propia paleta y no hereda el color del texto, así que la pestaña activa y la
+               inactiva se veían igual de encendidas; el icono de la fuente sí sigue al texto. *@
+            <RadzenTabsItem Text="Ranking mensual" Icon="leaderboard">
                 @* Lista vacía y no null mientras carga: la rejilla enseña su EmptyText en vez de
                    quedarse a medio pintar. *@
                 <RadzenDataGrid TItem="RankingIndividualFilaDto" Data="@(_datos?.Individual ?? Array.Empty<RankingIndividualFilaDto>())"
@@ -93,7 +96,7 @@
                 </RadzenDataGrid>
             </RadzenTabsItem>
 
-            <RadzenTabsItem Text="👥 Ranking por equipo">
+            <RadzenTabsItem Text="Ranking por equipo" Icon="groups">
                 @* Aquí TODOS cuentan, también los de nivel Lead: la competencia es entre equipos y
                    cada quien es parte del suyo. Restar los puntos del Lead castigaría justo a los
                    equipos cuyo Lead más trabaja. *@
@@ -121,7 +124,7 @@
                 </RadzenDataGrid>
             </RadzenTabsItem>
 
-            <RadzenTabsItem Text="@TituloDePendientes()">
+            <RadzenTabsItem Text="@TituloDePendientes()" Icon="pending">
                 <RadzenStack Gap="0.75rem">
                     @* La cola NO se filtra por el mes de arriba: lo pendiente es pendiente venga del
                        mes que venga, y filtrarlo escondería justo lo que más tiempo lleva esperando. *@
@@ -132,11 +135,15 @@
                     </RadzenText>
 
                     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
-                        <RadzenButton Text="✅ Aprobar" Disabled="@(_ocupado || Marcadas.Count == 0)"
-                                      Click="@Aprobar" />
-                        <RadzenButton Text="❌ Rechazar" ButtonStyle="ButtonStyle.Danger"
+                        @* Aprobar y rechazar se distinguían solo por el COLOR del botón, y en tema
+                           oscuro el verde y el rojo se acercan lo suficiente como para pulsar el que
+                           no era. La palomita en círculo y el aspa en círculo se distinguen por
+                           FORMA, que es lo que se ve incluso sin ver bien el color. *@
+                        <RadzenButton Text="Aprobar" Icon="check_circle"
+                                      Disabled="@(_ocupado || Marcadas.Count == 0)" Click="@Aprobar" />
+                        <RadzenButton Text="Rechazar" Icon="cancel" ButtonStyle="ButtonStyle.Danger"
                                       Disabled="@(_ocupado || Marcadas.Count == 0)" Click="@Rechazar" />
-                        <RadzenButton Text="✏ Ajustar puntos" ButtonStyle="ButtonStyle.Light"
+                        <RadzenButton Text="Ajustar puntos" Icon="edit" ButtonStyle="ButtonStyle.Light"
                                       Disabled="@(_ocupado || Marcadas.Count != 1)" Click="@AjustarPuntos" />
                         <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
                                       Size="ButtonSize.Small" Click="@CargarPendientes" Disabled="@_ocupado" />
@@ -175,8 +182,14 @@
                                     </span>
                                 </Template>
                             </RadzenDataGridColumn>
+                            @* La cabecera dice la palabra que ya usa el propio DTO. Title es un string
+                               y además es el nombre con el que la columna sale en el selector de
+                               columnas y al ordenar, así que un dibujo ahí no se lee ni se busca. Y
+                               unas flechas en círculo no distinguen «vueltas de revisión» de
+                               «reintentar» ni de «sincronizar», que son tres cosas que existen en esta
+                               aplicación. *@
                             <RadzenDataGridColumn TItem="PuntoPendienteDto" Property="Vueltas"
-                                                  Title="🔁" Width="90px">
+                                                  Title="Vueltas" Width="90px">
                                 <Template Context="p">
                                     @if (p.EsReplica)
                                     {
@@ -188,11 +201,20 @@
                                 </Template>
                             </RadzenDataGridColumn>
                             <RadzenDataGridColumn TItem="PuntoPendienteDto" Property="TiempoDeclarado"
-                                                  Title="⏱ Tiempo" Width="110px" />
+                                                  Title="Tiempo" Width="110px" />
                             <RadzenDataGridColumn TItem="PuntoPendienteDto" Title="Evidencia"
                                                   Width="110px" Sortable="false">
+                                @* Cada icono lleva su title: dos glifos sueltos en una celda no dicen
+                                   qué son, y esta columna se lee de reojo antes de abrir la ficha. *@
                                 <Template Context="p">
-                                    @(p.TieneCaptura ? "📷" : "")@(string.IsNullOrWhiteSpace(p.Enlace) ? "" : " 🔗")
+                                    @if (p.TieneCaptura)
+                                    {
+                                        <RadzenIcon Icon="image" title="Adjuntó una captura" />
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(p.Enlace))
+                                    {
+                                        <RadzenIcon Icon="link" title="Adjuntó un enlace" />
+                                    }
                                 </Template>
                             </RadzenDataGridColumn>
                         </Columns>
@@ -222,8 +244,13 @@
                                     </RadzenText>
                                 }
 
+                                @* Aquí el reloj SÍ se conserva —al revés que en las cabeceras de la
+                                   rejilla—: esta línea encadena varios datos seguidos y el glifo es lo
+                                   que deja ver dónde empieza cada uno. Como icono de la fuente hereda
+                                   el color atenuado del TextStyle.Caption, cosa que el emoji no hacía:
+                                   se quedaba a todo color dentro de un texto gris. *@
                                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
-                                    ⏱ @entrada.TiempoDeclarado declarados
+                                    <RadzenIcon Icon="schedule" /> @entrada.TiempoDeclarado declarados
                                     @(entrada.Requerimiento is null ? "" : $"  ·  Requerimiento: {entrada.Requerimiento}")
                                 </RadzenText>
 
@@ -233,7 +260,9 @@
 
                                 @if (!string.IsNullOrWhiteSpace(entrada.Enlace))
                                 {
-                                    <a href="@entrada.Enlace" target="_blank" rel="noopener">🔗 @entrada.Enlace</a>
+                                    <a href="@entrada.Enlace" target="_blank" rel="noopener">
+                                        <RadzenIcon Icon="link" /> @entrada.Enlace
+                                    </a>
                                 }
 
                                 @if (entrada.TieneCaptura)
@@ -424,19 +453,33 @@
         finally { _ocupado = false; }
     }
 
+    // El reloj de arena que llevaba delante lo pone ahora el Icon de la pestaña: aquí solo queda el
+    // texto, porque este método devuelve una CADENA y ahí no cabe un icono de la fuente.
     private string TituloDePendientes() =>
-        _pendientes.Count == 0 ? "⏳ Pendientes de aprobación" : $"⏳ Pendientes de aprobación ({_pendientes.Count})";
+        _pendientes.Count == 0 ? "Pendientes de aprobación" : $"Pendientes de aprobación ({_pendientes.Count})";
 
     /// <summary>
     /// Una entrada en discusión se marca ENTERA, igual que en el escritorio: es una decisión que ya
     /// se tomó y se está rebatiendo, no una propuesta nueva.
+    ///
+    /// <para>Se marca con una BARRA en el canto y no con un fondo. El fondo crema que había aquí era
+    /// opaco y claro: en tema oscuro dejaba texto claro sobre casi blanco, ilegible. Una barra
+    /// interior no toca el fondo, así que no pelea con el rayado de la rejilla ni con el tema, y se
+    /// sigue viendo con la fila seleccionada.</para>
     /// </summary>
     private void ResaltarLasReplicas(RowRenderEventArgs<PuntoPendienteDto> args)
     {
-        if (args.Data.EsReplica) args.Attributes["style"] = "background-color:#fff8dc";
+        if (args.Data.EsReplica) args.Attributes["style"] = "box-shadow:inset 3px 0 0 var(--rz-primary)";
     }
 
-    /// <summary>Podio resaltado como en el escritorio. Un Lead no lo recibe: no está compitiendo.</summary>
+    /// <summary>
+    /// Podio resaltado como en el escritorio. Un Lead no lo recibe: no está compitiendo.
+    ///
+    /// <para>Los tres puestos eran crema, azul claro y verde claro: oro, plata y bronce disfrazados,
+    /// y el verde chocaba de frente con el verde de «aprobado». Ahora son tres intensidades del MISMO
+    /// acento, declaradas en la paleta, así que el podio se lee como una escala —primero es más
+    /// fuerte que tercero— y no como tres estados distintos.</para>
+    /// </summary>
     private void ResaltarPodio(RowRenderEventArgs<RankingIndividualFilaDto> args)
     {
         var f = args.Data;
@@ -444,9 +487,9 @@
 
         var fondo = f.Posicion switch
         {
-            1 => "#fff8dc",
-            2 => "#f0f8ff",
-            _ => "#f0fff0"
+            1 => "var(--adminweb-podio-1)",
+            2 => "var(--adminweb-podio-2)",
+            _ => "var(--adminweb-podio-3)"
         };
         args.Attributes["style"] = $"background-color:{fondo}";
     }

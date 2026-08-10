@@ -8,12 +8,21 @@
 @*
     El correo del área, en las tres cosas que hacía el escritorio y una más:
 
-     · 📥 Bandeja  — mirar una carpeta del buzón, convertir un mensaje en requerimiento e importar
-                     de golpe todo lo que esté sin procesar (era EmailControl).
-     · ✉ Redactar  — mandar un correo desde la cuenta de la aplicación (era EmailComposeForm).
-     · 📊 Resumen  — ver el resumen del equipo tal como saldría y mandarlo sin esperar. Esto en el
-                     escritorio no se podía mirar: salía solo o no salía, y cuando no llegaba no
-                     había forma de saber si era que no había nada que reportar o que algo falló.
+     · «Bandeja»            — mirar una carpeta del buzón, convertir un mensaje en requerimiento e
+                              importar de golpe todo lo que esté sin procesar (era EmailControl).
+     · «Redactar»           — mandar un correo desde la cuenta de la aplicación (era
+                              EmailComposeForm).
+     · «Resumen del equipo» — ver el resumen tal como saldría y mandarlo sin esperar. Esto en el
+                              escritorio no se podía mirar: salía solo o no salía, y cuando no
+                              llegaba no había forma de saber si era que no había nada que reportar
+                              o que algo falló.
+
+    Cada una se nombra por la ETIQUETA que lleva en pantalla, entre comillas angulares como en el
+    resto de los textos de esta aplicación. Antes iban con un emoji delante que hacía de icono, y eso
+    envejeció mal por partida doble: los glifos de verdad ya están puestos abajo en el parámetro Icon
+    de cada pestaña (inbox, drafts, summarize), y la tercera había pasado a llamarse «Resumen del
+    equipo» sin que este comentario se enterara. Un comentario que dibuja la pantalla en vez de
+    nombrarla deja de ser cierto en cuanto alguien toca la pantalla.
 
     ── EL CUERPO DE UN CORREO SE PINTA COMO TEXTO, SIEMPRE ────────────────────────────────────────
 
@@ -42,9 +51,13 @@
 <RadzenStack Gap="1rem">
     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
         <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Correo</RadzenText>
-        <RadzenButton Text="🔄 Recargar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+        @* «Recargar» y «Cargar» llevan iconos DISTINTOS a propósito, y no es un descuido: éste
+           relee lo nuestro —/api/correo/estado, que es configuración de nuestra base— y el de la
+           bandeja sale a hablar con el buzón. Lo segundo tarda, puede fallar a medias y depende de
+           que un servidor ajeno conteste; no es lo mismo y no debe parecerlo. *@
+        <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                       Disabled="@_ocupado" Click="@CargarEstadoAsync" />
-        <RadzenButton Text="🔌 Probar conexión" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+        <RadzenButton Text="Probar conexión" Icon="science" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                       Disabled="@_ocupado" Click="@ProbarAsync" />
     </RadzenStack>
 
@@ -81,7 +94,7 @@
                 <Tabs>
 
                     @* ── Bandeja ─────────────────────────────────────────────────── *@
-                    <RadzenTabsItem Text="📥  Bandeja">
+                    <RadzenTabsItem Text="Bandeja" Icon="inbox">
                         <RadzenStack Gap="0.75rem">
                             <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                          Wrap="FlexWrap.Wrap" Gap="0.75rem">
@@ -90,11 +103,11 @@
                                                 Value="@_carpeta" ValueChanged="@ElegirCarpetaAsync"
                                                 Disabled="@_ocupado" Style="width:18rem" />
 
-                                <RadzenButton Text="🔄 Cargar" ButtonStyle="ButtonStyle.Primary"
+                                <RadzenButton Text="Cargar" Icon="sync" ButtonStyle="ButtonStyle.Primary"
                                               Size="ButtonSize.Small" Disabled="@_ocupado"
                                               Click="@CargarBandejaAsync" />
 
-                                <RadzenButton Text="📥 Importar sin procesar" ButtonStyle="ButtonStyle.Light"
+                                <RadzenButton Text="Importar sin procesar" Icon="sync" ButtonStyle="ButtonStyle.Light"
                                               Size="ButtonSize.Small" Disabled="@_ocupado"
                                               Click="@IngerirAsync" />
 
@@ -132,10 +145,14 @@
                                     <RadzenDataGridColumn TItem="MensajeDeCorreoDto" Title="" Width="230px" Sortable="false">
                                         <Template Context="m">
                                             <RadzenStack Orientation="Orientation.Horizontal" Gap="0.4rem" Wrap="FlexWrap.Wrap">
-                                                <RadzenButton Text="👁 Ver" ButtonStyle="ButtonStyle.Light"
+                                                <RadzenButton Text="Ver" Icon="visibility" ButtonStyle="ButtonStyle.Light"
                                                               Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                               Click="@(() => _abierto = m)" />
-                                                <RadzenButton Text="➡ Requerimiento" ButtonStyle="ButtonStyle.Light"
+                                                @* «add» y no una flecha: convertir CREA un
+                                                   requerimiento, y todo lo que da de alta algo lleva
+                                                   el mismo icono en las 53 pantallas. El matiz —que
+                                                   nace de un correo— lo dice el texto. *@
+                                                <RadzenButton Text="Requerimiento" Icon="add" ButtonStyle="ButtonStyle.Light"
                                                               Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                               Click="@(() => ConvertirAsync(m))" />
                                             </RadzenStack>
@@ -160,7 +177,7 @@
                                                     Style="white-space:pre-wrap;overflow-wrap:anywhere">@mensaje.Cuerpo</RadzenText>
 
                                         <div>
-                                            <RadzenButton Text="Cerrar" ButtonStyle="ButtonStyle.Light"
+                                            <RadzenButton Text="Cerrar" Icon="close" ButtonStyle="ButtonStyle.Light"
                                                           Size="ButtonSize.ExtraSmall"
                                                           Click="@(() => _abierto = null)" />
                                         </div>
@@ -171,7 +188,10 @@
                     </RadzenTabsItem>
 
                     @* ── Redactar ────────────────────────────────────────────────── *@
-                    <RadzenTabsItem Text="✉  Redactar">
+                    @* «drafts» (sobre abierto) y no «mail»: el sobre cerrado identifica la pantalla
+                       de Correo entera en el menú, y repetirlo en una de sus pestañas no diría cuál
+                       de las tres es. *@
+                    <RadzenTabsItem Text="Redactar" Icon="drafts">
                         <RadzenStack Gap="0.6rem">
                             <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                                 Sale desde <b>@estado.Direccion</b>. Varios destinatarios, separados por coma o
@@ -195,21 +215,21 @@
                             </RadzenText>
 
                             <div>
-                                <RadzenButton Text="Enviar" ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small"
-                                              Disabled="@_ocupado" Click="@EnviarAsync" />
+                                <RadzenButton Text="Enviar" Icon="send" ButtonStyle="ButtonStyle.Primary"
+                                              Size="ButtonSize.Small" Disabled="@_ocupado" Click="@EnviarAsync" />
                             </div>
                         </RadzenStack>
                     </RadzenTabsItem>
 
                     @* ── Resumen ─────────────────────────────────────────────────── *@
-                    <RadzenTabsItem Text="📊  Resumen del equipo">
+                    <RadzenTabsItem Text="Resumen del equipo" Icon="summarize">
                         <RadzenStack Gap="0.75rem">
                             <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                          Wrap="FlexWrap.Wrap" Gap="0.75rem">
-                                <RadzenButton Text="👁 Ver cómo saldría" ButtonStyle="ButtonStyle.Light"
+                                <RadzenButton Text="Ver cómo saldría" Icon="visibility" ButtonStyle="ButtonStyle.Light"
                                               Size="ButtonSize.Small" Disabled="@_ocupado"
                                               Click="@CargarResumenAsync" />
-                                <RadzenButton Text="📤 Enviar ahora" ButtonStyle="ButtonStyle.Primary"
+                                <RadzenButton Text="Enviar ahora" Icon="send" ButtonStyle="ButtonStyle.Primary"
                                               Size="ButtonSize.Small" Disabled="@_ocupado"
                                               Click="@EnviarResumenAsync" />
                             </RadzenStack>

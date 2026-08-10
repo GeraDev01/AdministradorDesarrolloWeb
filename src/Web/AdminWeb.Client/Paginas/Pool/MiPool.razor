@@ -46,7 +46,13 @@
 
         <RadzenTabs>
             <Tabs>
-                <RadzenTabsItem Text="🧑‍💻 Mis actividades del pool">
+                @* El emoji que había aquí era el más frágil de toda la aplicación: 🧑‍💻 es una
+                   secuencia unida con ZWJ y, en los equipos cuya fuente del sistema no la conoce, se
+                   rompía en DOS dibujos sueltos —una persona y un portátil— dentro del rótulo de la
+                   pestaña. «assignment_ind» (la tablilla con silueta) es el glifo de «Mis
+                   Asignaciones» en el menú y dice exactamente esto: trabajo que ya tiene dueño, y el
+                   dueño eres tú. *@
+                <RadzenTabsItem Text="Mis actividades del pool" Icon="assignment_ind">
                     <RadzenStack Gap="0.75rem">
                         <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@ResumenDeLasMias(d)</RadzenText>
 
@@ -116,9 +122,15 @@
                                     @if (a.Estado == PoolActivityStatus.Devuelta && a.MotivoDeDevolucion is { } motivo)
                                     {
                                         @* Lo primero que hay que leer cuando te la devuelven: sin esto se
-                                           vuelve a entregar exactamente igual. *@
+                                           vuelve a entregar exactamente igual. Aquí NO va ningún icono
+                                           en el texto: RadzenAlert ya pinta el suyo, el contextual de
+                                           su AlertStyle, salvo que se le ponga ShowIcon="false", así
+                                           que la flecha que había estaba compitiendo con un dibujo a
+                                           dos centímetros. Si algún día se quiere que este aviso diga
+                                           «devolución» y no «atención», la vía es Icon="reply" en el
+                                           propio RadzenAlert, nunca un carácter dentro del texto. *@
                                         <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
-                                            ↩ Te la devolvieron: @motivo
+                                            Te la devolvieron: @motivo
                                         </RadzenAlert>
                                     }
                                     else
@@ -135,7 +147,11 @@
 
                                     @if (!string.IsNullOrWhiteSpace(a.Enlace))
                                     {
-                                        <a href="@a.Enlace" target="_blank" rel="noopener">🔗 Ver el ticket</a>
+                                        @* «open_in_new»: lo que hay que avisar es que se sale de la
+                                           aplicación, no que hay una URL guardada. *@
+                                        <a href="@a.Enlace" target="_blank" rel="noopener">
+                                            <RadzenIcon Icon="open_in_new" /> Ver el ticket
+                                        </a>
                                     }
 
                                     <RadzenDataGrid TItem="PuntoDeChecklistDto" Data="@_checklist" IsLoading="@_ocupado"
@@ -143,7 +159,16 @@
                                                     EmptyText="Esta actividad se quedó sin checklist: devuélvela al pool y vuelve a tomarla.">
                                         <Columns>
                                             <RadzenDataGridColumn TItem="PuntoDeChecklistDto" Title="" Width="50px">
-                                                <Template Context="c">@(c.Hecho ? "✔" : "○")</Template>
+                                                @* Es lo primero que se mira antes de entregar, así que
+                                                   las marcas tienen que apilarse alineadas. Los dos
+                                                   caracteres que había (✔ y ○) los resuelven fuentes
+                                                   distintas según el equipo y no casan de tamaño entre
+                                                   sí: la columna salía con las marcas bailando.
+                                                   «check_circle» y «pending» son de la misma familia y
+                                                   tienen el mismo diámetro. «pending» —el círculo con
+                                                   puntos— además dice «todavía en curso», que es lo que
+                                                   el ○ quería decir y no decía. *@
+                                                <Template Context="c">@if (c.Hecho) { <RadzenIcon Icon="check_circle" /> } else { <RadzenIcon Icon="pending" /> }</Template>
                                             </RadzenDataGridColumn>
                                             <RadzenDataGridColumn TItem="PuntoDeChecklistDto" Property="Texto"
                                                                   Title="Qué hay que cumplir" />
@@ -168,7 +193,12 @@
                                                 <Template Context="c">
                                                     @if (a.EnCurso)
                                                     {
+                                                        @* La palomita SOLA, sin círculo: marcar un punto
+                                                           es completar algo propio, no aprobar lo de
+                                                           otro. El círculo se reserva para la
+                                                           verificación del líder. *@
                                                         <RadzenButton Text="@(c.Hecho ? "Desmarcar" : "Marcar")"
+                                                                      Icon="@(c.Hecho ? "clear" : "done")"
                                                                       ButtonStyle="@(c.Hecho ? ButtonStyle.Light : ButtonStyle.Primary)"
                                                                       Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                                       Click="@(() => MarcarPunto(c, !c.Hecho))" />
@@ -183,7 +213,11 @@
                     </RadzenStack>
                 </RadzenTabsItem>
 
-                <RadzenTabsItem Text="🎯 Disponibles">
+                @* «inventory_2» —la caja de almacén, el glifo de «Pool de actividades» en el menú— y
+                   no la diana que había: aquí no hay ningún objetivo, hay una estantería de trabajo
+                   que todavía no ha tomado nadie. Es el mismo glifo que la pestaña «Pool» de
+                   PoolAdmin.razor, que es esta misma lista vista por el líder. *@
+                <RadzenTabsItem Text="Disponibles" Icon="inventory_2">
                     <RadzenStack Gap="0.75rem">
                         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                      Gap="1rem" Wrap="FlexWrap.Wrap">
@@ -211,7 +245,13 @@
                                         <b style="color:var(--rz-success)">@a.Puntos</b>
                                         @if (a.PuntosMaximos > a.Puntos)
                                         {
-                                            <span style="opacity:.7"> → @a.PuntosMaximos</span>
+                                            @* «hasta» y no la flecha «→» que había: el carácter no entra
+                                               en los subconjuntos de IBM Plex que se sirven, así que lo
+                                               resolvía la fuente de respaldo del equipo —el defecto de los
+                                               emojis otra vez—, y en una celda numérica la palabra dice
+                                               además lo que la flecha dejaba a medias: que ese segundo
+                                               número es el TECHO, no el siguiente paso. *@
+                                            <span style="opacity:.7"> hasta @a.PuntosMaximos</span>
                                         }
                                     </Template>
                                 </RadzenDataGridColumn>
@@ -254,7 +294,9 @@
                                                       Disabled="@(_ocupado || !d.TieneFicha)" Click="@(() => Tomar(a))" />
                                         @if (!string.IsNullOrWhiteSpace(a.Enlace))
                                         {
-                                            <a href="@a.Enlace" target="_blank" rel="noopener" title="Abrir el ticket"> 🔗</a>
+                                            <a href="@a.Enlace" target="_blank" rel="noopener" title="Abrir el ticket">
+                                                <RadzenIcon Icon="open_in_new" />
+                                            </a>
                                         }
                                     </Template>
                                 </RadzenDataGridColumn>

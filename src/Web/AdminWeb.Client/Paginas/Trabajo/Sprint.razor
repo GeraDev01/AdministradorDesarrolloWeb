@@ -10,16 +10,16 @@
 @*
     Seguimiento del sprint, en dos vistas:
 
-      · 🏁 Sprint actual — una línea de tiempo tipo calendario (día por día, fines de semana
+      · Sprint actual — una línea de tiempo tipo calendario (día por día, fines de semana
         sombreados, marcador de HOY) con dos barras comparables —el tiempo consumido y el avance
         real— y debajo la lista de lo comprometido. La lectura es una sola: si la barra de avance va
         detrás de la de tiempo, vamos atrasados.
-      · 📈 Histórico — cómo salió cada sprint y la VELOCIDAD del equipo (promedio de entregados por
+      · Histórico — cómo salió cada sprint y la VELOCIDAD del equipo (promedio de entregados por
         sprint cerrado). Es la única base honesta para comprometer el siguiente: sin ella, el
         compromiso es un deseo.
 
     El DESARROLLADOR ve la misma pantalla en SOLO CONSULTA: sin botones de escritura, sin la pestaña
-    de histórico, con sus requerimientos marcados 👤 y un filtro «solo los míos». El avance se
+    de histórico, con los suyos marcados en la primera columna y un filtro «solo los míos». El avance se
     calcula siempre sobre TODO el sprint aunque el filtro esconda filas: dos porcentajes distintos
     para el mismo sprint serían dos verdades. Lo calcula el servidor, así que aquí no hay forma de
     equivocarse.
@@ -46,7 +46,11 @@
 
     <RadzenTabs>
         <Tabs>
-            <RadzenTabsItem Text="🏁 Sprint actual">
+            @* «date_range» y no una bandera a cuadros: Menu.cs ya razonó que una bandera puede ser
+               meta, incidencia, idioma o marcador, y lo que esta pestaña dibuja es literalmente una
+               línea de tiempo día por día. Es el glifo que el menú le dio a Sprint por ese motivo, y
+               contrasta con el «history» de la pestaña vecina, que es lo que hay que distinguir. *@
+            <RadzenTabsItem Text="Sprint actual" Icon="date_range">
                 <RadzenStack Gap="0.75rem">
                     <RadzenCard>
                         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
@@ -69,12 +73,15 @@
 
                             @if (EsAdmin)
                             {
-                                <RadzenButton Text="➕ Nuevo sprint" Disabled="@_ocupado" Click="@AbrirSprintNuevo" />
-                                <RadzenButton Text="✏ Fechas y nombre" ButtonStyle="ButtonStyle.Light"
+                                @* «assignment» es el mismo glifo de la entrada de menú Requerimientos,
+                                   y se repite aquí a propósito: el botón que elige requerimientos y la
+                                   pantalla que los lista tienen que reconocerse como la misma cosa. *@
+                                <RadzenButton Text="Nuevo sprint" Icon="add" Disabled="@_ocupado" Click="@AbrirSprintNuevo" />
+                                <RadzenButton Text="Fechas y nombre" Icon="edit" ButtonStyle="ButtonStyle.Light"
                                               Disabled="@(_ocupado || Seguimiento is null)" Click="@AbrirSprintEdicion" />
-                                <RadzenButton Text="📋 Requerimientos…" ButtonStyle="ButtonStyle.Light"
+                                <RadzenButton Text="Requerimientos…" Icon="assignment" ButtonStyle="ButtonStyle.Light"
                                               Disabled="@(_ocupado || Seguimiento is null)" Click="@AbrirPicker" />
-                                <RadzenButton Text="🗑 Eliminar" ButtonStyle="ButtonStyle.Danger"
+                                <RadzenButton Text="Eliminar" Icon="delete" ButtonStyle="ButtonStyle.Danger"
                                               Disabled="@(_ocupado || Seguimiento is null)" Click="@EliminarSprint" />
                             }
                             else
@@ -123,8 +130,13 @@
                     {
                         <RadzenCard>
                             <RadzenStack Gap="0.75rem">
+                                @* «assignment» y no «checklist»: es el mismo glifo que el botón que
+                                   abre este panel (línea 82) y que la entrada de menú Requerimientos.
+                                   El botón, el panel y la pantalla cierran así el trío y se reconocen
+                                   como la misma cosa. Va como <RadzenIcon> porque RadzenText no tiene
+                                   parámetro Icon. *@
                                 <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
-                                    📋 Requerimientos del sprint
+                                    <RadzenIcon Icon="assignment" /> Requerimientos del sprint
                                 </RadzenText>
                                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                                     Marca lo que entra al sprint. Lo que desmarques vuelve al backlog. Los
@@ -179,10 +191,15 @@
 
                     @if (Seguimiento is not { } seg)
                     {
+                        @* Al líder se le nombra el botón por su ETIQUETA y no por su dibujo: el texto
+                           mandaba a buscar un ➕ suelto en pantalla, y ese botón ya no se ve así —es
+                           un RadzenButton con Text="Nuevo sprint" e Icon="add"—. Nombrarlo por la
+                           etiqueta es lo que de verdad se puede seguir, y sobrevive a que mañana le
+                           cambien el icono. *@
                         <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
                             @(_sprints.Count == 0
                                 ? (EsAdmin
-                                    ? "No hay sprints todavía. Crea el primero con ➕ y cuélgale requerimientos."
+                                    ? "No hay sprints todavía. Crea el primero con «Nuevo sprint» y cuélgale requerimientos."
                                     : "No hay sprints todavía. Los arma el líder.")
                                 : "Selecciona un sprint.")
                         </RadzenText>
@@ -191,7 +208,12 @@
                     {
                         @if (!string.IsNullOrWhiteSpace(seg.Sprint.Objetivo))
                         {
-                            <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">🎯 @seg.Sprint.Objetivo</RadzenText>
+                            @* Éste es el único sitio de la aplicación donde «flag» se puede usar sin
+                               ambigüedad: no compite con nada en ninguna lista de iconos, va pegado
+                               al texto del objetivo del sprint, y ahí una bandera es la meta de toda
+                               la vida. (Menu.cs descartó «flag» para el MENÚ, que es otro problema:
+                               allí sí competía con incidencia, idioma y marcador.) *@
+                            <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0"><RadzenIcon Icon="flag" /> @seg.Sprint.Objetivo</RadzenText>
                         }
 
                         <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
@@ -229,7 +251,14 @@
                                comparables debajo, HOY cruzándolo todo), en un lienzo de 1000×125
                                que se estira al ancho disponible. Los umbrales para enseñar el
                                número del día o el mes también son los de allá: por debajo de esos
-                               tamaños el texto se pisa y deja de leerse. *@
+                               tamaños el texto se pisa y deja de leerse.
+
+                               TODO EL COLOR VA EN style Y NUNCA EN fill= NI EN stroke=. Los
+                               atributos de presentación aceptan var() en los navegadores modernos,
+                               pero si la variable no existe fallan EN SILENCIO y la forma se pinta
+                               de negro: un dibujo entero en negro sobre fondo grafito y nadie se
+                               entera. Con style, si la variable falta la forma no se pinta y el
+                               error salta a la vista en la primera prueba. *@
                             <svg viewBox="0 0 1000 125" style="width:100%; height:auto"
                                  role="img" aria-label="@AriaDeLaLinea(seg)">
                                 @{
@@ -243,13 +272,23 @@
                                     var fecha = seg.Sprint.Inicio.Date.AddDays(d);
                                     double x = 14 + d * celda;
 
+                                    @* El 200 de la escala y NO el 100. El 100 vale #f5f2ee en claro,
+                                       donde se ve, pero en oscuro vale #1c1a18 — que es EXACTAMENTE
+                                       --rz-card-background-color, la tarjeta que hay debajo de este
+                                       dibujo—: el fin de semana desaparecía en el tema oscuro sin
+                                       dejar rastro, y a diferencia de las barras de abajo esta franja
+                                       no lleva contorno que la salve. El 200 es el mismo tono que
+                                       --rz-border-color, así que la franja tiene el mismo peso que las
+                                       líneas del calendario y da la misma relación en los dos modos
+                                       (1.27 y 1.35), que es la regla que fija tema.css para lo que
+                                       separa sin gritar. *@
                                     if (fecha.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
                                     {
-                                        <rect x="@N(x)" y="8" width="@N(celda)" height="40" fill="#F1F5F9" />
+                                        <rect x="@N(x)" y="8" width="@N(celda)" height="40" style="fill:var(--rz-base-200)" />
                                     }
                                     if (celda >= 8)
                                     {
-                                        <line x1="@N(x)" y1="8" x2="@N(x)" y2="48" stroke="#E2E8F0" stroke-width="1" />
+                                        <line x1="@N(x)" y1="8" x2="@N(x)" y2="48" style="stroke:var(--rz-border-color)" stroke-width="1" />
                                     }
                                     @* Los <text> del SVG van envueltos en un <g> cuando salen de dentro
                                        de un bloque de código: ahí Razor toma «text» por su etiqueta de
@@ -258,49 +297,75 @@
                                     if (celda >= 17)
                                     {
                                         <g>
-                                            <text x="@N(x + celda / 2)" y="42" font-size="10" fill="#64748B"
+                                            <text x="@N(x + celda / 2)" y="42" font-size="10"
+                                                  style="fill:var(--rz-text-secondary-color)"
                                                   text-anchor="middle">@fecha.Day</text>
                                         </g>
                                     }
                                     if ((d == 0 || fecha.Day == 1) && celda * 3 >= 30)
                                     {
                                         <g>
-                                            <text x="@N(x + 2)" y="20" font-size="10" fill="#0F172A">@fecha.ToString("MMM")</text>
+                                            <text x="@N(x + 2)" y="20" font-size="10"
+                                                  style="fill:var(--rz-text-color)">@fecha.ToString("MMM")</text>
                                         </g>
                                     }
                                 }
-                                <rect x="14" y="8" width="972" height="40" fill="none" stroke="#E2E8F0" stroke-width="1" />
+                                <rect x="14" y="8" width="972" height="40"
+                                      style="fill:none;stroke:var(--rz-border-color)" stroke-width="1" />
 
-                                @* Marcas de entregas (▲ lleno) y compromisos (△ hueco) sobre su día. *@
+                                @* Marcas de entregas (▲ lleno) y compromisos (△ hueco) sobre su día.
+                                   Entregado es un éxito y el compromiso pendiente es un aviso: los
+                                   dos salen del mapa semántico, no de un color elegido a ojo. *@
                                 @foreach (var marca in Marcas(seg))
                                 {
                                     <polygon points="@marca.Puntos"
-                                             fill="@(marca.Entregado ? "#15803D" : "none")"
-                                             stroke="@(marca.Entregado ? "none" : "#B45309")" stroke-width="1.6" />
+                                             style="@(marca.Entregado
+                                                        ? "fill:var(--rz-success)"
+                                                        : "fill:none;stroke:var(--rz-warning)")"
+                                             stroke-width="1.6" />
                                 }
 
                                 @* Barras comparables: si la de abajo (avance) va detrás de la de
-                                   arriba (tiempo), vamos atrasados. *@
-                                <rect x="14" y="62" width="972" height="14" fill="#F1F5F9" />
-                                <rect x="14" y="62" width="@N(972.0 * Math.Clamp(seg.Avance.TiempoPct, 0, 100) / 100)"
-                                      height="14" fill="#93C5FD" />
-                                <rect x="14" y="62" width="972" height="14" fill="none" stroke="#E2E8F0" stroke-width="1" />
-                                <text x="18" y="73" font-size="10" fill="#0F172A">Tiempo @(seg.Avance.TiempoPct)%</text>
+                                   arriba (tiempo), vamos atrasados.
 
-                                <rect x="14" y="88" width="972" height="14" fill="#F1F5F9" />
+                                   El reparto de color es deliberado y es lo que hace legible el
+                                   dibujo: la de TIEMPO es la referencia y va en gris, la de AVANCE es
+                                   EL dato de la pantalla y se lleva el acento. Una sola barra con
+                                   acento; si las dos lo llevaran, no habría contra qué comparar.
+
+                                   El avance ya NO se pinta con el color del veredicto. Con el acento
+                                   como único color de marca, teñir la barra de verde o rojo la
+                                   convertía en un segundo semáforo compitiendo con la tarjeta
+                                   «Estado del sprint», que es donde el veredicto se lee con palabras. *@
+                                <rect x="14" y="62" width="972" height="14" style="fill:var(--rz-base-100)" />
+                                <rect x="14" y="62" width="@N(972.0 * Math.Clamp(seg.Avance.TiempoPct, 0, 100) / 100)"
+                                      height="14" style="fill:var(--rz-base-300)" />
+                                <rect x="14" y="62" width="972" height="14"
+                                      style="fill:none;stroke:var(--rz-border-color)" stroke-width="1" />
+                                <text x="18" y="73" font-size="10" style="fill:var(--rz-text-color)">Tiempo @(seg.Avance.TiempoPct)%</text>
+
+                                <rect x="14" y="88" width="972" height="14" style="fill:var(--rz-base-100)" />
                                 <rect x="14" y="88" width="@N(972.0 * Math.Clamp(seg.Avance.AvanceRealPct, 0, 100) / 100)"
-                                      height="14" fill="@EtiquetasDeTrabajo.ColorDeVeredicto(seg.Avance.Veredicto)" />
-                                <rect x="14" y="88" width="972" height="14" fill="none" stroke="#E2E8F0" stroke-width="1" />
-                                <text x="18" y="99" font-size="10" fill="#0F172A">Avance @(seg.Avance.AvanceRealPct)%</text>
+                                      height="14" style="fill:var(--rz-primary)" />
+                                <rect x="14" y="88" width="972" height="14"
+                                      style="fill:none;stroke:var(--rz-border-color)" stroke-width="1" />
+                                <text x="18" y="99" font-size="10" style="fill:var(--rz-text-color)">Avance @(seg.Avance.AvanceRealPct)%</text>
 
                                 @* HOY solo mientras el sprint corre: en uno ya terminado, «hoy» no
-                                   está en esta línea de tiempo. *@
+                                   está en esta línea de tiempo.
+
+                                   Va en el ACENTO y no en rojo: «hoy» no es un error ni una alarma,
+                                   es la referencia que uno viene a buscar en cuanto abre la pantalla,
+                                   y señalar lo que hay que mirar es exactamente para lo que sirve
+                                   tener un acento único. *@
                                 @if (HayLineaDeHoy(seg))
                                 {
                                     double xHoy = 14 + seg.Avance.DiasTranscurridos * celda;
-                                    <line x1="@N(xHoy)" y1="4" x2="@N(xHoy)" y2="106" stroke="#DC2626" stroke-width="2" />
+                                    <line x1="@N(xHoy)" y1="4" x2="@N(xHoy)" y2="106"
+                                          style="stroke:var(--rz-primary)" stroke-width="2" />
                                     <g>
-                                        <text x="@N(xHoy)" y="118" font-size="10" fill="#DC2626" text-anchor="middle">HOY</text>
+                                        <text x="@N(xHoy)" y="118" font-size="10"
+                                              style="fill:var(--rz-primary)" text-anchor="middle">HOY</text>
                                     </g>
                                 }
                             </svg>
@@ -312,7 +377,13 @@
                                         EmptyText="Este sprint todavía no tiene requerimientos.">
                             <Columns>
                                 <RadzenDataGridColumn TItem="RequerimientoDeSprintDto" Title="" Width="45px">
-                                    <Template Context="r">@(r.Mio ? "👤" : "")</Template>
+                                    @* En 45px y sin cabecera no cabe una palabra, así que aquí el dibujo
+                                       SE QUEDA; lo que cambia es que sea glifo de la fuente y no emoji,
+                                       para que herede el color del renglón. Y lleva title porque una
+                                       marca muda en una columna sin título no se explica sola —la misma
+                                       regla que ya aplica Desempeno.razor a su columna de evidencias—.
+                                       «person» es el mismo glifo con el que MainLayout dice «tú». *@
+                                    <Template Context="r">@if (r.Mio) { <RadzenIcon Icon="person" title="Asignado a ti" /> }</Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="RequerimientoDeSprintDto" Property="EstadoTexto"
                                                       Title="Estado" Width="130px">
@@ -327,9 +398,10 @@
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="RequerimientoDeSprintDto" Property="Compromiso"
                                                       Title="Compromiso" Width="120px">
-                                    @* El compromiso vencido va en rojo: es lo que el líder vino a ver. *@
+                                    @* El compromiso vencido va en rojo Y en negrita: es lo que el líder
+                                       vino a ver, y en oscuro el rojo solo no basta para encontrarlo. *@
                                     <Template Context="r">
-                                        <span style="@(r.CompromisoVencido ? "color:#DC2626; font-weight:600" : "")">
+                                        <span style="@(r.CompromisoVencido ? "color:var(--rz-danger); font-weight:600" : "")">
                                             @(r.Compromiso?.ToString("dd/MM") ?? "—")
                                         </span>
                                     </Template>
@@ -350,7 +422,11 @@
                desarrollador sería una pestaña que solo sabe decir «sin permiso». *@
             @if (EsAdmin)
             {
-                <RadzenTabsItem Text="📈 Histórico">
+                @* «history» y no «show_chart» ni «trending_up»: la pestaña se llama «Histórico» y su
+               asunto son los sprints que ya pasaron; que además se dibujen en una gráfica es cómo se
+               enseña, no qué es. Y contrasta limpiamente con el calendario de la pestaña vecina, que
+               es lo que hay que poder distinguir de un vistazo. *@
+            <RadzenTabsItem Text="Histórico" Icon="history">
                     <RadzenStack Gap="0.75rem">
                         @if (_historico is { } h)
                         {
@@ -394,9 +470,12 @@
                                             double anchoBarra = Math.Max(3, Math.Min(46, paso * 0.62));
                                         }
 
-                                        <line x1="34" y1="160" x2="986" y2="160" stroke="#E2E8F0" stroke-width="1" />
-                                        <text x="30" y="164" font-size="10" fill="#64748B" text-anchor="end">0</text>
-                                        <text x="30" y="18" font-size="10" fill="#64748B" text-anchor="end">@tope</text>
+                                        <line x1="34" y1="160" x2="986" y2="160"
+                                              style="stroke:var(--rz-border-color)" stroke-width="1" />
+                                        <text x="30" y="164" font-size="10"
+                                              style="fill:var(--rz-text-secondary-color)" text-anchor="end">0</text>
+                                        <text x="30" y="18" font-size="10"
+                                              style="fill:var(--rz-text-secondary-color)" text-anchor="end">@tope</text>
 
                                         @for (int i = 0; i < h.Sprints.Count; i++)
                                         {
@@ -405,16 +484,26 @@
                                             double altoComp = 146.0 * s.Total / tope;
                                             double altoEnt = 146.0 * s.Entregados / tope;
 
+                                            @* Lo comprometido es el listón (gris, referencia) y lo
+                                               entregado es lo conseguido (verde de éxito). El hueco
+                                               entre los dos ES el dato: lo que se prometió y no salió. *@
                                             <rect x="@N(cx - anchoBarra / 2)" y="@N(160 - altoComp)"
-                                                  width="@N(anchoBarra)" height="@N(altoComp)" fill="#CBD5E1" />
+                                                  width="@N(anchoBarra)" height="@N(altoComp)"
+                                                  style="fill:var(--rz-base-300)" />
                                             <rect x="@N(cx - anchoBarra / 2)" y="@N(160 - altoEnt)"
-                                                  width="@N(anchoBarra)" height="@N(altoEnt)" fill="#15803D" />
+                                                  width="@N(anchoBarra)" height="@N(altoEnt)"
+                                                  style="fill:var(--rz-success)" />
 
+                                            @* El sprint que sigue abierto se distingue por PESO y no
+                                               por color: el acento está reservado para la acción y para
+                                               «hoy», y gastarlo aquí lo dejaría sin significar nada. *@
                                             @if (paso >= 26)
                                             {
                                                 <g>
                                                     <text x="@N(cx)" y="174" font-size="10" text-anchor="middle"
-                                                          fill="@(s.Cerrado ? "#64748B" : "#2563EB")">@Abreviar(s.Nombre, paso)</text>
+                                                          style="@(s.Cerrado
+                                                                     ? "fill:var(--rz-text-secondary-color)"
+                                                                     : "fill:var(--rz-text-color);font-weight:600")">@Abreviar(s.Nombre, paso)</text>
                                                 </g>
                                             }
                                         }
@@ -424,11 +513,14 @@
                                            enseñar, solo un dato disfrazado de tendencia. *@
                                         @if (h.SprintsContados >= 2)
                                         {
+                                            @* Punteada y en el color informativo: es una referencia que
+                                               se lee contra las barras, no un dato ni una alarma. *@
                                             double y = 160 - 146.0 * h.Velocidad / tope;
-                                            <line x1="34" y1="@N(y)" x2="986" y2="@N(y)" stroke="#2563EB"
+                                            <line x1="34" y1="@N(y)" x2="986" y2="@N(y)"
+                                                  style="stroke:var(--rz-info)"
                                                   stroke-width="2" stroke-dasharray="6 4" />
                                             <g>
-                                                <text x="38" y="@N(y - 4)" font-size="10" fill="#2563EB">
+                                                <text x="38" y="@N(y - 4)" font-size="10" style="fill:var(--rz-info)">
                                                     velocidad @h.Velocidad.ToString("0.#")
                                                 </text>
                                             </g>
@@ -459,8 +551,12 @@
                                                           Width="110px" TextAlign="TextAlign.Right" />
                                     <RadzenDataGridColumn TItem="SprintResumenDto" Property="CompletadoPct" Title="Cumplido"
                                                           Width="110px" TextAlign="TextAlign.Right">
+                                        @* El cumplimiento solo se juzga con color cuando el sprint YA
+                                           cerró. Mientras corre, el porcentaje va en tinta normal: dar
+                                           un veredicto a media carrera es dárselo a un sprint que
+                                           todavía puede terminar bien. *@
                                         <Template Context="s">
-                                            <b style="@($"color:{(s.Cerrado ? EtiquetasDeTrabajo.ColorDeCumplimiento(s.CompletadoPct) : "#2563EB")}")">
+                                            <b style="@($"color:{(s.Cerrado ? EtiquetasDeTrabajo.ColorDeCumplimiento(s.CompletadoPct) : "var(--rz-text-color)")}")">
                                                 @(s.Total == 0 ? "—" : $"{s.CompletadoPct}%")
                                             </b>
                                         </Template>
@@ -755,8 +851,11 @@
     private string Pie(SeguimientoDeSprintDto seg)
     {
         if (seg.Requerimientos.Count == 0)
+            // Se nombra el botón por su etiqueta, entre comillas angulares como el resto de los
+            // mensajes de esta aplicación. La frase intentaba DIBUJAR el botón dentro del texto, y
+            // esto es una cadena: aquí un nombre de icono se pintaría como palabra, no como glifo.
             return EsAdmin
-                ? "Este sprint no tiene requerimientos: 📋 Requerimientos… para colgarle trabajo."
+                ? "Este sprint no tiene requerimientos: usa «Requerimientos…» para colgarle trabajo."
                 : "Este sprint todavía no tiene requerimientos.";
 
         var a = seg.Avance;
@@ -775,8 +874,15 @@
         else if (!EsAdmin && !TieneFicha)
             partes.Add("Tu cuenta no está ligada a una ficha de desarrollador: no se resalta nada como tuyo.");
         else if (!EsAdmin)
-            partes.Add($"👤 = asignado a ti ({seg.Mios}).");
+            // Ésta es la LEYENDA de la marca de la primera columna de la rejilla, y va en una cadena
+            // donde no cabe un componente: no se puede escribir «person = asignado a ti» porque ahí
+            // se pintaría la palabra. Se describe dónde mirar, que es el caso claro de «si no se
+            // puede poner el icono, se explica con palabras».
+            partes.Add($"La columna de la izquierda marca los tuyos ({seg.Mios}).");
 
+        // Los ▲/△ de esta frase NO son iconos y por eso se quedan: son la leyenda de unas marcas
+        // dibujadas en SVG unas líneas más arriba, en esta misma pantalla. Describen formas reales
+        // que están ahí; cambiarlas por nombres de la fuente rompería la correspondencia.
         partes.Add("En la línea de tiempo: ▲ entregado, △ compromiso, sombreado = fin de semana.");
         return string.Join("  ", partes);
     }
@@ -790,13 +896,18 @@
                   "entregados por sprint CERRADO — úsala para comprometer el siguiente.";
 
     /// <summary>
-    /// Lo mío, resaltado por FONDO —no por color de texto—: el texto ya lleva el color del estado y
-    /// el rojo del compromiso vencido, y pisarlos borraría la señal importante. Es la misma decisión
+    /// Lo mío, resaltado SIN tocar el color del texto: el texto ya lleva el color del estado y el
+    /// rojo del compromiso vencido, y pisarlos borraría la señal importante. Es la misma decisión
     /// del escritorio.
+    ///
+    /// Es una BARRA lateral y no un fondo. El fondo crema de antes era un color claro opaco: en tema
+    /// oscuro quedaba casi blanco con el texto claro encima y la fila se volvía ilegible, que es
+    /// exactamente el defecto que se está quitando. La barra no toca el fondo, así que tampoco pelea
+    /// con el rayado de la rejilla ni con el resaltado de la fila seleccionada.
     /// </summary>
     private void ResaltarLosMios(RowRenderEventArgs<RequerimientoDeSprintDto> args)
     {
-        if (args.Data.Mio) args.Attributes["style"] = "background-color:#FEF9C5";
+        if (args.Data.Mio) args.Attributes["style"] = "box-shadow: inset 3px 0 0 var(--rz-primary)";
     }
 
     public void Dispose()

@@ -4,7 +4,13 @@
     La consola del despliegue: los renglones que va contando el servidor, en el orden en que
     llegaron.
 
-    DOS DECISIONES QUE CONVIENE NO PERDER:
+    TRES DECISIONES QUE CONVIENE NO PERDER:
+
+      · ESTA CONSOLA VA OSCURA EN LOS DOS TEMAS, Y NO ES UN OLVIDO. Es una terminal, y una terminal
+        clara no se lee. Por eso sus colores NO salen de la paleta de la aplicación: salen de siete
+        variables propias —--adminweb-consola-*— que valen lo mismo en claro y en oscuro. El verde de
+        «bien» y el rojo de «mal» de una terminal son convención de terminal y no el semáforo de
+        estados de la aplicación, así que tampoco siguen sus reglas.
 
       · El texto se pinta como TEXTO. Nada de MarkupString: por aquí pasan rutas remotas y respuestas
         literales de servidores FTP ajenos, y esos servidores no son de fiar. Un mensaje de error que
@@ -15,13 +21,18 @@
         desplazarla ni tocar JavaScript. Es el equivalente del ScrollToCaret del escritorio.
 *@
 
-<div style="background:#141821; color:#dce6f0; font-family:Consolas,'Courier New',monospace;
+@* El borde no es un adorno: la consola vive DENTRO de una tarjeta y su fondo (#141821) contra la
+   tarjeta del tema oscuro (#1c1a18) da 1.02, o sea nada. Sin la línea, en oscuro no se ve dónde
+   empieza y dónde acaba la terminal y la salida del despliegue parece texto suelto de la página. *@
+<div style="background:var(--adminweb-consola-fondo); color:var(--adminweb-consola-texto);
+            border:1px solid var(--adminweb-consola-borde);
+            font-family:Consolas,'Courier New',monospace;
             font-size:.82rem; line-height:1.45; padding:.75rem; border-radius:6px;
             height:@Alto; overflow-y:auto; display:flex; flex-direction:column-reverse;">
     <div>
         @if (Renglones.Count == 0)
         {
-            <div style="color:#7d8ba0">@Vacio</div>
+            <div style="color:var(--adminweb-consola-tenue)">@Vacio</div>
         }
         else
         {
@@ -29,7 +40,7 @@
             @foreach (var renglon in Renglones.Reverse())
             {
                 <div style="@Estilo(renglon); white-space:pre-wrap; word-break:break-word;">
-                    <span style="color:#6d7a8d">[@renglon.Utc.ToLocalTime().ToString("HH:mm:ss")]</span>
+                    <span style="color:var(--adminweb-consola-tenue)">[@renglon.Utc.ToLocalTime().ToString("HH:mm:ss")]</span>
                     @(renglon.Servidor is null ? "" : $" [{renglon.Servidor}]")
                     @(" " + renglon.Mensaje)
                 </div>
@@ -50,16 +61,22 @@
     /// El color de un renglón. Se decide por el NIVEL, que lo pone el servidor; la bitácora fina
     /// llega toda como «Info», así que para esa se mira el símbolo con el que se escribió —el mismo
     /// criterio que la consola del escritorio— y no el texto en sí.
+    ///
+    /// <para>Los símbolos que se buscan aquí son los que ESCRIBE EL SERVIDOR en su mensaje: son un
+    /// dato de entrada, no decoración de esta pantalla, y por eso siguen siendo caracteres.</para>
+    ///
+    /// <para>Las variables son las de la consola y no las del semáforo de la aplicación: aquí el
+    /// verde y el rojo son convención de terminal y valen lo mismo en los dos temas.</para>
     /// </summary>
     private static string Estilo(RenglonDeBitacoraDto r) => r.Nivel switch
     {
-        DeployLogLevel.Exito => "color:#86efac",
-        DeployLogLevel.Error => "color:#fca5a5",
-        DeployLogLevel.Advertencia => "color:#fde047",
-        _ when r.Mensaje.Contains('✓') || r.Mensaje.Contains('✅') => "color:#86efac",
-        _ when r.Mensaje.Contains('⚠') || r.Mensaje.Contains('↻') => "color:#fde047",
+        DeployLogLevel.Exito => "color:var(--adminweb-consola-exito)",
+        DeployLogLevel.Error => "color:var(--adminweb-consola-error)",
+        DeployLogLevel.Advertencia => "color:var(--adminweb-consola-aviso)",
+        _ when r.Mensaje.Contains('✓') || r.Mensaje.Contains('✅') => "color:var(--adminweb-consola-exito)",
+        _ when r.Mensaje.Contains('⚠') || r.Mensaje.Contains('↻') => "color:var(--adminweb-consola-aviso)",
         // Con cadenas y no con caracteres: estos emojis no caben en un char (son pares subrogados).
-        _ when r.Mensaje.Contains("🚀") || r.Mensaje.Contains("🌐") || r.Mensaje.Contains("💾") => "color:#93c5fd",
+        _ when r.Mensaje.Contains("🚀") || r.Mensaje.Contains("🌐") || r.Mensaje.Contains("💾") => "color:var(--adminweb-consola-dato)",
         _ => ""
     };
 }

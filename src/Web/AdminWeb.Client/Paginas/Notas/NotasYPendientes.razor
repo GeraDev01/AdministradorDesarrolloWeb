@@ -49,8 +49,11 @@
             </RadzenText>
             @if (datos.Vencidas > 0)
             {
-                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0" Style="@($"color:{Rojo};font-weight:600")">
-                    ⚠ @datos.Vencidas con el recordatorio vencido
+                @* El triángulo va como glifo de la fuente y no como el carácter ⚠: éste lo dibuja el
+                   sistema operativo, sale distinto en cada equipo y no hereda el color, así que el
+                   aviso se veía de un color en Windows y de otro en un móvil. *@
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0" Style="@($"color:{Vencido};font-weight:600")">
+                    <RadzenIcon Icon="warning" /> @datos.Vencidas con el recordatorio vencido
                 </RadzenText>
             }
         }
@@ -63,8 +66,10 @@
                             Change="@((bool _) => Cargar())" Disabled="@_ocupado" />
             <RadzenLabel Text="Solo pendientes" Component="soloPendientes" />
 
-            <RadzenButton Text="➕ Nueva" Click="@Nueva" Disabled="@_ocupado" Style="margin-left:auto" />
-            <RadzenButton Text="📊 Excel" ButtonStyle="ButtonStyle.Light"
+            <RadzenButton Text="Nueva" Icon="add" Click="@Nueva" Disabled="@_ocupado" Style="margin-left:auto" />
+            @* «download» y no un icono de hoja de cálculo: para quien lo usa la acción es «sale un
+               archivo», y el formato ya lo dice el texto del botón. *@
+            <RadzenButton Text="Excel" Icon="download" ButtonStyle="ButtonStyle.Light"
                           Click="@(() => Descargas.DesdeApiAsync(Ruta("/excel")))" Disabled="@_ocupado" />
         </RadzenStack>
     </RadzenCard>
@@ -145,7 +150,12 @@
                 <Template Context="n">@(n.Recordatorio?.ToString("dd/MM/yyyy") ?? "—")</Template>
             </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="NotaDto" Property="Completada" Title="Estado" Width="130px">
-                <Template Context="n">@(n.Completada ? "✓ Completado" : "Pendiente")</Template>
+                @* La palomita va como glifo de la fuente por lo mismo que el triángulo de arriba: el
+                   carácter ✓ lo resuelve el sistema operativo y no hereda el color del renglón. Se
+                   conserva la marca —en vez de dejar solo la palabra— porque en una columna donde la
+                   otra opción es «Pendiente» a secas, es lo que deja contar los completados de un
+                   barrido sin leer celda por celda. *@
+                <Template Context="n">@if (n.Completada) { <RadzenIcon Icon="done" /> <text>Completado</text> } else { <text>Pendiente</text> }</Template>
             </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="NotaDto" Property="Alta" Title="Alta" Width="110px">
                 @* La fecha de alta sí es un instante en UTC, así que esta sí se convierte. *@
@@ -155,10 +165,15 @@
                 <Template Context="n">
                     <RadzenButton Text="Abrir" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                   Disabled="@_ocupado" Click="@(() => Abrir(n))" />
+                    @* La palomita SOLA —sin círculo— porque completar es una acción sobre lo propio;
+                       el círculo queda para aprobar, que es decidir sobre lo de otro. Reabrir lleva
+                       el icono de «volver al estado inicial», que es literalmente lo que hace. *@
                     <RadzenButton Text="@(n.Completada ? "Reabrir" : "Completar")"
+                                  Icon="@(n.Completada ? "restart_alt" : "done")"
                                   ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                   Disabled="@_ocupado" Click="@(() => Completar(n))" />
-                    <RadzenButton Text="Eliminar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                    <RadzenButton Text="Eliminar" Icon="delete" ButtonStyle="ButtonStyle.Light"
+                                  Size="ButtonSize.ExtraSmall"
                                   Disabled="@_ocupado" Click="@(() => Eliminar(n))" />
                 </Template>
             </RadzenDataGridColumn>
@@ -167,10 +182,13 @@
 </RadzenStack>
 
 @code {
-    // Los mismos colores del escritorio, para que las dos aplicaciones se lean igual mientras
-    // convivan: rojo lo vencido, gris lo ya cerrado.
-    private const string Rojo = "#ef4444";
-    private const string Gris = "#64748b";
+    // La MISMA LECTURA del escritorio —lo vencido reclama, lo cerrado se apaga— pero ya no los
+    // mismos hexes. Se rompió la paridad de color con el escritorio a propósito: la aplicación web
+    // tiene tema claro y oscuro y aquellos dos hexes solo estaban pensados para fondo claro, así que
+    // en oscuro el gris de «cerrado» se perdía contra el fondo. Si se quisiera recuperar la paridad
+    // exacta habría que devolver los literales y renunciar al tema oscuro en esta rejilla.
+    private const string Vencido = "var(--rz-danger)";
+    private const string Cerrado = "var(--rz-text-secondary-color)";
 
     private readonly CancellationTokenSource _cancelacion = new();
 
@@ -294,11 +312,15 @@
     /// Vencido en rojo, cerrado en gris: la misma lectura de un vistazo que daba la rejilla del
     /// escritorio. Lo de «atrasada» lo calculó el SERVIDOR con su propio reloj — un equipo con la
     /// fecha mal puesta no puede decidir qué va con retraso.
+    ///
+    /// Lo atrasado va además en NEGRITA, y no es adorno: en tema oscuro el rojo pierde fuerza contra
+    /// el grafito, y hay quien no lo distingue del texto normal. Con el peso, la fila se sigue
+    /// leyendo distinta impresa en blanco y negro.
     /// </summary>
     private void Pintar(RowRenderEventArgs<NotaDto> args)
     {
-        if (args.Data.Completada) args.Attributes["style"] = $"color:{Gris}";
-        else if (args.Data.Atrasada) args.Attributes["style"] = $"color:{Rojo}";
+        if (args.Data.Completada) args.Attributes["style"] = $"color:{Cerrado}";
+        else if (args.Data.Atrasada) args.Attributes["style"] = $"color:{Vencido};font-weight:600";
     }
 
     /// <summary>Tope del recorte del contenido en la rejilla; el texto completo se ve al abrir la nota.</summary>

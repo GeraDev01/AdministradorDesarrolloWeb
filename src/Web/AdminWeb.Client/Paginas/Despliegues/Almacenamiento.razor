@@ -43,7 +43,9 @@
         <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Almacenamiento</RadzenText>
         <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
                       Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
-        <RadzenButton Text="🔌 Probar conexión" ButtonStyle="ButtonStyle.Light"
+        @* El matraz es «probar»: se lanza algo a ver qué contesta. Es el mismo botón que en Correo y
+           en «Mi token de DevOps», y lleva el mismo icono a propósito. *@
+        <RadzenButton Text="Probar conexión" Icon="science" ButtonStyle="ButtonStyle.Light"
                       Size="ButtonSize.Small" Click="@Probar" Disabled="@(_ocupado || !Configurado)" />
     </RadzenStack>
 
@@ -71,12 +73,17 @@
                                 Data="@e.Carpetas" AllowFiltering="true" Disabled="@_ocupado"
                                 Change="@(_ => Listar())" Style="min-width:20rem" />
 
-                <RadzenButton Text="🔄 Listar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                @* «Listar» lleva refresh y no sync aunque hable con Azure: solo LEE, no escribe nada
+                   en nuestra base y no cambia el estado de nada. El de sincronizar queda para lo que
+                   trae datos de fuera y los guarda. *@
+                <RadzenButton Text="Listar" Icon="refresh" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                               Click="@Listar" Disabled="@_ocupado" />
-                <RadzenButton Text="📁 Nueva carpeta" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                @* «add» y no una carpeta: todo lo que da de alta algo lleva el mismo icono en la
+                   aplicación entera, y qué se crea lo dice el texto. *@
+                <RadzenButton Text="Nueva carpeta" Icon="add" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                               Click="@CrearCarpeta" Disabled="@_ocupado" />
-                <RadzenButton Text="🗑 Eliminar carpeta" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
-                              Click="@EliminarCarpeta" Disabled="@_ocupado" />
+                <RadzenButton Text="Eliminar carpeta" Icon="delete" ButtonStyle="ButtonStyle.Light"
+                              Size="ButtonSize.Small" Click="@EliminarCarpeta" Disabled="@_ocupado" />
 
                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                     Contenedor «@e.Contenedor»
@@ -91,8 +98,8 @@
                         <InputFile OnChange="@Elegir" />
                         <RadzenCheckBox TValue="bool" @bind-Value="_sobrescribir" Name="sobrescribir" />
                         <RadzenLabel Text="Sobrescribir si ya existe" Component="sobrescribir" />
-                        <RadzenButton Text="⬆ Subir" Size="ButtonSize.Small" Disabled="@(_ocupado || _elegido is null)"
-                                      Click="@Subir" />
+                        <RadzenButton Text="Subir" Icon="upload" Size="ButtonSize.Small"
+                                      Disabled="@(_ocupado || _elegido is null)" Click="@Subir" />
                         @if (_elegido is { } archivo)
                         {
                             <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@archivo.Name</RadzenText>
@@ -141,16 +148,18 @@
                     </RadzenDataGridColumn>
                     <RadzenDataGridColumn TItem="ArchivoDeBlobDto" Title="" Width="330px" Sortable="false">
                         <Template Context="a">
-                            <RadzenButton Text="Descargar" ButtonStyle="ButtonStyle.Light"
+                            <RadzenButton Text="Descargar" Icon="download" ButtonStyle="ButtonStyle.Light"
                                           Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                           Click="@(() => Descargar(a))" />
-                            <RadzenButton Text="Enlace" ButtonStyle="ButtonStyle.Light"
+                            @* La cadena es la ACCIÓN «enlace» en toda la aplicación, y aquí es
+                               literal: lo que sale es una URL firmada. *@
+                            <RadzenButton Text="Enlace" Icon="link" ButtonStyle="ButtonStyle.Light"
                                           Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                           Click="@(() => GenerarEnlace(a))" />
-                            <RadzenButton Text="Metadatos" ButtonStyle="ButtonStyle.Light"
+                            <RadzenButton Text="Metadatos" Icon="list_alt" ButtonStyle="ButtonStyle.Light"
                                           Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                           Click="@(() => AbrirMetadatos(a))" />
-                            <RadzenButton Text="Eliminar" ButtonStyle="ButtonStyle.Light"
+                            <RadzenButton Text="Eliminar" Icon="delete" ButtonStyle="ButtonStyle.Light"
                                           Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                           Click="@(() => Eliminar(a))" />
                         </Template>
@@ -177,16 +186,19 @@
                                          AlignItems="AlignItems.Center" Wrap="FlexWrap.Wrap">
                                 <RadzenTextBox @bind-Value="fila.Clave" Style="width:14rem" Placeholder="nombre" />
                                 <RadzenTextBox @bind-Value="fila.Valor" Style="width:22rem" Placeholder="valor" />
-                                <RadzenButton Text="Quitar" ButtonStyle="ButtonStyle.Light"
+                                @* «clear» y no «delete»: esto quita una fila del formulario que
+                                   todavía no se ha guardado. Mientras no se pulse Guardar, en Azure
+                                   no ha pasado nada, y el bote de basura diría lo contrario. *@
+                                <RadzenButton Text="Quitar" Icon="clear" ButtonStyle="ButtonStyle.Light"
                                               Size="ButtonSize.ExtraSmall" Click="@(() => _metadatos.Remove(fila))" />
                             </RadzenStack>
                         }
 
                         <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
-                            <RadzenButton Text="➕ Agregar" ButtonStyle="ButtonStyle.Light"
+                            <RadzenButton Text="Agregar" Icon="add" ButtonStyle="ButtonStyle.Light"
                                           Size="ButtonSize.Small" Click="@(() => _metadatos.Add(new FilaDeMetadato()))" />
-                            <RadzenButton Text="Guardar" Disabled="@_ocupado" Click="@GuardarMetadatos" />
-                            <RadzenButton Text="Cerrar" ButtonStyle="ButtonStyle.Light"
+                            <RadzenButton Text="Guardar" Icon="save" Disabled="@_ocupado" Click="@GuardarMetadatos" />
+                            <RadzenButton Text="Cerrar" Icon="close" ButtonStyle="ButtonStyle.Light"
                                           Disabled="@_ocupado" Click="@(() => _editandoMetadatosDe = null)" />
                         </RadzenStack>
                     </RadzenStack>
@@ -206,10 +218,10 @@
                         </RadzenText>
                         <RadzenTextArea Value="@enlace.Url" ReadOnly="true" Rows="3" Style="width:100%" />
                         <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
-                            <RadzenButton Text="📋 Copiar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
-                                          Click="@(() => Copiar(enlace.Url))" />
-                            <RadzenButton Text="Cerrar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
-                                          Click="@(() => _enlace = null)" />
+                            <RadzenButton Text="Copiar" Icon="content_copy" ButtonStyle="ButtonStyle.Light"
+                                          Size="ButtonSize.Small" Click="@(() => Copiar(enlace.Url))" />
+                            <RadzenButton Text="Cerrar" Icon="close" ButtonStyle="ButtonStyle.Light"
+                                          Size="ButtonSize.Small" Click="@(() => _enlace = null)" />
                         </RadzenStack>
                     </RadzenStack>
                 </RadzenCard>
@@ -435,9 +447,14 @@
             return;
         }
 
+        // «ATENCIÓN:» en palabras y no un triángulo delante. Esto es el texto de un diálogo de
+        // confirmación de borrado, o sea una cadena pura donde no cabe ningún componente; pero aquí
+        // el aviso NO se puede simplemente quitar como en los resúmenes, porque es lo único que
+        // separa borrar una carpeta cualquiera de borrar los respaldos. La palabra se lee igual en
+        // cualquier equipo y sobrevive a que el diálogo se copie a un correo o a un ticket.
         var avisoBase = alcance.EsCarpetaBase
-            ? "\n\n⚠ Contiene una CARPETA BASE del sistema (versiones o respaldos): al borrarla se " +
-              "elimina TODO ese histórico."
+            ? "\n\nATENCIÓN: contiene una CARPETA BASE del sistema (versiones o respaldos): al " +
+              "borrarla se elimina TODO ese histórico."
             : "";
 
         if (!await Avisos.ConfirmarEscribiendoAsync(

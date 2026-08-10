@@ -40,10 +40,13 @@
 <RadzenStack Gap="1rem">
     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem" Wrap="FlexWrap.Wrap">
         <RadzenText TextStyle="TextStyle.H5" Style="margin:0">Equipos</RadzenText>
-        <RadzenButton Text="➕ Nuevo equipo" Disabled="@_ocupado" Click="@AbrirEquipoNuevo" />
-        <RadzenButton Text="📄 Generar PDF" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+        <RadzenButton Text="Nuevo equipo" Icon="add" Disabled="@_ocupado" Click="@AbrirEquipoNuevo" />
+        <RadzenButton Text="Generar PDF" Icon="download" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
                       Click="@GenerarPdf" />
-        <RadzenButton Text="📜 Historial" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+        @* «history» —el reloj con la flecha hacia atrás— es el mismo concepto que la entrada
+           «Bitácora» del menú. Era el único botón de esta cabecera sin Icon, así que además del
+           emoji había una fila desalineada: cuatro glifos de trazo y un pergamino en color. *@
+        <RadzenButton Text="Historial" Icon="history" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
                       Click="@AlternarHistorial" />
         <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
                       Size="ButtonSize.Small" Disabled="@_ocupado" Click="@Cargar" />
@@ -68,8 +71,13 @@
                     <RadzenStack Gap="0.25rem">
                         <RadzenLabel Text="Color (hex)" Component="colorEquipo" />
                         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                            @* EXCEPCIÓN CONSCIENTE: aquí sí va un hex escrito a mano. Lo que se
+                               captura en esta caja se guarda TAL CUAL en la base y puede acabar en
+                               el PDF del organigrama, y «var(--rz-primary)» no significa nada fuera
+                               del navegador. Es el ámbar del acento en claro (--rz-primary de
+                               tema.css): si allí cambia, cámbialo aquí a mano. *@
                             <RadzenTextBox @bind-Value="_colorEquipo" Name="colorEquipo" MaxLength="9"
-                                           Placeholder="#2563EB" Style="width:8rem" />
+                                           Placeholder="#BA490B" Style="width:8rem" />
                             @* La muestra en vivo: el color es lo que identifica al equipo en el
                                tablero y en el PDF, y un hex mal escrito solo se nota al verlo. *@
                             <div style="@($"width:2rem;height:2rem;border-radius:4px;background:{Color(_colorEquipo)}")"></div>
@@ -81,8 +89,8 @@
                                 Placeholder="Descripción (opcional): a qué se dedica este equipo" />
 
                 <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
-                    <RadzenButton Text="Guardar" Disabled="@_ocupado" Click="@GuardarEquipo" />
-                    <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                    <RadzenButton Text="Guardar" Icon="save" Disabled="@_ocupado" Click="@GuardarEquipo" />
+                    <RadzenButton Text="Cancelar" Icon="close" ButtonStyle="ButtonStyle.Light"
                                   Disabled="@_ocupado" Click="@(() => _capturandoEquipo = false)" />
                 </RadzenStack>
             </RadzenStack>
@@ -131,10 +139,17 @@
                     </div>
 
                     <RadzenStack Gap="0.5rem" Style="flex:0 0 auto;padding-top:2rem">
-                        <RadzenButton Text="Mover al equipo →" Size="ButtonSize.Small"
+                        @* «group_add» es la única excepción a «crear = add»: aquí no se crea nada,
+                           se mete a alguien en un equipo que ya existe. Los dos botones perdieron su
+                           flecha: describían el MOVIMIENTO en la pantalla (de una columna a la otra),
+                           que es una casualidad de la maquetación, mientras que group_add/remove
+                           describen la ACCIÓN, que no cambia si mañana se reordenan las columnas. Y
+                           como RadzenButton no tiene IconPosition, una flecha no podría ir detrás del
+                           texto ni queriendo: solo quedaría un carácter colgando dentro del Text. *@
+                        <RadzenButton Text="Mover al equipo" Icon="group_add" Size="ButtonSize.Small"
                                       Disabled="@(_ocupado || _equipoDestino is null || _marcadosSinEquipo.Count == 0)"
                                       Click="@MoverAlEquipo" />
-                        <RadzenButton Text="← Quitar del equipo" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                        <RadzenButton Text="Quitar del equipo" Icon="remove" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                                       Disabled="@(_ocupado || _marcadosDelEquipo.Count == 0)"
                                       Click="@QuitarDelEquipo" />
                     </RadzenStack>
@@ -164,8 +179,15 @@
                                         <RadzenCheckBox TValue="bool" Value="@_marcadosDelEquipo.Contains(integrante.Id)"
                                                         ValueChanged="@((bool m) => Marcar(_marcadosDelEquipo, integrante.Id, m))"
                                                         Disabled="@_ocupado" />
+                                        @* Aquí la marca SÍ hace falta: es una lista plana de gente sin
+                                           ninguna cabecera que diga quién manda. Material no tiene
+                                           corona y lo más cercano del recorte es «workspace_premium»
+                                           (la roseta con cinta), así que es un apaño consciente — por
+                                           eso lleva title: un dibujo que no se reconoce a la primera
+                                           necesita que se le pueda preguntar. *@
                                         <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0" Style="min-width:11rem">
-                                            @(integrante.EsLider ? "👑 " : "")@integrante.Nombre
+                                            @if (integrante.EsLider) { <RadzenIcon Icon="workspace_premium" title="Líder del equipo" /> }
+                                            @integrante.Nombre
                                         </RadzenText>
                                         @* El rol se cambia aquí, en un desplegable: el clic derecho del
                                            escritorio compite en la web con el menú del navegador. *@
@@ -197,7 +219,12 @@
         {
             <RadzenCard>
                 <RadzenStack Gap="0.5rem">
-                    <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">📜 Rotaciones recientes</RadzenText>
+                    @* El mismo glifo que el botón «Historial» que abre este panel: el que abre y lo
+                       que se abre tienen que reconocerse como la misma cosa. Va como <RadzenIcon>
+                       porque RadzenText no admite el parámetro Icon. *@
+                    <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                        <RadzenIcon Icon="history" /> Rotaciones recientes
+                    </RadzenText>
                     <RadzenDataGrid TItem="RotacionDto" Data="@_historial" AllowSorting="false"
                                     AllowPaging="true" PageSize="10"
                                     EmptyText="Todavía no se ha movido a nadie de equipo.">
@@ -228,14 +255,22 @@
                                      JustifyContent="JustifyContent.SpaceBetween" Gap="0.25rem">
                             <RadzenText TextStyle="TextStyle.Subtitle1" Style="margin:0">@equipo.Nombre</RadzenText>
                             <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem">
-                                <RadzenButton Text="✏" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Light"
+                                              Size="ButtonSize.ExtraSmall" title="Editar este equipo"
                                               Disabled="@_ocupado" Click="@(() => AbrirEquipo(equipo))" />
-                                <RadzenButton Text="🗑" ButtonStyle="ButtonStyle.Danger" Size="ButtonSize.ExtraSmall"
+                                <RadzenButton Icon="delete" ButtonStyle="ButtonStyle.Danger"
+                                              Size="ButtonSize.ExtraSmall" title="Eliminar este equipo"
                                               Disabled="@_ocupado" Click="@(() => EliminarEquipo(equipo))" />
                             </RadzenStack>
                         </RadzenStack>
                         <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
-                            @equipo.Integrantes.Count integrante(s) &nbsp;·&nbsp; 🖥 @equipo.Sistemas &nbsp; 📁 @equipo.Proyectos
+                            @* Los tres datos con su palabra: la línea ya empezaba con «N
+                               integrante(s)» escrito, así que los otros dos con un dibujo al lado
+                               quedaban en un formato distinto al de su vecino de la izquierda, y
+                               encima había que adivinar qué era la carpeta y qué el monitor. Dos
+                               <RadzenIcon> («dns» y «folder») también valdrían, pero entonces habría
+                               que ponerle uno también a «integrante(s)» o quedaría uno sin marca. *@
+                            @equipo.Integrantes.Count integrante(s) &nbsp;·&nbsp; @equipo.Sistemas sistema(s) &nbsp;·&nbsp; @equipo.Proyectos proyecto(s)
                         </RadzenText>
                         @if (!string.IsNullOrWhiteSpace(equipo.Descripcion))
                         {
@@ -261,10 +296,15 @@
                                             Style="@($"margin:.6rem 0 .2rem;font-weight:600;color:{grupo.First().ColorDeRol}")">
                                     @grupo.Key.ToUpperInvariant()
                                 </RadzenText>
+                                @* Aquí el líder NO se marca, al revés que en la lista de asignación de
+                                   arriba: este bucle agrupa por rol y pinta dos renglones más arriba
+                                   el rótulo del rol en mayúsculas y en su color («LÍDER»), así que
+                                   una marca al lado del nombre repetiría lo que ya está escrito con
+                                   todas sus letras. *@
                                 @foreach (var i in grupo)
                                 {
                                     <RadzenText TextStyle="TextStyle.Body2" Style="margin:.1rem 0">
-                                        @(i.EsLider ? "👑 " : "")@i.Nombre
+                                        @i.Nombre
                                     </RadzenText>
                                 }
                             }
@@ -276,7 +316,9 @@
             @if (_organizacion.SinEquipo.Count > 0)
             {
                 <RadzenCard Style="width:17rem;padding:0;overflow:hidden">
-                    <div style="border-left:6px solid #94A3B8;padding:.75rem 1rem">
+                    @* Este borde NO es un color de equipo —«Sin equipo» no es un equipo—: es un
+                       borde, y por eso va a la variable de bordes y no a un gris escrito a mano. *@
+                    <div style="border-left:6px solid var(--rz-border-color);padding:.75rem 1rem">
                         <RadzenText TextStyle="TextStyle.Subtitle1" Style="margin:0">Sin equipo</RadzenText>
                         <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
                             @_organizacion.SinEquipo.Count integrante(s)
@@ -296,9 +338,15 @@
 
 @code {
     /// <summary>Los roles asignables, con el mismo texto y el mismo orden que el menú del escritorio.</summary>
+    /// <remarks>
+    /// Son el TextProperty de un RadzenDropDown, o sea CADENAS dentro de una lista desplegable: no hay
+    /// dónde colgar un componente, así que aquí no cabe ningún icono. «Líder» iba con una corona y los
+    /// otros siete roles sin nada, de modo que la marca no ordenaba nada: solo hacía que una opción de
+    /// ocho se dibujara con otra fuente y en color.
+    /// </remarks>
     private static readonly OpcionDeRol[] Roles =
     [
-        new(TeamRole.Lider, "👑 Líder"),
+        new(TeamRole.Lider, "Líder"),
         new(TeamRole.Frontend, "Frontend Dev"),
         new(TeamRole.Backend, "Backend Dev"),
         new(TeamRole.Fullstack, "Fullstack"),
@@ -482,9 +530,18 @@
         finally { _ocupado = false; }
     }
 
-    /// <summary>El color del equipo, o el azul de siempre si nadie le puso uno.</summary>
+    /// <summary>
+    /// El color del equipo para PINTARLO. El que capturó la persona se devuelve tal cual —es un
+    /// dato suyo, guardado en la base, y el tema no tiene nada que decir sobre él—; el que falta se
+    /// resuelve con el acento de la aplicación en vez de con un azul escrito a mano, que era lo que
+    /// dejaba las tarjetas sin equipo con el color de la plantilla anterior.
+    ///
+    /// Lo que devuelve puede ser la CADENA «var(--…)»: solo se interpola dentro de un atributo
+    /// style y la resuelve el navegador. No la uses para nada que salga del navegador —el hex que
+    /// va a la base sale de la caja de captura, no de aquí.
+    /// </summary>
     private static string Color(string? hex) =>
-        string.IsNullOrWhiteSpace(hex) ? "#2563EB" : hex!;
+        string.IsNullOrWhiteSpace(hex) ? "var(--rz-primary)" : hex!;
 
     public void Dispose()
     {

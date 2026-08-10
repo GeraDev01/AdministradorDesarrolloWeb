@@ -36,7 +36,7 @@
     {
         <RadzenTabs>
             <Tabs>
-                <RadzenTabsItem Text="🎯 Estimación vs real">
+                <RadzenTabsItem Text="Estimación vs real" Icon="balance">
                     <RadzenStack Gap="1rem">
                         <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
                             @foreach (var indicador in d.IndicadoresDeEstimacion)
@@ -83,8 +83,15 @@
                                                       Title="Reales (h)" Width="130px" TextAlign="TextAlign.Right">
                                     <Template Context="f">@f.HorasReales.ToString("0.#")</Template>
                                 </RadzenDataGridColumn>
+                                @* «Dif.» y no la letra griega Δ que había, por el mismo motivo por el
+                                   que se fueron los emojis: los archivos de IBM Plex que se sirven son
+                                   subconjuntos latinos —míralo en el unicode-range de tipografia.css— y
+                                   el griego NO entra, así que la Δ la acababa dibujando la fuente de
+                                   respaldo del equipo, con otro grosor y otra línea base que el resto
+                                   de la cabecera. Y de paso se lee sin saber de dónde viene el símbolo:
+                                   el signo del número ya dice si sobró o faltó tiempo. *@
                                 <RadzenDataGridColumn TItem="FilaDeEstimacionDto" Property="Delta"
-                                                      Title="Δ (h)" Width="110px" TextAlign="TextAlign.Right">
+                                                      Title="Dif. (h)" Width="110px" TextAlign="TextAlign.Right">
                                     <Template Context="f">@f.Delta.ToString("+0.#;-0.#;0")</Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="FilaDeEstimacionDto" Property="Ratio"
@@ -102,7 +109,7 @@
                     </RadzenStack>
                 </RadzenTabsItem>
 
-                <RadzenTabsItem Text="👥 Capacidad del equipo">
+                <RadzenTabsItem Text="Capacidad del equipo" Icon="groups">
                     <RadzenStack Gap="1rem">
                         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                      Gap="0.75rem" Wrap="FlexWrap.Wrap">

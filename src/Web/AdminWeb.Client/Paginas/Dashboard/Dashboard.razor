@@ -27,12 +27,12 @@ else
 
         @* ── Tarjetas ───────────────────────────────────────────────────────── *@
         <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.75rem">
-            @Tarjeta("Por estimar",   _datos.Tarjetas.PorEstimar,   Gris)
-            @Tarjeta("En desarrollo", _datos.Tarjetas.EnDesarrollo, Ambar)
-            @Tarjeta("Por entregar",  _datos.Tarjetas.PorEntregar,  Naranja)
-            @Tarjeta("Entregados",    _datos.Tarjetas.Entregados,   Verde)
-            @Tarjeta("Cancelados",    _datos.Tarjetas.Cancelados,   Rojo)
-            @Tarjeta("Pendientes",    _datos.Tarjetas.Pendientes,   Morado)
+            @Tarjeta("Por estimar",   _datos.Tarjetas.PorEstimar,   SinEmpezar)
+            @Tarjeta("En desarrollo", _datos.Tarjetas.EnDesarrollo, EnCurso)
+            @Tarjeta("Por entregar",  _datos.Tarjetas.PorEntregar,  EnRiesgo)
+            @Tarjeta("Entregados",    _datos.Tarjetas.Entregados,   Logrado)
+            @Tarjeta("Cancelados",    _datos.Tarjetas.Cancelados,   Problema)
+            @Tarjeta("Pendientes",    _datos.Tarjetas.Pendientes,   OtraCosa)
         </RadzenStack>
 
         <RadzenRow Gap="1rem">
@@ -41,7 +41,14 @@ else
             @* Sin los paneles de equipo ocupa el ancho completo, igual que en el escritorio. *@
             <RadzenColumn Size="12" SizeMD="@(HayDatosDeEquipo ? 6 : 12)">
                 <RadzenCard>
-                    <RadzenText TextStyle="TextStyle.H6">⏰ Próximas entregas (7 días)</RadzenText>
+                    @* Los cuatro rótulos de esta pantalla llevaban un emoji delante. Los emojis los
+                       dibuja el sistema operativo con su propia paleta: no heredan el color del
+                       texto, así que en la barra clara y en la oscura se ven distintos, y en cada
+                       equipo del área se ven de otra forma. Los de la fuente de iconos sí lo
+                       heredan. *@
+                    <RadzenText TextStyle="TextStyle.H6">
+                        <RadzenIcon Icon="event" /> Próximas entregas (7 días)
+                    </RadzenText>
                     <RadzenDataGrid TItem="EntregaProximaDto" Data="@_datos.ProximasEntregas"
                                     AllowSorting="false" RowRender="@PintarEntrega"
                                     EmptyText="Nada comprometido para esta semana."
@@ -62,7 +69,9 @@ else
             {
                 <RadzenColumn Size="12" SizeMD="6">
                     <RadzenCard>
-                        <RadzenText TextStyle="TextStyle.H6">👤 Carga por desarrollador</RadzenText>
+                        <RadzenText TextStyle="TextStyle.H6">
+                            <RadzenIcon Icon="groups" /> Carga por desarrollador
+                        </RadzenText>
                         <RadzenDataGrid TItem="CargaDesarrolladorDto" Data="@carga" AllowSorting="false"
                                         EmptyText="No hay desarrolladores activos."
                                         Style="min-height:220px">
@@ -80,7 +89,11 @@ else
             {
                 <RadzenColumn Size="12" SizeMD="6">
                     <RadzenCard>
-                        <RadzenText TextStyle="TextStyle.H6">📌 Recordatorios pendientes</RadzenText>
+                        @* La misma chincheta que la entrada «Notas y pendientes» del menú, a
+                           propósito: este panel es esa pantalla asomada al Dashboard. *@
+                        <RadzenText TextStyle="TextStyle.H6">
+                            <RadzenIcon Icon="push_pin" /> Recordatorios pendientes
+                        </RadzenText>
                         <RadzenDataGrid TItem="RecordatorioDto" Data="@recordatorios" AllowSorting="false"
                                         RowRender="@PintarRecordatorio"
                                         EmptyText="No hay recordatorios pendientes."
@@ -103,18 +116,21 @@ else
             {
                 <RadzenColumn Size="12" SizeMD="6">
                     <RadzenCard>
-                        <RadzenText TextStyle="TextStyle.H6">🏆 Top ranking — @_datos.PeriodoRanking</RadzenText>
+                        @* El mismo trofeo que «Desempeño» en el menú: este panel es su resumen. *@
+                        <RadzenText TextStyle="TextStyle.H6">
+                            <RadzenIcon Icon="emoji_events" /> Top ranking — @_datos.PeriodoRanking
+                        </RadzenText>
                         <RadzenDataGrid TItem="PuestoRankingDto" Data="@podio" AllowSorting="false"
                                         EmptyText="Sin datos este mes."
                                         Style="min-height:220px">
                             <Columns>
                                 <RadzenDataGridColumn TItem="PuestoRankingDto" Title="Pos." Width="12%">
-                                    <Template Context="fila">@Medalla(fila.Posicion)</Template>
+                                    <Template Context="fila">@Posicion(fila.Posicion)</Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="PuestoRankingDto" Property="Nombre" Title="Dev" Width="55%" />
                                 <RadzenDataGridColumn TItem="PuestoRankingDto" Title="Pts" Width="18%">
                                     <Template Context="fila">
-                                        <span style="@($"color:{(fila.Puntos >= 0 ? Verde : Rojo)};font-weight:600")">
+                                        <span style="@($"color:{(fila.Puntos >= 0 ? Logrado : Problema)};font-weight:600")">
                                             @(fila.Puntos > 0 ? $"+{fila.Puntos}" : fila.Puntos.ToString())
                                         </span>
                                     </Template>
@@ -131,15 +147,25 @@ else
 }
 
 @code {
-    // Los mismos colores del escritorio (AppTheme), para que las dos aplicaciones se lean igual
-    // mientras convivan: gris «por estimar», ámbar «en desarrollo», naranja «por entregar»,
-    // verde «entregado», rojo «cancelado» y morado los pendientes, que no son requerimientos.
-    private const string Gris    = "#64748b";
-    private const string Ambar   = "#f59e0b";
-    private const string Naranja = "#fb923c";
-    private const string Verde   = "#22c55e";
-    private const string Rojo    = "#ef4444";
-    private const string Morado  = "#8b5cf6";
+    // ATENCIÓN, AQUÍ SE ROMPIÓ ALGO A PROPÓSITO: hasta ahora estos seis eran los hexes exactos del
+    // escritorio (AppTheme) para que las dos aplicaciones se leyeran igual mientras conviven. Ya no.
+    // Un hex fijo solo puede estar calibrado contra UN fondo, y estos lo estaban contra el claro: en
+    // tema oscuro el gris y el verde se apagan contra el grafito. Ahora cada tarjeta dice su
+    // SIGNIFICADO y es la paleta quien elige el tono en cada tema. La paridad con el escritorio se
+    // pierde; si algún día se decide recuperarla, se recupera cambiando la paleta, no volviendo aquí.
+    //
+    // Las cadenas son var(…) y no colores de .NET porque solo se interpolan dentro de un atributo
+    // style: quien las resuelve es el navegador.
+    private const string SinEmpezar = "var(--rz-text-secondary-color)";
+    private const string EnCurso    = "var(--rz-info)";
+    private const string EnRiesgo   = "var(--rz-warning)";
+    private const string Logrado    = "var(--rz-success)";
+    private const string Problema   = "var(--rz-danger)";
+
+    // «Pendientes» no es un estado del requerimiento: son notas y recordatorios, otra COSA. Por eso
+    // no toma ningún color del semáforo —diría que algo va mal o algo va bien, y no dice ninguna de
+    // las dos— y sale de la escala de series.
+    private const string OtraCosa   = "var(--adminweb-serie-1)";
 
     private DashboardDto? _datos;
 
@@ -160,32 +186,67 @@ else
         </RadzenCard>
     };
 
-    // Atrasado = rojo y en negritas, tal cual el escritorio. El «atrasado» lo calculó el servidor con
-    // su propio reloj: un equipo con la fecha mal puesta no puede pintar de rojo lo que va en tiempo.
+    // Atrasado = rojo y en negritas. El «atrasado» lo calculó el servidor con su propio reloj: un
+    // equipo con la fecha mal puesta no puede pintar de rojo lo que va en tiempo.
+    //
+    // La negrita NO es adorno y va en las DOS rejillas: sobre el grafito del tema oscuro el rojo
+    // pierde fuerza, y hay quien no lo distingue del texto normal. Si el color es la única señal, la
+    // fila deja de decir nada para esa persona —y también impresa en blanco y negro.
     private void PintarEntrega(RowRenderEventArgs<EntregaProximaDto> args)
     {
-        if (args.Data.Atrasado) args.Attributes["style"] = $"color:{Rojo};font-weight:600";
+        if (args.Data.Atrasado) args.Attributes["style"] = $"color:{Problema};font-weight:600";
     }
 
     private void PintarRecordatorio(RowRenderEventArgs<RecordatorioDto> args)
     {
-        if (args.Data.Atrasado) args.Attributes["style"] = $"color:{Rojo}";
+        if (args.Data.Atrasado) args.Attributes["style"] = $"color:{Problema};font-weight:600";
     }
 
     private static string Fecha(DateTime? f, string siNoHay = "—") => f?.ToString("dd/MM/yyyy") ?? siNoHay;
 
-    private static string EtiquetaPrioridad(NotePriority p) => p switch
+    // Los tres círculos de colores que había aquí eran emojis, y era verdad lo que decía el comentario
+    // anterior: el recorte de la fuente no trae una familia de tres niveles de prioridad, así que con
+    // iconos de Material esto no se podía resolver. Pero había una tercera salida, y este repositorio
+    // ya la usó: Componentes/BotonDeEstado.razor cambió cinco emojis de colores por un punto pintado
+    // por nosotros. Un punto de CSS obedece al tema, se ve igual en todos los equipos y conserva lo
+    // único que el emoji aportaba, que era el color. Por eso esto devuelve RenderFragment y no string:
+    // hace falta marcado, y en una cadena no cabe.
+    //
+    // La palabra sigue al lado y NO es adorno: tres puntos de color solos no los distingue quien no
+    // separa el rojo del verde, ni sobreviven a una impresión en blanco y negro. El borde gris tampoco
+    // es decoración: si algún día falta la variable de color, el punto se queda hueco pero se sigue
+    // viendo, en vez de desaparecer sin que nadie note que se rompió algo.
+    //
+    // Los colores van escritos y no toman las constantes de arriba a propósito: aquéllas nombran el
+    // semáforo de las ENTREGAS (SinEmpezar, EnRiesgo, Problema…) y una nota urgente no es un problema
+    // de entrega. Compartir la constante ataría dos significados que pueden querer separarse.
+    private RenderFragment EtiquetaPrioridad(NotePriority p) => __builder =>
     {
-        NotePriority.Alta  => "🔴 Alta",
-        NotePriority.Media => "🟡 Media",
-        _                  => "🔵 Baja"
+        var color = p switch
+        {
+            NotePriority.Alta  => "var(--rz-danger)",
+            NotePriority.Media => "var(--rz-warning)",
+            _                  => "var(--rz-info)"
+        };
+        var texto = p switch
+        {
+            NotePriority.Alta  => "Alta",
+            NotePriority.Media => "Media",
+            _                  => "Baja"
+        };
+
+        <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
+            <span style="@($"width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:{color}")"></span>
+            @texto
+        </span>
     };
 
-    private static string Medalla(int posicion) => posicion switch
-    {
-        1 => "🥇",
-        2 => "🥈",
-        3 => "🥉",
-        _ => $"#{posicion}"
-    };
+    // Todas las posiciones se pintan igual: #1, #2, #3, #4… Antes las tres primeras eran medallas de
+    // oro, plata y bronce, y eran justo el aspecto poco serio que este trabajo venía a quitar —las
+    // dibuja la fuente del sistema y en Windows salen en color aunque la pantalla entera sea
+    // monocroma. Forzar military_tech / workspace_premium / star tampoco servía: son tres glifos del
+    // MISMO color, o sea sin oro ni plata ni bronce, y la jerarquía se perdía igual. Con «#N» la
+    // columna queda coherente de arriba abajo (la fila 4 ya se pintaba así) y el podio se sigue
+    // leyendo, porque la tabla viene ordenada.
+    private static string Posicion(int posicion) => $"#{posicion}";
 }

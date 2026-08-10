@@ -54,8 +54,10 @@
                               DateFormat="dd/MM/yyyy" ShowTime="false" Disabled="@_ocupado"
                               Change="@(_ => Cargar())" Style="width:9rem" />
 
-            <RadzenButton Text="➕ Nueva" Click="@Nueva" Disabled="@_ocupado" Style="margin-left:auto" />
-            <RadzenButton Text="📊 Excel" ButtonStyle="ButtonStyle.Light"
+            <RadzenButton Text="Nueva" Icon="add" Click="@Nueva" Disabled="@_ocupado" Style="margin-left:auto" />
+            @* «download» y no un icono de hoja de cálculo: para quien pulsa lo que pasa es que sale
+               un archivo, y el formato ya lo dice el texto. Es el mismo icono en las 53 pantallas. *@
+            <RadzenButton Text="Excel" Icon="download" ButtonStyle="ButtonStyle.Light"
                           Click="@(() => Descargas.DesdeApiAsync(Ruta("/excel")))" Disabled="@_ocupado" />
         </RadzenStack>
     </RadzenCard>
@@ -90,7 +92,7 @@
                     <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">
                         Compromisos / items de acción
                     </RadzenText>
-                    <RadzenButton Text="➕ Agregar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                    <RadzenButton Text="Agregar" Icon="add" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                   Click="@(() => _compromisos.Add(new CompromisoEditable()))" />
                 </RadzenStack>
 
@@ -124,7 +126,7 @@
                             <RadzenLabel Text="Cumplido" Component="@($"cumplido{_compromisos.IndexOf(compromiso)}")" />
                         </RadzenStack>
 
-                        <RadzenButton Text="🗑" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                        <RadzenButton Icon="delete" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                       Click="@(() => _compromisos.Remove(compromiso))"
                                       title="Quitar este compromiso" />
                     </RadzenStack>
@@ -156,7 +158,9 @@
                 <Template Context="m">
                     @if (m.Pendientes > 0)
                     {
-                        <span style="color:var(--rz-warning)">⚠ @m.Pendientes</span>
+                        @* El triángulo va como icono de la fuente: hereda el ámbar del renglón y es
+                           la segunda señal que hace que la columna se lea aun impresa en gris. *@
+                        <span style="color:var(--rz-warning)"><RadzenIcon Icon="warning" /> @m.Pendientes</span>
                     }
                     else
                     {

@@ -14,7 +14,7 @@
 
       · Arranca en PENDIENTES. Es a lo que se viene a esta pantalla; empezar con todo el histórico
         obligaría a filtrar antes de poder trabajar.
-      · Sigue existiendo «➕ Registrar» para el permiso acordado fuera de la aplicación (una llamada,
+      · Sigue existiendo «Registrar» para el permiso acordado fuera de la aplicación (una llamada,
         un pasillo). Esa fila nace ya aprobada porque registrarla ES concederla. Quitarlo dejaría sin
         lugar a la mitad de los permisos reales.
       · RECHAZAR exige motivo, y el mensaje que lo explica lo escribe el servicio.
@@ -44,12 +44,17 @@
     @if (_datos is { } d)
     {
         @* El contador se cuenta sobre TODOS y no sobre lo filtrado: es el número que dice si queda
-           trabajo por hacer. *@
+           trabajo por hacer.
+
+           La frase va sin reloj de arena delante: es una cadena de C# —no hay dónde colgar un
+           componente— y el aviso ya lo da el Style de aquí abajo, que pinta el renglón en
+           var(--rz-warning) en cuanto hay pendientes. El emoji era la única parte que no cambiaba
+           con el tema. Vacaciones.razor tiene esta misma frase y se trata igual. *@
         <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
                     Style="@(d.Pendientes > 0 ? "color:var(--rz-warning)" : "")">
             @(d.Pendientes == 0
                 ? "No hay solicitudes esperando respuesta."
-                : $"⏳ {d.Pendientes} solicitud(es) esperando tu respuesta.")
+                : $"{d.Pendientes} solicitud(es) esperando tu respuesta.")
         </RadzenText>
 
         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
@@ -66,7 +71,7 @@
                             AllowClear="true" Placeholder="Todos" Disabled="@_ocupado"
                             Change="@(_ => Cargar())" Style="min-width:14rem" />
 
-            <RadzenButton Text="➕ Registrar" ButtonStyle="ButtonStyle.Primary" Disabled="@_ocupado"
+            <RadzenButton Text="Registrar" Icon="add" ButtonStyle="ButtonStyle.Primary" Disabled="@_ocupado"
                           Click="@AbrirRegistro" />
         </RadzenStack>
 
@@ -120,7 +125,7 @@
                     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
                         <RadzenButton Text="Registrar" Icon="save" Disabled="@(_ocupado || _devRegistro is null)"
                                       Click="@Registrar" />
-                        <RadzenButton Text="Descartar" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+                        <RadzenButton Text="Descartar" Icon="close" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
                                       Click="@(() => _registrando = false)" />
                     </RadzenStack>
                 </RadzenStack>
@@ -132,7 +137,7 @@
             <RadzenCard>
                 <RadzenStack Gap="0.75rem">
                     <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
-                        ✏ Corregir el permiso de @enCorreccion.Desarrollador
+                        <RadzenIcon Icon="edit" /> Corregir el permiso de @enCorreccion.Desarrollador
                     </RadzenText>
 
                     @* Se dice ANTES de tocar nada, no después: lo primero que uno se pregunta al ver
@@ -170,7 +175,7 @@
 
                         @if (enCorreccion.TieneJustificante)
                         {
-                            <RadzenButton Text="📎 Ver el justificante" ButtonStyle="ButtonStyle.Light"
+                            <RadzenButton Text="Ver el justificante" Icon="visibility" ButtonStyle="ButtonStyle.Light"
                                           Size="ButtonSize.Small" Disabled="@_ocupado"
                                           Click="@(() => VerJustificante(enCorreccion))" />
                         }
@@ -184,7 +189,7 @@
                     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
                         <RadzenButton Text="Guardar corrección" Icon="save"
                                       Disabled="@(_ocupado || _tipoCorreccion is null)" Click="@Corregir" />
-                        <RadzenButton Text="Descartar" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+                        <RadzenButton Text="Descartar" Icon="close" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
                                       Click="@(() => _corrigiendo = null)" />
                     </RadzenStack>
                 </RadzenStack>
@@ -220,7 +225,7 @@
                     <Template Context="l">
                         @if (l.TieneJustificante)
                         {
-                            <RadzenButton Text="📎 Abrir" ButtonStyle="ButtonStyle.Light"
+                            <RadzenButton Text="Abrir" Icon="visibility" ButtonStyle="ButtonStyle.Light"
                                           Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                           Click="@(() => VerJustificante(l))" />
                         }
@@ -261,20 +266,24 @@
                                se ve y la operación que se permite no pueden discrepar. *@
                             @if (l.SePuedeResolver)
                             {
-                                <RadzenButton Text="Aprobar" ButtonStyle="ButtonStyle.Success"
+                                @* La palomita en círculo y el aspa en círculo son el par clásico y se
+                                   distinguen por FORMA. Hasta ahora los dos botones solo se
+                                   diferenciaban por el color, y en oscuro el verde y el rojo se
+                                   acercan —además de que hay quien no los distingue. *@
+                                <RadzenButton Text="Aprobar" Icon="check_circle" ButtonStyle="ButtonStyle.Success"
                                               Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                               Click="@(() => Aprobar(l))" />
-                                <RadzenButton Text="Rechazar" ButtonStyle="ButtonStyle.Danger"
+                                <RadzenButton Text="Rechazar" Icon="cancel" ButtonStyle="ButtonStyle.Danger"
                                               Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                               Click="@(() => Rechazar(l))" />
                             }
                             @if (l.SePuedeCorregir)
                             {
-                                <RadzenButton Text="Corregir" ButtonStyle="ButtonStyle.Light"
+                                <RadzenButton Text="Corregir" Icon="edit" ButtonStyle="ButtonStyle.Light"
                                               Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                               Click="@(() => AbrirCorreccion(l))" />
                             }
-                            <RadzenButton Text="Eliminar" ButtonStyle="ButtonStyle.Light"
+                            <RadzenButton Text="Eliminar" Icon="delete" ButtonStyle="ButtonStyle.Light"
                                           Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                           Click="@(() => Eliminar(l))" />
                         </RadzenStack>

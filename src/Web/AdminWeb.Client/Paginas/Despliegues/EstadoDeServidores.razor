@@ -50,7 +50,9 @@
 
         @* Pegado a los interruptores a propósito: es lo que hace evidente que baja lo que están
            enseñando y no el inventario entero. *@
-        <RadzenButton Text="📊 Excel" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+        @* El icono dice la ACCIÓN —sale un archivo— y no el formato, que ya lo dice el texto: es el
+           mismo botón de descargar y exportar en las 53 pantallas. *@
+        <RadzenButton Text="Excel" Icon="download" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                       Disabled="@_ocupado" Style="margin-left:auto"
                       Click="@(() => Descargas.DesdeApiAsync(RutaDelFiltro("/excel")))" />
     </RadzenStack>
@@ -112,7 +114,12 @@
                         {
                             @* rel="noopener": sin eso, el sitio que se abre puede reescribir la
                                pestaña de la aplicación desde la suya. *@
-                            <a href="@s.Url" target="_blank" rel="noopener" title="Abrir el sitio">🌍 Abrir</a>
+                            @* La flecha saliendo del marco es lo que avisa de que se abandona la
+                               aplicación; el globo terráqueo era un emoji y salía en color propio en
+                               medio de una tabla en gris. *@
+                            <a href="@s.Url" target="_blank" rel="noopener" title="Abrir el sitio">
+                                <RadzenIcon Icon="open_in_new" /> Abrir
+                            </a>
                         }
                     </Template>
                 </RadzenDataGridColumn>

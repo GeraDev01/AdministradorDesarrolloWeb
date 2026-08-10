@@ -55,15 +55,8 @@ public class ExportacionesAExcelTests
 
     // ═══ Vacaciones del líder ════════════════════════════════════════════════════
 
-    private static DocumentoDeVacacionesService Vacaciones(AppDbContext db, ICurrentUser quien)
-    {
-        var auditoria = new AuditService(db, quien, new OrigenDePrueba());
-        var ajustes = new SettingsService(db, quien, auditoria);
-
-        return new DocumentoDeVacacionesService(
-            db, quien, ajustes, new SignatureService(db, quien, auditoria),
-            new GeneradorDeDocumentosQuestPdf(), new PlantillaDeVacacionesOpenXml(), auditoria);
-    }
+    private static DocumentoDeVacacionesService Vacaciones(AppDbContext db, ICurrentUser quien) =>
+        Fabrica.DocumentoDeVacaciones(db, quien);
 
     private static (AppDbContext db, Developer ana, Developer beto) EquipoConVacaciones()
     {

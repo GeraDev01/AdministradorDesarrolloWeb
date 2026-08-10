@@ -46,16 +46,23 @@
 <RadzenStack Gap="1rem">
     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.75rem" Wrap="FlexWrap.Wrap">
         <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Azure DevOps</RadzenText>
+        @* «Recargar» y «Sincronizar» son los dos botones de esta barra que más se confunden, y por eso
+           llevan iconos distintos: recargar relee de NUESTRA base lo ya sincronizado —es instantáneo y
+           no cambia nada—, y sincronizar sale a Azure DevOps, tarda, puede fallar a medias y escribe.
+           Con el mismo icono de recargar en los dos, que es como estaba, uno se pulsaba por el otro.
+
+           Los dos «⚙» tampoco eran distinguibles entre sí: uno acota lo que se trae (embudo) y el
+           otro abre las normas de reparto (mazo). *@
         <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
                       Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
-        <RadzenButton Text="⟳ Sincronizar" Disabled="@_ocupado" Click="@(() => Sincronizar(null))" />
-        <RadzenButton Text="⚙ Selectiva…" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+        <RadzenButton Text="Sincronizar" Icon="sync" Disabled="@_ocupado" Click="@(() => Sincronizar(null))" />
+        <RadzenButton Text="Selectiva…" Icon="filter_alt" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
                       Click="@(() => Alternar(Panel.Selectiva))" />
-        <RadzenButton Text="⬇ Exportar" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+        <RadzenButton Text="Exportar" Icon="download" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
                       Click="@(() => Descargas.DesdeApiAsync("api/devops/exportar"))" />
-        <RadzenButton Text="📥 Importar a requerimientos" ButtonStyle="ButtonStyle.Light"
+        <RadzenButton Text="Importar a requerimientos" Icon="add" ButtonStyle="ButtonStyle.Light"
                       Disabled="@_ocupado" Click="@Importar" />
-        <RadzenButton Text="⚙ Reglas" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+        <RadzenButton Text="Reglas" Icon="gavel" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
                       Click="@(() => Alternar(Panel.Reglas))" />
     </RadzenStack>
 
@@ -73,7 +80,9 @@
             <RadzenStack Gap="0.15rem">
                 @foreach (var cambio in _cambiosVigilados)
                 {
-                    <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">🔔 @cambio</RadzenText>
+                    <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                        <RadzenIcon Icon="notifications_active" /> @cambio
+                    </RadzenText>
                 }
             </RadzenStack>
         </RadzenAlert>
@@ -87,7 +96,7 @@
                            Change="@(_ => RecalcularFilas())" Style="min-width:16rem" />
             <RadzenTextBox @bind-Value="_titulo" Placeholder="Título contiene…"
                            Change="@(_ => RecalcularFilas())" Style="min-width:14rem" />
-            <RadzenButton Text="🧹 Limpiar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+            <RadzenButton Text="Limpiar" Icon="clear" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                           Disabled="@_ocupado" Click="@LimpiarFiltros" />
 
             <RadzenLabel Text="Vista:" Component="vista" />
@@ -95,9 +104,9 @@
                             Data="@FiltrosGuardados" TextProperty="Nombre" ValueProperty="Id"
                             AllowClear="true" Placeholder="(sin vista guardada)" Disabled="@_ocupado"
                             Change="@(_ => AplicarVista())" Style="min-width:13rem" />
-            <RadzenButton Text="💾 Guardar vista" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+            <RadzenButton Text="Guardar vista" Icon="save" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                           Disabled="@_ocupado" Click="@GuardarVista" />
-            <RadzenButton Text="🗑" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+            <RadzenButton Icon="delete" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                           Disabled="@(_ocupado || _filtroAplicado is null)" Click="@EliminarVista"
                           title="Eliminar la vista guardada" />
         </RadzenStack>
@@ -105,9 +114,9 @@
 
     @* ── Indicadores: reflejan SIEMPRE lo filtrado ───────────────────────────── *@
     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
-        @foreach (var (etiqueta, valor, color) in Indicadores())
+        @foreach (var (etiqueta, valor, color, borde) in Indicadores())
         {
-            <RadzenCard Style="@($"min-width:8.5rem;border-left:4px solid {color}")">
+            <RadzenCard Style="@($"min-width:8.5rem;border-left:4px solid {borde}")">
                 <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0" Style="@($"color:{color}")">@valor</RadzenText>
                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@etiqueta</RadzenText>
             </RadzenCard>
@@ -124,7 +133,9 @@
     {
         <RadzenCard>
             <RadzenStack Gap="0.75rem">
-                <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">⚙ Sincronización selectiva</RadzenText>
+                <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                    <RadzenIcon Icon="filter_alt" /> Sincronización selectiva
+                </RadzenText>
                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                     Marca solo lo que necesitas para que la sincronización sea rápida. Si no marcas
                     nada, se traen todos (menos los removidos). Los filtros se combinan: tipos Y
@@ -149,8 +160,8 @@
                 </RadzenStack>
 
                 <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
-                    <RadzenButton Text="Sincronizar" Disabled="@_ocupado" Click="@SincronizarSelectiva" />
-                    <RadzenButton Text="Cerrar" ButtonStyle="ButtonStyle.Light"
+                    <RadzenButton Text="Sincronizar" Icon="sync" Disabled="@_ocupado" Click="@SincronizarSelectiva" />
+                    <RadzenButton Text="Cerrar" Icon="close" ButtonStyle="ButtonStyle.Light"
                                   Disabled="@_ocupado" Click="@Cerrar" />
                 </RadzenStack>
             </RadzenStack>
@@ -161,8 +172,11 @@
     {
         <RadzenCard>
             <RadzenStack Gap="0.75rem">
+                @* El mazo y no el engranaje: aquí no se configura nada, se dictan NORMAS que después
+                   se evalúan por orden. Y no es «rule» —la palomita y la tacha sobre renglones—
+                   porque ése significa «se cumplió o no» en el resto de la aplicación. *@
                 <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
-                    ⚙ Reglas de auto-asignación
+                    <RadzenIcon Icon="gavel" /> Reglas de auto-asignación
                 </RadzenText>
                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                     Al importar work items como requerimientos se evalúan por orden y gana la primera
@@ -178,13 +192,19 @@
                         <RadzenDataGridColumn TItem="ReglaDeAsignacionDto" Property="Valor" Title="Valor" />
                         <RadzenDataGridColumn TItem="ReglaDeAsignacionDto" Property="Desarrollador" Title="Asignar a" Width="190px" />
                         <RadzenDataGridColumn TItem="ReglaDeAsignacionDto" Property="Activa" Title="Activa" Width="90px">
-                            <Template Context="r">@(r.Activa ? "✓" : "✗")</Template>
+                            @* Glifos de la fuente y no los caracteres ✓/✗, como ya hacen Limpieza.razor
+                               y Configuracion.razor. Importa en esta rejilla en concreto porque las
+                               reglas inactivas se leen de reojo: el glifo se atenúa con la fila y el
+                               carácter se queda con su propio negro encima de un renglón apagado. *@
+                            <Template Context="r">@if (r.Activa) { <RadzenIcon Icon="done" /> } else { <RadzenIcon Icon="close" /> }</Template>
                         </RadzenDataGridColumn>
                         <RadzenDataGridColumn TItem="ReglaDeAsignacionDto" Title="" Width="150px" Sortable="false">
                             <Template Context="r">
-                                <RadzenButton Text="Editar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                <RadzenButton Text="Editar" Icon="edit" ButtonStyle="ButtonStyle.Light"
+                                              Size="ButtonSize.ExtraSmall"
                                               Disabled="@_ocupado" Click="@(() => EditarRegla(r))" />
-                                <RadzenButton Text="Eliminar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                <RadzenButton Text="Eliminar" Icon="delete" ButtonStyle="ButtonStyle.Light"
+                                              Size="ButtonSize.ExtraSmall"
                                               Disabled="@_ocupado" Click="@(() => EliminarRegla(r))" />
                             </Template>
                         </RadzenDataGridColumn>
@@ -205,11 +225,14 @@
                                    Style="width:6rem" />
                     <RadzenCheckBox TValue="bool" @bind-Value="_reglaActiva" Name="activa" />
                     <RadzenLabel Text="Activa" Component="activa" />
+                    @* El icono cambia con el texto porque cambia la acción: una es dar de alta algo
+                       que no existía y la otra es guardar lo que ya está. *@
                     <RadzenButton Text="@(_reglaId > 0 ? "Guardar regla" : "Añadir regla")"
+                                  Icon="@(_reglaId > 0 ? "save" : "add")"
                                   Disabled="@_ocupado" Click="@GuardarRegla" />
                     @if (_reglaId > 0)
                     {
-                        <RadzenButton Text="Cancelar edición" ButtonStyle="ButtonStyle.Light"
+                        <RadzenButton Text="Cancelar edición" Icon="close" ButtonStyle="ButtonStyle.Light"
                                       Disabled="@_ocupado" Click="@LimpiarRegla" />
                     }
                 </RadzenStack>
@@ -226,8 +249,12 @@
                     <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
                         #@ticket.Numero — @ticket.Titulo
                     </RadzenText>
-                    <a href="@ticket.Url" target="_blank" rel="noopener">🔗 Abrir en Azure DevOps</a>
-                    <RadzenButton Text="Cerrar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                    @* La flecha saliendo del marco y no la cadena: la cadena es «hay una URL
+                       asociada», y esto es «te vas de la aplicación a otro sistema». *@
+                    <a href="@ticket.Url" target="_blank" rel="noopener">
+                        <RadzenIcon Icon="open_in_new" /> Abrir en Azure DevOps
+                    </a>
+                    <RadzenButton Text="Cerrar" Icon="close" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                                   Disabled="@_ocupado" Click="@Cerrar" Style="margin-left:auto" />
                 </RadzenStack>
 
@@ -251,7 +278,7 @@
                                     {
                                         <RadzenCard Style="background:var(--rz-base-200)">
                                             <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
-                                                🧑 @c.Autor · @c.CreadoUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                                                <RadzenIcon Icon="person" /> @c.Autor · @c.CreadoUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
                                             </RadzenText>
                                             @* Texto plano y nunca MarkupString: los comentarios los escribe
                                                gente de fuera del equipo y llegan en HTML. *@
@@ -267,7 +294,7 @@
                                         Placeholder="Escribe tu comentario…" />
                         <PegarImagen @bind-Imagenes="_evidencias" Maximo="5" />
                         <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
-                            <RadzenButton Text="Enviar 💬" Disabled="@_ocupado" Click="@Comentar" />
+                            <RadzenButton Text="Enviar" Icon="send" Disabled="@_ocupado" Click="@Comentar" />
                         </RadzenStack>
                         break;
 
@@ -296,8 +323,14 @@
                                 <RadzenStack Gap="0.2rem">
                                     @foreach (var bug in ficha.Regresiones)
                                     {
+                                        @* «pending» —el círculo con puntos— y no un círculo relleno a
+                                           secas: dice «todavía en curso», que es lo que el ● quería
+                                           decir, mientras que un punto macizo no se distingue de una
+                                           viñeta de lista. Es la misma pareja que MisTickets.razor,
+                                           que enseña esta misma ficha al desarrollador. *@
                                         <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
-                                            @(bug.Cerrado ? "✓" : "●") <a href="@bug.Url" target="_blank" rel="noopener">#@bug.Id</a>
+                                            @if (bug.Cerrado) { <RadzenIcon Icon="done" /> } else { <RadzenIcon Icon="pending" /> }
+                                            <a href="@bug.Url" target="_blank" rel="noopener">#@bug.Id</a>
                                             — @bug.Titulo (@bug.Estado)
                                         </RadzenText>
                                     }
@@ -314,9 +347,17 @@
                                 <RadzenStack Gap="0.2rem">
                                     @foreach (var cambio in ficha.Asignaciones)
                                     {
+                                        @* El chevron de la fuente y no el carácter «→» que había entre
+                                           el dueño anterior y el nuevo. La flecha no está en los
+                                           subconjuntos de IBM Plex que se sirven —el unicode-range de
+                                           tipografia.css llega a U+2191 y U+2193 y salta la U+2192—, así
+                                           que la dibujaba la fuente de respaldo de cada equipo, que es
+                                           exactamente el defecto por el que se fueron los emojis. Dentro
+                                           de un Body2 el icono se mide con el texto (regla de tema.css),
+                                           no a 24 px. La raya larga sí está en el subconjunto y se queda. *@
                                         <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
                                             @cambio.FechaUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
-                                            — @TextoOGuion(cambio.De) → @TextoOGuion(cambio.A)
+                                            — @TextoOGuion(cambio.De) <RadzenIcon Icon="chevron_right" /> @TextoOGuion(cambio.A)
                                         </RadzenText>
                                     }
                                 </RadzenStack>
@@ -333,7 +374,8 @@
                             <RadzenDropDown TValue="int?" @bind-Value="_reasignarA" Data="@ConCorreo"
                                             TextProperty="Texto" ValueProperty="Id" AllowClear="true"
                                             Placeholder="(dejar sin asignar)" Style="min-width:16rem" />
-                            <RadzenButton Text="Reasignar" Disabled="@_ocupado" Click="@Reasignar" />
+                            <RadzenButton Text="Reasignar" Icon="supervisor_account"
+                                          Disabled="@_ocupado" Click="@Reasignar" />
                         </RadzenStack>
                         break;
 
@@ -346,6 +388,9 @@
                             <RadzenDropDown TValue="string" @bind-Value="_nuevoEstado"
                                             Data="@EstadosConocidos" Placeholder="Mover a…"
                                             Style="min-width:12rem" />
+                            @* Sin icono a propósito: en el recorte de la fuente no hay ninguno que
+                               signifique «pasar de una columna a otra», y ponerle uno aproximado
+                               —una flecha, un reloj— diría algo que no es. *@
                             <RadzenButton Text="Mover" Disabled="@_ocupado" Click="@CambiarEstado" />
                         </RadzenStack>
                         break;
@@ -360,7 +405,8 @@
                                      AlignItems="AlignItems.Center">
                             <RadzenDropDown TValue="int" @bind-Value="_nuevaPrioridad" Data="@Prioridades"
                                             TextProperty="Texto" ValueProperty="Valor" Style="min-width:14rem" />
-                            <RadzenButton Text="Cambiar prioridad" Disabled="@_ocupado" Click="@CambiarPrioridad" />
+                            <RadzenButton Text="Cambiar prioridad" Icon="priority_high"
+                                          Disabled="@_ocupado" Click="@CambiarPrioridad" />
                         </RadzenStack>
                         break;
                 }
@@ -379,7 +425,13 @@
         <Columns>
             <RadzenDataGridColumn TItem="TicketDevOpsDto" Title="" Width="46px"
                                   Sortable="false" Filterable="false" Pickable="false">
-                <Template Context="t">@(t.Vigilado ? "🔔" : "")</Template>
+                @* La campana con ondas: este ticket «suena», y es lo único que dice esta columna. *@
+                <Template Context="t">
+                    @if (t.Vigilado)
+                    {
+                        <RadzenIcon Icon="notifications_active" title="Lo estás vigilando" />
+                    }
+                </Template>
             </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Numero" Title="ID" Width="80px">
                 <Template Context="t">
@@ -389,14 +441,25 @@
             <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Tipo" Title="Tipo" Width="120px" />
             <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Titulo" Title="Título" />
             <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Estado" Title="Estado" Width="115px">
+                @* El mapa de estados vive en EstadosDeDevOps y no aquí: era la MISMA tabla copiada en
+                   esta pantalla y en «Mis tickets», y con dos copias se corregía una y se olvidaba la
+                   otra. *@
                 <Template Context="t">
-                    <b style="@($"color:{ColorDeEstado(t.Estado)}")">@t.Estado</b>
+                    <b style="@($"color:{EstadosDeDevOps.Color(t.Estado)}")">@t.Estado</b>
                 </Template>
             </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Prioridad" Title="Prio" Width="90px">
+                @* El triángulo de la fuente y no el carácter ⚠: el carácter lo dibuja el sistema
+                   operativo, se queda amarillo aunque el texto sea de aviso y cambia de forma en cada
+                   equipo. Éste hereda el color de al lado. La negrita es la segunda señal: sobre el
+                   grafito del tema oscuro el color de aviso solo no basta. *@
                 <Template Context="t">
-                    <span style="@(t.SinPrioridadDefinida && !t.Cerrado ? "color:var(--rz-warning)" : "")">
-                        @(string.IsNullOrWhiteSpace(t.Prioridad) ? "—" : t.Prioridad)@(t.SinPrioridadDefinida && !t.Cerrado ? " ⚠" : "")
+                    <span style="@(t.SinPrioridadDefinida && !t.Cerrado ? "color:var(--rz-warning);font-weight:600" : "")">
+                        @(string.IsNullOrWhiteSpace(t.Prioridad) ? "—" : t.Prioridad)
+                        @if (t.SinPrioridadDefinida && !t.Cerrado)
+                        {
+                            <RadzenIcon Icon="warning" title="Nadie le ha definido prioridad" />
+                        }
                     </span>
                 </Template>
             </RadzenDataGridColumn>
@@ -409,10 +472,16 @@
             <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Puntos" Title="Pts" Width="70px" TextAlign="TextAlign.Right">
                 <Template Context="t">@(t.Puntos?.ToString("0.#") ?? "—")</Template>
             </RadzenDataGridColumn>
-            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="HorasEstimadas" Title="⏱ Est." Width="80px" TextAlign="TextAlign.Right">
+            @* «Est. (h)» ocupa lo mismo que el «⏱ Est.» que había y dice más: la celda enseña 3,5 y
+               hasta ahora no había forma de saber si eran horas o días. El cronómetro insinuaba la
+               unidad a medias; la palabra la dice. Misma cabecera que en MisTickets.razor. *@
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="HorasEstimadas" Title="Est. (h)" Width="80px" TextAlign="TextAlign.Right">
                 <Template Context="t">@(t.HorasEstimadas?.ToString("0.##") ?? "—")</Template>
             </RadzenDataGridColumn>
-            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Comentarios" Title="💬" Width="70px" TextAlign="TextAlign.Right">
+            @* Se abrevia porque la columna mide 70px, pero se abrevia la PALABRA: «Coment.» se
+               entiende, se busca en el selector de columnas y se ordena con sentido. Un bocadillo no
+               hace ninguna de las tres cosas. *@
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Comentarios" Title="Coment." Width="70px" TextAlign="TextAlign.Right">
                 <Template Context="t">@(t.Comentarios == 0 ? "" : t.Comentarios.ToString())</Template>
             </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="ActualizadoUtc" Title="Actualizado" Width="120px">
@@ -420,18 +489,38 @@
             </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="TicketDevOpsDto" Title="" Width="330px"
                                   Sortable="false" Filterable="false" Pickable="false">
+                @* Los seis botones de la fila eran emojis dentro del texto. Ahora son iconos de la
+                   fuente: un emoji lo dibuja el sistema operativo con su propia paleta, así que en la
+                   fila deshabilitada seguía saliendo a todo color como si se pudiera pulsar, y en
+                   cada equipo del área se veía de otra forma.
+
+                   El title de cada uno se queda y es lo que dice la acción: seis iconos seguidos sin
+                   texto solo se distinguen si se pueden señalar.
+
+                   «Mover a estado» lleva «swap_horiz», la flecha de doble punta: mover un ticket de
+                   estado es pasarlo de una columna a otra, y eso incluye devolverlo. Se descartó
+                   «chevron_right» justo por eso —daría a entender que solo se avanza— y NO se usa
+                   aquí ni «sync» ni «cached»: «sync» es el botón «Sincronizar» de la cabecera de
+                   esta misma pantalla, y dos glifos iguales con dos significados en una pantalla es
+                   peor que no tener glifo. *@
                 <Template Context="t">
-                    <RadzenButton Text="💬" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                    <RadzenButton Icon="forum" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                   Disabled="@_ocupado" Click="@(() => AbrirComentarios(t))" title="Ver y agregar comentarios" />
-                    <RadzenButton Text="👤" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                    <RadzenButton Icon="supervisor_account" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                   Disabled="@_ocupado" Click="@(() => AbrirReasignar(t))" title="Reasignar" />
-                    <RadzenButton Text="↔" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                    <RadzenButton Icon="swap_horiz" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                   Disabled="@_ocupado" Click="@(() => AbrirEstado(t))" title="Mover a estado" />
-                    <RadzenButton Text="🔧" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                    <RadzenButton Icon="priority_high" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                   Disabled="@_ocupado" Click="@(() => AbrirPrioridad(t))" title="Cambiar prioridad" />
-                    <RadzenButton Text="🔍" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                    @* La ficha es un ANÁLISIS del ticket —cuántas regresiones, por cuántas manos
+                       pasó—, no una búsqueda: por eso la lupa sobre barras y no la lupa sola. *@
+                    <RadzenButton Icon="query_stats" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                   Disabled="@_ocupado" Click="@(() => AbrirFicha(t))" title="Regresiones y devoluciones" />
-                    <RadzenButton Text="@(t.Vigilado ? "🔕" : "🔔")" ButtonStyle="ButtonStyle.Light"
+                    @* La campana dice el ESTADO y no la acción: el recorte no trae campana tachada,
+                       así que «suena» (con ondas) y «no suena» (quieta) es lo único que se puede
+                       distinguir por forma. Qué pasa al pulsarla lo dice el title. *@
+                    <RadzenButton Icon="@(t.Vigilado ? "notifications_active" : "notifications")"
+                                  ButtonStyle="ButtonStyle.Light"
                                   Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                   Click="@(() => Vigilar(t))"
                                   title="@(t.Vigilado ? "Dejar de vigilar" : "Vigilar este ticket")" />
@@ -842,8 +931,13 @@
 
     private async Task EliminarRegla(ReglaDeAsignacionDto r)
     {
+        // «asigna a» y no la flecha «→»: esto viaja como CADENA hasta el cuadro de confirmación, donde
+        // no hay dónde poner un icono, y la flecha no está en los subconjuntos de IBM Plex que se
+        // sirven, así que la ponía la fuente de respaldo del equipo. Al escribirlo con palabras se gana
+        // además decir QUÉ hace la regla, que la flecha sola dejaba a la interpretación.
         if (!await Avisos.ConfirmarAsync(
-            $"¿Eliminar la regla «{r.CondicionTexto} {r.Valor}» → {r.Desarrollador}?", "Eliminar regla"))
+            $"¿Eliminar la regla «{r.CondicionTexto} {r.Valor}», que asigna a {r.Desarrollador}?",
+            "Eliminar regla"))
             return;
 
         await Enviar($"api/devops/reglas/{r.Id}/eliminar", new { });
@@ -890,7 +984,15 @@
     /// Los indicadores se calculan sobre lo que la rejilla está ENSEÑANDO, igual que en el escritorio:
     /// filtrar por «Bug» y que el contador de bugs siguiera diciendo el total no serviría de nada.
     /// </summary>
-    private IReadOnlyList<(string, string, string)> Indicadores()
+    /// <remarks>
+    /// El color de cada tarjeta lo decide su RÓTULO y no el gusto de esta pantalla. «Mostrados» y
+    /// «Máx. por persona» son totales neutros —no significan que algo vaya bien ni mal— y por eso van
+    /// en el color del texto, con el borde en el de los bordes; los ESTADOS caen en el semáforo de la
+    /// aplicación; y los TIPOS de work item, que no son estados, salen de la escala de series en el
+    /// orden en que aparecen. «Bugs» es la única excepción admitida: es un tipo, pero en un tablero
+    /// de trabajo el rojo del bug ya es lenguaje.
+    /// </remarks>
+    private IReadOnlyList<(string Etiqueta, string Valor, string Color, string Borde)> Indicadores()
     {
         // View es lo que la rejilla dejó tras aplicar sus filtros de columna; antes del primer
         // pintado todavía no existe, y entonces lo que se está enseñando es la lista entera.
@@ -905,15 +1007,17 @@
 
         return
         [
-            ("Mostrados", vista.Count.ToString(), "#2563EB"),
-            ("Sin cerrar", vista.Count(t => !t.Cerrado).ToString(), "#D97706"),
-            ("Cerrados", vista.Count(t => t.Cerrado).ToString(), "#059669"),
-            ("Bugs", vista.Count(t => EsTipo(t, "Bug")).ToString(), "#DC2626"),
-            ("User Stories", vista.Count(t => EsTipo(t, "User Story")).ToString(), "#8B5CF6"),
-            ("Tareas", vista.Count(t => EsTipo(t, "Task")).ToString(), "#64748B"),
-            ("Story points", vista.Sum(t => t.Puntos ?? 0).ToString("0.#"), "#14B8A6"),
-            ("Sin asignar", vista.Count(t => string.IsNullOrWhiteSpace(t.AsignadoA)).ToString(), "#EA580C"),
-            ("Máx. por persona", maximoPorPersona.ToString(), "#2563EB"),
+            ("Mostrados", vista.Count.ToString(), "var(--rz-text-color)", "var(--rz-border-color)"),
+            ("Sin cerrar", vista.Count(t => !t.Cerrado).ToString(), "var(--rz-warning)", "var(--rz-warning)"),
+            // Cerrado no es un éxito: es trabajo que ya no pide nada. Iba en verde y competía con el
+            // verde de «entregado» del resto de la aplicación, que sí significa haber logrado algo.
+            ("Cerrados", vista.Count(t => t.Cerrado).ToString(), "var(--rz-text-secondary-color)", "var(--rz-text-secondary-color)"),
+            ("Bugs", vista.Count(t => EsTipo(t, "Bug")).ToString(), "var(--rz-danger)", "var(--rz-danger)"),
+            ("User Stories", vista.Count(t => EsTipo(t, "User Story")).ToString(), "var(--adminweb-serie-1)", "var(--adminweb-serie-1)"),
+            ("Tareas", vista.Count(t => EsTipo(t, "Task")).ToString(), "var(--adminweb-serie-2)", "var(--adminweb-serie-2)"),
+            ("Story points", vista.Sum(t => t.Puntos ?? 0).ToString("0.#"), "var(--adminweb-serie-3)", "var(--adminweb-serie-3)"),
+            ("Sin asignar", vista.Count(t => string.IsNullOrWhiteSpace(t.AsignadoA)).ToString(), "var(--rz-warning)", "var(--rz-warning)"),
+            ("Máx. por persona", maximoPorPersona.ToString(), "var(--rz-text-color)", "var(--rz-border-color)"),
         ];
     }
 
@@ -924,7 +1028,12 @@
             ? s.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
             : "nunca";
 
-        var pendiente = SinPrioridad > 0 ? $"  ·  ⚠ {SinPrioridad} sin prioridad definida" : "";
+        // Sin triángulo delante: esto es una cadena que se pinta como texto plano y ahí no hay dónde
+        // colgar un componente, así que el carácter lo dibujaría el sistema. Tampoco hace falta: el
+        // aviso de «sin prioridad» ya está dado donde de verdad se ve, en la fila del ticket
+        // concreto, con su <RadzenIcon Icon="warning" /> y su title. El trozo solo se añade cuando
+        // hay tickets sin prioridad, así que su mera presencia ya es el aviso.
+        var pendiente = SinPrioridad > 0 ? $"  ·  {SinPrioridad} sin prioridad definida" : "";
 
         return $"{_filas.Count} de {total} ticket(s)  ·  última sincronización: {sincronizacion}" +
                $"  ·  vigilados: {_datos?.Vigilados ?? 0}{pendiente}";
@@ -942,15 +1051,6 @@
     /// <summary>Un filtro en blanco es «sin filtro», no un filtro por cadena vacía.</summary>
     private static string? SinBlancos(string? valor) =>
         string.IsNullOrWhiteSpace(valor) ? null : valor.Trim();
-
-    private static string ColorDeEstado(string? estado) => (estado ?? "").ToLowerInvariant() switch
-    {
-        "active" or "in progress" or "doing" or "in development" => "#2563EB",
-        "resolved" or "done" or "completed" => "#059669",
-        "closed" => "#6B7280",
-        "new" or "to do" => "#64748B",
-        _ => "inherit"
-    };
 
     private static string Etiqueta(DevOpsRuleMatch condicion) => condicion switch
     {

@@ -23,12 +23,23 @@ public record EvaluacionDto(
     string? Evaluador)
 {
     /// <summary>
-    /// «★★★★☆  (4/5)» o «Sin calificar». La frase se arma en el contrato —y no en cada pantalla—
+    /// «4 / 5» o «Sin calificar». La frase se sigue armando en el contrato —y no en cada pantalla—
     /// porque la enseñan las dos: la del líder y la del desarrollador, y tienen que decir lo mismo.
+    ///
+    /// <para>AQUÍ SE QUEDA SOLO EL NÚMERO. Antes devolvía «★★★★☆  (4/5)», y las estrellas se fueron a
+    /// las dos pantallas como iconos de nuestra fuente. El motivo: ★ y ☆ no son emoji, pero tampoco
+    /// son nuestros —los dibuja la fuente de TEXTO del equipo que abra la aplicación, y donde no
+    /// estén salen como un cuadro—. Un contrato es una CADENA y no admite marcado, así que la forma
+    /// solo puede ponerla quien tiene marcado, que es la pantalla. No vuelvas a meter aquí ningún
+    /// glifo «porque en la rejilla se ve soso»: se vería soso otra vez en el equipo de al lado.</para>
+    ///
+    /// <para>El número NO se recorta a 5 aunque las estrellas sí: si algún día entrara un 7 por
+    /// donde no debe, aquí se lee «7 / 5» y se ve el problema en vez de taparlo. El rango lo valida
+    /// el servicio, que es donde la regla tiene que vivir.</para>
     /// </summary>
     public string Estrellas => Calificacion is not int r || r < 1
         ? "Sin calificar"
-        : new string('★', Math.Min(5, r)) + new string('☆', Math.Max(0, 5 - r)) + $"  ({r}/5)";
+        : $"{r} / 5";
 
     /// <summary>Fortalezas y debilidades en una línea, para la columna de resumen de la rejilla.</summary>
     public string Resumen
@@ -49,19 +60,22 @@ public record EvaluacionDto(
 /// «…Texto» de los DTO y el cliente para pintar el desplegable de tipos de hito sin pedirle al
 /// servidor una lista que no cambia nunca. Mismo criterio que <c>EtiquetasDeCatalogo</c>.
 ///
-/// Se copian al pie de la letra del escritorio (<c>DeveloperReportsControl.KindLabel</c>), emojis
-/// incluidos: mientras las dos aplicaciones convivan, quien mire una y otra tiene que leer lo mismo.
+/// Van SIN EMOJI, por lo que explica <c>EtiquetasDeCatalogo</c>: los dibuja el sistema operativo, no
+/// obedecen al tema y donde falta la fuente salen como un cuadro. La paridad con el escritorio
+/// (<c>DeveloperReportsControl.KindLabel</c>) caducó con el escritorio; no los repongas.
 /// </summary>
 public static class EtiquetasDeEvaluacion
 {
     /// <summary>Cómo se lee un tipo de hito.</summary>
     public static string TipoDeHito(MilestoneKind k) => k switch
     {
-        MilestoneKind.Logro          => "🏆 Logro",
-        MilestoneKind.Proyecto       => "📁 Proyecto",
-        MilestoneKind.Certificacion  => "🎓 Certificación",
-        MilestoneKind.Reconocimiento => "⭐ Reconocimiento",
-        _                            => "• Otro"
+        MilestoneKind.Logro          => "Logro",
+        MilestoneKind.Proyecto       => "Proyecto",
+        MilestoneKind.Certificacion  => "Certificación",
+        MilestoneKind.Reconocimiento => "Reconocimiento",
+        // El «•» que llevaba éste tampoco era emoji, pero era el sustituto pobre de los cuatro de
+        // arriba: sin ellos quedaba como una viñeta suelta en medio de la columna.
+        _                            => "Otro"
     };
 
     /// <summary>Los tipos en el orden en que se ofrecen, con su texto ya resuelto.</summary>
@@ -73,7 +87,7 @@ public static class EtiquetasDeEvaluacion
 public record OpcionDeHito(MilestoneKind Valor, string Texto);
 
 /// <summary>Un hito: una entrega importante, una certificación, un reconocimiento.</summary>
-/// <param name="TipoTexto">«🏆 Logro», «🎓 Certificación»… resuelto en el servidor para que las dos
+/// <param name="TipoTexto">«Logro», «Certificación»… resuelto en el servidor para que las dos
 /// pantallas que lo enseñan no lo escriban distinto.</param>
 public record HitoDto(
     int Id,

@@ -69,7 +69,12 @@
         {
             <RadzenCard>
                 <RadzenStack Gap="0.75rem">
-                    <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">📝 @s.Titulo</RadzenText>
+                    @* «lightbulb» y no un cuaderno: el glifo tiene que decir QUÉ se está atendiendo,
+                       y en toda la aplicación una sugerencia es la bombilla —así lo llama el menú,
+                       para el líder y para el desarrollador. El 📝 hablaba del soporte (escribir) y
+                       no del asunto. Va como <RadzenIcon> dentro del texto porque RadzenText no
+                       tiene parámetro Icon; así hereda currentColor en vez de pintarse aparte. *@
+                    <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0"><RadzenIcon Icon="lightbulb" /> @s.Titulo</RadzenText>
                     <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                         @Autor(s) · @s.CategoriaEtiqueta · @s.Alcance ·
                         @s.CreadaUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
@@ -96,7 +101,7 @@
                     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
                         <RadzenButton Text="Guardar respuesta" Icon="send" Disabled="@_ocupado"
                                       Click="@(() => Responder(s))" />
-                        <RadzenButton Text="Descartar" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+                        <RadzenButton Text="Descartar" Icon="close" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
                                       Click="@(() => _atendiendo = null)" />
                     </RadzenStack>
                 </RadzenStack>
@@ -139,7 +144,12 @@
                         <span style="@(s.SoloParaElLider ? "color:var(--rz-warning)" : "")">@s.Alcance</span>
                     </Template>
                 </RadzenDataGridColumn>
-                <RadzenDataGridColumn TItem="SugerenciaDelLiderDto" Title="👍" Property="Votos"
+                @* «Apoyos» y no un pulgar: la columna guarda «Votos», pero en pantalla la acción se
+                   llama «Apoyar», así que la cabecera usa esa palabra y las dos cosas se reconocen.
+                   Un pulgar solo, además, no distingue «cuántos apoyos tiene» de «apoyar», que es un
+                   botón que existe dos pantallas más allá; y Title es también el nombre de la
+                   columna en el selector, donde un dibujo no se puede leer. *@
+                <RadzenDataGridColumn TItem="SugerenciaDelLiderDto" Title="Apoyos" Property="Votos"
                                       Width="80px" TextAlign="TextAlign.Right" Sortable="false">
                     <Template Context="s">@(s.SePuedeVotar ? s.Votos.ToString() : "—")</Template>
                 </RadzenDataGridColumn>
@@ -159,7 +169,7 @@
                             <RadzenButton Text="Atender" ButtonStyle="ButtonStyle.Primary"
                                           Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                           Click="@(() => Atender(s))" />
-                            <RadzenButton Text="Eliminar" ButtonStyle="ButtonStyle.Danger"
+                            <RadzenButton Text="Eliminar" Icon="delete" ButtonStyle="ButtonStyle.Danger"
                                           Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                           Click="@(() => Eliminar(s))" />
                         </RadzenStack>

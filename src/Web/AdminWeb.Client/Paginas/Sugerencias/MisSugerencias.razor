@@ -7,8 +7,8 @@
 @*
     Sugerencias, en las dos pestañas del escritorio y con el mismo reparto:
 
-     · 💡 Mis sugerencias    — enviar una y dar seguimiento a las propias, con la respuesta del líder.
-     · 👍 Propuestas del equipo — las públicas de todos, ordenadas por más apoyadas, para votarlas.
+     · Mis sugerencias      — enviar una y dar seguimiento a las propias, con la respuesta del líder.
+     · Propuestas del equipo — las públicas de todos, ordenadas por más apoyadas, para votarlas.
 
     ── LO QUE NO PUEDE FALLAR: EL ANONIMATO ───────────────────────────────────────────────────────
 
@@ -36,7 +36,12 @@
 
     <RadzenTabs>
         <Tabs>
-            <RadzenTabsItem Text="💡  Mis sugerencias">
+            @* «lightbulb» es la bombilla del emoji que había y ya es el glifo de las entradas
+               «Sugerencias» del menú, tanto para el líder como para el desarrollador: sustitución
+               uno a uno, sin pérdida. Ojo a un detalle al pasar de Text a Icon: el rótulo traía DOS
+               espacios detrás del emoji para separarlo de la palabra, y esa separación la pone ahora
+               el componente; si se dejan, queda un hueco de más. *@
+            <RadzenTabsItem Text="Mis sugerencias" Icon="lightbulb">
                 <RadzenStack Gap="0.75rem">
 
                     @* ── Enviar ──────────────────────────────────────────────────────────── *@
@@ -44,11 +49,15 @@
                         <RadzenStack Gap="0.6rem">
                             <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                          Wrap="FlexWrap.Wrap" Gap="0.75rem">
-                                <RadzenButton Text="@(_enviandoFormulario ? "✖  Cancelar" : "➕  Nueva sugerencia")"
+                                @* «close» y no «clear»: el botón cierra el formulario sin guardar nada,
+                                   que es cerrar. El aspa de vaciar se reserva para quitar algo que se
+                                   acaba de elegir dentro de un campo. *@
+                                <RadzenButton Text="@(_enviandoFormulario ? "Cancelar" : "Nueva sugerencia")"
+                                              Icon="@(_enviandoFormulario ? "close" : "add")"
                                               ButtonStyle="@(_enviandoFormulario ? ButtonStyle.Light : ButtonStyle.Primary)"
                                               Size="ButtonSize.Small" Disabled="@_ocupado"
                                               Click="@AlternarFormulario" />
-                                <RadzenButton Text="🔄 Recargar" ButtonStyle="ButtonStyle.Light"
+                                <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
                                               Size="ButtonSize.Small" Disabled="@_ocupado"
                                               Click="@CargarAsync" />
                             </RadzenStack>
@@ -126,12 +135,26 @@
                                     @s.Alcance
                                     @if (s.Anonima)
                                     {
-                                        <text> · 🕶 anónima</text>
+                                        @* «visibility_off» —el ojo tachado— es el glifo de «no se ve
+                                           quién», que es exactamente lo que significa anónima. Las
+                                           gafas de sol lo decían por chiste y encima se dibujaban a
+                                           todo color dentro de una celda de texto atenuado; el glifo
+                                           de la fuente se atenúa con ella. El mismo dibujo va en la
+                                           columna «De» de la otra rejilla de este archivo: si en una
+                                           saliera un ojo y en la otra unas gafas, no se leerían como
+                                           lo mismo. *@
+                                        <text> · <RadzenIcon Icon="visibility_off" /> anónima</text>
                                     }
                                 </Template>
                             </RadzenDataGridColumn>
 
-                            <RadzenDataGridColumn TItem="MiSugerenciaDto" Title="👍" Width="70px" Sortable="false">
+                            @* «Apoyos» y no un pulgar: Title es una cadena y no admite marcado, y aunque
+                               lo admitiera, este texto es además el nombre de la columna en el selector
+                               de columnas y el que se lee al ordenar — un dibujo ahí no se puede leer
+                               ni buscar. La palabra es «Apoyos» y no «Votos» porque así se llama la
+                               acción en pantalla, y es la misma que usan las otras dos columnas de
+                               apoyos de la aplicación. *@
+                            <RadzenDataGridColumn TItem="MiSugerenciaDto" Title="Apoyos" Width="70px" Sortable="false">
                                 @* Un guion y no un 0: «nadie la ha apoyado» y «nadie puede apoyarla» no
                                    pueden leerse igual. Es la decisión del escritorio. *@
                                 <Template Context="s">@(s.SePuedeVotar ? s.Votos.ToString() : "—")</Template>
@@ -158,7 +181,7 @@
                                 <Template Context="s">
                                     @if (s.SePuedeEliminar)
                                     {
-                                        <RadzenButton Text="🗑 Eliminar" ButtonStyle="ButtonStyle.Light"
+                                        <RadzenButton Text="Eliminar" Icon="delete" ButtonStyle="ButtonStyle.Light"
                                                       Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                       Click="@(() => EliminarAsync(s))" />
                                     }
@@ -176,7 +199,10 @@
                 </RadzenStack>
             </RadzenTabsItem>
 
-            <RadzenTabsItem Text="👍  Propuestas del equipo">
+            @* «thumb_up» es el mismo gesto sin tono de piel, que era una de las cosas que hacían que
+               este emoji se viera distinto en cada equipo. Mismo aviso que en la pestaña de al lado
+               con el doble espacio que traía el rótulo. *@
+            <RadzenTabsItem Text="Propuestas del equipo" Icon="thumb_up">
                 <RadzenStack Gap="0.75rem">
                     <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                         Las propuestas públicas del equipo, de la más apoyada a la menos. Las que su autor dejó
@@ -187,7 +213,11 @@
                                     AllowPaging="true" PageSize="15" AllowColumnResize="true"
                                     EmptyText="No hay propuestas todavía.">
                         <Columns>
-                            <RadzenDataGridColumn TItem="PropuestaDelEquipoDto" Title="👍" Width="80px" Sortable="false">
+                            @* «Apoyos», la misma palabra que en la rejilla de arriba y que en la del
+                               líder: las tres enseñan el mismo número y tienen que llamarlo igual. Y
+                               aquí gana doble, porque esta rejilla viene ordenada de más apoyada a
+                               menos y una cabecera con nombre hace evidente por qué está así. *@
+                            <RadzenDataGridColumn TItem="PropuestaDelEquipoDto" Title="Apoyos" Width="80px" Sortable="false">
                                 <Template Context="p">@(p.SePuedeVotar ? p.Votos.ToString() : "—")</Template>
                             </RadzenDataGridColumn>
 
@@ -202,9 +232,13 @@
                                                     Style="white-space:pre-wrap;overflow-wrap:anywhere">@p.Cuerpo</RadzenText>
                                         @if (!string.IsNullOrWhiteSpace(p.RespuestaDelLider))
                                         {
+                                            @* «reply» —la flecha de contestar— y no una cabeza parlante:
+                                               HiloDelForo.razor ya la reserva para «hay una persona al
+                                               otro lado», que es literalmente lo que pasa aquí. El
+                                               emoji, además, cambiaba de tono de piel según el equipo. *@
                                             <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
                                                         Style="white-space:pre-wrap;overflow-wrap:anywhere">
-                                                🗣 @p.RespuestaDelLider
+                                                <RadzenIcon Icon="reply" /> @p.RespuestaDelLider
                                             </RadzenText>
                                         }
                                     </RadzenStack>
@@ -219,15 +253,26 @@
 
                             <RadzenDataGridColumn TItem="PropuestaDelEquipoDto" Title="De" Width="170px" Sortable="false">
                                 @* «Anónima» no es que se oculte aquí: es que el autor no viene en la
-                                   respuesta. El servidor no lo manda cuando la sugerencia es anónima. *@
-                                <Template Context="p">@(p.Anonima ? "🕶 Anónima" : p.Autor ?? "—")</Template>
+                                   respuesta. El servidor no lo manda cuando la sugerencia es anónima.
+                                   El ojo tachado es el mismo de la columna «Quién la ve» de la otra
+                                   rejilla; al dejar de ser una cadena hay que abrir el Template a
+                                   marcado, que es lo que permite meter el <RadzenIcon>. *@
+                                <Template Context="p">@if (p.Anonima) { <RadzenIcon Icon="visibility_off" /> <text>Anónima</text> } else { @(p.Autor ?? "—") }</Template>
                             </RadzenDataGridColumn>
 
                             <RadzenDataGridColumn TItem="PropuestaDelEquipoDto" Title="" Width="140px" Sortable="false">
                                 <Template Context="p">
                                     @if (p.SePuedeVotar)
                                     {
-                                        <RadzenButton Text="@(p.YoVote ? "✓ Quitar apoyo" : "👍 Apoyar")"
+                                        @* Botón que ALTERNA: el icono va en la MISMA expresión que el
+                                           texto, nunca fijo, porque un solo glifo sobre dos acciones
+                                           contrarias mentiría en una de las dos. Se conserva el
+                                           reparto que ya había —la palomita cuando ya votaste, que es
+                                           un estado («esto ya está hecho»), y el pulgar cuando
+                                           todavía no— porque el ButtonStyle también cambia
+                                           (Success/Light) y los tres tienen que contar la misma
+                                           historia. *@
+                                        <RadzenButton Text="@(p.YoVote ? "Quitar apoyo" : "Apoyar")" Icon="@(p.YoVote ? "check" : "thumb_up")"
                                                       ButtonStyle="@(p.YoVote ? ButtonStyle.Success : ButtonStyle.Light)"
                                                       Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                       Click="@(() => VotarAsync(p))" />

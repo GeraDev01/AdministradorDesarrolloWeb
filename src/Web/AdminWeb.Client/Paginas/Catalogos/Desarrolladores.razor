@@ -56,17 +56,21 @@
     </RadzenCard>
 
     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
-        <RadzenButton Text="➕ Nuevo" Disabled="@_ocupado" Click="@AbrirNuevo" />
-        <RadzenButton Text="✏ Editar" ButtonStyle="ButtonStyle.Light" Disabled="@(_ocupado || _elegido is null)"
-                      Click="@AbrirEdicion" />
-        <RadzenButton Text="🔑 Acceso" ButtonStyle="ButtonStyle.Light" Disabled="@(_ocupado || _elegido is null)"
+        <RadzenButton Text="Nuevo" Icon="add" Disabled="@_ocupado" Click="@AbrirNuevo" />
+        <RadzenButton Text="Editar" Icon="edit" ButtonStyle="ButtonStyle.Light"
+                      Disabled="@(_ocupado || _elegido is null)" Click="@AbrirEdicion" />
+        @* «Acceso» y «Desactivar» se quedan SIN icono a propósito: el vocabulario no tiene un
+           concepto para «crear la cuenta de alguien» ni para «dar de baja sin borrar», y el recorte
+           de la fuente no trae nada que lo diga sin mentir —«block» se lee «bloqueado», que es otra
+           cosa. Antes que inventar un glifo, mejor el texto solo. *@
+        <RadzenButton Text="Acceso" ButtonStyle="ButtonStyle.Light" Disabled="@(_ocupado || _elegido is null)"
                       Click="@CrearAcceso" />
-        <RadzenButton Text="✉ Correo" ButtonStyle="ButtonStyle.Light" Disabled="@(_ocupado || _elegido is null)"
-                      Click="@Escribir" />
-        <RadzenButton Text="🚫 Desactivar" ButtonStyle="ButtonStyle.Light" Disabled="@(_ocupado || _elegido is null)"
+        <RadzenButton Text="Correo" Icon="mail" ButtonStyle="ButtonStyle.Light"
+                      Disabled="@(_ocupado || _elegido is null)" Click="@Escribir" />
+        <RadzenButton Text="Desactivar" ButtonStyle="ButtonStyle.Light" Disabled="@(_ocupado || _elegido is null)"
                       Click="@Desactivar" />
         @* La exportación baja LO QUE EL FILTRO ESTÁ ENSEÑANDO, igual que en minutas y vacaciones. *@
-        <RadzenButton Text="📊 Excel" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+        <RadzenButton Text="Excel" Icon="download" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
                       Style="margin-left:auto" Click="@Exportar" />
     </RadzenStack>
 
@@ -115,7 +119,9 @@
                     </RadzenStack>
                     @* Solo SUGIERE: rellena el campo de al lado y el líder puede ajustarlo. Está
                        apagado sin fecha de ingreso porque sin ella no hay antigüedad que calcular. *@
-                    <RadzenButton Text="⚖ Calcular (LFT)" ButtonStyle="ButtonStyle.Light"
+                    @* Sin icono: «balance» es del menú «Estimación y capacidad» y aquí leería otra
+                       cosa; el vocabulario no tiene un concepto para «calcular lo que marca la ley». *@
+                    <RadzenButton Text="Calcular (LFT)" ButtonStyle="ButtonStyle.Light"
                                   Disabled="@(_ocupado || _ingreso is null)" Click="@CalcularLft" />
                     <RadzenStack Gap="0.25rem">
                         <RadzenLabel Text="N.° de serie del equipo" Component="serieDev" />
@@ -139,8 +145,8 @@
                                 Placeholder="Notas (opcional)" />
 
                 <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
-                    <RadzenButton Text="Guardar" Disabled="@_ocupado" Click="@Guardar" />
-                    <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+                    <RadzenButton Text="Guardar" Icon="save" Disabled="@_ocupado" Click="@Guardar" />
+                    <RadzenButton Text="Cancelar" Icon="close" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
                                   Click="@(() => _capturando = false)" />
                 </RadzenStack>
             </RadzenStack>
@@ -153,15 +159,22 @@
            UNA vez, y un toast que se va solo a los cinco segundos la perdería para siempre. *@
         <RadzenCard Style="border-left:4px solid var(--rz-success)">
             <RadzenStack Gap="0.5rem">
-                <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">🔑 Cuenta creada</RadzenText>
+                @* RadzenText no admite Icon, así que el glifo entra como <RadzenIcon> dentro del
+                   propio texto —el patrón que ya usan Dashboard.razor y Plantillas.razor— y así
+                   hereda currentColor sobre el borde verde de la tarjeta. «vpn_key» es la llave con
+                   anilla que la aplicación reserva para credenciales (Programas.razor, y el botón
+                   «Contraseña» de Usuarios): la misma idea lleva el mismo dibujo. *@
+                <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                    <RadzenIcon Icon="vpn_key" /> Cuenta creada
+                </RadzenText>
                 <RadzenText TextStyle="TextStyle.Body2" Style="margin:0">
                     Usuario: <b>@cred.Usuario</b> · Contraseña temporal: <b>@cred.ContrasenaTemporal</b>
                 </RadzenText>
                 <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">@cred.Mensaje</RadzenText>
                 <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
-                    <RadzenButton Text="Copiar contraseña" Size="ButtonSize.Small"
+                    <RadzenButton Text="Copiar contraseña" Icon="content_copy" Size="ButtonSize.Small"
                                   ButtonStyle="ButtonStyle.Light" Click="@CopiarTemporal" />
-                    <RadzenButton Text="Ya la copié" Size="ButtonSize.Small"
+                    <RadzenButton Text="Ya la copié" Icon="close" Size="ButtonSize.Small"
                                   Click="@(() => _credenciales = null)" />
                 </RadzenStack>
             </RadzenStack>
@@ -222,7 +235,11 @@
                                   Visible="@Ver("Asignados")" />
             <RadzenDataGridColumn TItem="DesarrolladorDto" Property="TieneAcceso" Title="Acceso" Width="100px"
                                   Visible="@Ver("Acceso")">
-                <Template Context="d">@(d.TieneAcceso ? "🔓 Sí" : "—")</Template>
+                @* La columna ya se llama «Acceso» y la celda contesta «Sí» o «—», así que el candado
+                   abierto que iba delante no añadía nada. Y encima era el mismo dibujo que el botón
+                   «Desbloquear» de Usuarios, que hace algo completamente distinto: un dibujo con dos
+                   significados es justo lo que este trabajo venía a quitar. *@
+                <Template Context="d">@(d.TieneAcceso ? "Sí" : "—")</Template>
             </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="DesarrolladorDto" Property="Direccion" Title="Dirección" Width="220px"
                                   Visible="@Ver("Dirección")">
@@ -234,7 +251,11 @@
             </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="DesarrolladorDto" Property="Activo" Title="Activo" Width="90px"
                                   Visible="@Ver("Activo")">
-                <Template Context="d">@(d.Activo ? "✓" : "✗")</Template>
+                @* Iconos de la fuente y no los caracteres ✓/✗, igual que en Limpieza.razor y
+                   Configuracion.razor. Importa en esta rejilla en concreto porque PintarFila apaga
+                   las filas de los inactivos: el glifo se atenúa con la fila, mientras que el
+                   carácter se queda a plena tinta encima de un renglón ya apagado. *@
+                <Template Context="d">@if (d.Activo) { <RadzenIcon Icon="done" /> } else { <RadzenIcon Icon="close" /> }</Template>
             </RadzenDataGridColumn>
         </Columns>
     </RadzenDataGrid>

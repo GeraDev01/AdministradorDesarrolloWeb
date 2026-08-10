@@ -91,7 +91,9 @@ public class MetricasQueryServiceTests
         // Se mide el plazo, no la etiqueta: el atrasado va primero en la lista.
         Assert.Equal(tarde.Id, d.Requerimientos[0].Id);
         Assert.True(d.Requerimientos[0].Atrasado);
-        Assert.Equal("⚠ atraso 5", d.Requerimientos[0].PlazoTexto);
+        // Sin el «⚠» que llevaba delante: lo pinta la rejilla en rojo a partir de Atrasado, que es la
+        // línea de arriba, y el símbolo dependía de la fuente del equipo que abriera la pantalla.
+        Assert.Equal("atraso 5", d.Requerimientos[0].PlazoTexto);
     }
 
     [Fact]

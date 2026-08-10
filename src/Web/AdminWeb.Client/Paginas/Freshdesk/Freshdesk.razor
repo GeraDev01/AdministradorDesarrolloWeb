@@ -37,7 +37,7 @@
         menú del botón derecho no se porta: el navegador ya tiene el suyo y superponerle otro es
         pelearse con la herramienta.
       · No está la exportación a CSV. Cuelga del servicio de descargas, que no es de esta vertical;
-        el enlace 🔗 a Freshdesk sí está, porque para eso basta con la URL que el ticket ya trae.
+        el enlace a Freshdesk sí está, porque para eso basta con la URL que el ticket ya trae.
 
     EL ASUNTO Y LA DESCRIPCIÓN LOS ESCRIBE GENTE DE FUERA DEL EQUIPO —quien abre el ticket— y se
     pintan siempre como TEXTO. Nada de MarkupString aquí: sería convertir cada ticket entrante en la
@@ -49,7 +49,11 @@
 <RadzenStack Gap="1rem">
     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
         <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Freshdesk</RadzenText>
-        <RadzenButton Text="@(_sincronizando ? "Sincronizando…" : "⟳ Sincronizar")"
+        @* «sync» y no «refresh»: esto SALE a Freshdesk, tarda, puede fallar a medias y escribe en
+           base. El botón de al lado solo vuelve a leer lo que ya está aquí, y por eso conserva el
+           «refresh»: si los dos llevaran el mismo glifo, nada distinguiría la operación cara de la
+           barata. *@
+        <RadzenButton Text="@(_sincronizando ? "Sincronizando…" : "Sincronizar")" Icon="sync"
                       Disabled="@(_ocupado || _sincronizando || _datos?.Habilitada != true)"
                       Click="@Sincronizar" />
         <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
@@ -75,12 +79,15 @@
         }
 
         <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.75rem">
-            @Tarjeta("Total", _datos.Resumen.Total, Gris)
-            @Tarjeta("Abiertos", _datos.Resumen.Abiertos, Azul)
-            @Tarjeta("Pendientes", _datos.Resumen.Pendientes, Ambar)
-            @Tarjeta("Resueltos", _datos.Resumen.Resueltos, Verde)
-            @Tarjeta("Cerrados", _datos.Resumen.Cerrados, Gris)
-            @Tarjeta("Urgentes", _datos.Resumen.Urgentes, Rojo)
+            @* «Total» no es un estado sino un conteo, así que va en el color del texto normal y con
+               el borde neutro: darle un color de la paleta semántica lo pondría a competir con las
+               cinco tarjetas que sí dicen algo. *@
+            @Tarjeta("Total", _datos.Resumen.Total, Neutro, borde: "var(--rz-border-color)")
+            @Tarjeta("Abiertos", _datos.Resumen.Abiertos, EnCurso)
+            @Tarjeta("Pendientes", _datos.Resumen.Pendientes, Aviso)
+            @Tarjeta("Resueltos", _datos.Resumen.Resueltos, Exito)
+            @Tarjeta("Cerrados", _datos.Resumen.Cerrados, Cerrado)
+            @Tarjeta("Urgentes", _datos.Resumen.Urgentes, Peligro)
         </RadzenStack>
 
         <RadzenCard>
@@ -162,7 +169,11 @@
                 <RadzenDataGridColumn TItem="TicketDeFreshdeskDto" Property="ActualizadoUtc" Title="Actualizado" Width="130px">
                     <Template Context="t">@Fecha(t.ActualizadoUtc)</Template>
                 </RadzenDataGridColumn>
-                <RadzenDataGridColumn TItem="TicketDeFreshdeskDto" Property="Vinculos" Title="🔗" Width="70px"
+                @* «Vínculos» en PLURAL, y el plural es el dato: esta celda enseña CUÁNTOS vínculos
+                   tiene el ticket, no un sí/no como la columna homónima de la pantalla de vincular.
+                   La cadena sola no distinguía las dos cosas, y encima Title es el nombre con el que
+                   la columna sale en el selector de columnas, donde un dibujo no se puede leer. *@
+                <RadzenDataGridColumn TItem="TicketDeFreshdeskDto" Property="Vinculos" Title="Vínculos" Width="70px"
                                       TextAlign="TextAlign.Right">
                     <Template Context="t">@(t.Vinculos > 0 ? t.Vinculos.ToString() : "")</Template>
                 </RadzenDataGridColumn>
@@ -170,7 +181,13 @@
                     <Template Context="t">
                         @if (!string.IsNullOrWhiteSpace(t.Url))
                         {
-                            <a href="@t.Url" target="_blank" rel="noopener" title="Abrir en Freshdesk">🔗</a>
+                            @* «open_in_new» y no la cadena de enlace: lo que hay que avisar aquí es
+                               que te vas de la aplicación, no que hay una URL guardada. Además es un
+                               glifo de la fuente y hereda el color del texto; el emoji 🔗 lo dibujaba
+                               el sistema operativo y se veía distinto en cada equipo. *@
+                            <a href="@t.Url" target="_blank" rel="noopener" title="Abrir en Freshdesk">
+                                <RadzenIcon Icon="open_in_new" />
+                            </a>
                         }
                     </Template>
                 </RadzenDataGridColumn>
@@ -200,12 +217,19 @@
                         }
                     </RadzenText>
 
-                    <div style="white-space:pre-wrap;max-height:18rem;overflow:auto;border:1px solid var(--rz-border);padding:0.75rem;border-radius:4px">@(string.IsNullOrWhiteSpace(ticket.Descripcion) ? "(sin descripción)" : ticket.Descripcion.Trim())</div>
+                    @* --rz-border-color y no --rz-border: esta última NO EXISTE, ni en el tema de
+                       Radzen ni en tema.css. Y una var() sin definir no se salta sola: invalida la
+                       declaración ENTERA, así que el borde se resolvía a «none» y esta caja —que se
+                       desplaza por dentro y cuyo único límite es esa línea— llevaba sin marco desde
+                       siempre, en los dos modos. Es el mismo error que había en el lienzo de firma. *@
+                    <div style="white-space:pre-wrap;max-height:18rem;overflow:auto;border:1px solid var(--rz-border-color);padding:0.75rem;border-radius:4px">@(string.IsNullOrWhiteSpace(ticket.Descripcion) ? "(sin descripción)" : ticket.Descripcion.Trim())</div>
 
                     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
                         @if (!string.IsNullOrWhiteSpace(ticket.Url))
                         {
-                            <a href="@ticket.Url" target="_blank" rel="noopener">🔗 Abrir en Freshdesk</a>
+                            <a href="@ticket.Url" target="_blank" rel="noopener">
+                                <RadzenIcon Icon="open_in_new" /> Abrir en Freshdesk
+                            </a>
                         }
                         <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                             @(ticket.Vinculos == 0
@@ -222,11 +246,16 @@
 </RadzenStack>
 
 @code {
-    private const string Gris = "#6b7280";
-    private const string Azul = "#2563eb";
-    private const string Ambar = "#f59e0b";
-    private const string Verde = "#22c55e";
-    private const string Rojo = "#ef4444";
+    // Los colores se nombran por lo que SIGNIFICAN y no por el color que salen: «Azul» obligaba a
+    // saberse de memoria que azul era «abierto», y al cambiar la paleta el nombre habría quedado
+    // mintiendo. El valor es la cadena «var(--…)» tal cual porque solo se interpola dentro de un
+    // atributo style: quien la resuelve es el navegador, no .NET.
+    private const string Neutro  = "var(--rz-text-color)";
+    private const string Cerrado = "var(--rz-text-secondary-color)";
+    private const string EnCurso = "var(--rz-info)";
+    private const string Aviso   = "var(--rz-warning)";
+    private const string Exito   = "var(--rz-success)";
+    private const string Peligro = "var(--rz-danger)";
 
     private readonly CancellationTokenSource _cancelacion = new();
 
@@ -359,23 +388,28 @@
 
     private static string ColorDeEstado(int estado) => estado switch
     {
-        2 => Azul,
-        3 => Ambar,
-        4 => Verde,
-        _ => Gris
+        2 => EnCurso,   // Abierto
+        3 => Aviso,     // Pendiente: espera a alguien
+        4 => Exito,     // Resuelto
+        _ => Cerrado
     };
 
     private static string ColorDePrioridad(int prioridad) => prioridad switch
     {
-        4 => Rojo,
-        3 => Ambar,
-        2 => Azul,
-        _ => Gris
+        4 => Peligro,   // Urgente
+        3 => Aviso,     // Alta
+        2 => EnCurso,   // Media
+        _ => Cerrado    // Baja: no reclama nada
     };
 
-    private RenderFragment Tarjeta(string rotulo, int valor, string color) => __builder =>
+    /// <summary>
+    /// El borde va aparte del texto porque no siempre coinciden: en las tarjetas de conteo neutro el
+    /// número se pinta con la tinta normal y el borde con el gris de los bordes, que es lo que las
+    /// aparta de las que sí están diciendo un estado.
+    /// </summary>
+    private RenderFragment Tarjeta(string rotulo, int valor, string color, string? borde = null) => __builder =>
     {
-        <RadzenCard Style="@($"border-left:5px solid {color};flex:1 1 140px;min-width:140px;padding:0.75rem 1rem")">
+        <RadzenCard Style="@($"border-left:5px solid {borde ?? color};flex:1 1 140px;min-width:140px;padding:0.75rem 1rem")">
             <RadzenText TextStyle="TextStyle.H4" Style="@($"color:{color};margin:0")">@valor</RadzenText>
             <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">@rotulo</RadzenText>
         </RadzenCard>

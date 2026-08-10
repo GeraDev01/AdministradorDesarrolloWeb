@@ -80,7 +80,30 @@
             <RadzenDataGridColumn TItem="EntradaBitacoraDto" Property="AccionTexto" Title="Acción" Width="160px"
                                   Visible="@Ver("Acción")" />
             <RadzenDataGridColumn TItem="EntradaBitacoraDto" Property="ResultadoTexto" Title="Resultado" Width="120px"
-                                  Visible="@Ver("Resultado")" />
+                                  Visible="@Ver("Resultado")">
+                @* Ésta es la pantalla que se abre cuando hay que explicar un incidente, y «⛔ Denegado»
+                   era justo la fila que se venía a buscar recorriendo cientos de renglones. Sin el
+                   símbolo, «Éxito», «Falló» y «Denegado» pesan lo mismo y hay que leerlas una por una:
+                   el punto de color devuelve el barrido sin devolver el emoji, que lo dibujaba el
+                   sistema operativo y no obedecía al tema.
+
+                   Marcado copiado de Componentes/BotonDeEstado.razor. El borde deja el punto visible
+                   aunque falte la variable, y la palabra va SIEMPRE al lado —aquí más que en ninguna
+                   otra pantalla: una bitácora se lee, se exporta y se imprime—.
+
+                   Lo que NO se hace es pintar la fila entera como en Programas: en una tabla de
+                   cientos de renglones un «Falló» corriente estaría gritando todo el rato y acabaría
+                   sin significar nada. El punto en su columna basta.
+
+                   El Visible de arriba no se toca: el Template va DENTRO de la columna y la condición
+                   del selector de columnas sigue mandando sobre ella. *@
+                <Template Context="l">
+                    <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
+                        <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@ColorDeResultado(l.Resultado)"></span>
+                        @l.ResultadoTexto
+                    </span>
+                </Template>
+            </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="EntradaBitacoraDto" Property="Entidad" Title="Entidad" Width="130px"
                                   Visible="@Ver("Entidad")">
                 <Template Context="l">@(l.Entidad ?? "—")</Template>
@@ -141,6 +164,28 @@
     private string _texto = "";
 
     private bool Ver(string columna) => !_ocultas.Contains(columna);
+
+    /// <summary>
+    /// El color del punto de la columna «Resultado». DEVUELVE CSS, NO UN COLOR: la cadena «var(--…)»
+    /// literal solo significa algo dentro de un atributo <c>style</c> de esta página, y quien la
+    /// resuelve es el NAVEGADOR, no .NET. Es lo que hace que se lea igual de bien en tema claro y en
+    /// oscuro; un hex escrito a mano se vería bien en uno e ilegible en el otro sin previo aviso.
+    ///
+    /// <para>Aquí el semáforo sí es el vocabulario correcto, y con una distinción que importa:
+    /// «Falló» es un error de la operación —ámbar— y «Denegado» es alguien intentando algo que no
+    /// puede —rojo—. Son las dos cosas que se buscan en una bitácora, y no son la misma.</para>
+    ///
+    /// <para>Vive en la pantalla y no en <c>EtiquetasDeCatalogo</c> porque nadie más lo necesita, y
+    /// aquel archivo lo comparte el servidor, donde <c>var()</c> no resuelve y el texto saldría sin
+    /// color y sin ningún error que lo delatara.</para>
+    /// </summary>
+    private static string ColorDeResultado(AuditOutcome o) => o switch
+    {
+        AuditOutcome.Exito    => "var(--rz-success)",
+        AuditOutcome.Fallo    => "var(--rz-warning)",
+        AuditOutcome.Denegado => "var(--rz-danger)",
+        _                     => "var(--rz-text-secondary-color)"
+    };
 
     protected override async Task OnInitializedAsync()
     {

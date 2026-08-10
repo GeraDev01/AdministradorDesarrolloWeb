@@ -226,7 +226,9 @@ public class EvaluacionesServiceTests
 
         Assert.NotNull(ficha);
         var hito = Assert.Single(ficha!.Hitos);
-        Assert.Equal("🎓 Certificación", hito.TipoTexto);
+        // «Certificación» a secas: la etiqueta perdió el emoji que la precedía, que es justo lo que
+        // el nombre de esta prueba viene diciendo desde siempre —el tipo llega YA EN PALABRAS—.
+        Assert.Equal("Certificación", hito.TipoTexto);
         Assert.Equal("AZ-204", hito.Titulo);
     }
 
@@ -254,7 +256,12 @@ public class EvaluacionesServiceTests
         var conCalificacion = new EvaluacionDto(1, DateTime.Today, null, 4, null, null, null, null);
         var sinCalificacion = new EvaluacionDto(2, DateTime.Today, null, null, null, null, null, null);
 
-        Assert.Equal("★★★★☆  (4/5)", conCalificacion.Estrellas);
+        // El contrato devuelve SOLO el número. Las estrellas dejaron de viajar en la cadena y las
+        // pintan las dos pantallas con iconos de nuestra fuente: ★ y ☆ los ponía la fuente de texto
+        // del equipo de cada quien y donde no estuvieran salían como un cuadro. Lo que esta prueba
+        // cuida sigue siendo lo mismo de siempre —que el líder y el desarrollador lean idéntico—,
+        // y por eso vigila la frase, que es lo único que el contrato puede garantizar.
+        Assert.Equal("4 / 5", conCalificacion.Estrellas);
         Assert.Equal("Sin calificar", sinCalificacion.Estrellas);
     }
 

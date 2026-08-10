@@ -11,10 +11,15 @@ namespace AdminWeb.Shared.Dtos.Trabajo;
 /// «…Texto» de los DTO, y el cliente para armar los desplegables de filtro sin pedirle al servidor
 /// una lista de opciones que no cambia nunca.
 ///
-/// Los textos se copian AL PIE DE LA LETRA de las tres pantallas del escritorio
+/// Los textos van SIN EMOJI. Los pinta el sistema operativo, no heredan el color del texto y donde no
+/// hay fuente de emoji salen como un cuadro vacío —que es exactamente lo que se veía en la columna
+/// Prioridad de esta pantalla, un cuadro delante de cada palabra—. La paridad con el escritorio
 /// (<c>RequirementsControl.StatusLabel</c>/<c>PriorityLabel</c>, <c>SprintControl.EtiquetaEstado</c>),
-/// emojis incluidos: mientras las dos aplicaciones convivan, quien mire una y otra tiene que leer
-/// lo mismo.
+/// que era la razón de conservarlos, se acabó con el escritorio. No los repongas.
+///
+/// La urgencia de la prioridad no se pierde: la pinta la rejilla con un punto de color a partir del
+/// enum <c>RequirementPriority</c>, que viaja en el DTO junto al texto; ver <see cref="ColorDePrioridad"/>
+/// más abajo. El razonamiento largo está en <see cref="EtiquetasDeCatalogo"/>.
 /// </summary>
 public static class EtiquetasDeTrabajo
 {
@@ -32,10 +37,10 @@ public static class EtiquetasDeTrabajo
 
     public static string Prioridad(RequirementPriority p) => p switch
     {
-        RequirementPriority.Baja    => "🔵 Baja",
-        RequirementPriority.Media   => "🟡 Media",
-        RequirementPriority.Alta    => "🟠 Alta",
-        RequirementPriority.Critica => "🔴 Crítica",
+        RequirementPriority.Baja    => "Baja",
+        RequirementPriority.Media   => "Media",
+        RequirementPriority.Alta    => "Alta",
+        RequirementPriority.Critica => "Crítica",
         _                           => p.ToString()
     };
 
@@ -59,42 +64,84 @@ public static class EtiquetasDeTrabajo
         _                                       => "Otro"
     };
 
+    // ── ATENCIÓN: LOS CUATRO MÉTODOS DE ABAJO DEVUELVEN CSS, NO COLORES ──────────────────────────
+    //
+    // Devuelven la cadena «var(--…)» literal, y eso solo significa algo dentro de un atributo style
+    // de una página: quien la resuelve es el NAVEGADOR, no .NET. Es lo que permite que el mismo
+    // estado se lea bien en tema claro y en oscuro sin que este archivo sepa cuál está puesto.
+    //
+    // Este archivo vive en el proyecto COMPARTIDO con el servidor. Hoy solo lo consumen las pantallas
+    // (Sprint, Requerimientos y Mis asignaciones) y por eso es seguro. Si mañana alguien lo usa para
+    // generar un Word, un PDF o un correo, var() no resuelve ahí y el texto saldrá SIN COLOR y sin
+    // ningún error que lo delate: en ese caso hace falta una tabla aparte con valores reales.
+
     /// <summary>
-    /// Color del estado, en hex para la web.
+    /// Color del estado de un requerimiento.
     ///
-    /// Es la MISMA familia de tonos que pintaba <c>AppTheme.StatusColor</c> —ámbar para «en
-    /// desarrollo», verde para «entregado», rojo para «cancelado»—, porque esa asociación ya está
-    /// aprendida y perderla en la mudanza costaría más que conservarla. Lo que cambia es el escalón:
-    /// aquí se usa el oscuro de cada familia y no el claro, porque en la web esto es texto sobre una
-    /// tarjeta blanca y los tonos del escritorio no llegan al contraste mínimo (el ámbar claro sobre
-    /// blanco queda en 1.8:1, ilegible). No es una paleta nueva: es el mismo criterio que el propio
-    /// escritorio ya aplicaba en <c>SprintControl</c>, donde el veredicto se pinta con los tonos
-    /// oscuros de esas mismas familias.
+    /// Ya no son los tonos de <c>AppTheme.StatusColor</c> sino los CINCO cajones semánticos de la
+    /// aplicación —éxito, aviso, peligro, en curso y neutro—, que es todo el vocabulario de color que
+    /// hay. Siete estados en cinco cajones significa que algunos comparten color a propósito: el
+    /// nombre del estado va SIEMPRE escrito al lado, así que el color agrupa («esto reclama», «esto
+    /// ya terminó») y es el texto el que identifica. Inventar dos tonos más para no repetir sería
+    /// volver a tener una paleta que nadie sabe leer.
     /// </summary>
     public static string ColorDeEstado(RequirementStatus s) => s switch
     {
-        RequirementStatus.PorEstimar   => "#64748B",
-        RequirementStatus.Estimado     => "#2563EB",
-        RequirementStatus.EnDesarrollo => "#B45309",
-        RequirementStatus.EnPruebas    => "#7C3AED",
-        RequirementStatus.PorEntregar  => "#C2410C",
-        RequirementStatus.Entregado    => "#15803D",
-        RequirementStatus.Cancelado    => "#DC2626",
-        _                              => "#64748B"
+        RequirementStatus.PorEstimar   => "var(--rz-text-secondary-color)",  // sin empezar
+        RequirementStatus.Estimado     => "var(--rz-info)",                  // listo para arrancar
+        RequirementStatus.EnDesarrollo => "var(--rz-warning)",               // en manos de alguien
+        RequirementStatus.EnPruebas    => "var(--rz-info)",                  // en curso
+        RequirementStatus.PorEntregar  => "var(--rz-warning)",               // espera a alguien
+        RequirementStatus.Entregado    => "var(--rz-success)",
+        RequirementStatus.Cancelado    => "var(--rz-danger)",
+        _                              => "var(--rz-text-secondary-color)"
     };
 
     /// <summary>
-    /// Color del veredicto del sprint. Son los mismos hex de <c>SprintControl.ColorVeredicto</c>, y
-    /// se compara contra el texto que devuelve el servicio porque el veredicto ES ese texto: no hay
-    /// un enum detrás que se pueda usar en su lugar.
+    /// Color de la prioridad de un requerimiento.
+    ///
+    /// Existe porque la etiqueta de <see cref="Prioridad"/> dejó de llevar su círculo de emoji, y ahí
+    /// el color SÍ hacía un trabajo que la palabra no hace: en una rejilla de trece filas la urgencia
+    /// se veía sin leer nada. Las pantallas lo reponen con un punto pintado con estas variables, que
+    /// obedecen al tema en vez de al sistema operativo. La palabra va SIEMPRE al lado: un punto solo
+    /// no lo distingue quien no separa el rojo del verde.
+    ///
+    /// <para>Éstas cuatro sí son el SEMÁFORO, al revés que el color de presencia: una prioridad es una
+    /// escala de urgencia de verdad —crítica reclama y baja no— y ése es justo el vocabulario que
+    /// rojo/ámbar/azul/gris ya tiene. «Baja» va al neutro y no al verde porque no es un logro.</para>
+    /// </summary>
+    public static string ColorDePrioridad(RequirementPriority p) => p switch
+    {
+        RequirementPriority.Critica => "var(--rz-danger)",
+        RequirementPriority.Alta    => "var(--rz-warning)",
+        RequirementPriority.Media   => "var(--rz-info)",
+        _                           => "var(--rz-text-secondary-color)"   // Baja
+    };
+
+    /// <summary>
+    /// Color del veredicto del sprint. Se compara contra el TEXTO que devuelve el servicio porque el
+    /// veredicto ES ese texto: no hay un enum detrás que se pueda usar en su lugar.
+    ///
+    /// «Al día» va al color informativo y no al acento: ir al día es un estado, no la acción
+    /// principal de la pantalla, y el acento está reservado para lo que hay que mirar o pulsar.
+    ///
+    /// <para>EL ✓ DE «Terminado ✓» SE QUEDA, Y NO ES UN DESCUIDO DE LA LIMPIEZA DE EMOJI. Dos motivos.
+    /// El primero es que no comparte el defecto: U+2713 sale de la fuente de TEXTO, hereda el color y
+    /// no depende de que haya fuente de emoji, así que no pinta ningún cuadro vacío. El segundo es el
+    /// que importa: esto de aquí no es una etiqueta, es una COMPARACIÓN POR IGUALDAD, y la cadena la
+    /// escribe <c>SprintService.CalcularAvance</c>. Quitarle el ✓ a un solo lado hace que el switch
+    /// deje de casar, el veredicto caiga al caso por defecto y pierda el verde —sin error de
+    /// compilación, sin excepción y sin que ninguna prueba lo note, porque cada lado se comprueba por
+    /// separado—. Si algún día se toca, se tocan A LA VEZ este literal, el de <c>SprintService</c> y
+    /// los asserts de <c>SprintServiceTests</c>; nunca uno suelto.</para>
     /// </summary>
     public static string ColorDeVeredicto(string veredicto) => veredicto switch
     {
-        "Adelantado" or "Terminado ✓" => "#15803D",
-        "Al día"                      => "#2563EB",
-        "Atrasado"                    => "#DC2626",
-        "Terminó incompleto"          => "#B45309",
-        _                             => "#64748B"
+        "Adelantado" or "Terminado ✓" => "var(--rz-success)",
+        "Al día"                      => "var(--rz-info)",
+        "Atrasado"                    => "var(--rz-danger)",
+        "Terminó incompleto"          => "var(--rz-warning)",
+        _                             => "var(--rz-text-secondary-color)"
     };
 
     /// <summary>
@@ -103,9 +150,9 @@ public static class EtiquetasDeTrabajo
     /// </summary>
     public static string ColorDeCumplimiento(int pct) => pct switch
     {
-        >= 90 => "#15803D",
-        >= 70 => "#B45309",
-        _     => "#DC2626"
+        >= 90 => "var(--rz-success)",
+        >= 70 => "var(--rz-warning)",
+        _     => "var(--rz-danger)"
     };
 }
 
@@ -321,6 +368,11 @@ public record MisAsignacionesDto(
 /// <summary>
 /// Un requerimiento asignado a quien mira la pantalla.
 /// </summary>
+/// <param name="Prioridad">El enum, además de su texto, y por el mismo motivo que en
+/// <see cref="RequerimientoDto"/>: la rejilla pinta el punto de urgencia con
+/// <see cref="EtiquetasDeTrabajo.ColorDePrioridad"/> y el color tiene que salir del VALOR. Sin este
+/// campo la pantalla tendría que volver a convertir la palabra en enum para saber de qué color va,
+/// que es exactamente lo que se rompe el día que alguien cambia una etiqueta.</param>
 /// <param name="TiempoTexto">El tiempo ya formateado («2h 05m 30s»). Lo formatea el servidor porque
 /// el formato vive en <c>WorkSessionService.Format</c>, en la capa de aplicación, y el navegador no
 /// la puede referenciar: escribirlo otra vez aquí dejaría dos formatos que se desincronizarían.</param>
@@ -329,6 +381,7 @@ public record MiAsignacionDto(
     string Titulo,
     RequirementStatus Estado,
     string EstadoTexto,
+    RequirementPriority Prioridad,
     string PrioridadTexto,
     decimal? HorasEstimadas,
     DateTime? FechaCompromiso,

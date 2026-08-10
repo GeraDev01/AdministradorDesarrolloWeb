@@ -26,7 +26,7 @@ public class DeveloperSelfServiceTests
         db.SaveChanges();
 
         var user = UsuarioDePrueba.Como(rol, devId);
-        return (db, new VacationRequestService(db, user, new AuditService(db, user, new OrigenDePrueba())));
+        return (db, Fabrica.Vacaciones(db, user));
     }
 
     private static int CrearSolicitud(AppDbContext db, VacationStatus estado, int devId = MiDevId)

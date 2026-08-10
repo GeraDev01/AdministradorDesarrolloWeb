@@ -52,7 +52,7 @@
         <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
             @(_editado.Count == 0 ? "Sin cambios pendientes." : $"{_editado.Count} clave(s) por guardar.")
         </RadzenText>
-        <RadzenButton Text="💾 Guardar" Click="@Guardar"
+        <RadzenButton Text="Guardar" Icon="save" Click="@Guardar"
                       Disabled="@(_ocupado || _editado.Count == 0)" Style="margin-left:auto" />
     </RadzenStack>
 
@@ -67,9 +67,12 @@
             <RadzenStack Gap="0.25rem">
                 @foreach (var r in _resultados)
                 {
+                    @* La palomita y el aspa van como ICONO de la fuente y no como carácter suelto:
+                       el glifo hereda el color del renglón —rojo cuando la clave no se guardó— y se
+                       dibuja igual en cualquier sistema, que es lo que ✓ y ✗ no garantizan. *@
                     <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0"
                                 Style="@(r.Ok ? "" : "color:var(--rz-danger)")">
-                        @(r.Ok ? "✓" : "✗") @r.Mensaje
+                        <RadzenIcon Icon="@(r.Ok ? "done" : "error")" /> @r.Mensaje
                     </RadzenText>
                 }
             </RadzenStack>
@@ -88,7 +91,14 @@
 
                         @if (grupo.Prueba is { } prueba)
                         {
-                            <RadzenButton Text="🔌 Probar conexión" ButtonStyle="ButtonStyle.Light"
+                            @* «science» —el matraz— y no un enchufe: el enchufe no está en el recorte
+                               de la fuente con ningún nombre parecido, y sobre todo los otros tres
+                               botones «Probar conexión» de la aplicación (Correo, Almacenamiento y
+                               MisTickets) ya llevan éste. Dos botones con el mismo texto no pueden
+                               enseñar dibujos distintos: se leerían como si hicieran cosas distintas.
+                               El emoji que había, además, se quedaba en color dentro de un botón que
+                               se apaga entero mientras la prueba está en marcha. *@
+                            <RadzenButton Text="Probar conexión" Icon="science" ButtonStyle="ButtonStyle.Light"
                                           Size="ButtonSize.Small" Disabled="@_ocupado"
                                           Click="@(() => Probar(grupo, prueba))" Style="margin-left:auto" />
                         }
@@ -105,8 +115,9 @@
                     {
                         <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
                                     Style="color:var(--rz-warning)">
-                            ⚠ Este apartado tiene cambios sin guardar. La prueba comprueba lo que está
-                            GUARDADO, no lo que acabas de escribir: guarda primero.
+                            <RadzenIcon Icon="warning" /> Este apartado tiene cambios sin guardar. La
+                            prueba comprueba lo que está GUARDADO, no lo que acabas de escribir:
+                            guarda primero.
                         </RadzenText>
                     }
 
@@ -144,7 +155,10 @@
                                         }
                                         else if (clave.Configurado)
                                         {
-                                            <RadzenButton Text="🗑 Quitar" ButtonStyle="ButtonStyle.Light"
+                                            @* «clear» y no el bote de basura: esto NO borra nada
+                                               todavía, solo apunta que la clave se va al guardar —
+                                               por eso al lado aparece «Deshacer». *@
+                                            <RadzenButton Text="Quitar" Icon="clear" ButtonStyle="ButtonStyle.Light"
                                                           Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                           Click="@(() => _editado[clave.Clave] = "")" />
                                         }
@@ -152,6 +166,10 @@
 
                                     <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
                                                 Style="@EstiloDelEstado(clave)">
+                                        @if (IconoDelEstado(clave) is { Length: > 0 } icono)
+                                        {
+                                            <RadzenIcon Icon="@icono" />
+                                        }
                                         @EstadoDelSecreto(clave)
                                     </RadzenText>
                                     break;
@@ -204,8 +222,13 @@
        solicitud concreta. *@
     <RadzenCard>
         <RadzenStack Gap="0.75rem">
+            @* El glifo va como <RadzenIcon> DENTRO del texto porque RadzenText no tiene parámetro
+               Icon: es el patrón que ya usan los otros encabezados de esta misma pantalla. Es el
+               mismo papel del que habla el panel del documento de Vacaciones, así que el mismo
+               «description»; con el 📄 de antes los dos hablaban del mismo Word con dibujos
+               distintos, y encima éste no se atenuaba con el resto de la tarjeta. *@
             <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
-                📄 Plantilla de la solicitud de vacaciones
+                <RadzenIcon Icon="description" /> Plantilla de la solicitud de vacaciones
             </RadzenText>
 
             <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
@@ -446,10 +469,18 @@
 
     private static string EstadoDelSecreto(ClaveDeConfiguracionDto c) =>
         c.RequiereRecaptura
-            ? "⚠ Está guardado con el cifrado antiguo de Windows y el servidor no puede leerlo: hay que capturarlo otra vez."
+            ? "Está guardado con el cifrado antiguo de Windows y el servidor no puede leerlo: hay que capturarlo otra vez."
             : c.Configurado
-                ? "✓ Configurado. Escribe un valor nuevo solo si lo vas a reemplazar."
+                ? "Configurado. Escribe un valor nuevo solo si lo vas a reemplazar."
                 : "Sin configurar.";
+
+    /// <summary>
+    /// El glifo que acompaña al estado. Va aparte del texto —y no como un ⚠ o un ✓ metidos en la
+    /// cadena— porque los caracteres sueltos los dibuja el sistema operativo, no heredan el color
+    /// del renglón y cambian de forma según el equipo; el icono de la fuente sí hereda.
+    /// </summary>
+    private static string IconoDelEstado(ClaveDeConfiguracionDto c) =>
+        c.RequiereRecaptura ? "warning" : c.Configurado ? "done" : "";
 
     private static string EstiloDelEstado(ClaveDeConfiguracionDto c) =>
         c.RequiereRecaptura ? "color:var(--rz-warning)" : "";

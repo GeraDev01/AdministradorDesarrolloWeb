@@ -38,8 +38,12 @@
                       Size="ButtonSize.Small" Click="@CargarPersonas" Disabled="@_ocupado" />
     </RadzenStack>
 
+    @* El candado se queda —el aviso importa, esta pantalla enseña salarios— pero como glifo de la
+       fuente y no como emoji: RadzenText no admite Icon, así que va dentro como <RadzenIcon>. Puesto
+       así hereda currentColor y se atenúa igual que el TextStyle.Caption que lo envuelve; el emoji
+       se quedaba a todo color, con aire de botón pulsable, encima de un texto deliberadamente gris. *@
     <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
-        🔒 Información confidencial · visible solo para el líder.
+        <RadzenIcon Icon="lock" /> Información confidencial · visible solo para el líder.
     </RadzenText>
 
     <div style="display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-start">
@@ -53,7 +57,10 @@
                 <Columns>
                     <RadzenDataGridColumn TItem="PersonaConFichaDto" Property="Nombre" Title="Desarrollador" />
                     <RadzenDataGridColumn TItem="PersonaConFichaDto" Title="Ficha" Width="80px" Sortable="false">
-                        <Template Context="p">@(p.TieneFicha ? "✓" : "—")</Template>
+                        @* La palomita pasa a glifo de la fuente, como en el resto de las rejillas. El
+                           guion SÍ se queda tal cual: un guion medio es tipografía, no un dibujo, y
+                           significa «aquí no hay dato» igual que en toda la aplicación. *@
+                        <Template Context="p">@if (p.TieneFicha) { <RadzenIcon Icon="done" /> } else { <text>—</text> }</Template>
                     </RadzenDataGridColumn>
                 </Columns>
             </RadzenDataGrid>
@@ -115,7 +122,7 @@
 
                     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                  Gap="1rem" Wrap="FlexWrap.Wrap">
-                        <RadzenButton Text="💾 Guardar ficha" Disabled="@_ocupado" Click="@Guardar" />
+                        <RadzenButton Text="Guardar ficha" Icon="save" Disabled="@_ocupado" Click="@Guardar" />
                         <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                             @(ficha.ActualizadaUtc is DateTime cuando
                                 ? $"Última actualización: {cuando.ToLocalTime():dd/MM/yyyy HH:mm}"

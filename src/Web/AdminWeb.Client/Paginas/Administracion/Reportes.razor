@@ -69,10 +69,15 @@
                                         SelectedItemsText="@TextoDePersonas()" Placeholder="Todos"
                                         Disabled="@_ocupado" Style="min-width:14rem" />
 
-                        <RadzenButton Text="▶ Generar" Click="@Generar" Disabled="@_ocupado" />
-                        <RadzenButton Text="📊 Excel" ButtonStyle="ButtonStyle.Light"
+                        @* «autorenew» y NO «play_arrow»: el triángulo de reproducir está reservado
+                           al cronómetro, y esto vuelve a calcular el reporte entero, que es otra
+                           cosa que recargar lo que ya se ve. *@
+                        <RadzenButton Text="Generar" Icon="autorenew" Click="@Generar" Disabled="@_ocupado" />
+                        <RadzenButton Text="Excel" Icon="download" ButtonStyle="ButtonStyle.Light"
                                       Click="@Exportar" Disabled="@(_ocupado || _reporte is null)" />
-                        <RadzenButton Text="✉ Enviar por correo" ButtonStyle="ButtonStyle.Light"
+                        @* Éste solo ABRE el panel; el que manda de verdad es el «Enviar» de abajo,
+                           y por eso se reparten el sobre y el avión de papel. *@
+                        <RadzenButton Text="Enviar por correo" Icon="mail" ButtonStyle="ButtonStyle.Light"
                                       Click="@(() => _enviando = !_enviando)"
                                       Disabled="@(_ocupado || _reporte is null)" />
                     </RadzenStack>
@@ -93,7 +98,7 @@
                                             Placeholder="Nota (opcional)" aria-label="Nota" />
 
                             <div>
-                                <RadzenButton Text="Enviar" ButtonStyle="ButtonStyle.Primary"
+                                <RadzenButton Text="Enviar" Icon="send" ButtonStyle="ButtonStyle.Primary"
                                               Size="ButtonSize.Small" Disabled="@_ocupado"
                                               Click="@EnviarPorCorreo" />
                             </div>
@@ -111,7 +116,12 @@
             {
                 <RadzenTabs>
                     <Tabs>
-                        <RadzenTabsItem Text="📋 Datos">
+                        @* Las dos pestañas enseñan lo MISMO de dos formas, así que sus glifos tienen
+                           que contrastar o no ayudan a elegir: «table_chart» es la rejilla de filas y
+                           columnas que hay debajo, y «bar_chart» el resumen en indicadores y gráficas.
+                           Se descartan «insights» y «monitoring» a propósito, que son los que el menú
+                           tiene cogidos para Métricas: aquí no se mide nada, se resume un reporte. *@
+                        <RadzenTabsItem Text="Datos" Icon="table_chart">
                             <RadzenDataGrid TItem="IReadOnlyList<string>" Data="@reporte.Filas"
                                             IsLoading="@_ocupado" AllowPaging="true" PageSize="20"
                                             EmptyText="El reporte no devolvió ninguna fila para ese período.">
@@ -130,7 +140,7 @@
                             </RadzenDataGrid>
                         </RadzenTabsItem>
 
-                        <RadzenTabsItem Text="📊 Tablero">
+                        <RadzenTabsItem Text="Tablero" Icon="bar_chart">
                             <RadzenStack Gap="1rem">
                                 <div style="display:flex;gap:.75rem;flex-wrap:wrap">
                                     @foreach (var kpi in reporte.Indicadores)

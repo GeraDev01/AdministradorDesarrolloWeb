@@ -50,12 +50,18 @@
         }
         else
         {
+            @* Los glifos van en Icon, que RadzenTabsItem sí tiene, y no dentro del Text: un emoji lo
+               dibuja el sistema operativo, no hereda el color de la pestaña activa y se ve distinto
+               en cada equipo. «checklist» —y no «edit_note»— porque el lápiz está reservado a la
+               ACCIÓN de editar, que aquí mismo aparece en varios botones; una pestaña que se lo
+               quede haría creer que edita algo. «extension» es la pieza de rompecabezas que ya lleva
+               esta misma sección en el menú lateral. *@
             <RadzenTabs>
                 <Tabs>
-                    <RadzenTabsItem Text="📝 Actividades y puntos">
+                    <RadzenTabsItem Text="Actividades y puntos" Icon="checklist">
                         @PanelDePuntos(d)
                     </RadzenTabsItem>
-                    <RadzenTabsItem Text="🧩 Actividades libres">
+                    <RadzenTabsItem Text="Actividades libres" Icon="extension">
                         @PanelDeActividades(d)
                     </RadzenTabsItem>
                 </Tabs>
@@ -179,7 +185,7 @@
                     <RadzenDataGridColumn TItem="AutocalificacionDto" Title="Período" Width="120px">
                         <Template Context="e">@Periodo(e.Anio, e.Mes)</Template>
                     </RadzenDataGridColumn>
-                    <RadzenDataGridColumn TItem="AutocalificacionDto" Title="⏱ Tiempo" Width="100px">
+                    <RadzenDataGridColumn TItem="AutocalificacionDto" Title="Tiempo" Width="100px">
                         <Template Context="e">@Minutos(e.MinutosDeclarados)</Template>
                     </RadzenDataGridColumn>
                     <RadzenDataGridColumn TItem="AutocalificacionDto" Title="Origen" Width="150px">
@@ -193,8 +199,15 @@
                             <b style="@ColorDeEstado(e.Estado)">@Estado(e.Estado)</b>
                             @if (e.Vueltas > 0)
                             {
-                                <RadzenBadge BadgeStyle="BadgeStyle.Warning" Text="@($"🔁 ×{e.Vueltas}")"
-                                             title="@e.HistorialDeRevision" />
+                                @* RadzenBadge NO tiene parámetro Icon, así que el glifo entra por el
+                                   ChildContent, que según la documentación de Radzen ANULA el Text.
+                                   Si alguien vuelve a poner Text aquí, lo de dentro seguirá ganando y
+                                   ese Text quedará como código muerto. «restart_alt» es el glifo que
+                                   la aplicación usa para las «vueltas» de revisión en las tres
+                                   pantallas donde salen. *@
+                                <RadzenBadge BadgeStyle="BadgeStyle.Warning" title="@e.HistorialDeRevision">
+                                    <RadzenIcon Icon="restart_alt" /> ×@e.Vueltas
+                                </RadzenBadge>
                             }
                         </Template>
                     </RadzenDataGridColumn>
@@ -223,6 +236,11 @@
                                 }
                                 @if (e.SePuedeReplicar)
                                 {
+                                    @* «reply» A PROPÓSITO, y no «content_copy»: aquí «replicar» no
+                                       es duplicar la entrada, es CONTESTARLE al líder que la
+                                       rechazó —abre el cuadro de argumento y la manda otra vez a
+                                       revisión. Hay destinatario humano, que es justo la condición
+                                       de la flecha de responder. No lo cambies a copiar. *@
                                     <RadzenButton Text="Replicar" Icon="reply" ButtonStyle="ButtonStyle.Secondary"
                                                   Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                   Click="@(() => AbrirReplica(e))"
@@ -254,8 +272,11 @@
 
         <RadzenCard Style="border-left:5px solid var(--rz-primary)">
             <RadzenStack Gap="0.75rem">
+                @* El icono del título es el MISMO que el del botón que abrió el panel: así se ve de
+                   un golpe si lo que está abierto es un alta o una corrección. *@
                 <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">
-                    @(f.Id is null ? "📝 Registrar actividad" : "✏ Corregir actividad")
+                    <RadzenIcon Icon="@(f.Id is null ? "add" : "edit")" />
+                    @(f.Id is null ? "Registrar actividad" : "Corregir actividad")
                 </RadzenText>
                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                     @(f.Id is null
@@ -355,7 +376,9 @@
                             <RadzenButton Text="Verla" Icon="image" ButtonStyle="ButtonStyle.Light"
                                           Size="ButtonSize.ExtraSmall"
                                           Click="@(() => Abrir($"api/autocalificacion/entradas/{f.Id}/captura"))" />
-                            <RadzenButton Text="Quitarla" Icon="close" ButtonStyle="ButtonStyle.Light"
+                            @* «clear» (aspa de vaciar un campo) y no «close» (aspa de cerrar una
+                               ventana): esto quita la captura elegida, no cierra nada. *@
+                            <RadzenButton Text="Quitarla" Icon="clear" ButtonStyle="ButtonStyle.Light"
                                           Size="ButtonSize.ExtraSmall" Click="@(() => f.QuitarCaptura = true)" />
                         </RadzenStack>
                     }
@@ -374,8 +397,9 @@
 
                 <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
                     <RadzenButton Text="@(f.Id is null ? "Enviar a revisión" : "Guardar cambios")"
+                                  Icon="@(f.Id is null ? "send" : "save")"
                                   ButtonStyle="ButtonStyle.Primary" Click="@GuardarEntrada" Disabled="@_ocupado" />
-                    <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                    <RadzenButton Text="Cancelar" Icon="close" ButtonStyle="ButtonStyle.Light"
                                   Click="@(() => _entrada = null)" Disabled="@_ocupado" />
                 </RadzenStack>
             </RadzenStack>
@@ -386,7 +410,9 @@
     {
         <RadzenCard Style="border-left:5px solid var(--rz-warning)">
             <RadzenStack Gap="0.75rem">
-                <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">🗣 Replicar el rechazo</RadzenText>
+                <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">
+                    <RadzenIcon Icon="reply" /> Replicar el rechazo
+                </RadzenText>
                 <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
                     <b>@r.Entrada.Criterio</b> (@ConSigno(r.Entrada.Puntos) pts)
                     @if (r.Entrada.Vueltas > 0)
@@ -425,9 +451,9 @@
                 </RadzenStack>
 
                 <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
-                    <RadzenButton Text="Enviar a revisión" ButtonStyle="ButtonStyle.Primary"
+                    <RadzenButton Text="Enviar a revisión" Icon="send" ButtonStyle="ButtonStyle.Primary"
                                   Click="@EnviarReplica" Disabled="@_ocupado" />
-                    <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                    <RadzenButton Text="Cancelar" Icon="close" ButtonStyle="ButtonStyle.Light"
                                   Click="@(() => _replica = null)" Disabled="@_ocupado" />
                 </RadzenStack>
             </RadzenStack>
@@ -523,7 +549,8 @@
                 <RadzenCard Style="border-left:5px solid var(--rz-primary)">
                     <RadzenStack Gap="0.75rem">
                         <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">
-                            @(f.Id is null ? "🧩 Nueva actividad" : "✏ Editar actividad")
+                            <RadzenIcon Icon="@(f.Id is null ? "add" : "edit")" />
+                            @(f.Id is null ? "Nueva actividad" : "Editar actividad")
                         </RadzenText>
                         <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                             Para el trabajo que no corresponde a ninguno de tus requerimientos asignados
@@ -540,9 +567,11 @@
                                             Style="width:100%" Disabled="@_ocupado" />
                         </RadzenStack>
                         <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
-                            <RadzenButton Text="@(f.Id is null ? "Crear" : "Guardar")" ButtonStyle="ButtonStyle.Primary"
+                            <RadzenButton Text="@(f.Id is null ? "Crear" : "Guardar")"
+                                          Icon="@(f.Id is null ? "add" : "save")"
+                                          ButtonStyle="ButtonStyle.Primary"
                                           Click="@GuardarActividad" Disabled="@_ocupado" />
-                            <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                            <RadzenButton Text="Cancelar" Icon="close" ButtonStyle="ButtonStyle.Light"
                                           Click="@(() => _actividad = null)" Disabled="@_ocupado" />
                         </RadzenStack>
                     </RadzenStack>
@@ -559,16 +588,25 @@
                         </Template>
                     </RadzenDataGridColumn>
                     <RadzenDataGridColumn TItem="ActividadLibreDto" Title="Estado" Width="110px">
-                        <Template Context="a">@(a.EstaAbierta ? "🟢 Abierta" : "⚪ Cerrada")</Template>
+                        @* Las dos palabras van solas: los círculos de colores que llevaban delante no
+                           añadían ni un dato que «Abierta»/«Cerrada» no diga ya, y el blanco era casi
+                           invisible sobre el fondo claro mientras que en el tema oscuro era el punto
+                           más brillante de la rejilla. *@
+                        <Template Context="a">@(a.EstaAbierta ? "Abierta" : "Cerrada")</Template>
                     </RadzenDataGridColumn>
                     <RadzenDataGridColumn TItem="ActividadLibreDto" Title="Creada" Width="110px">
                         <Template Context="a">@a.CreadaUtc.ToLocalTime().ToString("dd/MM/yyyy")</Template>
                     </RadzenDataGridColumn>
-                    <RadzenDataGridColumn TItem="ActividadLibreDto" Title="⏱ Tiempo dedicado" Width="150px">
+                    <RadzenDataGridColumn TItem="ActividadLibreDto" Title="Tiempo dedicado" Width="150px">
                         <Template Context="a">@Reloj(a.SegundosCronometrados)</Template>
                     </RadzenDataGridColumn>
-                    <RadzenDataGridColumn TItem="ActividadLibreDto" Title="📎" Width="70px">
-                        <Template Context="a">@(a.Evidencias > 0 ? $"📎 {a.Evidencias}" : "")</Template>
+                    @* La cabecera dice la PALABRA y no un clip: Title es además el nombre con el que
+                       esta columna sale en el selector de columnas y en la ordenación, y ahí un dibujo
+                       no se lee ni se busca. Con la cabecera nombrada, el clip delante de cada número
+                       sobra: era repetir el título en cada renglón. Si el ancho llegara a apretar, se
+                       abrevia la palabra («Evid.»), no se vuelve al dibujo. *@
+                    <RadzenDataGridColumn TItem="ActividadLibreDto" Title="Evidencias" Width="70px">
+                        <Template Context="a">@(a.Evidencias > 0 ? a.Evidencias.ToString() : "")</Template>
                     </RadzenDataGridColumn>
                     <RadzenDataGridColumn TItem="ActividadLibreDto" Title="" Width="290px" Sortable="false">
                         <Template Context="a">
@@ -608,7 +646,9 @@
         <RadzenCard Style="border-left:5px solid var(--rz-info)">
             <RadzenStack Gap="0.75rem">
                 <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.75rem">
-                    <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">📎 Evidencia de «@a.Titulo»</RadzenText>
+                    <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">
+                        <RadzenIcon Icon="attach_file" /> Evidencia de «@a.Titulo»
+                    </RadzenText>
                     <RadzenButton Icon="close" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                   title="Cerrar el panel" Click="@(() => VerEvidencia(a))" />
                 </RadzenStack>
@@ -630,7 +670,15 @@
                                     AllowSorting="false" EmptyText="">
                         <Columns>
                             <RadzenDataGridColumn TItem="EvidenciaDto" Title="Archivo">
-                                <Template Context="ev">@(ev.EsImagen ? "🖼 " : "📄 ")@ev.NombreArchivo</Template>
+                                @* Aquí el dibujo SÍ hace falta y no se puede quitar: es lo único que
+                                   distingue una captura de un documento antes de abrirlo. Se pasa a
+                                   glifos de la fuente para que se atenúen junto con la fila cuando la
+                                   rejilla la apaga, cosa que el emoji no hacía. «image» es el mismo
+                                   que usa PegarImagen.razor para esta misma idea. *@
+                                <Template Context="ev">
+                                    @if (ev.EsImagen) { <RadzenIcon Icon="image" /> } else { <RadzenIcon Icon="description" /> }
+                                    @ev.NombreArchivo
+                                </Template>
                             </RadzenDataGridColumn>
                             <RadzenDataGridColumn TItem="EvidenciaDto" Title="Tamaño" Width="100px"
                                                   TextAlign="TextAlign.Right">
@@ -862,11 +910,15 @@
     private static string Tamano(long bytes) =>
         bytes >= 1024 * 1024 ? $"{bytes / (1024.0 * 1024.0):0.0} MB" : $"{Math.Max(1, bytes / 1024)} KB";
 
+    // Solo la palabra: esto devuelve una CADENA que se pinta dentro de un <b> al que ColorDeEstado
+    // (la función de aquí abajo) ya le pone el color del tema, así que el estado está dicho por algo
+    // que sí cambia con el modo oscuro. Las marcas que llevaban delante competían con ese color sin
+    // obedecerlo, y aquí no hay dónde colgar un <RadzenIcon>: es un string.
     private static string Estado(PointApprovalStatus estado) => estado switch
     {
-        PointApprovalStatus.Aprobado => "✅ Aprobado",
-        PointApprovalStatus.Pendiente => "⏳ Pendiente",
-        PointApprovalStatus.Rechazado => "❌ Rechazado",
+        PointApprovalStatus.Aprobado => "Aprobado",
+        PointApprovalStatus.Pendiente => "Pendiente",
+        PointApprovalStatus.Rechazado => "Rechazado",
         _ => estado.ToString()
     };
 

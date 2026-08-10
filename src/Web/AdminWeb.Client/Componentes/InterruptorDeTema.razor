@@ -19,9 +19,11 @@
     recarga enseñaría unos segundos de fondo blanco antes de oscurecerse.
 *@
 
+@* El glifo va dentro de un RadzenIcon y no como texto suelto: así lo pinta la fuente de iconos,
+   hereda el color de la barra y se alinea con lo que tiene al lado. *@
 <button class="interruptor-tema" type="button" @onclick="Rotar"
         title="@Titulo" aria-label="@Titulo">
-    @Icono
+    <RadzenIcon Icon="@Icono" />
 </button>
 
 @code {
@@ -31,11 +33,23 @@
     private Modo _modo = Modo.Sistema;
     private bool _montado;
 
+    /// <summary>
+    /// El nombre del glifo, no el glifo. Aquí había tres caracteres sueltos (☀ ☾ ◐) porque el
+    /// recorte de la fuente no traía los suyos; ya los trae, así que se usan.
+    ///
+    /// <para>Importa más de lo que parece justo en ESTE botón: los caracteres los dibujaba el
+    /// sistema operativo y no heredan el color del texto, así que el interruptor del tema —que vive
+    /// sobre la barra grafito— era lo único de la barra que no cambiaba de color al cambiar de
+    /// tema. El botón que anuncia el tema era el que no lo obedecía.</para>
+    ///
+    /// <para><c>brightness_auto</c> para «sigo al sistema»: es un sol con una «A» dentro, y esa «A»
+    /// es lo único que separa «automático» de «claro» de un vistazo.</para>
+    /// </summary>
     private string Icono => _modo switch
     {
-        Modo.Claro  => "☀",
-        Modo.Oscuro => "☾",
-        _           => "◐"
+        Modo.Claro  => "light_mode",
+        Modo.Oscuro => "dark_mode",
+        _           => "brightness_auto"
     };
 
     private string Titulo => _modo switch

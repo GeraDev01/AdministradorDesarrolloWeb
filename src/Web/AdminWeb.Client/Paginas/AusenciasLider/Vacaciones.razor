@@ -48,17 +48,26 @@
     @if (_datos is { } d)
     {
         @* El contador se cuenta sobre TODAS y no sobre lo filtrado: es el número que dice si queda
-           trabajo, y esconderlo al filtrar haría creer que no hay nada que resolver. *@
+           trabajo, y esconderlo al filtrar haría creer que no hay nada que resolver.
+
+           La frase va sin reloj de arena delante: es una cadena de C# —no hay dónde colgar un
+           componente— y el aviso ya lo da el Style de aquí abajo, que pinta el renglón en
+           var(--rz-warning) en cuanto hay pendientes. El emoji era la única parte que no cambiaba
+           con el tema. Permisos.razor tiene esta misma frase y se trata igual. *@
         <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
                     Style="@(d.Pendientes > 0 ? "color:var(--rz-warning)" : "")">
             @(d.Pendientes == 0
                 ? "No hay solicitudes esperando respuesta."
-                : $"⏳ {d.Pendientes} solicitud(es) esperando tu respuesta.")
+                : $"{d.Pendientes} solicitud(es) esperando tu respuesta.")
         </RadzenText>
 
         <RadzenTabs>
             <Tabs>
-                <RadzenTabsItem Text="🏖 Solicitudes">
+                @* «beach_access» es la sombrilla con la que el menú lateral nombra «Vacaciones»: la
+                   pestaña y la puerta por la que se llega a ella tienen que reconocerse como la
+                   misma cosa. RadzenTabsItem sí tiene parámetro Icon, así que el glifo sale del
+                   Text y deja de dibujarlo el sistema operativo. *@
+                <RadzenTabsItem Text="Solicitudes" Icon="beach_access">
                     <RadzenStack Gap="0.75rem">
                         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                      Gap="1rem" Wrap="FlexWrap.Wrap">
@@ -76,8 +85,8 @@
 
                             @* Pegado a los filtros a propósito: es lo que hace evidente que baja lo
                                que están enseñando y no la tabla entera. *@
-                            <RadzenButton Text="📊 Excel" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
-                                          Style="margin-left:auto"
+                            <RadzenButton Text="Excel" Icon="download" ButtonStyle="ButtonStyle.Light"
+                                          Disabled="@_ocupado" Style="margin-left:auto"
                                           Click="@(() => Descargas.DesdeApiAsync(RutaDelFiltro("/excel")))" />
                         </RadzenStack>
 
@@ -85,8 +94,12 @@
                         {
                             <RadzenCard>
                                 <RadzenStack Gap="0.75rem">
+                                    @* «description» —la hoja escrita— y como <RadzenIcon> dentro del
+                                       texto, porque RadzenText no tiene parámetro Icon. Es el mismo
+                                       glifo que lleva la plantilla en Configuración: los dos hablan
+                                       del mismo papel y no pueden dibujarse distinto. *@
                                     <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
-                                        📄 Documento — @sel.Desarrollador
+                                        <RadzenIcon Icon="description" /> Documento — @sel.Desarrollador
                                         (@sel.Inicio.ToString("dd/MM/yyyy") al @sel.Fin.ToString("dd/MM/yyyy"))
                                     </RadzenText>
 
@@ -117,21 +130,30 @@
                                            mantiene. Se descarga en vez de abrirse en otra pestaña
                                            —al revés que el PDF— porque el navegador no sabe enseñar
                                            un .docx: abrirlo daría una pestaña en blanco. *@
-                                        <RadzenButton Text="Bajar en Word" Icon="description"
+                                        @* «download» y no «description»: el icono dice la ACCIÓN —sale
+                                           un archivo—, no el formato, que ya lo dice el texto. *@
+                                        <RadzenButton Text="Bajar en Word" Icon="download"
                                                       ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                                                       Disabled="@_ocupado"
                                                       Click="@(() => BajarWord(sel, _firmaId))" />
-                                        <RadzenButton Text="Firmar y archivar" Icon="verified"
+                                        @* «draw» es el acto de firmar y es el mismo icono del menú
+                                           «Firmas»: el botón y la pantalla se reconocen como lo
+                                           mismo. «verified» queda reservado para PINTAR que algo ya
+                                           está firmado — la insignia de la rejilla, más abajo. *@
+                                        <RadzenButton Text="Firmar y archivar" Icon="draw"
                                                       ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small"
                                                       Disabled="@(_ocupado || _firmaId is null)"
                                                       Click="@(() => Firmar(sel))" />
                                         @if (sel.DocumentoFirmado)
                                         {
-                                            <RadzenButton Text="Abrir el firmado" Icon="task"
+                                            @* La flecha que sale del marco avisa de que el PDF se
+                                               abre FUERA, en otra pestaña; «task» (hoja con
+                                               palomita) se leía como «marcar hecho». *@
+                                            <RadzenButton Text="Abrir el firmado" Icon="open_in_new"
                                                           ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                                                           Disabled="@_ocupado" Click="@(() => VerFirmado(sel))" />
                                         }
-                                        <RadzenButton Text="Cerrar" ButtonStyle="ButtonStyle.Light"
+                                        <RadzenButton Text="Cerrar" Icon="close" ButtonStyle="ButtonStyle.Light"
                                                       Size="ButtonSize.Small" Click="@(() => _documento = null)" />
                                     </RadzenStack>
 
@@ -172,7 +194,7 @@
                                     <Template Context="v">
                                         @if (v.TieneRespaldo)
                                         {
-                                            <RadzenButton Text="📎 Abrir" ButtonStyle="ButtonStyle.Light"
+                                            <RadzenButton Text="Abrir" Icon="visibility" ButtonStyle="ButtonStyle.Light"
                                                           Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                           Click="@(() => VerRespaldo(v))" />
                                         }
@@ -195,8 +217,15 @@
                                     <Template Context="v">
                                         @if (v.DocumentoFirmado)
                                         {
-                                            <RadzenBadge BadgeStyle="BadgeStyle.Success" Text="✍ Firmado"
-                                                         title="@($"Firmado el {v.FirmadoUtc?.ToLocalTime():dd/MM/yyyy HH:mm}")" />
+                                            @* «verified» pinta un ESTADO —ya está firmado—, que es
+                                               justo lo contrario del botón «Firmar y archivar», que
+                                               lleva «draw» porque es el acto. RadzenBadge no tiene
+                                               parámetro Icon, así que el glifo entra por su
+                                               contenido. *@
+                                            <RadzenBadge BadgeStyle="BadgeStyle.Success"
+                                                         title="@($"Firmado el {v.FirmadoUtc?.ToLocalTime():dd/MM/yyyy HH:mm}")">
+                                                <RadzenIcon Icon="verified" /> Firmado
+                                            </RadzenBadge>
                                         }
                                         else
                                         {
@@ -214,10 +243,17 @@
                                                permite no pueden discrepar. *@
                                             @if (v.SePuedeResolver)
                                             {
-                                                <RadzenButton Text="Aprobar" ButtonStyle="ButtonStyle.Success"
+                                                @* La palomita en círculo y el aspa en círculo son el
+                                                   par clásico y se distinguen por FORMA. Hasta ahora
+                                                   los dos botones solo se diferenciaban por el
+                                                   color, y en oscuro el verde y el rojo se acercan
+                                                   —además de que hay quien no los distingue. *@
+                                                <RadzenButton Text="Aprobar" Icon="check_circle"
+                                                              ButtonStyle="ButtonStyle.Success"
                                                               Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                               Click="@(() => Resolver(v, VacationStatus.Aprobada))" />
-                                                <RadzenButton Text="Rechazar" ButtonStyle="ButtonStyle.Danger"
+                                                <RadzenButton Text="Rechazar" Icon="cancel"
+                                                              ButtonStyle="ButtonStyle.Danger"
                                                               Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                               Click="@(() => Resolver(v, VacationStatus.Rechazada))" />
                                             }
@@ -241,7 +277,11 @@
                     </RadzenStack>
                 </RadzenTabsItem>
 
-                <RadzenTabsItem Text="🖊 Firmas">
+                @* «draw» es el mismo glifo que la entrada «Firmas» del menú de Administración, que
+                   lleva a este mismo componente. El 🖊 que había es uno de los dos emojis que la
+                   documentación de Menu.cs cita por su nombre como ejemplo de los que salían en
+                   color aunque la interfaz entera fuera monocroma. *@
+                <RadzenTabsItem Text="Firmas" Icon="draw">
                     @* El mismo componente que la pantalla «Firmas» de Administración. Al cambiar algo
                        se recarga esta pantalla, porque el desplegable del documento —que vive fuera
                        del componente— seguiría ofreciendo una firma recién borrada. *@

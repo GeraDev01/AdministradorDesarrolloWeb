@@ -16,8 +16,8 @@
     servidor según la sesión. Filtrarlo en la pantalla sería inútil — el cliente corre en la máquina
     de quien lo usa — y además dejaría dos sitios donde corregir la regla el día que cambie.
 
-    El trabajo diario son dos botones, los mismos de siempre: 📋 Copiar (pregunta lo que haya que
-    rellenar y deja el texto en el portapapeles) y 💾 Guardar como… (lo baja como archivo con la
+    El trabajo diario son dos botones, los mismos de siempre: «Copiar» (pregunta lo que haya que
+    rellenar y deja el texto en el portapapeles) y «Guardar como…» (lo baja como archivo con la
     extensión que le toca).
 
     La aplicación NO ejecuta los scripts: los entrega. Quién los corre, contra qué servidor y con
@@ -77,8 +77,8 @@
                     <RadzenDataGridColumn TItem="PlantillaListaDto" Property="Titulo" Title="Título">
                         <Template Context="p">
                             @p.Titulo
-                            @if (p.TieneArchivo) { <span title="Trae un archivo adjunto"> 📎</span> }
-                            @if (p.Archivada) { <span title="Archivada"> 🗄</span> }
+                            @if (p.TieneArchivo) { <RadzenIcon Icon="attach_file" title="Trae un archivo adjunto" /> }
+                            @if (p.Archivada) { <RadzenIcon Icon="archive" title="Archivada" /> }
                         </Template>
                     </RadzenDataGridColumn>
                     <RadzenDataGridColumn TItem="PlantillaListaDto" Property="Etiquetas" Title="Etiquetas" Width="180px">
@@ -136,13 +136,15 @@
                     }
 
                     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
-                        <RadzenButton Text="📋 Copiar" Disabled="@_ocupado" Click="@Copiar" />
-                        <RadzenButton Text="💾 Guardar como…" ButtonStyle="ButtonStyle.Light"
+                        <RadzenButton Text="Copiar" Icon="content_copy" Disabled="@_ocupado" Click="@Copiar" />
+                        @* «download» y no «save»: el disquete es guardar EN LA APLICACIÓN; esto saca
+                           un archivo al disco de quien pulsa, que es descargar. *@
+                        <RadzenButton Text="Guardar como…" Icon="download" ButtonStyle="ButtonStyle.Light"
                                       Click="@(() => Descargas.DesdeApiAsync($"api/plantillas/{_detalle.Id}/archivo"))" />
                         @if (_detalle.TieneArchivo)
                         {
                             <RadzenText TextStyle="TextStyle.Caption" Style="margin:auto 0">
-                                📎 @_detalle.NombreArchivo
+                                <RadzenIcon Icon="attach_file" /> @_detalle.NombreArchivo
                             </RadzenText>
                         }
                     </RadzenStack>

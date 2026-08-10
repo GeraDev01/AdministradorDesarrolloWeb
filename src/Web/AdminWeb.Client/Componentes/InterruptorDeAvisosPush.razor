@@ -21,7 +21,14 @@
     <RadzenCard>
         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                      Gap="0.75rem" Wrap="FlexWrap.Wrap">
-            <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">🔔 Avisos con la pestaña cerrada</RadzenText>
+            @* La campana quieta («notifications») es la misma del menú Avisos y significa «esto va de
+               avisos». No confundir con la de abajo, «notifications_active», que lleva ondas: ésa es
+               la ACCIÓN de hacerlos sonar. El 🔔 que había aquí ni heredaba el color del tema ni se
+               dibujaba igual en cada sistema operativo. *@
+            <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                <RadzenIcon Icon="notifications" Style="font-size:1.1rem;vertical-align:-.2em" />
+                Avisos con la pestaña cerrada
+            </RadzenText>
 
             @switch (_estado)
             {

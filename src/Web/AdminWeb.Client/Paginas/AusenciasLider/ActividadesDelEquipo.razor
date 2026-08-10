@@ -39,18 +39,27 @@
 
     @if (_datos is { } d)
     {
+        @* Los tres rótulos van a palabra seca, sin nada delante, y las tres tarjetas IGUALES: o
+           llevan glifo las tres o no lo lleva ninguna, porque puestas en fila lo que se compara es
+           una con otra y una sola marcada parece la importante. Se eligió ninguna por dos motivos:
+           el estado ya lo dice el borde izquierdo de 5px —info, success y warning, que sí obedecen
+           al tema oscuro—, y los tres rótulos ya traen su palabra («Actividades», «Abiertas»,
+           «Tiempo…»), así que el dibujo era el mismo dato por tercera vez. Para «Abiertas» además
+           no hay glifo honrado en el recorte: «check_circle» diría «terminada», justo lo contrario.
+           Los emojis que había (🧩 🟢 ⏱) los dibujaba el sistema operativo y eran lo único de la
+           tarjeta que se quedaba con sus colores de siempre en el tema oscuro. *@
         <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap">
             <RadzenCard Style="min-width:14rem; border-left:5px solid var(--rz-info)">
-                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-1">🧩 Actividades</RadzenText>
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-1">Actividades</RadzenText>
                 <RadzenText TextStyle="TextStyle.H4" class="rz-mb-0">@d.Total</RadzenText>
             </RadzenCard>
             <RadzenCard Style="min-width:14rem; border-left:5px solid var(--rz-success)">
-                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-1">🟢 Abiertas</RadzenText>
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-1">Abiertas</RadzenText>
                 <RadzenText TextStyle="TextStyle.H4" class="rz-mb-0">@d.Abiertas</RadzenText>
             </RadzenCard>
             <RadzenCard Style="min-width:20rem; border-left:5px solid var(--rz-warning)">
                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-1">
-                    ⏱ Tiempo fuera de asignaciones
+                    Tiempo fuera de asignaciones
                 </RadzenText>
                 <RadzenText TextStyle="TextStyle.H4" class="rz-mb-0">@d.TiempoTotal</RadzenText>
             </RadzenCard>
@@ -72,7 +81,7 @@
 
             @* Pegado a los filtros a propósito: es lo que hace evidente que baja lo que están
                enseñando y no la tabla entera. *@
-            <RadzenButton Text="📊 Excel" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+            <RadzenButton Text="Excel" Icon="download" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
                           Style="margin-left:auto"
                           Click="@(() => Descargas.DesdeApiAsync(RutaDelFiltro("/excel")))" />
         </RadzenStack>
@@ -84,10 +93,16 @@
                     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                  Gap="1rem" Wrap="FlexWrap.Wrap">
                         <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
-                            🔍 @act.Titulo — @act.Desarrollador
+                            <RadzenIcon Icon="visibility" /> @act.Titulo — @act.Desarrollador
                         </RadzenText>
-                        <RadzenBadge BadgeStyle="BadgeStyle.Light" Text="@($"⏱ {det.TiempoTotal}")" />
-                        <RadzenButton Text="Cerrar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                        @* Aquí el reloj SÍ se queda —al revés que en los rótulos de las tarjetas y en
+                           la cabecera de la columna—, y la diferencia es real: la insignia enseña una
+                           duración a pelo, sin ninguna palabra que diga de qué es ese «1h 20m». Va por
+                           ChildContent y no por Text porque RadzenBadge no tiene parámetro Icon, y su
+                           documentación dice que el contenido ANULA Text: si se deja el atributo
+                           puesto además del contenido, se ignora en silencio y queda código muerto. *@
+                        <RadzenBadge BadgeStyle="BadgeStyle.Light"><RadzenIcon Icon="schedule" /> @det.TiempoTotal</RadzenBadge>
+                        <RadzenButton Text="Cerrar" Icon="close" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                                       Click="@(() => { _detalle = null; _abierta = null; })" />
                     </RadzenStack>
 
@@ -128,7 +143,7 @@
                             </RadzenDataGridColumn>
                             <RadzenDataGridColumn TItem="EvidenciaDeActividadDto" Title="" Width="110px" Sortable="false">
                                 <Template Context="e">
-                                    <RadzenButton Text="Abrir" ButtonStyle="ButtonStyle.Light"
+                                    <RadzenButton Text="Abrir" Icon="visibility" ButtonStyle="ButtonStyle.Light"
                                                   Size="ButtonSize.ExtraSmall" Click="@(() => VerEvidencia(e))" />
                                 </Template>
                             </RadzenDataGridColumn>
@@ -161,13 +176,20 @@
                         @(a.CerradaUtc is DateTime c ? c.ToLocalTime().ToString("dd/MM/yyyy") : "—")
                     </Template>
                 </RadzenDataGridColumn>
-                <RadzenDataGridColumn TItem="ActividadDelEquipoDto" Title="⏱ Tiempo" Property="Segundos" Width="150px">
+                <RadzenDataGridColumn TItem="ActividadDelEquipoDto" Title="Tiempo" Property="Segundos" Width="150px">
                     @* Ordena por SEGUNDOS y enseña el texto: ordenar por «1h 05m 00s» sería ordenar
                        alfabéticamente y pondría «59m» por encima de «2h». *@
                     <Template Context="a">@a.Tiempo</Template>
                 </RadzenDataGridColumn>
-                <RadzenDataGridColumn TItem="ActividadDelEquipoDto" Title="📎" Property="Evidencias" Width="70px">
-                    <Template Context="a">@(a.Evidencias > 0 ? $"📎 {a.Evidencias}" : "")</Template>
+                @* La cabecera dice la PALABRA y no un clip, aunque el ancho apriete. Title es una
+                   cadena y no admite marcado, pero el motivo de fondo no es ése: Title es además el
+                   nombre con el que esta columna aparece en el selector de columnas y lo que se lee
+                   al ordenar, y ahí un dibujo no se puede ni leer ni buscar. Si algún día no cabe,
+                   se abrevia («Evid.»), nunca se vuelve al clip. Y con la cabecera ya diciéndolo, el
+                   clip delante de cada número era repetir el título en cada renglón: veinte clips
+                   iguales apilados, cada uno dibujado por la fuente del sistema. *@
+                <RadzenDataGridColumn TItem="ActividadDelEquipoDto" Title="Evidencias" Property="Evidencias" Width="70px">
+                    <Template Context="a">@(a.Evidencias > 0 ? a.Evidencias.ToString() : "")</Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="ActividadDelEquipoDto" Title="Descripción" Property="Descripcion">
                     <Template Context="a">
@@ -176,7 +198,9 @@
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="ActividadDelEquipoDto" Title="" Width="120px" Sortable="false">
                     <Template Context="a">
-                        <RadzenButton Text="🔍 Detalle" ButtonStyle="ButtonStyle.Light"
+                        @* «visibility» y no «search»: la lupa es para buscar texto; esto abre la
+                           ficha de una actividad en solo lectura. *@
+                        <RadzenButton Text="Detalle" Icon="visibility" ButtonStyle="ButtonStyle.Light"
                                       Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                       Click="@(() => VerDetalle(a))" />
                     </Template>

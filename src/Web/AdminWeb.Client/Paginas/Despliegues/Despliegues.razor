@@ -72,7 +72,11 @@
             <Tabs>
 
                 @* ══════════════════════════════ DESPLEGAR ══════════════════════════════ *@
-                <RadzenTabsItem Text="🚀 Desplegar">
+                @* Las pestañas llevaban emoji. Un emoji lo dibuja el sistema operativo con su propia
+                   paleta —no hereda el color del texto—, así que la pestaña activa y las apagadas se
+                   veían igual de encendidas, que es justo lo contrario de lo que una pestaña activa
+                   tiene que decir. *@
+                <RadzenTabsItem Text="Desplegar" Icon="rocket_launch">
                     <RadzenStack Gap="0.75rem">
 
                         @if (!opciones.RespaldoPrevioActivo)
@@ -99,13 +103,17 @@
 
                                         @if (trabajo.Fin is null)
                                         {
-                                            <RadzenButton Text="⏹ Cancelar despliegue" ButtonStyle="ButtonStyle.Danger"
+                                            @* «stop» y no «close»: esto DETIENE algo que está
+                                               corriendo en el servidor. El aspa de cerrar lo haría
+                                               parecer el botón de quitar este panel de la vista,
+                                               que es justo el de al lado. *@
+                                            <RadzenButton Text="Cancelar despliegue" Icon="stop" ButtonStyle="ButtonStyle.Danger"
                                                           Size="ButtonSize.Small" Disabled="@_ocupado"
                                                           Click="@CancelarDespliegue" Style="margin-left:auto" />
                                         }
                                         else
                                         {
-                                            <RadzenButton Text="Cerrar" ButtonStyle="ButtonStyle.Light"
+                                            <RadzenButton Text="Cerrar" Icon="close" ButtonStyle="ButtonStyle.Light"
                                                           Size="ButtonSize.Small" Click="@SoltarTrabajo"
                                                           Style="margin-left:auto" />
                                         }
@@ -123,7 +131,8 @@
                                         <RadzenProgressBar Value="@_avance.Porcentaje" ShowValue="true"
                                                            Mode="ProgressBarMode.Determinate" />
                                         <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
-                                            ⏳ @(string.IsNullOrEmpty(_avance.Servidor) ? "" : $"[{_avance.Servidor}] ")@_avance.Detalle
+                                            <RadzenIcon Icon="pending" />
+                                            @(string.IsNullOrEmpty(_avance.Servidor) ? "" : $"[{_avance.Servidor}] ")@_avance.Detalle
                                         </RadzenText>
                                         <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                                             Corre en el servidor: puedes cerrar esta pestaña o cambiar de pantalla sin
@@ -171,9 +180,13 @@
                                                     Placeholder="¿Por qué se despliega ahora? (obligatorio: un ticket, un CAB, un motivo)" />
 
                                     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
-                                        <RadzenButton Text="🚀 Desplegar" Disabled="@(_ocupado || !ChecklistCompleto(opciones))"
+                                        <RadzenButton Text="Desplegar" Icon="rocket_launch"
+                                                      Disabled="@(_ocupado || !ChecklistCompleto(opciones))"
                                                       Click="@Lanzar" />
-                                        <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                                        @* «close» y no «cancel»: esto solo cierra el checklist sin
+                                           hacer nada. El círculo con aspa está reservado para
+                                           rechazar de verdad. *@
+                                        <RadzenButton Text="Cancelar" Icon="close" ButtonStyle="ButtonStyle.Light"
                                                       Disabled="@_ocupado" Click="@(() => _confirmando = false)" />
                                     </RadzenStack>
                                 </RadzenStack>
@@ -196,7 +209,8 @@
                                                     Placeholder="Elige una versión" Disabled="@_ocupado"
                                                     Style="min-width:20rem" />
 
-                                    <RadzenButton Text="🚀 Preparar despliegue" Disabled="@(_ocupado || _confirmando)"
+                                    <RadzenButton Text="Preparar despliegue" Icon="rocket_launch"
+                                                  Disabled="@(_ocupado || _confirmando)"
                                                   Click="@AbrirChecklist" Style="margin-left:auto" />
                                 </RadzenStack>
 
@@ -220,7 +234,9 @@
                                         <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">Atajo:</RadzenText>
                                         @foreach (var perfil in _perfiles)
                                         {
-                                            <RadzenButton Text="@($"🔧 {perfil.Nombre}")" ButtonStyle="ButtonStyle.Light"
+                                            @* La misma etiqueta que la pestaña «Perfiles»: pulsar
+                                               aquí es aplicar uno de los de allí. *@
+                                            <RadzenButton Text="@perfil.Nombre" Icon="label" ButtonStyle="ButtonStyle.Light"
                                                           Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                           Click="@(() => AplicarPerfil(perfil))" />
                                         }
@@ -261,7 +277,12 @@
                                                 {
                                                     @* No es que falte: está guardada con el cifrado antiguo de Windows y
                                                        el servidor no puede leerla. Decirlo evita el «530» incomprensible. *@
-                                                    <span style="color:var(--rz-warning)">⚠ hay que recapturar su contraseña</span>
+                                                    @* El triángulo de la fuente y no el carácter ⚠: el carácter lo dibuja
+                                                       el sistema operativo, se queda amarillo aunque el texto sea de aviso
+                                                       y cambia de forma en cada equipo. Éste hereda el color de al lado. *@
+                                                    <span style="color:var(--rz-warning)">
+                                                        <RadzenIcon Icon="warning" /> hay que recapturar su contraseña
+                                                    </span>
                                                 }
                                             </Template>
                                         </RadzenDataGridColumn>
@@ -280,11 +301,17 @@
                                     @foreach (var otro in _enCurso.Where(t => t.JobId != _trabajo?.JobId))
                                     {
                                         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.75rem">
+                                            @* «hacia» y no la flecha «→» que separaba versión y destino:
+                                               esa flecha NO está en los subconjuntos de IBM Plex que se
+                                               sirven (unicode-range en tipografia.css), así que la ponía
+                                               la fuente de respaldo del equipo y desentonaba con el resto
+                                               del renglón, igual que hacían los emojis. La raya larga de
+                                               delante sí está y se queda. *@
                                             <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
-                                                #@otro.JobId — @otro.Sistema v@otro.Version → @otro.Destino
+                                                #@otro.JobId — @otro.Sistema v@otro.Version hacia @otro.Destino
                                                 (@otro.QuienLoLanzo)
                                             </RadzenText>
-                                            <RadzenButton Text="Mirarlo" ButtonStyle="ButtonStyle.Light"
+                                            <RadzenButton Text="Mirarlo" Icon="visibility" ButtonStyle="ButtonStyle.Light"
                                                           Size="ButtonSize.ExtraSmall" Click="@(() => AdoptarAsync(otro))" />
                                         </RadzenStack>
                                     }
@@ -295,7 +322,8 @@
                 </RadzenTabsItem>
 
                 @* ══════════════════════════ SISTEMAS Y VERSIONES ══════════════════════════ *@
-                <RadzenTabsItem Text="🖥 Sistemas y versiones">
+                @* El mismo icono que «Programas» en el menú: esta pestaña es ese catálogo. *@
+                <RadzenTabsItem Text="Sistemas y versiones" Icon="category">
                     <RadzenStack Gap="0.75rem">
                         @if (!opciones.PuedeAdministrarCatalogo)
                         {
@@ -318,7 +346,7 @@
                             <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">Sistemas</RadzenText>
                             @if (opciones.PuedeAdministrarCatalogo)
                             {
-                                <RadzenButton Text="➕ Nuevo sistema" Size="ButtonSize.Small"
+                                <RadzenButton Text="Nuevo sistema" Icon="add" Size="ButtonSize.Small"
                                               Disabled="@_ocupado" Click="@NuevoSistema" />
                             }
                         </RadzenStack>
@@ -342,9 +370,13 @@
                                     <Template Context="s">
                                         @if (opciones.PuedeAdministrarCatalogo)
                                         {
-                                            <RadzenButton Text="Editar" ButtonStyle="ButtonStyle.Light"
+                                            <RadzenButton Text="Editar" Icon="edit" ButtonStyle="ButtonStyle.Light"
                                                           Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                           Click="@(() => EditarSistema(s))" />
+                                            @* Dar de baja y reactivar se quedan SIN icono a
+                                               propósito: en el recorte no hay ninguno que signifique
+                                               «se conserva pero deja de ofrecerse», y el bote de
+                                               basura mentiría —aquí no se borra nada—. *@
                                             <RadzenButton Text="@(s.Activo ? "Dar de baja" : "Reactivar")"
                                                           ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                                           Disabled="@_ocupado" Click="@(() => AlternarSistema(s))" />
@@ -361,13 +393,16 @@
                             </RadzenText>
                             @if (opciones.PuedeAdministrarCatalogo && SistemaSeleccionado() is not null)
                             {
-                                <RadzenButton Text="➕ Registrar paquete" Size="ButtonSize.Small"
+                                <RadzenButton Text="Registrar paquete" Icon="add" Size="ButtonSize.Small"
                                               Disabled="@(_ocupado || !opciones.CarpetaDeDespligueConfigurada)"
                                               Click="@RegistrarPaquete"
                                               title="Un .zip que ya está en la carpeta de despliegue del servidor." />
                                 @* La vía normal cuando hay compilación automática: el artefacto ya
-                                   está en el almacén y solo hay que darlo de alta. *@
-                                <RadzenButton Text="☁ Desde el almacén" Size="ButtonSize.Small"
+                                   está en el almacén y solo hay que darlo de alta. Lleva el icono de
+                                   la pantalla «Almacenamiento» —discos apilados— y no una nube: la
+                                   nube es el proveedor, y de lo que se habla aquí es del almacén de
+                                   donde sale el paquete. *@
+                                <RadzenButton Text="Desde el almacén" Icon="storage" Size="ButtonSize.Small"
                                               ButtonStyle="ButtonStyle.Light"
                                               Disabled="@_ocupado" Click="@RegistrarDesdeAlmacen"
                                               title="Un .zip que ya está en Azure Blob Storage." />
@@ -386,14 +421,30 @@
                                     <Template Context="v">@v.CreadaUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="VersionDto" Property="PaqueteDisponible" Title="Paquete" Width="130px">
+                                    @* Glifos de la fuente y no los caracteres ✓/✗. Aquí hubo el
+                                       argumento contrario —que se dibujan con la tipografía y heredan
+                                       el color, que no es falso—, pero esta misma pantalla ya usaba
+                                       <RadzenIcon Icon="warning" /> en la rama negativa de la columna
+                                       de firmas, doce líneas más abajo: con dos criterios conviviendo
+                                       en la misma tabla gana el que ya adoptaron Limpieza.razor y
+                                       Configuracion.razor.
+
+                                       «error» y no «close» para la rama negativa: aquí no se está
+                                       contestando «no» a una pregunta, se avisa de que FALTA el
+                                       paquete, que es un problema. Es el mismo reparto de Limpieza.
+
+                                       El color y la negrita del span NO se tocan: son lo que hace que
+                                       «no está» se lea sin depender del rojo —en oscuro pierde fuerza
+                                       y hay quien no lo distingue—, y el glifo los hereda, que es
+                                       justo la ventaja sobre el carácter. *@
                                     <Template Context="v">
                                         @if (v.PaqueteDisponible)
                                         {
-                                            <span>✓ en el servidor</span>
+                                            <span><RadzenIcon Icon="done" /> en el servidor</span>
                                         }
                                         else
                                         {
-                                            <span style="color:var(--rz-danger)">✗ no está</span>
+                                            <span style="color:var(--rz-danger);font-weight:600"><RadzenIcon Icon="error" /> no está</span>
                                         }
                                     </Template>
                                 </RadzenDataGridColumn>
@@ -404,12 +455,12 @@
                                     <Template Context="v">
                                         @if (opciones.PuedeAdministrarCatalogo)
                                         {
-                                            <RadzenButton Text="Editar" ButtonStyle="ButtonStyle.Light"
+                                            <RadzenButton Text="Editar" Icon="edit" ButtonStyle="ButtonStyle.Light"
                                                           Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                           Click="@(() => EditarVersion(v))" />
                                             @if (!v.EtiquetaBloqueada)
                                             {
-                                                <RadzenButton Text="Eliminar" ButtonStyle="ButtonStyle.Light"
+                                                <RadzenButton Text="Eliminar" Icon="delete" ButtonStyle="ButtonStyle.Light"
                                                               Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                               Click="@(() => EliminarVersion(v))" />
                                             }
@@ -422,13 +473,14 @@
                 </RadzenTabsItem>
 
                 @* ══════════════════════════════ SERVIDORES ══════════════════════════════ *@
-                <RadzenTabsItem Text="🌐 Servidores">
+                @* El mismo rack que «Estado de servidores» en el menú: son los mismos servidores. *@
+                <RadzenTabsItem Text="Servidores" Icon="dns">
                     <RadzenStack Gap="0.75rem">
                         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                      Gap="1rem" Wrap="FlexWrap.Wrap">
                             @if (opciones.PuedeCrearServidores)
                             {
-                                <RadzenButton Text="➕ Nuevo servidor" Size="ButtonSize.Small"
+                                <RadzenButton Text="Nuevo servidor" Icon="add" Size="ButtonSize.Small"
                                               Disabled="@_ocupado" Click="@NuevoServidor" />
                             }
                             @* El alta MASIVA es del líder aunque la de uno en uno la tenga también
@@ -467,14 +519,21 @@
                                 <RadzenDataGridColumn TItem="ServidorDto" Property="Usuario" Title="Usuario" Width="140px" />
                                 <RadzenDataGridColumn TItem="ServidorDto" Property="RutaRemota" Title="Ruta remota" Width="180px" />
                                 <RadzenDataGridColumn TItem="ServidorDto" Property="TieneContrasena" Title="Contraseña" Width="150px">
+                                    @* Las DOS ramas con glifo de la fuente. Esta columna era la
+                                       incoherencia más clara del archivo: la rama negativa ya usaba
+                                       <RadzenIcon Icon="warning" /> y la positiva seguía con el
+                                       carácter ✓, o sea distinta línea base y distinto grosor, una
+                                       encima de la otra en la misma tabla. *@
                                     <Template Context="s">
                                         @if (s.TieneContrasena)
                                         {
-                                            <span>✓ guardada</span>
+                                            <span><RadzenIcon Icon="done" /> guardada</span>
                                         }
                                         else
                                         {
-                                            <span style="color:var(--rz-warning)">⚠ recapturar</span>
+                                            <span style="color:var(--rz-warning);font-weight:600">
+                                                <RadzenIcon Icon="warning" /> recapturar
+                                            </span>
                                         }
                                     </Template>
                                 </RadzenDataGridColumn>
@@ -488,7 +547,7 @@
                                     <Template Context="s">
                                         @if (opciones.PuedeEditarServidores)
                                         {
-                                            <RadzenButton Text="Editar" ButtonStyle="ButtonStyle.Light"
+                                            <RadzenButton Text="Editar" Icon="edit" ButtonStyle="ButtonStyle.Light"
                                                           Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                           Click="@(() => EditarServidor(s))" />
                                             <RadzenButton Text="@(s.Activo ? "Dar de baja" : "Reactivar")"
@@ -497,7 +556,14 @@
                                         }
                                         @if (!string.IsNullOrWhiteSpace(s.Url))
                                         {
-                                            <a href="@s.Url" target="_blank" rel="noopener" title="Abrir el sitio"> 🌍</a>
+                                            @* La flecha saliendo del marco avisa de que se abandona
+                                               la aplicación, que es lo que hay que avisar. El globo
+                                               terráqueo que había aquí es un emoji: lo dibujaba el
+                                               sistema operativo y salía azul y verde en medio de una
+                                               columna de botones grises. *@
+                                            <a href="@s.Url" target="_blank" rel="noopener" title="Abrir el sitio">
+                                                <RadzenIcon Icon="open_in_new" />
+                                            </a>
                                         }
                                     </Template>
                                 </RadzenDataGridColumn>
@@ -509,11 +575,14 @@
                 @* ═══════════════════════════════ PERFILES ═══════════════════════════════ *@
                 @if (opciones.PuedeAdministrarCatalogo)
                 {
-                    <RadzenTabsItem Text="🔧 Perfiles">
+                    @* Etiqueta: un perfil es un destino con NOMBRE, y eso es exactamente lo que hace
+                       una etiqueta. El icono es el mismo que llevan los atajos de la pestaña de
+                       desplegar, para que se reconozca que son estos perfiles. *@
+                    <RadzenTabsItem Text="Perfiles" Icon="label">
                         <RadzenStack Gap="0.75rem">
                             <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                          Gap="1rem" Wrap="FlexWrap.Wrap">
-                                <RadzenButton Text="➕ Nuevo perfil" Size="ButtonSize.Small"
+                                <RadzenButton Text="Nuevo perfil" Icon="add" Size="ButtonSize.Small"
                                               Disabled="@_ocupado" Click="@NuevoPerfil" />
                                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                                     Un perfil es un destino con nombre. Marcar «operaciones» le permite a ese rol
@@ -531,16 +600,22 @@
                                     <RadzenDataGridColumn TItem="PerfilDto" Property="Servidores" Title="Servidores" />
                                     <RadzenDataGridColumn TItem="PerfilDto" Property="PermitidoParaOperaciones"
                                                           Title="Operaciones" Width="120px">
-                                        <Template Context="p">@(p.PermitidoParaOperaciones ? "✓ Sí" : "—")</Template>
+                                        @* Esta columna decide qué perfiles puede usar Operaciones, o
+                                           sea que se lee para tomar una decisión de permisos:
+                                           conviene que la marca sea nítida y no dependa de qué fuente
+                                           resuelva el ✓ en cada equipo. El guion se queda tal cual —un
+                                           guion medio SÍ es tipografía, y significa «aquí no hay
+                                           dato», lo mismo que en el resto de la aplicación. *@
+                                        <Template Context="p">@if (p.PermitidoParaOperaciones) { <RadzenIcon Icon="done" /> <text>Sí</text> } else { <text>—</text> }</Template>
                                     </RadzenDataGridColumn>
                                     <RadzenDataGridColumn TItem="PerfilDto" Title="" Width="200px" Sortable="false">
                                         <Template Context="p">
-                                            <RadzenButton Text="Editar" ButtonStyle="ButtonStyle.Light"
+                                            <RadzenButton Text="Editar" Icon="edit" ButtonStyle="ButtonStyle.Light"
                                                           Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                           Click="@(() => EditarPerfil(p))" />
                                             @if (!p.TieneHistorial)
                                             {
-                                                <RadzenButton Text="Eliminar" ButtonStyle="ButtonStyle.Light"
+                                                <RadzenButton Text="Eliminar" Icon="delete" ButtonStyle="ButtonStyle.Light"
                                                               Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                               Click="@(() => EliminarPerfil(p))" />
                                             }
@@ -553,7 +628,9 @@
                 }
 
                 @* ═══════════════════════════════ HISTORIAL ══════════════════════════════ *@
-                <RadzenTabsItem Text="📜 Historial">
+                @* El reloj con la flecha hacia atrás: «lo que pasó». Es el mismo de la Bitácora, y
+                   esta pestaña es exactamente eso para los despliegues. *@
+                <RadzenTabsItem Text="Historial" Icon="history">
                     <RadzenStack Gap="0.75rem">
                         <RadzenDataGrid TItem="DespliegueDelHistorialDto" Data="@_historial" AllowSorting="true"
                                         AllowPaging="true" PageSize="15"
@@ -589,7 +666,11 @@
                                     <Template Context="h">
                                         @if (h.TieneChecklist)
                                         {
-                                            <span>✓</span>
+                                            @* Aquí la marca va sola en la celda —la rama contraria
+                                               escribe «sin registrar»—, así que además de heredar el
+                                               color gana en tamaño y alineación frente al carácter
+                                               suelto, que se quedaba pequeño y descolgado. *@
+                                            <span><RadzenIcon Icon="done" /></span>
                                         }
                                         else
                                         {
@@ -616,8 +697,8 @@
                                             Despliegue #@expediente.Cabecera.JobId —
                                             @expediente.Cabecera.Sistema v@expediente.Cabecera.Version
                                         </RadzenText>
-                                        <RadzenButton Text="📄 Descargar evidencia" ButtonStyle="ButtonStyle.Light"
-                                                      Size="ButtonSize.Small"
+                                        <RadzenButton Text="Descargar evidencia" Icon="download"
+                                                      ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                                                       Click="@(() => DescargarEvidencia(expediente.Cabecera.JobId))" />
                                     </RadzenStack>
 
@@ -1233,11 +1314,15 @@
     /// <summary>
     /// Las versiones del sistema elegido, como opciones del desplegable. Se avisa ahí mismo de las
     /// que el servidor no puede alcanzar: enterarse al elegir es mejor que enterarse al desplegar.
+    /// <para>El aviso va entre paréntesis y no con un triángulo delante: esto arma el TEXTO de las
+    /// opciones de un desplegable, o sea una cadena pura, y ahí no hay dónde colgar un componente.
+    /// El paréntesis es la convención tipográfica de toda la vida para una aclaración, y además el
+    /// triángulo era el único carácter de esa lista que se dibujaba con otra fuente.</para>
     /// </summary>
     private List<OpcionDto> VersionesDelSistema =>
         [.. _versiones.Where(v => v.SistemaId == _sistemaId)
             .Select(v => new OpcionDto(v.Id,
-                $"{v.Version}  ({v.CreadaUtc.ToLocalTime():dd/MM/yyyy})" + (v.PaqueteDisponible ? "" : "  ⚠ sin paquete")))];
+                $"{v.Version}  ({v.CreadaUtc.ToLocalTime():dd/MM/yyyy})" + (v.PaqueteDisponible ? "" : "  (sin paquete)")))];
 
     private IEnumerable<VersionDto> VersionesDelSistemaSeleccionado =>
         SistemaSeleccionado() is { } s ? _versiones.Where(v => v.SistemaId == s.Id) : [];
@@ -1258,11 +1343,20 @@
             ? "Ninguno elegido todavía."
             : $"{_elegidos.Count} servidor(es) elegidos, {_respaldar.Count} con respaldo previo.";
 
+    /// <summary>
+    /// Qué versión va a qué servidores, para el encabezado del checklist.
+    ///
+    /// <para>«hacia» y no la flecha «→» que había: esto se pinta como CADENA, así que no hay dónde
+    /// colgar un <c>RadzenIcon</c>, y la flecha no es un carácter cualquiera —los archivos de IBM
+    /// Plex que se sirven son subconjuntos latinos (mira el unicode-range en tipografia.css) y esa
+    /// flecha no entra, de modo que la dibujaba la fuente de respaldo de cada equipo. Es el mismo
+    /// motivo por el que se fueron los emojis. Si no cabe un icono, se dice con palabras.</para>
+    /// </summary>
     private string ResumenDeLoQueSeVa()
     {
         var version = VersionElegida();
         var nombres = _servidores.Where(s => _elegidos.Contains(s.Id)).Select(s => s.Nombre);
-        return $"{version?.Sistema} v{version?.Version} → {string.Join(", ", nombres)}";
+        return $"{version?.Sistema} v{version?.Version} hacia {string.Join(", ", nombres)}";
     }
 
     private static string Megas(long bytes) => $"{bytes / 1024d / 1024d:0.0} MB";

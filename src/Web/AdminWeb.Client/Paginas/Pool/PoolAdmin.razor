@@ -41,7 +41,10 @@
     {
         <RadzenTabs>
             <Tabs>
-                <RadzenTabsItem Text="🎯 Pool">
+                @* Los mismos glifos que las pestañas de MiPool.razor a propósito: esta pantalla y
+                   aquélla enseñan lo mismo a dos roles distintos, y dos pantallas gemelas con
+                   dibujos distintos se leen como si hicieran cosas distintas. *@
+                <RadzenTabsItem Text="Pool" Icon="inventory_2">
                     <RadzenStack Gap="0.75rem">
                         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                      Gap="1rem" Wrap="FlexWrap.Wrap">
@@ -57,7 +60,7 @@
                                             AllowClear="true" Placeholder="Todos" Disabled="@_ocupado"
                                             Change="@(_ => CargarPool())" Style="min-width:12rem" />
 
-                            <RadzenButton Text="➕ Publicar" Disabled="@_ocupado" Click="@AbrirFormularioNuevo" />
+                            <RadzenButton Text="Publicar" Icon="add" Disabled="@_ocupado" Click="@AbrirFormularioNuevo" />
                         </RadzenStack>
 
                         @if (_capturando)
@@ -242,7 +245,12 @@
                                         }
                                         @if (!string.IsNullOrWhiteSpace(a.Enlace))
                                         {
-                                            <a href="@a.Enlace" target="_blank" rel="noopener" title="Abrir el ticket"> 🔗</a>
+                                            @* «open_in_new»: avisa de que se sale de la aplicación, y
+                                               al ser glifo de la fuente hereda la atenuación de las
+                                               filas cerradas en vez de quedarse a todo color. *@
+                                            <a href="@a.Enlace" target="_blank" rel="noopener" title="Abrir el ticket">
+                                                <RadzenIcon Icon="open_in_new" />
+                                            </a>
                                         }
                                     </Template>
                                 </RadzenDataGridColumn>
@@ -251,7 +259,11 @@
                     </RadzenStack>
                 </RadzenTabsItem>
 
-                <RadzenTabsItem Text="✅ Verificación">
+                @* «fact_check» (la hoja con palomita, el glifo de «Evaluaciones» en el menú) y no
+                   «check» a secas: aquí no se está confirmando nada todavía, se está entrando a
+                   REVISAR lo que alguien entregó. Una palomita sola en el rótulo prometería que ya
+                   está aprobado. *@
+                <RadzenTabsItem Text="Verificación" Icon="fact_check">
                     <RadzenStack Gap="0.75rem">
                         <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@ResumenDePendientes()</RadzenText>
 
@@ -276,11 +288,16 @@
                                 <RadzenDataGridColumn TItem="EntregaPorVerificarDto" Property="Vuelta"
                                                       Title="Vuelta" Width="110px">
                                     @* Una segunda o tercera vuelta no es lo mismo que una entrega nueva, y
-                                       conviene saberlo antes de abrir el checklist. *@
+                                       conviene saberlo antes de abrir el checklist. «restart_alt» —la
+                                       flecha que vuelve al principio— es el glifo de TODAS las vueltas
+                                       de la aplicación (aquí, la insignia de MisActividades y la
+                                       columna de Desempeño), para que el concepto se reconozca en las
+                                       tres pantallas. Y aquí importa doble: el span ya va pintado en
+                                       ámbar, y el emoji se quedaba con sus propios colores encima. *@
                                     <Template Context="p">
                                         @if (p.Vuelta > 1)
                                         {
-                                            <span style="color:var(--rz-warning)">🔁 @(p.Vuelta)ª</span>
+                                            <span style="color:var(--rz-warning)"><RadzenIcon Icon="restart_alt" /> @(p.Vuelta)ª</span>
                                         }
                                         else
                                         {
@@ -290,9 +307,15 @@
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="EntregaPorVerificarDto" Title="" Width="200px" Sortable="false">
                                     <Template Context="p">
-                                        <RadzenButton Text="Aceptar" Size="ButtonSize.ExtraSmall"
+                                        @* La palomita en círculo y el aspa en círculo son el par clásico
+                                           de aprobar y rechazar, y se distinguen por FORMA. Antes solo
+                                           los separaba el color del botón: en tema oscuro el verde y el
+                                           rojo se acercan, y quien no distingue esos dos tonos tenía
+                                           que fiarse de leer bien la palabra antes de decidir sobre el
+                                           trabajo de otra persona. *@
+                                        <RadzenButton Text="Aceptar" Icon="check_circle" Size="ButtonSize.ExtraSmall"
                                                       Disabled="@_ocupado" Click="@(() => Aceptar(p))" />
-                                        <RadzenButton Text="Devolver" ButtonStyle="ButtonStyle.Light"
+                                        <RadzenButton Text="Devolver" Icon="cancel" ButtonStyle="ButtonStyle.Light"
                                                       Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                       Click="@(() => Rechazar(p))" />
                                     </Template>
@@ -324,14 +347,23 @@
 
                                     @if (!string.IsNullOrWhiteSpace(entrega.Enlace))
                                     {
-                                        <a href="@entrega.Enlace" target="_blank" rel="noopener">🔗 Ver el ticket</a>
+                                        <a href="@entrega.Enlace" target="_blank" rel="noopener">
+                                            <RadzenIcon Icon="open_in_new" /> Ver el ticket
+                                        </a>
                                     }
 
                                     <RadzenDataGrid TItem="PuntoDeChecklistDto" Data="@_checklist" IsLoading="@_ocupado"
                                                     AllowSorting="false" EmptyText="Esta actividad no tiene checklist.">
                                         <Columns>
                                             <RadzenDataGridColumn TItem="PuntoDeChecklistDto" Title="" Width="50px">
-                                                <Template Context="c">@(c.Hecho ? "✔" : "○")</Template>
+                                                @* Exactamente la misma columna que MiPool.razor, vista
+                                                   por el líder al verificar, así que los dos dibujos
+                                                   tienen que ser los mismos: si aquí se enseñan otros,
+                                                   la verificación no se parecerá a lo que el
+                                                   desarrollador vio al entregar. «check_circle» y
+                                                   «pending» son de la misma familia y se apilan
+                                                   alineados, cosa que ✔ y ○ no hacían. *@
+                                                <Template Context="c">@if (c.Hecho) { <RadzenIcon Icon="check_circle" /> } else { <RadzenIcon Icon="pending" /> }</Template>
                                             </RadzenDataGridColumn>
                                             <RadzenDataGridColumn TItem="PuntoDeChecklistDto" Property="Texto"
                                                                   Title="Punto del checklist" />
@@ -367,11 +399,21 @@
                                                             <b>+@c.Puntos</b> · @c.Nombre
                                                         </RadzenText>
 
-                                                        <RadzenButton Text="✔ Sí" Size="ButtonSize.Small"
+                                                        @* Las marcas salen del Text y se van a Icon: estos
+                                                           dos botones cambian de ButtonStyle según lo
+                                                           elegido (Success/Danger), y con el carácter
+                                                           dentro del texto el botón elegido quedaba con
+                                                           una palomita blanca sobre verde dibujada por
+                                                           una fuente que no controlamos. Con Icon, el
+                                                           glifo lo colorea Radzen junto con el resto del
+                                                           botón. «close» y no «cancel» ni «block»: aquí
+                                                           no se cancela ni se prohíbe nada, se contesta
+                                                           «no se cumplió». *@
+                                                        <RadzenButton Text="Sí" Icon="check" Size="ButtonSize.Small"
                                                                       ButtonStyle="@(c.Cumplido == true ? ButtonStyle.Success : ButtonStyle.Light)"
                                                                       Disabled="@_ocupado"
                                                                       Click="@(() => EvaluarCriterio(c, true))" />
-                                                        <RadzenButton Text="✘ No" Size="ButtonSize.Small"
+                                                        <RadzenButton Text="No" Icon="close" Size="ButtonSize.Small"
                                                                       ButtonStyle="@(c.Cumplido == false ? ButtonStyle.Danger : ButtonStyle.Light)"
                                                                       Disabled="@_ocupado"
                                                                       Click="@(() => EvaluarCriterio(c, false))" />
@@ -417,13 +459,18 @@
                     </RadzenStack>
                 </RadzenTabsItem>
 
-                <RadzenTabsItem Text="⚙ Configuración">
+                @* El engranaje de la fuente en lugar del carácter ⚙, que en muchos equipos lo resuelve
+                   una tipografía distinta a la del rótulo y sale con otro grosor y otra línea base.
+                   «settings» es el que toca sin discusión: Menu.cs ya dejó dicho que en esta
+                   aplicación el engranaje es SOLO de Configuración —por eso Usuarios se quedó con
+                   «manage_accounts»— y esto es configuración de verdad. *@
+                <RadzenTabsItem Text="Configuración" Icon="settings">
                     <RadzenStack Gap="1rem">
                         <RadzenStack Gap="0.5rem">
                             <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                          Gap="1rem" Wrap="FlexWrap.Wrap">
                                 <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">Cuánto vale cada actividad</RadzenText>
-                                <RadzenButton Text="💾 Guardar matriz" Disabled="@_ocupado" Click="@GuardarMatriz" />
+                                <RadzenButton Text="Guardar matriz" Icon="save" Disabled="@_ocupado" Click="@GuardarMatriz" />
                             </RadzenStack>
                             <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                                 Edita los puntos y los días, luego «Guardar matriz». Cambiarlo NO revalúa lo ya
@@ -458,7 +505,7 @@
                                 <RadzenDropDown TValue="PoolWorkType?" @bind-Value="_tipoDeLaPlantilla" Name="tipoPlantilla"
                                                 Data="@cfg.Tipos" TextProperty="Texto" ValueProperty="Valor"
                                                 Style="min-width:12rem" />
-                                <RadzenButton Text="➕ Agregar punto" ButtonStyle="ButtonStyle.Light"
+                                <RadzenButton Text="Agregar punto" Icon="add" ButtonStyle="ButtonStyle.Light"
                                               Disabled="@_ocupado" Click="@AgregarPunto" />
                             </RadzenStack>
                             <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
@@ -849,7 +896,11 @@
     private string ValorSegunLaMatriz()
     {
         if (CeldaElegida() is not { } celda)
-            return "⚠ Esa combinación no tiene puntos configurados. Captúrala en la pestaña de configuración.";
+            // Sin triángulo: esto es una cadena que se pinta como texto plano y no hay dónde colgar un
+            // componente. La frase ya dice el problema Y qué hacer, que es lo que hace falta; si
+            // además tiene que verse como aviso, eso lo decide el color de quien la pinta, no un
+            // carácter metido dentro del texto y dibujado por la fuente del sistema.
+            return "Esa combinación no tiene puntos configurados. Captúrala en la pestaña de configuración.";
 
         var plazo = celda.DiasLimite > 0
             ? $"  ·  {celda.DiasLimite} días para entregarla"
@@ -878,7 +929,9 @@
         int vencidas = Actividades.Count(a => a.Vencida);
         return $"{Actividades.Count} actividad(es)  ·  {libres.Count} libre(s) en el pool por " +
                $"{libres.Sum(a => a.Puntos)} puntos." +
-               (vencidas > 0 ? $"  ⚠ {vencidas} pasó su fecha de entrega." : "");
+               // Resumen en cadena, otra vez sin sitio para componentes. El trozo solo se añade
+               // cuando hay vencidas, así que su mera presencia YA es el aviso.
+               (vencidas > 0 ? $"  {vencidas} pasó su fecha de entrega." : "");
     }
 
     private string ResumenDePendientes() =>

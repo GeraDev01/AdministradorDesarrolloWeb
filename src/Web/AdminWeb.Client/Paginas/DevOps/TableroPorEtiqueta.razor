@@ -32,9 +32,12 @@
 <RadzenStack Gap="1rem">
     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.75rem" Wrap="FlexWrap.Wrap">
         <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">DevOps por etiqueta</RadzenText>
+        @* «refresh» y no «sync», aunque esta pantalla sea de DevOps: aquí no se habla con DevOps —se
+           relee lo YA sincronizado de nuestra base—, y por eso abrirla nunca depende de que la
+           integración conteste. El botón de sincronizar de verdad está en «Azure DevOps». *@
         <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
                       Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
-        <RadzenButton Text="⬇ Exportar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+        <RadzenButton Text="Exportar" Icon="download" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                       Disabled="@_ocupado" Click="@(() => Descargas.DesdeApiAsync(RutaDeExportacion()))" />
     </RadzenStack>
 
@@ -63,9 +66,9 @@
     @* Los indicadores cuentan por TICKET, no por etiqueta: es la única forma de que «bugs» signifique
        lo que la gente entiende al preguntarlo. *@
     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
-        @foreach (var (etiqueta, valor, color) in Indicadores())
+        @foreach (var (etiqueta, valor, color, borde) in Indicadores())
         {
-            <RadzenCard Style="@($"min-width:9rem;border-left:4px solid {color}")">
+            <RadzenCard Style="@($"min-width:9rem;border-left:4px solid {borde}")">
                 <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0" Style="@($"color:{color}")">@valor</RadzenText>
                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@etiqueta</RadzenText>
             </RadzenCard>
@@ -91,8 +94,12 @@
                                   Width="100px" TextAlign="TextAlign.Right" />
             <RadzenDataGridColumn TItem="FilaPorEtiquetaDto" Property="Bugs" Title="Bugs"
                                   Width="90px" TextAlign="TextAlign.Right">
+                @* El rojo NO va solo: lleva negrita. Sobre el grafito del tema oscuro el rojo pierde
+                   fuerza, y quien no distingue el rojo del gris —que es más gente de la que parece—
+                   vería una columna de números iguales. Con la negrita la fila se lee también
+                   impresa en blanco y negro. *@
                 <Template Context="f">
-                    <span style="@(f.Bugs > 0 ? "color:#DC2626" : "")">@f.Bugs</span>
+                    <span style="@(f.Bugs > 0 ? "color:var(--rz-danger);font-weight:600" : "")">@f.Bugs</span>
                 </Template>
             </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="FilaPorEtiquetaDto" Property="Tareas" Title="Tareas"
@@ -192,18 +199,35 @@
         return "api/devops/etiquetas/exportar?" + string.Join("&", filtros);
     }
 
-    private IReadOnlyList<(string, string, string)> Indicadores()
+    /// <summary>
+    /// Los indicadores de arriba, cada uno con su color de texto y su color de borde.
+    ///
+    /// <para>El color lo decide lo que dice el RÓTULO, no el gusto de esta pantalla:</para>
+    /// <list type="bullet">
+    ///   <item>Un TOTAL neutro —cuántos tickets hay— no significa que algo vaya bien ni mal: va en el
+    ///   color del texto, con el borde en el de los bordes. Pintarlo de azul, como estaba, le daba un
+    ///   énfasis que no le corresponde.</item>
+    ///   <item>Los TIPOS de work item no son estados: no hay «tareas buenas» ni «user stories malas».
+    ///   Salen de la escala de series, en el orden en que aparecen y sin que nadie elija.</item>
+    ///   <item>«Bugs» es la única excepción admitida: es un tipo, pero el rojo del bug ya es lenguaje
+    ///   en un tablero de trabajo y quitárselo confundiría más que respetar la regla.</item>
+    /// </list>
+    ///
+    /// <para>Son cadenas var(…) porque solo se interpolan dentro de un atributo style: las resuelve
+    /// el navegador, y por eso siguen al tema sin que este método sepa cuál está puesto.</para>
+    /// </summary>
+    private IReadOnlyList<(string Etiqueta, string Valor, string Color, string Borde)> Indicadores()
     {
         var d = _datos;
         var titulo = string.IsNullOrWhiteSpace(_dentroDe) ? "Tickets" : $"Tickets «{_dentroDe}»";
 
         return
         [
-            (titulo, (d?.TicketsDelSubconjunto ?? 0).ToString(), "#2563EB"),
-            ("Bugs", (d?.Bugs ?? 0).ToString(), "#DC2626"),
-            ("Tareas", (d?.Tareas ?? 0).ToString(), "#D97706"),
-            ("User Stories", (d?.UserStories ?? 0).ToString(), "#8B5CF6"),
-            ("Etiquetas distintas", _filas.Count.ToString(), "#64748B"),
+            (titulo, (d?.TicketsDelSubconjunto ?? 0).ToString(), "var(--rz-text-color)", "var(--rz-border-color)"),
+            ("Bugs", (d?.Bugs ?? 0).ToString(), "var(--rz-danger)", "var(--rz-danger)"),
+            ("Tareas", (d?.Tareas ?? 0).ToString(), "var(--adminweb-serie-1)", "var(--adminweb-serie-1)"),
+            ("User Stories", (d?.UserStories ?? 0).ToString(), "var(--adminweb-serie-2)", "var(--adminweb-serie-2)"),
+            ("Etiquetas distintas", _filas.Count.ToString(), "var(--adminweb-serie-3)", "var(--adminweb-serie-3)"),
         ];
     }
 

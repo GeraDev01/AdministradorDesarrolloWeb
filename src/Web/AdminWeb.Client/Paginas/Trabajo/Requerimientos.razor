@@ -27,9 +27,9 @@
       · El alta, la edición y la asignación se hacen en un panel dentro de la misma pantalla en vez
         de en ventanas modales aparte. En el navegador una ventana modal encima de otra pantalla se
         pierde detrás del propio navegador con demasiada facilidad.
-      · Las fechas que en el escritorio se anulaban con una casilla «N/A» se vacían aquí con la ✖ del
-        propio calendario: es el gesto que ya trae el control, y una casilla al lado sería un segundo
-        sitio donde decir lo mismo.
+      · Las fechas que en el escritorio se anulaban con una casilla «N/A» se vacían aquí con el botón
+        de limpiar del propio calendario: es el gesto que ya trae el control, y una casilla al lado
+        sería un segundo sitio donde decir lo mismo.
       · El avance se captura como número y no con una barra deslizante. La barra del escritorio ya
         iba de cinco en cinco porque arrastrar es impreciso; en un formulario que se guarda con un
         botón, el número es exacto y además se puede teclear.
@@ -47,8 +47,8 @@
     que es de donde salen; aquí porque es donde se ve el resultado y donde se corrige lo que traiga.
 
     Lo que NO está y no es un olvido: la exportación a Excel, que cuelga de un servicio todavía sin
-    portar; el enlace 🔗 al ticket sí está, porque para eso basta con la URL que el propio
-    requerimiento ya trae.
+    portar; el enlace al ticket sí está, porque para eso basta con la URL que el propio requerimiento
+    ya trae.
 *@
 
 <PageTitle>Requerimientos</PageTitle>
@@ -78,9 +78,12 @@
                             AllowClear="true" Placeholder="Todos los devs" Disabled="@_ocupado"
                             Change="@(_ => Cargar())" Style="min-width:12rem" />
 
-            <RadzenButton Text="➕ Nuevo" Disabled="@_ocupado" Click="@AbrirFormularioNuevo" />
+            <RadzenButton Text="Nuevo" Icon="add" Disabled="@_ocupado" Click="@AbrirFormularioNuevo" />
 
-            <RadzenButton Text="📥 Importar de DevOps" ButtonStyle="ButtonStyle.Light"
+            @* «sync» y no «download»: de aquí no sale ningún archivo. Trae trabajo del otro sistema,
+               escribe requerimientos y reparte asignaciones, que es justo lo que el glifo de las dos
+               flechas anuncia y el de recargar escondería. *@
+            <RadzenButton Text="Importar de DevOps" Icon="sync" ButtonStyle="ButtonStyle.Light"
                           Disabled="@_ocupado" Click="@ImportarDeDevOps"
                           title="Da de alta los work items asignados y abiertos, repartidos según las reglas." />
 
@@ -156,8 +159,11 @@
     {
         <RadzenCard>
             <RadzenStack Gap="0.75rem">
+                @* «groups» —varias siluetas, el glifo que el menú le dio a Equipos— y no «person»:
+                   aquí se eligen VARIAS personas de una lista, no una. Va como <RadzenIcon> dentro
+                   del texto porque RadzenText no tiene parámetro Icon. *@
                 <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
-                    👥 Quién trabaja «@asignando.Titulo»
+                    <RadzenIcon Icon="groups" /> Quién trabaja «@asignando.Titulo»
                 </RadzenText>
                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                     Lo marcado es lo que queda. A quien se marque por primera vez se le avisa; a quien
@@ -191,8 +197,11 @@
     {
         <RadzenCard Style="border-left:5px solid var(--rz-info)">
             <RadzenStack Gap="0.75rem">
+                @* «attach_file» es el clip de la fuente y ya es el de este mismo encabezado en
+                   MisPermisos, MisVacaciones, Plantillas y MisActividades. Una pantalla de adjuntos
+                   con un clip distinto al de las otras cuatro se lee como si hiciera otra cosa. *@
                 <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
-                    📎 Documentos de «@adjuntando.Titulo»
+                    <RadzenIcon Icon="attach_file" /> Documentos de «@adjuntando.Titulo»
                 </RadzenText>
 
                 @* Dos botones y no un desplegable de tipo: es como el escritorio los ofrecía, y así
@@ -200,13 +209,18 @@
                    que se olvida. *@
                 <RadzenStack Orientation="Orientation.Horizontal" Gap="1.5rem" Wrap="FlexWrap.Wrap"
                              AlignItems="AlignItems.Center">
+                    @* RadzenLabel NO tiene parámetro Icon —solo Text, Component y ChildContent—, así
+                       que el clip no puede ir por atributo: va dentro, como ChildContent, que según
+                       la documentación de Radzen ANULA el parámetro Text. OJO si alguien vuelve por
+                       aquí: dejar el Text puesto además del contenido no da error, simplemente se
+                       ignora en silencio y queda código muerto que confunde al siguiente. *@
                     <RadzenStack Gap="0.25rem">
-                        <RadzenLabel Text="📎 Adjuntar requerimiento" />
+                        <RadzenLabel><RadzenIcon Icon="attach_file" /> Adjuntar requerimiento</RadzenLabel>
                         <InputFile OnChange="@(e => Adjuntar(e, adjuntando.Id, RequirementAttachmentKind.Requerimiento))"
                                    disabled="@_ocupado" />
                     </RadzenStack>
                     <RadzenStack Gap="0.25rem">
-                        <RadzenLabel Text="📎 Adjuntar estimación" />
+                        <RadzenLabel><RadzenIcon Icon="attach_file" /> Adjuntar estimación</RadzenLabel>
                         <InputFile OnChange="@(e => Adjuntar(e, adjuntando.Id, RequirementAttachmentKind.Estimacion))"
                                    disabled="@_ocupado" />
                     </RadzenStack>
@@ -237,10 +251,13 @@
                         <RadzenDataGridColumn TItem="AdjuntoDeRequerimientoDto" Title="" Width="180px">
                             <Template Context="a">
                                 <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" Wrap="FlexWrap.Wrap">
-                                    <RadzenButton Text="📄 Abrir" ButtonStyle="ButtonStyle.Light"
+                                    @* «download» aunque el botón diga Abrir: lo que pasa al pulsarlo es
+                                       que sale un archivo, y el navegador decide si lo previsualiza o
+                                       lo baja. Un icono de hoja describiría el formato, no la acción. *@
+                                    <RadzenButton Text="Abrir" Icon="download" ButtonStyle="ButtonStyle.Light"
                                                   Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                   Click="@(() => AbrirAdjunto(a))" />
-                                    <RadzenButton Text="Eliminar" ButtonStyle="ButtonStyle.Danger"
+                                    <RadzenButton Text="Eliminar" Icon="delete" ButtonStyle="ButtonStyle.Danger"
                                                   Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                   Click="@(() => EliminarAdjunto(a))" />
                                 </RadzenStack>
@@ -269,7 +286,36 @@
                     <b style="@($"color:{EtiquetasDeTrabajo.ColorDeEstado(r.Estado)}")">@r.EstadoTexto</b>
                 </Template>
             </RadzenDataGridColumn>
-            <RadzenDataGridColumn TItem="RequerimientoDto" Property="PrioridadTexto" Title="Prioridad" Width="110px" />
+            <RadzenDataGridColumn TItem="RequerimientoDto" Property="PrioridadTexto" Title="Prioridad" Width="110px">
+                @* El punto de color sustituye al círculo de emoji que traía la etiqueta (🔵🟡🟠🔴).
+                   Aquí el color NO era adorno: en una rejilla de veinte filas la urgencia se veía sin
+                   leer una sola palabra, y con el emoji fuera esta columna se quedaba en cuatro
+                   palabras que pesan lo mismo. Es el mismo recurso —y el mismo marcado— de
+                   BotonDeEstado: lo pinta una variable del tema, así que obedece al modo claro y al
+                   oscuro, mientras que el emoji lo dibujaba el sistema operativo y en oscuro seguía
+                   brillando con sus colores de siempre.
+
+                   El BORDE gris no es decoración: si un día falta la variable, el punto se queda sin
+                   relleno pero SE SIGUE VIENDO, en vez de desaparecer sin que nadie note que algo se
+                   rompió. Y la palabra va SIEMPRE al lado, que es lo que salva a quien no separa el
+                   rojo del verde y a cualquiera que imprima la tabla.
+
+                   El color sale del ENUM (r.Prioridad, que el DTO ya trae junto al texto) y no de
+                   comparar la cadena: comparar el texto es lo que se rompe en cuanto alguien cambia
+                   una etiqueta, sin error y sin que se note.
+
+                   El DESPLEGABLE del filtro (más abajo, `Prioridades`) se queda solo con la palabra y
+                   no es un olvido: su TextProperty apunta a OpcionDePrioridad.Texto, que es una CADENA
+                   y no admite marcado. Es el mismo compromiso que ya aceptó BotonDeEstado en su
+                   ChildContent. Cuatro palabras en una lista abierta a propósito no necesitan color;
+                   el punto hace falta en la rejilla, que es lo que se mira todo el día. *@
+                <Template Context="r">
+                    <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
+                        <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@EtiquetasDeTrabajo.ColorDePrioridad(r.Prioridad)"></span>
+                        @r.PrioridadTexto
+                    </span>
+                </Template>
+            </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="RequerimientoDto" Property="DesarrolladoresTexto"
                                   Title="Desarrolladores" Width="200px">
                 <Template Context="r">@(string.IsNullOrEmpty(r.DesarrolladoresTexto) ? "—" : r.DesarrolladoresTexto)</Template>
@@ -287,15 +333,22 @@
                 <Template Context="r">@(r.AvancePct)%</Template>
             </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="RequerimientoDto" Property="OrigenTexto" Title="Origen" Width="100px">
+                @* El origen DevOps se marca con color Y con peso. Solo con color no valdría: en
+                   oscuro se acerca demasiado al texto normal, y quien no distingue ese tono se
+                   quedaría sin saber cuáles vinieron de fuera. *@
                 <Template Context="r">
-                    <span style="@(r.EsDeDevOps ? "color:#2563EB" : "")">@r.OrigenTexto</span>
+                    <span style="@(r.EsDeDevOps ? "color:var(--rz-info);font-weight:600" : "")">@r.OrigenTexto</span>
                 </Template>
             </RadzenDataGridColumn>
             @* Solo el NÚMERO, que es el indicador que llevaba la rejilla del escritorio: los nombres y
                los bytes se piden al abrir el panel, no en cada carga de la tabla. *@
             <RadzenDataGridColumn TItem="RequerimientoDto" Property="Adjuntos" Title="Docs" Width="80px"
                                   TextAlign="TextAlign.Right">
-                <Template Context="r">@(r.Adjuntos == 0 ? "—" : $"📎 {r.Adjuntos}")</Template>
+                @* Solo el número: la columna ya se llama «Docs» y va alineada a la derecha como
+                   numérica. El clip delante de cada cifra era repetir la cabecera renglón a renglón
+                   y además rompía la alineación de los números, que es justo para lo que se puso el
+                   TextAlign.Right. *@
+                <Template Context="r">@(r.Adjuntos == 0 ? "—" : r.Adjuntos.ToString())</Template>
             </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="RequerimientoDto" Title="" Width="320px" Sortable="false">
                 <Template Context="r">
@@ -312,7 +365,12 @@
                     }
                     @if (!string.IsNullOrWhiteSpace(r.Enlace))
                     {
-                        <a href="@r.Enlace" target="_blank" rel="noopener" title="Abrir el ticket"> 🔗</a>
+                        @* «open_in_new»: lo que hay que avisar es que se sale de la aplicación. Va
+                           como glifo de la fuente para que herede el rojo de las filas vencidas en
+                           vez de quedarse del color que le ponga el sistema operativo. *@
+                        <a href="@r.Enlace" target="_blank" rel="noopener" title="Abrir el ticket">
+                            <RadzenIcon Icon="open_in_new" />
+                        </a>
                     }
                 </Template>
             </RadzenDataGridColumn>
@@ -623,14 +681,19 @@
     }
 
     /// <summary>
-    /// El color del tipo lo pone la pantalla, no el servicio. Son los dos del escritorio: azul para el
-    /// documento de requerimiento y verde para el de estimación.
+    /// El color del tipo lo pone la pantalla, no el servicio: separa de un vistazo el documento de
+    /// requerimiento del de estimación, igual que en la rejilla del escritorio.
+    ///
+    /// Va a la ESCALA DE SERIES y no al semáforo a propósito. Un tipo de documento no es un estado:
+    /// con verde y rojo, «estimación» se leería como «va bien» y «requerimiento» como «hay un
+    /// problema», que es exactamente lo que no significan. Las series existen para enumerar cosas
+    /// que solo necesitan distinguirse entre sí.
     /// </summary>
     private static string ColorDeTipo(RequirementAttachmentKind tipo) => tipo switch
     {
-        RequirementAttachmentKind.Estimacion => "#15803D",
-        RequirementAttachmentKind.Requerimiento => "#2563EB",
-        _ => "#64748B"
+        RequirementAttachmentKind.Estimacion => "var(--adminweb-serie-2)",
+        RequirementAttachmentKind.Requerimiento => "var(--adminweb-serie-1)",
+        _ => "var(--rz-text-secondary-color)"
     };
 
     // ── Importación desde Azure DevOps ───────────────────────────────────────
@@ -693,16 +756,22 @@
     {
         int vencidos = Filas.Count(r => r.Vencido);
         return $"{Filas.Count} requerimiento(s)." +
-               (vencidos > 0 ? $"  ⚠ {vencidos} con el compromiso vencido." : "");
+               // Sin triángulo, igual que en MisAsignaciones.razor —es la misma frase copiada en dos
+               // pantallas—: es una cadena que se pinta como texto plano y no cabe un componente. El
+               // trozo solo se añade cuando hay vencidos, así que aparecer YA es el aviso.
+               (vencidos > 0 ? $"  {vencidos} con el compromiso vencido." : "");
     }
 
     /// <summary>
     /// La fila entera en rojo cuando el compromiso venció y sigue sin entregarse, igual que en el
     /// escritorio. Es la única señal de la tabla que no describe el dato sino que reclama atención.
+    ///
+    /// Lleva NEGRITA además del color: en tema oscuro el rojo pierde fuerza contra el grafito, y hay
+    /// gente que no lo distingue. Cuesta una palabra y hace que la tabla se lea impresa.
     /// </summary>
     private void PintarVencidos(RowRenderEventArgs<RequerimientoDto> args)
     {
-        if (args.Data.Vencido) args.Attributes["style"] = "color:#DC2626";
+        if (args.Data.Vencido) args.Attributes["style"] = "color:var(--rz-danger);font-weight:600";
     }
 
     public void Dispose()
