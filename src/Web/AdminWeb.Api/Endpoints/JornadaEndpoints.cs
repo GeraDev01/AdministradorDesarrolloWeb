@@ -8,6 +8,17 @@ namespace AdminWeb.Api.Endpoints;
 /// <summary>
 /// La jornada propia: marcar entrada y salida, y el cronómetro.
 ///
+/// <b>De quién es este módulo:</b> del líder y del desarrollador, y de nadie más. Operaciones queda
+/// fuera —por eso el grupo entero lleva <c>AdminUDesarrollador</c>— porque no registra jornada: su
+/// alcance son los despliegues, su estado es siempre «Disponible» y lo pone el servidor. La jornada
+/// sigue siendo de la CUENTA y no de la ficha de desarrollador (un líder sin ficha marca igual); lo
+/// que cambió es quién la registra, no de qué cuelga.
+///
+/// <para>La política va en el GRUPO y no endpoint por endpoint a propósito: así cubre las nueve
+/// rutas de una vez y una ruta nueva nace protegida en lugar de nacer abierta. Los tres endpoints del
+/// cronómetro ya eran inalcanzables de hecho para una cuenta sin ficha —contestaban 400—, pero
+/// «devuelve 400 porque no tiene ficha» no es un permiso: ahora dan 403, que es lo que son.</para>
+///
 /// <b>Ninguna ruta lleva identificador de usuario, y no es un descuido.</b> Todas actúan sobre quien
 /// tiene la sesión, leído de la cookie. Una ruta con <c>/{userId}</c> obligaría a comprobar en cada
 /// endpoint que ese identificador es el propio, y el día que a uno se le olvidara sería «marca la
@@ -21,7 +32,15 @@ public static class JornadaEndpoints
 {
     public static void MapJornadaEndpoints(this IEndpointRouteBuilder app)
     {
-        var grupo = app.MapGroup("/api/jornada").WithTags("Jornada");
+        // AVISO: hoy esta línea es la ÚNICA barrera del módulo. La casa protege dos veces —política
+        // aquí y guarda dentro del servicio—, y de esas guardas solo está puesta la de
+        // PresenceService.MisJornadasAsync; AttendanceService y JornadaQueryService siguen exigiendo
+        // nada más sesión iniciada. Falta cambiar ahí RequireLoggedIn por RequireAdminOrDesarrollador
+        // en lo «propio» (marcar, mi registro, mis registros, pedir corrección, mi jornada, estado de
+        // marcaje), sin tocar lo que ya es RequireAdmin — el líder tiene que seguir mirando y
+        // corrigiendo días viejos de un operativo, que existen y no se borran.
+        var grupo = app.MapGroup("/api/jornada").WithTags("Jornada")
+                       .RequireAuthorization("AdminUDesarrollador");
 
         // El rango es opcional: sin él salen los últimos 30 días, como antes. Con él, la pantalla
         // ofrece Hoy / Esta semana / Este mes / un rango libre, que es lo que tenía el escritorio.

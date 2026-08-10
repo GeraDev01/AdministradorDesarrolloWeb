@@ -7,17 +7,35 @@ using AdminWeb.Shared.Enums;
 namespace AdminWeb.Api.Endpoints;
 
 /// <summary>
-/// El foro del equipo: leerlo y escribir en él.
+/// El foro del EQUIPO DE DESARROLLO: leerlo y escribir en él.
 ///
-/// El muro y los hilos los ve <b>todo el que tenga sesión</b>, sea cual sea su rol: ese es el punto
-/// del foro — si solo lo viera una parte del equipo, no sería un foro. Basta con la política de
-/// respaldo de la aplicación (<c>RequireAuthenticatedUser</c>), así que estos endpoints no declaran
-/// política propia.
+/// El muro y los hilos son del líder y de los desarrolladores, y por eso el grupo entero lleva
+/// <c>AdminUDesarrollador</c>. Operaciones queda fuera: su alcance son los despliegues, no el trabajo
+/// del equipo, y aquí se habla de ideas, dudas y aprendizajes de ese trabajo.
 ///
-/// La excepción es la <b>auditoría</b>, que lleva <c>RequireAuthorization("SoloAdmin")</c>: la vista
-/// consolidada del rastro de todo el foro es supervisión, no participación. La misma regla vive
-/// además dentro de <see cref="ForoQueryService.AuditoriaAsync"/> — dos barreras, porque a la API se
-/// la puede llamar sin pasar por el cliente.
+/// <para><b>Esto cambió, y conviene saberlo antes de «arreglarlo».</b> Hasta ahora el foro lo veía
+/// todo el que tuviera sesión y este grupo no declaraba política propia; esa decisión se revirtió a
+/// propósito. Si alguien encuentra un 403 de un operativo y lo toma por una regresión, esto es lo que
+/// hay que leer: la barrera está puesta a mano y a conciencia, no heredada por descuido.</para>
+///
+/// <para><b>Falta la segunda barrera.</b> La casa protege dos veces —política en el endpoint y guarda
+/// dentro del servicio— porque a los servicios se les puede llamar desde otro endpoint que no sea
+/// éste. <see cref="ForumService"/> y <see cref="ForoQueryService"/> siguen exigiendo solo sesión
+/// iniciada, así que hoy lo único que deja fuera a Operaciones es esta línea. Lo que falta es cambiar
+/// <c>RequireLoggedIn</c> por <c>RequireAdminOrDesarrollador</c> en los métodos de lectura y escritura
+/// de esos dos servicios (no en los que ya son <c>RequireAdmin</c>, que son más estrictos).</para>
+///
+/// La excepción más estricta es la <b>auditoría</b>, que además lleva
+/// <c>RequireAuthorization("SoloAdmin")</c>: la vista consolidada del rastro de todo el foro es
+/// supervisión, no participación. Las políticas del grupo y del endpoint se COMPONEN con Y —hay que
+/// cumplir las dos—, y como el líder está en las dos, sigue entrando. La misma regla vive además
+/// dentro de <see cref="ForoQueryService.AuditoriaAsync"/> — dos barreras, porque a la API se la
+/// puede llamar sin pasar por el cliente.
+///
+/// <para><b>La puerta de atrás.</b> Los bytes de las capturas no salen por aquí sino por
+/// <c>GET /api/adjuntos/foro/{id}</c>. Sin cerrar también esa ruta, cualquiera con sesión podría
+/// seguir bajándose las imágenes del foro por número aunque el muro le conteste 403. Está cerrada en
+/// <see cref="AdjuntosEndpoints"/>; si se toca una de las dos, hay que tocar la otra.</para>
 ///
 /// <para><b>Quién puede tocar qué NO se decide aquí.</b> Editar es solo del autor, retirar es del
 /// autor o del administrador, y comentar depende de que el hilo no esté cerrado: todo eso lo
@@ -29,7 +47,8 @@ public static class ForoEndpoints
 {
     public static void MapForoEndpoints(this IEndpointRouteBuilder app)
     {
-        var grupo = app.MapGroup("/api/foro").WithTags("Foro");
+        var grupo = app.MapGroup("/api/foro").WithTags("Foro")
+                       .RequireAuthorization("AdminUDesarrollador");
 
         grupo.MapGet("/muro", async (
             ForoQueryService foro,

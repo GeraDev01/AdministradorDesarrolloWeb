@@ -12,11 +12,19 @@ namespace AdminWeb.Api.Endpoints;
 /// una sola vez: el tipo se decide por los BYTES, se manda <c>nosniff</c> y el nombre se limpia. Ver
 /// <see cref="ResultadosDeArchivo.Adjunto"/>.
 ///
-/// <para>El permiso NO se decide aquí: lo comprueba cada servicio antes de soltar los bytes. El foro
-/// exige que la entrada siga viva; la evidencia, el justificante y el respaldo, que quien pide sea su
-/// dueño o administrador (<c>RequireOwnershipOrAdmin</c>); los documentos de un requerimiento, que sea
-/// el líder, porque esa pantalla es suya entera. Pedir lo ajeno lanza y sale 403; lo que no existe o
+/// <para>El permiso lo comprueba, como regla, cada servicio antes de soltar los bytes: el foro exige
+/// que la entrada siga viva; la evidencia, el justificante y el respaldo, que quien pide sea su dueño
+/// o administrador (<c>RequireOwnershipOrAdmin</c>); los documentos de un requerimiento, que sea el
+/// líder, porque esa pantalla es suya entera. Pedir lo ajeno lanza y sale 403; lo que no existe o
 /// está retirado vuelve vacío y sale 404.</para>
+///
+/// <para><b>Una excepción, y con motivo: la ruta del foro.</b> Lleva política propia
+/// (<c>AdminUDesarrollador</c>), la misma del grupo <c>/api/foro</c>. Sin ella, cerrar el foro a
+/// Operaciones no habría cerrado nada: el muro contestaría 403 y las capturas se seguirían bajando
+/// por número desde aquí, que es la puerta que nadie recuerda. Va en el endpoint porque es donde se
+/// nombra el foro; lo suyo es que además exista la guarda gemela dentro de
+/// <c>ForumService.BytesDeImagenAsync</c> —dos barreras, como en el resto de la casa—, y mientras no
+/// esté, esta línea es la única. NO la quites creyendo que el servicio ya lo cubre: compruébalo.</para>
 /// </summary>
 public static class AdjuntosEndpoints
 {
@@ -30,6 +38,7 @@ public static class AdjuntosEndpoints
             var (bytes, nombre, _) = await foro.BytesDeImagenAsync(id, ct);
             return ResultadosDeArchivo.Adjunto(ctx, bytes, nombre);
         })
+        .RequireAuthorization("AdminUDesarrollador")
         .WithSummary("El original de una imagen del foro (la miniatura ya viaja con el hilo)");
 
         grupo.MapGet("/actividad/{id:int}", async (

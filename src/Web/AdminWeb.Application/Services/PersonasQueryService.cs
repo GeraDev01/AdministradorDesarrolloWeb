@@ -70,7 +70,12 @@ public class PersonasQueryService(
             p.DesdeUtc,
             // DateTime.MinValue significa «nunca ha entrado»; se traduce a null para que la pantalla
             // no tenga que conocer ese centinela ni pueda pintar por error un 01/01/0001.
-            p.UltimoLatidoUtc == DateTime.MinValue ? null : p.UltimoLatidoUtc))
+            p.UltimoLatidoUtc == DateTime.MinValue ? null : p.UltimoLatidoUtc,
+            // Se COPIA tal cual y no se recalcula aquí: quien decide quién registra jornada es
+            // PresenceService, y una segunda opinión en este renglón podría contradecir al registro.
+            // Sin esta línea el dato se calcularía y se tiraría, y la pantalla volvería a decir
+            // «nunca ha entrado» de quien lleva años entrando.
+            p.RegistraJornada))
             .ToList();
 
         return new TableroDePresenciaDto(

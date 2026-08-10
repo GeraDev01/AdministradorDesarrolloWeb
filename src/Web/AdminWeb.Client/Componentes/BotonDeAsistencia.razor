@@ -15,25 +15,37 @@
     botón sobraría en la barra todo el día.
 *@
 
+@* Los tres estados llevaban el mismo emoji 🕘 delante, que además de dibujarlo el sistema operativo
+   —y por tanto no heredar el color de la barra— era el MISMO símbolo para las tres cosas: no ayudaba
+   a distinguir si tocaba entrar, salir o si el día ya estaba cerrado. Ahora cada uno lleva el glifo
+   de lo que va a pasar al pulsar. Ojo con «logout» aquí: significa «marcar salida de la jornada», y
+   por eso el botón «Salir» de la sesión, que está a un palmo en esta misma barra, NO puede llevarlo. *@
 @if (_estado is { } e)
 {
     @if (e.DentroDeJornada)
     {
-        <RadzenButton Text="@($"🕘 Salida · {e.EntradaUtc!.Value.ToLocalTime():HH:mm}")"
+        <RadzenButton Text="@($"Salida · {e.EntradaUtc!.Value.ToLocalTime():HH:mm}")" Icon="logout"
                       ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                       Click="@MarcarSalida" Disabled="@_ocupado"
                       title="@($"Marcaste tu entrada a las {e.EntradaUtc!.Value.ToLocalTime():HH:mm}. Pulsa para marcar tu salida.")" />
     }
     else if (e.PuedeMarcarEntrada)
     {
-        <RadzenButton Text="🕘 Marcar entrada" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+        <RadzenButton Text="Marcar entrada" Icon="login"
+                      ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                       Click="@MarcarEntrada" Disabled="@_ocupado"
                       title="La hora la pone el servidor al pulsar." />
     }
     else
     {
-        <RadzenBadge BadgeStyle="BadgeStyle.Light" Text="🕘 Jornada cerrada"
-                     title="Ya marcaste entrada y salida hoy. Si hay un error, pide una corrección en «Mi jornada»." />
+        @* RadzenBadge no tiene parámetro Icon —sólo Text y ChildContent—, así que el icono va dentro
+           del contenido. Y aquí es «schedule», el mismo de «Mi jornada» en el menú: no hay nada que
+           pulsar, sólo se informa de que el día ya está cerrado. *@
+        <RadzenBadge BadgeStyle="BadgeStyle.Light"
+                     title="Ya marcaste entrada y salida hoy. Si hay un error, pide una corrección en «Mi jornada».">
+            <RadzenIcon Icon="schedule" Style="font-size:1rem;vertical-align:-.15em" />
+            Jornada cerrada
+        </RadzenBadge>
     }
 }
 

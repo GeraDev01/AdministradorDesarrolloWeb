@@ -1,8 +1,17 @@
 @page "/mi-jornada"
-@* Sin política de rol: la asistencia es de la CUENTA, no de la ficha de desarrollador. Hay cuentas
-   sin ficha —operaciones, por ejemplo— que también marcan entrada y salida. Lo único que se exige
-   es tener sesión. El cronómetro, que sí necesita ficha, se esconde solo cuando no la hay. *@
-@attribute [Authorize]
+@* Aquí decía «sin política de rol» y ponía a Operaciones de ejemplo de cuenta sin ficha que también
+   marca. Eso ya NO es cierto: Operaciones dejó de registrar jornada —su estado es siempre
+   «Disponible» y lo pone el servidor—, y el grupo /api/jornada entero le contesta 403.
+
+   Lo que SÍ se conserva de aquella nota, y es lo que esta pantalla protege: la jornada cuelga de la
+   CUENTA y no de la ficha de desarrollador. El líder no tiene ficha y entra igual, por eso la
+   política es «Admin o Desarrollador» y no una atada al DeveloperId. El cronómetro, que sí necesita
+   ficha, se sigue escondiendo solo cuando no la hay.
+
+   Y como siempre: esta línea no es el permiso —el cliente corre en la máquina de cada quien—; es la
+   política del grupo de JornadaEndpoints. Ésta solo evita aterrizar en una pantalla que contestaría
+   403 a todo lo que pide. *@
+@attribute [Authorize(Policy = "AdminUDesarrollador")]
 @using AdminWeb.Shared.Dtos.Jornada
 @implements IDisposable
 @inject ClienteApi Api

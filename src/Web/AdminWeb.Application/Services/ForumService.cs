@@ -42,12 +42,22 @@ public record ForumFiltro(
     bool SoloMios = false);
 
 /// <summary>
-/// Foro del equipo: publicaciones con comentarios anidados.
+/// Foro del EQUIPO DE DESARROLLO: publicaciones con comentarios anidados.
 ///
-/// Lo ve todo el que tenga sesión — es el punto: compartir ideas. Cada quien manda sobre lo suyo
-/// (editar, retirar); el administrador además puede fijar, cerrar y retirar cualquier cosa, porque
-/// alguien tiene que poder parar un hilo que se descarrila. La excepción es <see cref="AuditoriaAsync"/>
-/// (la vista consolidada del rastro): esa es solo del administrador.
+/// <para>Lo ven el líder y los desarrolladores. Aquí decía «todo el que tenga sesión — es el punto:
+/// compartir ideas», y esa frase caducó: Operaciones queda fuera porque su alcance son los
+/// despliegues y aquí se habla del trabajo del equipo. <b>Quien lo impide hoy es la política
+/// <c>AdminUDesarrollador</c> del grupo <c>/api/foro</c> —y la gemela de
+/// <c>/api/adjuntos/foro/{id}</c>, por donde salen las capturas—, no una guarda de este archivo:
+/// los métodos de abajo siguen pidiendo solo <c>RequireLoggedIn</c>.</b> Mientras siga así, un
+/// endpoint nuevo que llame aquí nacería abierto; la casa protege dos veces, y ésta es la barrera
+/// que falta. Si se pone, va en los métodos de lectura y escritura, nunca en los que ya son
+/// <c>RequireAdmin</c>, que son más estrictos.</para>
+///
+/// Cada quien manda sobre lo suyo (editar, retirar); el administrador además puede fijar, cerrar y
+/// retirar cualquier cosa, porque alguien tiene que poder parar un hilo que se descarrila. La
+/// excepción es <see cref="AuditoriaAsync"/> (la vista consolidada del rastro): esa es solo del
+/// administrador.
 ///
 /// <b>Nada se borra de verdad.</b> Retirar marca la entrada y sustituye el texto por un aviso: un
 /// hilo con respuestas que contestan a algo que ya no existe es peor de auditar que ver un «mensaje

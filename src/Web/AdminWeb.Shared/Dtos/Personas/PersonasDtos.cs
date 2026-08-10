@@ -12,8 +12,19 @@ namespace AdminWeb.Shared.Dtos.Personas;
 /// viene del escritorio — un registro de las pausas de cada quien es vigilancia, no asistencia.
 /// </summary>
 /// <param name="Estado">Ausente cuando la persona no está conectada; lo pone el servidor, nadie lo elige.</param>
-/// <param name="DesdeUtc">Desde cuándo está conectada. Null si no lo está.</param>
+/// <param name="DesdeUtc">Desde cuándo está conectada. Null si no lo está — <b>y también null si no
+/// registra jornada</b>, porque entonces esa hora no se guarda en ninguna parte. Mira
+/// <paramref name="RegistraJornada"/> antes de leer un null aquí como «no está».</param>
 /// <param name="UltimoLatidoUtc">La última vez que dio señales. Null si nunca ha entrado.</param>
+/// <param name="RegistraJornada">
+/// False en las cuentas a las que la aplicación NO les apunta las horas: hoy, las de Operaciones.
+///
+/// <para>Lo trae <c>PresenceService</c> y llega hasta la pantalla porque distingue dos cosas que en
+/// la rejilla se ven idénticas y no lo son: «nunca ha abierto la aplicación» y «la aplicación no le
+/// lleva la jornada a propósito». Sin este dato, un operativo enseñaría «Desde: —» y «Última señal:
+/// nunca» todos los días de su vida laboral, que es falso y acaba en un ticket. La presencia de esas
+/// cuentas sale de los sockets vivos, no de una fila, y por eso no hay hora de inicio que enseñar.</para>
+/// </param>
 public record PresenteDto(
     int UserId,
     string Nombre,
@@ -23,7 +34,8 @@ public record PresenteDto(
     string Icono,
     string? Nota,
     DateTime? DesdeUtc,
-    DateTime? UltimoLatidoUtc);
+    DateTime? UltimoLatidoUtc,
+    bool RegistraJornada = true);
 
 /// <summary>
 /// El tablero completo. Los contadores y la tolerancia vienen resueltos del servidor porque son la

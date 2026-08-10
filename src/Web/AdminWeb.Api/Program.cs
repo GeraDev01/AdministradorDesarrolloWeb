@@ -271,6 +271,14 @@ builder.Services.AddSignalR();
 // vivos hay— y es lo que evita que cerrar UNA pestaña dé la jornada por terminada.
 builder.Services.AddSingleton<RegistroDeConexiones>();
 
+// Y quién está dentro AHORA MISMO, para el tablero de presencia. NO es una línea de adorno: las
+// cuentas de Operaciones ya no abren jornada, así que para ellas no hay fila que consultar y este
+// contrato es lo único que las distingue de estar desconectadas. Sin este registro, PresenceService
+// se construye igual —el parámetro es opcional para no obligar a las pruebas a doblarlo— y todos
+// los operativos salen «Desconectado» para siempre, sin error, sin aviso y sin nada que lo delate
+// más que mirar la pantalla. Ver ConexionesEnVivoDelHub.
+builder.Services.AddSingleton<IConexionesEnVivo, ConexionesEnVivoDelHub>();
+
 // ── Trabajos de fondo ───────────────────────────────────────────────────────────
 //
 // Se encienden solo si la configuración lo dice, y por omisión están APAGADOS. No es prudencia

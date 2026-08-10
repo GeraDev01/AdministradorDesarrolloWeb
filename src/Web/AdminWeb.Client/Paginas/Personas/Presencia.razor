@@ -46,15 +46,27 @@
 
     <RadzenTabs>
         <Tabs>
-            <RadzenTabsItem Text="🟢 Quién está">
+            @* «sensors» (las ondas de señal) y no un círculo verde: la pestaña lista a TODO el mundo,
+               conectado o no, y un verde en el rótulo prometía que solo salían los disponibles. Es
+               además el glifo que Menu.cs le dio a la entrada «Quién está», así que la puerta y la
+               pantalla a la que se llega se reconocen como la misma cosa. *@
+            <RadzenTabsItem Text="Quién está" Icon="sensors">
                 <RadzenStack Gap="0.75rem">
                     <RadzenDataGrid TItem="PresenteDto" Data="@Presentes" IsLoading="@_ocupado"
                                     AllowSorting="false" RowRender="@ApagarDesconectados"
                                     EmptyText="No hay cuentas activas.">
                         <Columns>
                             <RadzenDataGridColumn TItem="PresenteDto" Title="" Width="52px" Sortable="false">
-                                @* El icono va aparte del texto: el emoji se dibuja con su propia
-                                   paleta e ignora el color, así que el color va en «Estado». *@
+                                @* Esta columna sigue siendo un emoji y NO se arregla desde aquí, por
+                                   mucho que sea el más visible de la pantalla: la cadena llega hecha
+                                   del servidor (PresenceService.Icono en AdminWeb.Application, y
+                                   PersonasQueryService pone «⚪» para los desconectados), así que
+                                   cambiar este marcado no la toca. Cuando se abra el lote que toque
+                                   el servidor, lo que hay que traer aquí es el punto de color de
+                                   Componentes/BotonDeEstado.razor, que ya resolvió este problema
+                                   exacto para el mismo enumerado: un punto pintado por nosotros
+                                   obedece al tema y el emoji ignora el color. Mientras tanto, el
+                                   color de verdad lo pone la columna «Estado». *@
                                 <Template Context="p">@p.Icono</Template>
                             </RadzenDataGridColumn>
                             <RadzenDataGridColumn TItem="PresenteDto" Property="Nombre" Title="Persona">
@@ -80,7 +92,7 @@
                 </RadzenStack>
             </RadzenTabsItem>
 
-            <RadzenTabsItem Text="🕘 Asistencia (oficial)">
+            <RadzenTabsItem Text="Asistencia (oficial)" Icon="schedule">
                 <RadzenStack Gap="0.75rem">
                     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                  Gap="0.75rem" Wrap="FlexWrap.Wrap">
@@ -90,12 +102,12 @@
                                           Change="@(_ => CargarAsistencia())" Disabled="@_ocupado" />
                         <RadzenButton Text="Hoy" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                                       Disabled="@_ocupado" Click="@(() => IrAlDia(DateTime.Today))" />
-                        <RadzenButton Text="➕ Día olvidado…" ButtonStyle="ButtonStyle.Light"
+                        <RadzenButton Text="Día olvidado…" Icon="add" ButtonStyle="ButtonStyle.Light"
                                       Size="ButtonSize.Small" Disabled="@_ocupado" Click="@AbrirAlta" />
                         @* Baja el día que se está viendo, con las mismas diez columnas del
                            escritorio. Incluye las filas sin marcar: esa ausencia es el dato por el
                            que se suele exportar. *@
-                        <RadzenButton Text="📊 Excel" ButtonStyle="ButtonStyle.Light"
+                        <RadzenButton Text="Excel" Icon="download" ButtonStyle="ButtonStyle.Light"
                                       Size="ButtonSize.Small" Disabled="@_ocupado"
                                       Style="margin-left:auto" Click="@ExportarAsistencia" />
                     </RadzenStack>
@@ -164,12 +176,19 @@
                                 </Template>
                             </RadzenDataGridColumn>
                             <RadzenDataGridColumn TItem="AsistenciaDelDiaDto" Property="Horas" Title="Horas" Width="110px" />
-                            <RadzenDataGridColumn TItem="AsistenciaDelDiaDto" Title="Δ entrada" Width="110px" Sortable="false">
+                            @* «Dif.» en lugar de la letra griega Δ que encabezaba estas dos columnas.
+                               Es el mismo problema que los emojis, solo que más callado: los archivos
+                               de IBM Plex que viajan con la aplicación son subconjuntos latinos —está
+                               en el unicode-range de tipografia.css— y el griego no entra, así que la
+                               Δ caía en la fuente de respaldo de cada equipo y se veía distinta y peor
+                               alineada que las cabeceras vecinas. El valor ya viene con signo y con
+                               «min», que es lo que hay que leer. *@
+                            <RadzenDataGridColumn TItem="AsistenciaDelDiaDto" Title="Dif. entrada" Width="110px" Sortable="false">
                                 <Template Context="f">
                                     <span style="@(f.Discrepancia ? Ambar : "")">@Delta(f.DeltaEntradaMinutos)</span>
                                 </Template>
                             </RadzenDataGridColumn>
-                            <RadzenDataGridColumn TItem="AsistenciaDelDiaDto" Title="Δ salida" Width="110px" Sortable="false">
+                            <RadzenDataGridColumn TItem="AsistenciaDelDiaDto" Title="Dif. salida" Width="110px" Sortable="false">
                                 <Template Context="f">
                                     <span style="@(f.Discrepancia ? Ambar : "")">@Delta(f.DeltaSalidaMinutos)</span>
                                 </Template>
@@ -208,14 +227,18 @@
                            antes de decidir qué corregir, y en la columna «Estado» no cabe. *@
                         <RadzenCard>
                             <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
-                                🙋 <b>@pide.Nombre</b> pidió corrección: @(pide.NotaCorreccion ?? "(sin nota)")
+                                <RadzenIcon Icon="pan_tool" /> <b>@pide.Nombre</b> pidió corrección: @(pide.NotaCorreccion ?? "(sin nota)")
                             </RadzenText>
                         </RadzenCard>
                     }
                 </RadzenStack>
             </RadzenTabsItem>
 
-            <RadzenTabsItem Text="📋 Registro de jornadas">
+            @* «list_alt» y no «schedule» ni «history»: es la tercera pestaña de la misma pantalla, así
+               que el glifo tiene que decir en qué se diferencia de las otras dos. Aquí no se vigila
+               ni se mide, se LISTA lo que quedó registrado; el reloj ya lo lleva la pestaña de al
+               lado y «history» es la bitácora en esta aplicación. *@
+            <RadzenTabsItem Text="Registro de jornadas" Icon="list_alt">
                 <RadzenStack Gap="0.75rem">
                     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                  Gap="0.75rem" Wrap="FlexWrap.Wrap">
@@ -473,8 +496,25 @@
         _    => $"{minutos} min"
     };
 
+    /// <summary>
+    /// La columna «Desde».
+    ///
+    /// <para>El caso de <c>RegistraJornada == false</c> —hoy, Operaciones— va PRIMERO y no es un
+    /// adorno. A esas cuentas la aplicación no les abre jornada, así que no hay hora de inicio que
+    /// enseñar ni fila histórica de la que sacar un «visto». Sin este caso, la rama de abajo caía en
+    /// «nunca ha entrado» todos los días de su vida laboral —de alguien que puede estar conectado en
+    /// ese mismo instante—, que es mentira y acaba en un ticket. Se dice lo que pasa de verdad: la
+    /// aplicación no le lleva las horas.</para>
+    ///
+    /// <para>Y las que SÍ tuvieran filas de antes —las de antes del cambio— siguen ahí y se siguen
+    /// consultando por el registro de jornadas y por la asistencia del día; lo que no se hace es
+    /// leerlas aquí como si fueran su última señal, porque desde el cambio ya no lo son.</para>
+    /// </summary>
     private string Desde(PresenteDto p)
     {
+        if (!p.RegistraJornada)
+            return p.Conectado ? "conectado ahora" : "no registra jornada";
+
         if (p.Conectado && p.DesdeUtc is DateTime d)
         {
             var t = DateTime.UtcNow - d;
@@ -503,6 +543,11 @@
         : $"{t.Conectados} de {t.Total} conectado(s).  " +
           $"Se da por desconectado a quien lleve {t.ToleranciaMinutos} min sin dar señales.";
 
+    // El «⚠» de esta frase NO se quita todavía, aunque el resto de los triángulos de este archivo sí:
+    // lo que va entre comillas angulares es una CITA de una etiqueta que se pinta en la columna de
+    // salida, y esa etiqueta la escribe el servidor (PersonasQueryService.SinLatido devuelve
+    // literalmente «⚠ Sin señales»). Si se quita aquí y allí no, la leyenda manda a buscar en
+    // pantalla algo que no está escrito así. Los dos cambios van juntos o no van.
     private string ResumenDeJornadas() => _jornadas is not { } j
         ? ""
         : j.Jornadas.Count == 0
@@ -514,10 +559,16 @@
     private string ResumenDeAsistencia()
     {
         if (_asistencia is not { } a) return "";
+        // Esto es una CADENA que se pinta como texto plano: no hay dónde colgar un <RadzenIcon>, así
+        // que las marcas se quitan en vez de sustituirse. Y no se pierde nada: los tres trozos solo
+        // se añaden cuando el número es mayor que cero, o sea que aparecer YA es el aviso. Con los
+        // triángulos, el resumen parecía una alarma cualquier día normal. Ojo a la asimetría con la
+        // mano de más arriba, que sí se conservó como <RadzenIcon Icon="pan_tool" />: allí hay
+        // marcado que la sostenga y aquí no. La regla es ésa, no un descuido.
         return $"{a.Marcaron} de {a.Filas.Count} marcaron su asistencia." +
-               (a.SinMarcar > 0 ? $"  ⚠ {a.SinMarcar} usó la aplicación sin marcar." : "") +
-               (a.Olvidos > 0 ? $"  ⚠ {a.Olvidos} sin salida marcada (la hora es una estimación, corrígela)." : "") +
-               (a.Solicitudes > 0 ? $"  🙋 {a.Solicitudes} pidió corrección." : "") +
+               (a.SinMarcar > 0 ? $"  {a.SinMarcar} usó la aplicación sin marcar." : "") +
+               (a.Olvidos > 0 ? $"  {a.Olvidos} sin salida marcada (la hora es una estimación, corrígela)." : "") +
+               (a.Solicitudes > 0 ? $"  {a.Solicitudes} pidió corrección." : "") +
                $"  Se resalta a partir de {a.ToleranciaMinutos} min de diferencia con lo que vio la aplicación.";
     }
 

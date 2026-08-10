@@ -1,4 +1,12 @@
 @page "/foro"
+@* El foro es del EQUIPO DE DESARROLLO: líder y desarrolladores. Operaciones queda fuera, y esta
+   línea no es la barrera —la ponen las políticas de /api/foro y de /api/adjuntos/foro/{id}, que a
+   un operativo le contestan 403 aunque llame a la API sin pasar por aquí—. Lo que evita es que
+   quien tenga la dirección guardada aterrice en una pantalla que se llena de avisos rojos: sin
+   ella, cada carga dispara tres peticiones que fallan y el manejador de respuestas las pinta todas.
+   Si algún día se reabre el foro a Operaciones, se cambian LAS TRES cosas a la vez: esta línea, el
+   grupo de ForoEndpoints y la ruta del adjunto. *@
+@attribute [Authorize(Policy = "AdminUDesarrollador")]
 @using System.Globalization
 @using AdminWeb.Shared.Dtos
 @using AdminWeb.Shared.Dtos.Foro
@@ -9,15 +17,19 @@
 @inject PreferenciasDeUsuario Preferencias
 
 @*
-    El foro del equipo, en dos vistas de los MISMOS datos (igual que el escritorio):
+    El foro del EQUIPO DE DESARROLLO, en dos vistas de los MISMOS datos (igual que el escritorio):
 
-     · 🗂 Muro      — tarjetas con ❤ y contador de comentarios; al abrir una se ve su hilo con los
-                      comentarios anidados. Es la vista del día a día, y desde aquí se publica.
-     · 📋 Auditoría — rejilla con filtros: quién dijo qué, cuándo, en qué hilo, si se editó y si se
-                      retiró. Es para reconstruir una conversación, no para participar, y SOLO la ve
-                      el administrador.
+     · Muro      — tarjetas con «me gusta» y contador de comentarios; al abrir una se ve su hilo con
+                   los comentarios anidados. Es la vista del día a día, y desde aquí se publica.
+     · Auditoría — rejilla con filtros: quién dijo qué, cuándo, en qué hilo, si se editó y si se
+                   retiró. Es para reconstruir una conversación, no para participar, y SOLO la ve
+                   el administrador.
 
-    El muro lo ve todo el que tenga sesión, sea cual sea su rol: ese es el punto del foro.
+    QUIÉN ENTRA. Aquí decía que el muro lo veía todo el que tuviera sesión «sea cual sea su rol».
+    Ya no: el foro es del líder y de los desarrolladores, y Operaciones queda fuera porque su alcance
+    son los despliegues y aquí se habla del trabajo del equipo. Si alguien encuentra un 403 de un
+    operativo y lo toma por una regresión, esto es lo que hay que leer: la barrera está puesta a mano
+    y a conciencia, en el grupo /api/foro y en la ruta que sirve las capturas.
 
     La pestaña de auditoría no se pinta para quien no es administrador — pero eso es COMODIDAD, no
     seguridad: esta pantalla corre en la máquina de cada quien y se puede manipular. La barrera real
@@ -35,7 +47,11 @@
 
     <RadzenTabs>
         <Tabs>
-            <RadzenTabsItem Text="🗂  Muro">
+            @* Los dos bocadillos y el reloj con la flecha hacia atrás: una pestaña es la
+               conversación y la otra es «lo que pasó», que es exactamente la diferencia entre
+               participar y reconstruir. Iban con emoji, que lo dibuja el sistema operativo y no
+               hereda el color, así que la pestaña activa y la apagada se veían igual de encendidas. *@
+            <RadzenTabsItem Text="Muro" Icon="forum">
                 <RadzenStack Gap="0.75rem">
 
                     @* ── Publicar ────────────────────────────────────────────────────────── *@
@@ -43,7 +59,11 @@
                         <RadzenStack Gap="0.6rem">
                             <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                          Wrap="FlexWrap.Wrap" Gap="0.75rem">
-                                <RadzenButton Text="@(_publicando ? "✖  Cancelar" : "✍  Publicar algo")"
+                                @* Un solo botón que alterna, así que el icono alterna con él: «add»
+                                   abre el formulario en blanco —el mismo de todo lo que se crea en la
+                                   aplicación— y «close» lo cierra sin publicar nada. *@
+                                <RadzenButton Text="@(_publicando ? "Cancelar" : "Publicar algo")"
+                                              Icon="@(_publicando ? "close" : "add")"
                                               ButtonStyle="@(_publicando ? ButtonStyle.Light : ButtonStyle.Primary)"
                                               Size="ButtonSize.Small" Disabled="@_enviando"
                                               Click="@AlternarFormulario" />
@@ -81,7 +101,9 @@
                                              Maximo="@MaxImagenes" MaxBytes="@MaxBytesImagen" />
 
                                 <div>
-                                    <RadzenButton Text="Publicar" ButtonStyle="ButtonStyle.Primary"
+                                    @* «send» y no «save»: publicar no guarda un borrador, lo suelta al
+                                       muro de todo el equipo. *@
+                                    <RadzenButton Text="Publicar" Icon="send" ButtonStyle="ButtonStyle.Primary"
                                                   Size="ButtonSize.Small" Disabled="@_enviando"
                                                   Click="@PublicarAsync" />
                                 </div>
@@ -120,11 +142,26 @@
                                         ValueChanged="@(async (bool v) => { _soloMias = v; await RecargarMuroAsync(); })" />
                         <RadzenLabel Text="Solo mías" Component="soloMias" />
 
-                        <RadzenButton Text="🔄 Recargar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                        <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                                      Size="ButtonSize.Small"
                                       Click="@(async () => await CargarMuroAsync())" />
                     </RadzenStack>
 
                     @* ── Tarjetas ────────────────────────────────────────────────────────── *@
+                    @*
+                        DE LA TARJETA SOLO SE QUEDA EL CORAZÓN. Aquí hubo un tiempo la regla contraria
+                        —«o están todos o no está ninguno»— apoyada en que el recorte de la fuente no
+                        traía bocadillo de comentario; eso era falso, «forum» sí está en iconos.txt y
+                        es el que llevan ahora los comentarios, igual que en el hilo y que en el botón
+                        de comentarios de DevOps. Lo que de verdad falta es el corazón, y falta la
+                        PAREJA lleno/vacío: es lo único que distingue «le di me gusta» de «no se lo he
+                        dado», o sea el estado entero de ese botón, y con un glifo cualquiera de la
+                        lista se perdería. Por eso ese —y solo ese— sigue siendo un carácter.
+
+                        Se arregla el día que se regenere la fuente con «favorite» y «favorite_border»
+                        (los DOS); wwwroot/fuentes/LEEME.md explica cómo, y iconos.txt es la lista de
+                        lo que hay hoy.
+                    *@
                     @if (_cargandoMuro)
                     {
                         <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" />
@@ -145,21 +182,30 @@
                             <div @onclick="@(() => AbrirHilo(t.Id))" style="cursor:pointer">
                                 <RadzenCard>
                                     <RadzenStack Gap="0.35rem">
+                                        @* La misma chincheta que el encabezado de HiloDelForo: si la
+                                           tarjeta y el hilo la dibujaran distinta, la publicación
+                                           fijada parecería otra cosa al abrirla. AVISO: @t.TemaIcono
+                                           sigue siendo un emoji y no se arregla aquí — esa cadena la
+                                           manda el servidor. *@
                                         <RadzenText TextStyle="TextStyle.H6" Style="margin:0">
-                                            @t.TemaIcono @(t.Fijada ? "📌 " : "")@t.Titulo
+                                            @t.TemaIcono @if (t.Fijada) { <RadzenIcon Icon="push_pin" title="Fijada" /> } @t.Titulo
                                         </RadzenText>
 
                                         <RadzenText TextStyle="TextStyle.Caption" Style="margin:0"
                                                     title="@TiempoDelForo.Fecha(t.UltimaActividadUtc)">
-                                            🧑 @t.Autor
+                                            @* Aquí se nota más que en el hilo: el muro enseña muchas
+                                               tarjetas a la vez, y veinte siluetas de colores
+                                               repetidas en columna son lo que hacía que la pantalla
+                                               no pareciera profesional. *@
+                                            <RadzenIcon Icon="person" /> @t.Autor
                                             &nbsp;·&nbsp; @TiempoDelForo.HaceCuanto(t.UltimaActividadUtc)
                                             @if (t.Cerrada)
                                             {
-                                                <text>&nbsp;·&nbsp; 🔒 cerrado</text>
+                                                <text>&nbsp;·&nbsp; <RadzenIcon Icon="lock" /> cerrado</text>
                                             }
                                             @if (t.Retirada)
                                             {
-                                                <text>&nbsp;·&nbsp; 🗑 retirada</text>
+                                                <text>&nbsp;·&nbsp; <RadzenIcon Icon="delete" /> retirada</text>
                                             }
                                             @if (!string.IsNullOrWhiteSpace(t.Etiquetas))
                                             {
@@ -176,16 +222,27 @@
                                         <RadzenText TextStyle="TextStyle.Body2" Style="margin:0">@t.Extracto</RadzenText>
 
                                         <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
-                                            @(t.YoDiMeGusta ? "❤" : "♡") @t.MeGusta
-                                            &nbsp;&nbsp; 💬 @t.Comentarios comentario(s)
+                                            @* Lleno o vacío: en la tarjeta no se puede pulsar, pero sí
+                                               dice de un vistazo cuáles ya apoyaste. *@
+                                            <RadzenIcon Icon="@(t.YoDiMeGusta ? "favorite" : "favorite_border")" /> @t.MeGusta
+                                            &nbsp;&nbsp; <RadzenIcon Icon="forum" /> @t.Comentarios comentario(s)
                                             @if (t.Imagenes > 0)
                                             {
-                                                <text>&nbsp;&nbsp; 🖼 @t.Imagenes imagen(es)</text>
+                                                @* «image» es el mismo glifo que PegarImagen.razor usa
+                                                   para esta idea; ahí ya está escrito por qué el 📎
+                                                   que llevaba antes se salía del monocromo. *@
+                                                <text>&nbsp;&nbsp; <RadzenIcon Icon="image" /> @t.Imagenes imagen(es)</text>
                                             }
                                         </RadzenText>
 
                                         <div>
-                                            <RadzenButton Text="Abrir el hilo →" ButtonStyle="ButtonStyle.Light"
+                                            @* El chevron sale a la IZQUIERDA del texto aunque la
+                                               flecha fuera detrás: RadzenButton no tiene IconPosition
+                                               en la 10.2.2. Se conserva lo que importa, que es la
+                                               DIRECCIÓN —derecha = avanzar, entrar en el hilo—, y se
+                                               acepta el cambio de lado. Girarlo a chevron_left para
+                                               que «encaje» diría «volver» en el botón que entra. *@
+                                            <RadzenButton Text="Abrir el hilo" Icon="chevron_right" ButtonStyle="ButtonStyle.Light"
                                                           Size="ButtonSize.Small" Click="@(() => AbrirHilo(t.Id))" />
                                         </div>
                                     </RadzenStack>
@@ -208,7 +265,7 @@
 
             @if (_esAdmin)
             {
-                <RadzenTabsItem Text="📋  Auditoría">
+                <RadzenTabsItem Text="Auditoría" Icon="history">
                     <RadzenStack Gap="0.75rem">
                         <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap"
                                      AlignItems="AlignItems.Center" Gap="0.5rem">

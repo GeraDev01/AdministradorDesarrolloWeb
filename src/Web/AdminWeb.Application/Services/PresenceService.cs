@@ -7,6 +7,14 @@ using Microsoft.EntityFrameworkCore;
 namespace AdminWeb.Application.Services;
 
 /// <summary>Una persona en el tablero de presencia: su jornada abierta o su última jornada.</summary>
+/// <param name="RegistraJornada">
+/// False en las cuentas que NO abren jornada —hoy, las de Operaciones—. Existe para que la pantalla
+/// pueda distinguir dos cosas que se ven igual y no lo son: «nunca ha abierto la aplicación» y «la
+/// aplicación no le apunta las horas a propósito». Sin este dato, la columna «Desde» de un operativo
+/// diría «nunca ha entrado» todos los días de su vida laboral, que es falso y acaba en un ticket.
+/// <para>Va con valor por omisión <c>true</c> para no obligar a tocar a quien ya construye o consume
+/// este registro: quien no sepa de esto sigue viendo el mundo de antes.</para>
+/// </param>
 public record PresenciaDeUsuario(
     int UserId,
     string Nombre,
@@ -14,7 +22,33 @@ public record PresenciaDeUsuario(
     PresenceState Estado,
     string? Nota,
     DateTime? DesdeUtc,
-    DateTime UltimoLatidoUtc);
+    DateTime UltimoLatidoUtc,
+    bool RegistraJornada = true);
+
+/// <summary>
+/// Quién tiene la aplicación abierta AHORA MISMO, sin que eso quede escrito en ninguna parte.
+///
+/// <para><b>Por qué hace falta.</b> El tablero deduce «conectado» de que exista una jornada abierta.
+/// Las cuentas de Operaciones dejaron de abrir jornada (ver <see cref="PresenceService.EntrarAsync"/>),
+/// así que sin este contrato saldrían «Desconectado» para siempre —incluso mientras están
+/// desplegando—, que es justo lo contrario de lo que se pidió. Aquí se pregunta por los SOCKETS
+/// vivos, que es el único sitio donde ese hecho existe cuando no se persiste nada.</para>
+///
+/// <para><b>Por qué es una interfaz y no una clase.</b> Quien sabe de sockets es la capa web, y esta
+/// capa no la conoce ni debe conocerla. Es el mismo arreglo que ya usan <c>IRequestOrigin</c> y
+/// <c>IAvisosDeDespliegue</c>: el servicio declara QUÉ necesita, la capa web dice CÓMO se sabe. La
+/// implementación natural es <c>RegistroDeConexiones.Cuantas(userId) &gt; 0</c>.</para>
+///
+/// <para><b>Límite conocido, y hay que dejarlo escrito.</b> Ese registro vive en la memoria del
+/// proceso: con más de una instancia detrás de un balanceador, cada una solo ve sus propios sockets y
+/// un operativo conectado contra otra instancia saldría «Desconectado». Es la misma salvedad que ya
+/// documenta <c>RegistroDeConexiones</c>, y hoy la API corre en una sola instancia. Si algún día deja
+/// de correr en una sola, esto es lo primero que hay que revisar.</para>
+/// </summary>
+public interface IConexionesEnVivo
+{
+    bool EstaConectado(int userId);
+}
 
 /// <summary>
 /// Una jornada propia, para la pantalla «Mi jornada». Es una proyección y no la entidad: el
@@ -45,8 +79,22 @@ public record MiJornada(
 /// La única adaptación del port es de dónde sale el «equipo» de la jornada: en el escritorio era
 /// <c>MÁQUINA\usuario</c>, que aquí sería siempre el nombre del servidor y no distinguiría nada, así
 /// que se inyecta <see cref="IRequestOrigin"/> igual que en la bitácora.
+///
+/// <para><b>OPERACIONES NO REGISTRA JORNADA.</b> Es la decisión nueva y atraviesa todo el archivo:
+/// no se le abren filas (<see cref="EntrarAsync"/>), no puede cambiar su estado
+/// (<see cref="CambiarEstadoAsync"/>) y en el tablero su presencia sale de los sockets vivos
+/// (<see cref="IConexionesEnVivo"/>) y no de una fila. Lo que ya tiene registrado NO se toca: se
+/// conserva, se consulta y se cierra por las vías de siempre.</para>
 /// </summary>
-public class PresenceService(AppDbContext db, ICurrentUser currentUser, IRequestOrigin origin)
+/// <param name="enVivo">
+/// OPCIONAL a propósito: hay media docena de sitios que construyen este servicio a mano —las pruebas,
+/// sobre todo— y un parámetro obligatorio los obligaría a todos a inventarse un doble para algo que
+/// no ejercitan. Es el mismo recurso que ya usa <c>AnnouncementService</c>. Cuando falta, un operativo
+/// sale «Desconectado», que es el lado seguro: <b>nunca se le pinta «Disponible» por no saber</b> —eso
+/// sería mentir, y un tablero que miente deja de servir para lo que existe.
+/// </param>
+public class PresenceService(AppDbContext db, ICurrentUser currentUser, IRequestOrigin origin,
+    IConexionesEnVivo? enVivo = null)
 {
     /// <summary>Cada cuánto late la aplicación.</summary>
     public static readonly TimeSpan IntervaloLatido = TimeSpan.FromMinutes(2);
@@ -84,8 +132,13 @@ public class PresenceService(AppDbContext db, ICurrentUser currentUser, IRequest
     /// acababa con ocho o diez jornadas de minutos donde hubo una de ocho horas. De paso se perdía
     /// el estado —cada conexión lo devolvía a «Disponible»— y con él la nota de «vuelvo a las 15:30».</para>
     ///
-    /// <para>Ahora hay tres casos, en este orden:</para>
+    /// <para>Ahora hay cuatro casos, en este orden:</para>
     /// <list type="number">
+    ///   <item><b>Caso cero: la cuenta no registra jornada.</b> Operaciones no marca asistencia —su
+    ///   alcance son los despliegues— así que no se le abre ninguna fila y esto termina aquí. Se
+    ///   devuelve <c>null</c> y NO se lanza: el contrato ya admite null, quien llama ignora el
+    ///   resultado, y lanzar convertiría cada conexión normal de un operativo en una advertencia en el
+    ///   registro (AppHub apunta un aviso cuando esto falla) por algo que no es un fallo.</item>
     ///   <item>Ya hay una jornada ABIERTA: es otra pestaña del mismo día. Se reutiliza tal cual,
     ///   conservando estado y nota.</item>
     ///   <item>La última se cerró hace muy poco: fue un F5 o un parpadeo de red. Se REANUDA
@@ -95,9 +148,26 @@ public class PresenceService(AppDbContext db, ICurrentUser currentUser, IRequest
     ///
     /// <para>Que el estado sobreviva a recargar es consecuencia, no un arreglo aparte: si la fila es
     /// la misma, lo que había en ella sigue ahí.</para>
+    ///
+    /// <para><b>Este método es EL punto de estrangulamiento, y por eso la guarda va aquí y no en el
+    /// hub.</b> Sus tres llamadores —la conexión del hub, <see cref="LatirAsync"/> y
+    /// <see cref="CambiarEstadoAsync"/>— pasan todos por esta línea. Puesta en el hub, el latido
+    /// abriría por su cuenta la fila que la conexión no abrió, y el defecto no se vería hasta mirar el
+    /// registro de jornadas de un mes después.</para>
+    ///
+    /// <para><b>Lo ya registrado se conserva.</b> La guarda es sobre la CREACIÓN, no sobre las filas:
+    /// las jornadas que un operativo tenga de antes siguen ahí, el líder las sigue viendo en el
+    /// registro y en la asistencia de días viejos, y la que estuviera ABIERTA el día que esto se
+    /// despliegue se cierra sola por las vías de siempre —<see cref="SalirAsync"/> al desconectar, o
+    /// <see cref="CerrarCaidasAsync"/> dentro de la tolerancia—. Ninguna de esas dos lleva esta guarda,
+    /// y no debe llevarla: con ella, esa fila se quedaría abierta para siempre.</para>
     /// </summary>
     public async Task<WorkPresence?> EntrarAsync(string? origen = null, CancellationToken ct = default)
     {
+        // (0) Comprobación POSITIVA por rol, no «ni admin ni desarrollador»: escrita por descarte, un
+        //     rol nuevo caería aquí en silencio y dejaría de registrar jornada sin que nadie lo pidiera.
+        if (currentUser.IsOperaciones) return null;
+
         if (currentUser.UserId is not int userId) return null;
 
         var ahora = DateTime.UtcNow;
@@ -189,11 +259,27 @@ public class PresenceService(AppDbContext db, ICurrentUser currentUser, IRequest
         await CerrarAbiertasDeAsync(userId, PresenceEnd.CierreNormal, ct);
     }
 
-    /// <summary>Cambia el estado propio. Nadie puede cambiar el de otra persona.</summary>
+    /// <summary>
+    /// Cambia el estado propio. Nadie puede cambiar el de otra persona.
+    ///
+    /// <para>Operaciones no lo cambia: su estado es una constante que pone el servidor. Se contesta
+    /// <c>(false, motivo)</c> y NO se lanza, por dos razones concretas. La primera es que este método
+    /// ya usa ese par para todos sus rechazos y quien llama por el hub hace «si ok, difunde»: un false
+    /// no difunde y ahí se acaba. La segunda es que el método del hub que llama aquí es el ÚNICO sin
+    /// <c>try/catch</c>: una excepción le llegaría al navegador como error de hub sin explicación,
+    /// mientras que un false se traga limpio.</para>
+    /// </summary>
     public async Task<(bool ok, string mensaje)> CambiarEstadoAsync(PresenceState estado, string? nota = null,
         CancellationToken ct = default)
     {
         AuthorizationGuard.RequireLoggedIn(currentUser);
+
+        // Antes de tocar nada: si se dejara caer hacia abajo, la llamada a EntrarAsync de más adelante
+        // devolvería null y el mensaje sería «No hay una sesión válida», que es mentira y manda a
+        // quien lo lea a buscar un problema de acceso que no existe.
+        if (currentUser.IsOperaciones)
+            return (false, "Tu estado es siempre «Disponible»: no registras jornada.");
+
         if (currentUser.UserId is not int userId) return (false, "No hay una sesión válida.");
 
         var mia = await AbiertaAsync(userId, ct);
@@ -225,6 +311,17 @@ public class PresenceService(AppDbContext db, ICurrentUser currentUser, IRequest
     /// Quién está conectado y en qué anda, más quién no lo está y desde cuándo. Incluye a TODAS las
     /// cuentas activas, no solo a las que han abierto la aplicación alguna vez: si alguien falta,
     /// esa ausencia es el dato.
+    ///
+    /// <para><b>Dos formas de saber si alguien está.</b> Para quien registra jornada, «conectado» es
+    /// tener una fila abierta que siga latiendo — como siempre. Para quien NO la registra (Operaciones)
+    /// no hay fila que mirar, así que se preguntan los sockets vivos a <see cref="IConexionesEnVivo"/>
+    /// y, si está, su estado es «Disponible» por definición: desde su propio navegador está conectado,
+    /// y no tiene ningún control con el que declarar otra cosa.</para>
+    ///
+    /// <para><b>Lo que NO se hace, y es la mitad del asunto:</b> a un operativo desconectado no se le
+    /// pinta «Disponible». Sale «Desconectado» igual que cualquiera, porque un tablero que da por
+    /// disponible a quien no está deja de servir para lo único que sirve. Si el contrato de sockets no
+    /// está enchufado, todos los operativos salen desconectados: se pierde información, no se inventa.</para>
     /// </summary>
     public async Task<List<PresenciaDeUsuario>> TableroAsync(CancellationToken ct = default)
     {
@@ -232,9 +329,11 @@ public class PresenceService(AppDbContext db, ICurrentUser currentUser, IRequest
         await CerrarCaidasAsync(ct);
 
         var corte = DateTime.UtcNow - ToleranciaSinLatido;
+        // El rol viaja porque decide de dónde sale la presencia de cada fila. Sin él habría que
+        // volver a consultar Users por cada persona, que es lo que esta consulta única evita.
         var usuarios = await db.Users.AsNoTracking()
             .Where(u => u.IsActive)
-            .Select(u => new { u.Id, u.FullName, u.Username })
+            .Select(u => new { u.Id, u.FullName, u.Username, u.Role })
             .ToListAsync(ct);
 
         // Las jornadas abiertas son pocas (una por persona conectada): se traen enteras.
@@ -255,16 +354,32 @@ public class PresenceService(AppDbContext db, ICurrentUser currentUser, IRequest
         return usuarios
             .Select(u =>
             {
+                // Positivo por rol, igual que en EntrarAsync: las dos decisiones tienen que decir lo
+                // mismo sobre quién registra jornada o el tablero contradiría al registro.
+                bool registraJornada = u.Role != UserRole.Operaciones;
+
                 abiertas.TryGetValue(u.Id, out var abierta);
-                bool conectado = abierta != null && abierta.LastSeenUtc >= corte;
+                bool conectado = registraJornada
+                    ? abierta != null && abierta.LastSeenUtc >= corte
+                    : enVivo?.EstaConectado(u.Id) == true;
+
                 return new PresenciaDeUsuario(
                     u.Id,
                     string.IsNullOrWhiteSpace(u.FullName) ? u.Username : u.FullName,
                     conectado,
-                    conectado ? abierta!.State : PresenceState.Ausente,
-                    conectado ? abierta!.StateNote : null,
-                    conectado ? abierta!.StartedAtUtc : null,
-                    ultimoVisto.TryGetValue(u.Id, out var visto) ? visto : DateTime.MinValue);
+                    // Sin jornada no hay estado guardado que leer, y estando conectado el único valor
+                    // posible es «Disponible»: no hay control con el que decir otra cosa.
+                    conectado ? (registraJornada ? abierta!.State : PresenceState.Disponible)
+                              : PresenceState.Ausente,
+                    conectado && registraJornada ? abierta!.StateNote : null,
+                    // Tampoco hay «desde cuándo»: la hora de conexión no se persiste en ningún sitio, y
+                    // poner la de ahora fingiría que acaba de llegar cada vez que alguien mira.
+                    conectado && registraJornada ? abierta!.StartedAtUtc : null,
+                    // El último visto sigue saliendo de las filas históricas: si las tuvo de antes,
+                    // esa fecha es verdad; lo que la pantalla no debe hacer es leerla como «nunca ha
+                    // entrado», y para eso va el indicador de al lado.
+                    ultimoVisto.TryGetValue(u.Id, out var visto) ? visto : DateTime.MinValue,
+                    registraJornada);
             })
             .OrderByDescending(x => x.Conectado)
             .ThenBy(x => x.Nombre, StringComparer.CurrentCultureIgnoreCase)
@@ -305,11 +420,17 @@ public class PresenceService(AppDbContext db, ICurrentUser currentUser, IRequest
     /// Tampoco barre las caídas (CerrarCaidas cierra las de TODOS y convertiría una consulta en
     /// escritura de filas ajenas): una jornada caída aún sin barrer se muestra «en curso» con su
     /// duración calculada hasta el último latido, que es la verdad disponible.
+    ///
+    /// <para>La guarda es del líder y del desarrollador, y no «con sesión basta»: esto es la
+    /// telemetría que alimenta «Mi jornada», y si el resto del módulo contesta 403 a un operativo y
+    /// esta no, queda un hueco por el que sigue leyendo su registro. Las filas VIEJAS no se pierden:
+    /// el líder las sigue viendo por el tablero y por la asistencia del día, que tienen su propia
+    /// guarda de administrador.</para>
     /// </summary>
     public async Task<List<MiJornada>> MisJornadasAsync(DateTime desdeLocal, DateTime hastaLocal,
         CancellationToken ct = default)
     {
-        AuthorizationGuard.RequireLoggedIn(currentUser);
+        AuthorizationGuard.RequireAdminOrDesarrollador(currentUser, "de la jornada propia");
         if (currentUser.UserId is not int userId) return [];
 
         // Por UserId y NO por DeveloperId: DeveloperId es una copia opcional tomada al entrar, y
@@ -395,6 +516,32 @@ public class PresenceService(AppDbContext db, ICurrentUser currentUser, IRequest
         _                        => "Ausente"
     };
 
+    /// <summary>
+    /// <b>DEUDA CONOCIDA: esto devuelve EMOJI y no debería.</b> Es el mismo defecto que ya se corrigió
+    /// en el menú lateral y en el distintivo de la barra: los emojis los dibuja el SISTEMA OPERATIVO
+    /// —se ven distintos en un Windows, en un Mac y en un móvil— y no heredan <c>currentColor</c>, así
+    /// que en el tema oscuro siguen brillando con sus colores de siempre sobre el fondo nuevo.
+    ///
+    /// <para><b>Por qué no se arregla aquí y ya está.</b> Se miró antes de decidir: el único que llama
+    /// a este método es <c>PersonasQueryService</c>, que mete la cadena en <c>PresenteDto.Icono</c>, y
+    /// la pantalla de presencia la imprime TAL CUAL como texto (<c>&lt;Template&gt;@p.Icono&lt;/Template&gt;</c>).
+    /// Con eso, devolver un <c>var(--…)</c> pintaría la palabra «var(--adminweb-presencia-disponible)»
+    /// dentro de la celda, y devolver un nombre de icono de la fuente pintaría la palabra «circle».
+    /// Las dos compilan y las dos se ven mal, que es exactamente la trampa de la que se viene.</para>
+    ///
+    /// <para><b>Cómo se arregla de verdad</b>, en un solo lote y en estos tres sitios a la vez: que el
+    /// DTO lleve el ESTADO (ya lo lleva) en vez de una cadena decorativa, que la pantalla pinte el
+    /// punto de color de <c>Componentes/BotonDeEstado.razor</c> —que ya resolvió este problema exacto
+    /// para este mismo enumerado— y que este método desaparezca. Mientras tanto se queda como está: un
+    /// emoji feo se lee; media cadena de CSS dentro de una celda, no.</para>
+    ///
+    /// <para>Van en el mismo saco, y conviene tocarlos juntos: el «⚪» que <c>PersonasQueryService</c>
+    /// pone a mano a los desconectados, su «⚠ Sin señales», el «⚠ Olvido (estimada)» y el «✏
+    /// Corregida…» de <c>AttendanceService</c>, y el «⚠ Sin marcar (solo telemetría)» de
+    /// <c>JornadaQueryService</c>. Ojo con ese «⚠ Sin señales»: la leyenda de la pantalla de presencia
+    /// lo CITA entre comillas, así que si cambia uno sin el otro la leyenda manda a buscar en pantalla
+    /// algo que ya no está escrito así.</para>
+    /// </summary>
     public static string Icono(PresenceState e) => e switch
     {
         PresenceState.Disponible => "🟢",

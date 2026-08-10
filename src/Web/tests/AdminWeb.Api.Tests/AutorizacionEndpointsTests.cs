@@ -210,9 +210,14 @@ public class AutorizacionEndpointsTests(ApiDePrueba api) : IClassFixture<ApiDePr
     [Fact]
     public async Task LaJornada_EsDeLaCuenta_NoDeLaFichaDeDesarrollador()
     {
-        // Operaciones marca entrada y salida como todo el mundo. Si esta ruta llevara la política de
-        // desarrollador, media plantilla se quedaría sin poder registrar su asistencia.
-        var cliente = await api.ClienteComoAsync(UserRole.Operaciones, "ops.prueba");
+        // Lo que esta prueba protege sigue siendo cierto y por eso conserva su nombre: la jornada
+        // cuelga de la CUENTA y no de la ficha de desarrollador. El administrador inicial no tiene
+        // ficha y tiene que poder entrar igual; si esta ruta se atara al DeveloperId, dejaría fuera a
+        // quien revisa la asistencia de los demás.
+        //
+        // Lo que cambió —y es la mitad que antes decía esta prueba— es QUIÉN registra jornada:
+        // Operaciones ya no. Ese caso está en Operaciones_NoEntraEnLaJornada.
+        var cliente = await api.ClienteAdminAsync();
 
         var r = await cliente.GetAsync("/api/jornada/estado");
 
@@ -220,13 +225,75 @@ public class AutorizacionEndpointsTests(ApiDePrueba api) : IClassFixture<ApiDePr
     }
 
     [Fact]
-    public async Task ElForo_LoVeTodoElMundoConSesion()
+    public async Task Operaciones_NoEntraEnLaJornada()
     {
-        // Al revés que las anteriores: si el foro solo lo viera una parte del equipo, no sería un
-        // foro. Aquí lo que se comprueba es que NO se haya colado una política de más.
+        // Operaciones no registra jornada: su alcance son los despliegues y su estado lo pone el
+        // servidor. En el cliente ni siquiera hay entrada de menú, pero eso es comodidad — el cliente
+        // corre en la máquina de cada persona y a la API se la puede llamar a mano.
+        //
+        // Van TODAS en un solo recorrido y no una de muestra, porque el valor está justamente en que
+        // no quede ninguna suelta: basta una para poder marcar entrada o leerse el registro entero.
         var cliente = await api.ClienteComoAsync(UserRole.Operaciones, "ops.prueba");
 
-        var r = await cliente.GetAsync("/api/foro/muro?pagina=1&tamano=5");
+        foreach (var ruta in new[] { "/api/jornada/mia", "/api/jornada/estado", "/api/jornada/presencia" })
+        {
+            var r = await cliente.GetAsync(ruta);
+            Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
+        }
+
+        foreach (var ruta in new[] { "/api/jornada/entrada", "/api/jornada/salida" })
+        {
+            var r = await cliente.PostAsJsonAsync(ruta, new MarcajeRequest(null));
+            Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task Operaciones_NoEntraEnElForo()
+    {
+        // El foro es la conversación del equipo de desarrollo. La última ruta es la que de verdad hay
+        // que escribir: los BYTES de las capturas no salen por /api/foro sino por /api/adjuntos, y sin
+        // cerrarla también cerrar el muro no habría cerrado nada — se seguirían bajando por número.
+        var cliente = await api.ClienteComoAsync(UserRole.Operaciones, "ops.prueba");
+
+        foreach (var ruta in new[]
+                 {
+                     "/api/foro/muro?pagina=1&tamano=5",
+                     "/api/foro/opciones",
+                     "/api/foro/hilos/1",
+                     "/api/foro/imagenes?entradas=1",
+                     "/api/adjuntos/foro/1"
+                 })
+        {
+            var r = await cliente.GetAsync(ruta);
+            Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task ElDesarrollador_SigueEntrandoEnElForoYEnLaJornada()
+    {
+        // Sin esta, las dos de arriba pasarían igual de bien si alguien hubiera cerrado el foro y la
+        // jornada para TODO el mundo. Lo que se recortó es un rol, no el módulo.
+        var cliente = await api.ClienteComoAsync(UserRole.Desarrollador, "dev.prueba");
+
+        foreach (var ruta in new[] { "/api/foro/muro?pagina=1&tamano=5", "/api/jornada/estado" })
+        {
+            var r = await cliente.GetAsync(ruta);
+            Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task ElLider_SigueViendoLaAuditoriaDelForo()
+    {
+        // El error fácil de este cambio: la auditoría lleva «SoloAdmin» propio y el grupo lleva ahora
+        // «AdminUDesarrollador». ASP.NET Core las compone con Y —hay que cumplir las dos—, así que si
+        // alguna de las dos se escribiera mal, el propio administrador se quedaría fuera de su
+        // herramienta de supervisión sin que nada más lo delatara.
+        var cliente = await api.ClienteAdminAsync();
+
+        var r = await cliente.GetAsync("/api/foro/auditoria");
 
         Assert.Equal(HttpStatusCode.OK, r.StatusCode);
     }

@@ -1,4 +1,10 @@
 @page "/foro/{Id:int}"
+@* La misma política que el muro, y por lo mismo: el foro es del equipo de desarrollo. Ésta es
+   además la dirección que se COMPARTE por correo («mira el hilo /foro/17»), así que es la más fácil
+   de que llegue a manos de un operativo — y sin esta línea le abriría una pantalla vacía llena de
+   avisos rojos en vez de decirle que no es suya. La barrera de verdad sigue siendo el 403 del
+   grupo /api/foro. *@
+@attribute [Authorize(Policy = "AdminUDesarrollador")]
 @using AdminWeb.Shared.Dtos.Foro
 @inject ClienteApi Api
 @inject AvisosDeInterfaz Avisos
@@ -35,7 +41,11 @@
 
 <RadzenStack Gap="1rem">
     <div>
-        <RadzenButton Text="← Volver al muro" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+        @* «chevron_left» y no «arrow_left»: el segundo es un triángulo macizo que en Material
+           significa «desplegar hacia la izquierda»; el chevron es el «atrás» de toda la vida. La
+           flecha que había en el Text ya iba delante del texto, así que el hueco del icono —que en
+           RadzenButton está SIEMPRE a la izquierda, no hay IconPosition— le queda en su sitio. *@
+        <RadzenButton Text="Volver al muro" Icon="chevron_left" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                       Click="@(() => Navegacion.NavigateTo("foro"))" />
     </div>
 
@@ -51,16 +61,24 @@
     }
     else
     {
+        @* «push_pin» es la chincheta de la fuente y ya es el glifo de «Notas y pendientes» en el
+           menú, que es la misma idea de «esto queda clavado arriba». AVISO: @_hilo.TemaIcono sigue
+           siendo un emoji y NO se arregla aquí — esa cadena la manda el servidor
+           (AdminWeb.Shared/Dtos/Foro/Foro.cs), así que tocar este marcado no la cambia. *@
         <RadzenText TextStyle="TextStyle.H5" Style="margin:0">
-            @_hilo.TemaIcono @(_hilo.Fijada ? "📌 " : "")@_hilo.Titulo
+            @_hilo.TemaIcono @if (_hilo.Fijada) { <RadzenIcon Icon="push_pin" title="Fijada" /> } @_hilo.Titulo
         </RadzenText>
 
+        @* Los glifos de esta línea SE QUEDAN, al revés que en los rótulos con palabra: es una fila
+           de datos sueltos separados por puntos medios y el dibujo es lo que deja ver de un golpe
+           dónde empieza cada dato. Van como <RadzenIcon> para que hereden currentColor y se atenúen
+           con el TextStyle.Caption, en vez de quedarse a todo color dentro de un texto gris. *@
         <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
             @_hilo.TemaEtiqueta
-            &nbsp;·&nbsp; 💬 @_hilo.Comentarios comentario(s)
+            &nbsp;·&nbsp; <RadzenIcon Icon="forum" /> @_hilo.Comentarios comentario(s)
             @if (_hilo.Cerrada)
             {
-                <text>&nbsp;·&nbsp; 🔒 cerrado: el hilo se lee, pero ya no admite comentarios</text>
+                <text>&nbsp;·&nbsp; <RadzenIcon Icon="lock" /> cerrado: el hilo se lee, pero ya no admite comentarios</text>
             }
             @if (!string.IsNullOrWhiteSpace(_hilo.Etiquetas))
             {
@@ -74,11 +92,19 @@
                lleva dentro— entre entradas distintas al reordenarse el hilo. *@
             @* La sangría por nivel es lo que enseña de qué cuelga cada respuesta. *@
             <div @key="e.Id" style="@Sangria(e.Nivel)">
-                <RadzenCard Style="@(e.EsPublicacion ? "border-left:4px solid var(--rz-primary, #2563eb)" : null)">
+                @* Sin color de respaldo detrás de la variable: ese respaldo era el azul de la
+                   plantilla anterior y, si la variable faltara, el hilo saldría con una franja azul
+                   en medio de una aplicación ámbar y nadie sabría de dónde vino. Sin respaldo, la
+                   franja no se pinta y el fallo se ve. *@
+                <RadzenCard Style="@(e.EsPublicacion ? "border-left:4px solid var(--rz-primary)" : null)">
                     <RadzenStack Gap="0.35rem">
                         <RadzenText TextStyle="TextStyle.Caption" Style="margin:0"
                                     title="@TiempoDelForo.Fecha(e.CreadaUtc)">
-                            🧑 @e.Autor
+                            @* «person» es el mismo glifo que MainLayout.razor puso donde antes tenía
+                               este mismo 🧑 delante del nombre de quien entró: la silueta del emoji
+                               cambia de tono de piel según el equipo y no hereda currentColor. Una
+                               persona se dibuja igual en la barra superior y en el foro. *@
+                            <RadzenIcon Icon="person" /> @e.Autor
                             &nbsp;·&nbsp; @TiempoDelForo.HaceCuanto(e.CreadaUtc)
                             @if (e.EditadaUtc != null)
                             {
@@ -87,7 +113,7 @@
                             }
                             @if (e.Retirada)
                             {
-                                <text>&nbsp;·&nbsp; 🗑 retirada</text>
+                                <text>&nbsp;·&nbsp; <RadzenIcon Icon="delete" /> retirada</text>
                             }
                         </RadzenText>
 
@@ -129,10 +155,10 @@
                                          Maximo="@MaxImagenes" MaxBytes="@MaxBytesImagen" />
 
                             <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
-                                <RadzenButton Text="Guardar" ButtonStyle="ButtonStyle.Primary"
+                                <RadzenButton Text="Guardar" Icon="save" ButtonStyle="ButtonStyle.Primary"
                                               Size="ButtonSize.Small" Disabled="@_ocupado"
                                               Click="@(() => GuardarEdicionAsync(e))" />
-                                <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                                <RadzenButton Text="Cancelar" Icon="close" ButtonStyle="ButtonStyle.Light"
                                               Size="ButtonSize.Small" Disabled="@_ocupado"
                                               Click="@CancelarEdicion" />
                             </RadzenStack>
@@ -170,7 +196,14 @@
                         @* ── Acciones ──────────────────────────────────────────────────── *@
                         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                      Wrap="FlexWrap.Wrap" Gap="0.4rem">
-                            <RadzenButton Text="@($"{(e.YoDiMeGusta ? "❤" : "♡")}  {e.MeGusta}")"
+                            @* El corazón va LLENO o VACÍO según esté dado o no, y por eso el recorte
+                               de la fuente lleva los dos nombres: lleno/vacío es lo único que
+                               distingue «se lo di» de «no se lo he dado», y con un solo glifo se
+                               pierde entera la información que este botón comunica. Si algún día
+                               alguien quita uno de los dos de iconos.txt, este botón deja de decir
+                               nada aunque siga funcionando. *@
+                            <RadzenButton Text="@e.MeGusta.ToString()"
+                                          Icon="@(e.YoDiMeGusta ? "favorite" : "favorite_border")"
                                           ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                           Disabled="@(_ocupado || e.Retirada)"
                                           title="@(e.YoDiMeGusta ? "Quitar tu me gusta" : "Me gusta")"
@@ -178,14 +211,17 @@
 
                             @if (!e.Retirada && !_hilo.Cerrada && _editando != e.Id)
                             {
-                                <RadzenButton Text="↩ Responder" ButtonStyle="ButtonStyle.Light"
+                                @* La flecha de responder, y aquí es literal: hay una persona al otro
+                                   lado. En el resto de la aplicación este icono NO se usa para
+                                   duplicar ni replicar registros, solo para contestarle a alguien. *@
+                                <RadzenButton Text="Responder" Icon="reply" ButtonStyle="ButtonStyle.Light"
                                               Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                               Click="@(() => Responder(e.Id))" />
                             }
 
                             @if (e.EsMia && !e.Retirada && _editando != e.Id)
                             {
-                                <RadzenButton Text="✏ Editar" ButtonStyle="ButtonStyle.Light"
+                                <RadzenButton Text="Editar" Icon="edit" ButtonStyle="ButtonStyle.Light"
                                               Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                               Click="@(() => Editar(e))" />
                             }
@@ -195,7 +231,7 @@
                                quien lo permite de verdad es el servicio. *@
                             @if (!e.Retirada && (e.EsMia || _esAdmin))
                             {
-                                <RadzenButton Text="🗑 Retirar" ButtonStyle="ButtonStyle.Light"
+                                <RadzenButton Text="Retirar" Icon="delete" ButtonStyle="ButtonStyle.Light"
                                               Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                               Click="@(() => RetirarAsync(e))" />
                             }
@@ -214,10 +250,10 @@
                                                  Maximo="@MaxImagenes" MaxBytes="@MaxBytesImagen" />
 
                                     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
-                                        <RadzenButton Text="Comentar" ButtonStyle="ButtonStyle.Primary"
+                                        <RadzenButton Text="Comentar" Icon="send" ButtonStyle="ButtonStyle.Primary"
                                                       Size="ButtonSize.Small" Disabled="@_ocupado"
                                                       Click="@(() => ComentarAsync(e.Id))" />
-                                        <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                                        <RadzenButton Text="Cancelar" Icon="close" ButtonStyle="ButtonStyle.Light"
                                                       Size="ButtonSize.Small" Disabled="@_ocupado"
                                                       Click="@CancelarComentario" />
                                     </RadzenStack>
@@ -238,7 +274,7 @@
         else if (_respondiendoA == null)
         {
             <div>
-                <RadzenButton Text="↩  Comentar en el hilo" ButtonStyle="ButtonStyle.Primary"
+                <RadzenButton Text="Comentar en el hilo" Icon="reply" ButtonStyle="ButtonStyle.Primary"
                               Size="ButtonSize.Small" Disabled="@(_ocupado || _hilo.Retirada)"
                               Click="@(() => Responder(_hilo.Id))" />
             </div>

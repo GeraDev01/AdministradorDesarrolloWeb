@@ -22,18 +22,36 @@
     <Template>
         @* La nota se ve JUNTO al estado, no escondida en el menú: quien escribió «vuelvo 15:30»
            tiene que poder comprobar de un vistazo que sigue puesta. *@
-        <span style="white-space:nowrap">
-            @Icono(_estado) @Etiqueta(_estado)@(string.IsNullOrWhiteSpace(_nota) ? "" : $" · {_nota}")
+        @* El punto de color sustituye al emoji que había (🟢🔴🟣🍽⚪). El motivo es el mismo que
+           explica Menu.cs para el menú lateral: los emojis los dibuja el sistema operativo, se ven
+           distintos en cada equipo y NO heredan currentColor, así que en el tema oscuro seguían
+           brillando con sus colores de siempre. Un punto pintado por nosotros sí obedece al tema.
+           El texto del estado va SIEMPRE al lado, y no es adorno: cinco puntos de color solos no se
+           distinguen ni en oscuro ni por quien no separa el rojo del verde.
+           El borde gris no es decoración tampoco: si el día de mañana falta la variable de color, el
+           punto se queda sin relleno pero SE SIGUE VIENDO, en vez de desaparecer sin que nadie note
+           que se rompió algo. *@
+        <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
+            <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@ColorDePresencia(_estado)"></span>
+            @Etiqueta(_estado)@(string.IsNullOrWhiteSpace(_nota) ? "" : $" · {_nota}")
         </span>
     </Template>
     <ChildContent>
+        @* Dentro del desplegable van sólo las palabras, sin punto de color. No es un olvido:
+           RadzenProfileMenuItem.Text es una CADENA y no admite marcado, y la única forma de meter el
+           punto sería su parámetro Template, que existe pero cambia el contenido del elemento sobre
+           el que este menú engancha el clic —y este componente ya se rompió una vez por dar por hecho
+           cómo maneja Radzen los clics de estas entradas—. Cinco palabras claras no necesitan color;
+           el punto hace falta arriba, que es lo que se ve todo el día sin abrir nada. *@
         @foreach (var e in Estados)
         {
-            <RadzenProfileMenuItem Text="@($"{Icono(e)} {Etiqueta(e)}")" Value="@e.ToString()" />
+            <RadzenProfileMenuItem Text="@Etiqueta(e)" Value="@e.ToString()" />
         }
         @* El escritorio tenía esta misma entrada aparte. Es lo que llenaba la columna «Nota» del
            tablero del líder, que sin ella llevaba tiempo vacía. *@
-        <RadzenProfileMenuItem Text="✏ Estado con nota…" Value="@ValorNota" />
+        @* Lleva icono —y las otras cinco no— porque no es un estado más: es la única que abre un
+           diálogo en lugar de cambiar el estado y cerrarse. Que se vea distinta es la intención. *@
+        <RadzenProfileMenuItem Text="Estado con nota…" Icon="edit_note" Value="@ValorNota" />
     </ChildContent>
 </RadzenProfileMenu>
 
@@ -131,12 +149,27 @@
         _                        => "Ausente"
     };
 
-    private static string Icono(PresenceState e) => e switch
+    /// <summary>
+    /// El color del punto de presencia. Devuelve la CADENA «var(--…)» y no un color de verdad: esto
+    /// se interpola dentro de un atributo <c>style</c> y lo resuelve el navegador, no .NET, así que
+    /// aquí no hay nada que convertir. Escribir el hex directamente sería atarlo a un solo tema.
+    ///
+    /// <para>Los cinco NO salen del semáforo, y es deliberado: «Ocupado» no es un error ni
+    /// «Disponible» un éxito. Si se pintaran de rojo y verde, la barra estaría gritando una alarma
+    /// cada vez que alguien está concentrado. Salen de la escala de series de la paleta, que es la
+    /// que existe justo para distinguir cosas que no están mejor ni peor unas que otras.</para>
+    ///
+    /// <para>DEPENDENCIA: estas cinco variables las declara <c>tema.css</c>, que es de otro. Mientras
+    /// no estén, los puntos se ven como un círculo con borde y sin relleno —feo pero legible, porque
+    /// el nombre del estado va siempre al lado—. No las sustituyas por hexes para «arreglarlo»: eso
+    /// rompería el tema oscuro, que es exactamente el defecto del que se viene.</para>
+    /// </summary>
+    private static string ColorDePresencia(PresenceState e) => e switch
     {
-        PresenceState.Disponible => "🟢",
-        PresenceState.Ocupado    => "🔴",
-        PresenceState.EnReunion  => "🟣",
-        PresenceState.Comiendo   => "🍽",
-        _                        => "⚪"
+        PresenceState.Disponible => "var(--adminweb-presencia-disponible)",
+        PresenceState.Ocupado    => "var(--adminweb-presencia-ocupado)",
+        PresenceState.EnReunion  => "var(--adminweb-presencia-reunion)",
+        PresenceState.Comiendo   => "var(--adminweb-presencia-comida)",
+        _                        => "var(--adminweb-presencia-ausente)"
     };
 }

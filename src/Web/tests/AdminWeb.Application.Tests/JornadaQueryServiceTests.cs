@@ -171,10 +171,16 @@ public class JornadaQueryServiceTests
     [Fact]
     public async Task UnaCuentaSinFichaDeDesarrollador_NoTieneCronometroPeroSiJornada()
     {
-        // Operaciones marca entrada y salida igual que todo el mundo, pero no cronometra trabajo de
-        // desarrollo. La pantalla tiene que funcionar para esas cuentas en vez de reventar.
+        // Lo que esta prueba cubre —que la pantalla funcione para una cuenta SIN ficha de
+        // desarrollador, en vez de reventar— sigue importando: la jornada es de la CUENTA, y el líder
+        // no tiene ficha y marca igual. Lo que se esconde solo cuando no hay ficha es el cronómetro,
+        // que cuenta trabajo de desarrollo.
+        //
+        // La cuenta era de Operaciones y ya no puede serlo: Operaciones dejó de registrar jornada y
+        // aquí lanzaría. No se ablanda la prueba, se le cambia el sujeto por el otro caso real de
+        // cuenta sin ficha, que es el del líder.
         using var db = TestDb.New();
-        var cu = Sembrar(db, devId: null, rol: UserRole.Operaciones);
+        var cu = Sembrar(db, devId: null, rol: UserRole.Admin);
 
         var mia = await Svc(db, cu).MiJornadaAsync();
 

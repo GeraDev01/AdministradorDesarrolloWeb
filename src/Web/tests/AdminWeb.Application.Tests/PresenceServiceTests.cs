@@ -20,6 +20,20 @@ public class PresenceServiceTests
     private static PresenceService Svc(AppDbContext db, ICurrentUser cu) => new(db, cu, new OrigenDePrueba());
 
     /// <summary>
+    /// El mismo servicio, pero sabiendo quién tiene un socket abierto ahora mismo. Hace falta solo
+    /// para las cuentas que no registran jornada: para el resto, «conectado» se sigue deduciendo de
+    /// la fila abierta y este doble no pinta nada.
+    /// </summary>
+    private static PresenceService Svc(AppDbContext db, ICurrentUser cu, IConexionesEnVivo enVivo) =>
+        new(db, cu, new OrigenDePrueba(), enVivo);
+
+    /// <summary>Los identificadores que se dan por conectados. Lo que no esté, no está.</summary>
+    private sealed class ConexionesFalsas(params int[] conectados) : IConexionesEnVivo
+    {
+        public bool EstaConectado(int userId) => conectados.Contains(userId);
+    }
+
+    /// <summary>
     /// Da de alta la cuenta y devuelve su identidad de sesión. En el escritorio el contexto se
     /// rellenaba desde la fila de Users; aquí la identidad viene de los claims, así que la prueba
     /// la construye igual que lo haría la petición.
@@ -418,6 +432,155 @@ public class PresenceServiceTests
 
         Assert.Equal(PresenceState.Ocupado, estado);
         Assert.Equal("en una entrega", nota);
+    }
+
+    // ── Operaciones: sin jornada, sin estado, y aun así visible ──────────────────
+    //
+    // El área de operaciones despliega; no registra asistencia. Lo que estas pruebas fijan es que las
+    // dos mitades de esa decisión se cumplan a la vez, porque cada una sin la otra da el resultado
+    // contrario al que se pidió: si se deja de abrir la jornada y nadie más lo sabe, el operativo sale
+    // «Desconectado» aunque esté desplegando; y si se le regala un «Disponible» fijo, el tablero
+    // miente sobre quien se fue a su casa.
+
+    [Fact]
+    public async Task Operaciones_AlConectarse_NoSeLeAbreJornada()
+    {
+        var db = TestDb.New();
+        var ops = Usuario(db, 3, "Ops", UserRole.Operaciones);
+
+        // Devuelve null y no lanza: conectarse es lo normal, no un fallo que anotar en el registro.
+        Assert.Null(await Svc(db, ops).EntrarAsync());
+        Assert.Empty(db.WorkPresences.AsNoTracking().Where(p => p.UserId == 3));
+    }
+
+    [Fact]
+    public async Task Operaciones_ElLatido_NoLeAbreJornada()
+    {
+        // El camino que se escapa si alguien pone la guarda en el hub en lugar de en EntrarAsync: la
+        // conexión no abriría fila, pero el primer latido —a los dos minutos— sí, y el defecto no se
+        // vería hasta mirar el registro de jornadas de un mes después.
+        var db = TestDb.New();
+        var ops = Usuario(db, 3, "Ops", UserRole.Operaciones);
+
+        await Svc(db, ops).LatirAsync();
+
+        Assert.Empty(db.WorkPresences.AsNoTracking().Where(p => p.UserId == 3));
+    }
+
+    [Fact]
+    public async Task Operaciones_ConUnaJornadaYaAbierta_NoSeLeBorraYSeCierraNormal()
+    {
+        // El caso real del día que esto se despliegue: un operativo con su jornada de la mañana ya
+        // abierta. Dejar de registrar de aquí en adelante NO puede borrar lo de atrás, y esa fila
+        // tiene que poder cerrarse limpiamente — si SalirAsync llevara la misma guarda que EntrarAsync,
+        // se quedaría abierta para siempre y el registro del líder nunca volvería a cuadrar.
+        var db = TestDb.New();
+        var ops = Usuario(db, 3, "Ops", UserRole.Operaciones);
+
+        db.WorkPresences.Add(new WorkPresence
+        {
+            UserId       = 3,
+            DisplayName  = "Ops",
+            StartedAtUtc = DateTime.UtcNow.AddHours(-2),
+            LastSeenUtc  = DateTime.UtcNow,
+            State        = PresenceState.Disponible,
+            Origin       = "prueba"
+        });
+        db.SaveChanges();
+
+        await Svc(db, ops).SalirAsync();
+
+        var suya = db.WorkPresences.AsNoTracking().Single(p => p.UserId == 3);
+        Assert.NotNull(suya.EndedAtUtc);
+        Assert.Equal(PresenceEnd.CierreNormal, suya.EndReason);
+    }
+
+    [Fact]
+    public async Task Operaciones_NoPuedeCambiarSuEstado()
+    {
+        var db = TestDb.New();
+        var ops = Usuario(db, 3, "Ops", UserRole.Operaciones);
+
+        var (ok, mensaje) = await Svc(db, ops).CambiarEstadoAsync(PresenceState.Ocupado);
+
+        Assert.False(ok);
+        Assert.Contains("Disponible", mensaje);
+        // Y de paso: el rechazo no puede colarse por la puerta de atrás abriendo la jornada que
+        // EntrarAsync se negó a abrir. Cambiar el estado la abre cuando no hay ninguna.
+        Assert.Empty(db.WorkPresences.AsNoTracking().Where(p => p.UserId == 3));
+    }
+
+    [Fact]
+    public async Task Operaciones_NoLeeSuRegistroDeJornadas()
+    {
+        // La telemetría propia es lo que alimenta «Mi jornada». Si el resto del módulo contesta 403 y
+        // esta no, queda un hueco por el que se sigue leyendo el registro.
+        var db = TestDb.New();
+        var ops = Usuario(db, 3, "Ops", UserRole.Operaciones);
+
+        await Assert.ThrowsAsync<AuthorizationException>(
+            () => Svc(db, ops).MisJornadasAsync(DateTime.Today, DateTime.Today));
+    }
+
+    [Fact]
+    public async Task ElTablero_MuestraDisponibleAlOperativoConectado()
+    {
+        // La otra mitad de la petición: «siempre debe estar disponible el estatus». Sin fila que
+        // mirar, quien sabe si está es el socket abierto.
+        var db = TestDb.New();
+        Usuario(db, 3, "Ops", UserRole.Operaciones);
+        var admin = Usuario(db, 99, "Jefa", UserRole.Admin);
+
+        var fila = (await Svc(db, admin, new ConexionesFalsas(3)).TableroAsync()).Single(f => f.Nombre == "Ops");
+
+        Assert.True(fila.Conectado);
+        Assert.Equal(PresenceState.Disponible, fila.Estado);
+        Assert.False(fila.RegistraJornada);
+        // Sin jornada no hay «desde cuándo»: poner la hora de ahora fingiría que acaba de llegar cada
+        // vez que alguien abre el tablero.
+        Assert.Null(fila.DesdeUtc);
+    }
+
+    [Fact]
+    public async Task ElTablero_MuestraDesconectadoAlOperativoSinConexion()
+    {
+        // Lo que NO se puede hacer: un «Disponible» fijo. Un operativo que se fue a su casa tiene que
+        // verse como lo que es, o el tablero deja de servir para lo único que sirve.
+        var db = TestDb.New();
+        Usuario(db, 3, "Ops", UserRole.Operaciones);
+        var admin = Usuario(db, 99, "Jefa", UserRole.Admin);
+
+        var fila = (await Svc(db, admin, new ConexionesFalsas()).TableroAsync()).Single(f => f.Nombre == "Ops");
+
+        Assert.False(fila.Conectado);
+        Assert.Equal(PresenceState.Ausente, fila.Estado);
+
+        // Y si el contrato de sockets no está enchufado, el resultado es el mismo: se pierde
+        // información, no se inventa. Nunca «Disponible» por no saber.
+        var sinContrato = (await Svc(db, admin).TableroAsync()).Single(f => f.Nombre == "Ops");
+        Assert.False(sinContrato.Conectado);
+        Assert.Equal(PresenceState.Ausente, sinContrato.Estado);
+    }
+
+    [Fact]
+    public async Task ElTablero_AQuienSiRegistraJornada_LoSigueMirandoEnSuFila()
+    {
+        // La guarda de que el atajo anterior no se llevó por delante el camino normal: un
+        // desarrollador conectado sigue saliendo por su jornada abierta, con su estado y su «desde»,
+        // aunque no tenga ningún socket apuntado.
+        var db = TestDb.New();
+        var ana = Usuario(db, 1, "Ana");
+        var admin = Usuario(db, 99, "Jefa", UserRole.Admin);
+        await Svc(db, ana).EntrarAsync();
+        await Svc(db, ana).CambiarEstadoAsync(PresenceState.EnReunion, "vuelvo 15:30");
+
+        var fila = (await Svc(db, admin, new ConexionesFalsas()).TableroAsync()).Single(f => f.Nombre == "Ana");
+
+        Assert.True(fila.Conectado);
+        Assert.Equal(PresenceState.EnReunion, fila.Estado);
+        Assert.Equal("vuelvo 15:30", fila.Nota);
+        Assert.NotNull(fila.DesdeUtc);
+        Assert.True(fila.RegistraJornada);
     }
 
     // ── Tablero ──────────────────────────────────────────────────────────────────

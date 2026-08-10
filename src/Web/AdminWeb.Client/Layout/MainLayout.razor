@@ -43,16 +43,48 @@
 
                     @* Marcaje y estado en la barra, como en el escritorio: se usan de paso. Si hay
                        que ir a buscarlos a una pantalla, nadie los usa, y entonces ni el registro de
-                       asistencia ni el tablero de estados dicen la verdad. *@
-                    @if (u.Rol != UserRole.Admin)
+                       asistencia ni el tablero de estados dicen la verdad.
+
+                       Las dos comprobaciones son POSITIVAS por rol y no por descarte, y eso no es
+                       estilo: escrito «!= Admin», Operaciones —y cualquier rol que se invente
+                       mañana— heredaba el botón de asistencia en silencio, que es el error que
+                       AuthorizationGuard documenta como ya cometido una vez.
+
+                       A Operaciones no se le pinta ninguno de los dos. No marca jornada, así que el
+                       de asistencia no tiene nada que marcar; y su estado es una constante que pone
+                       el servidor, así que un menú de cinco opciones que no cambian nada sería peor
+                       que no tener menú. Hay además un motivo que lo decide solo: BotonDeEstado pide
+                       api/jornada/presencia al montarse, esa ruta ahora contesta 403 a Operaciones y
+                       el manejador de respuestas pinta un aviso ROJO por cada carga — en TODAS las
+                       pantallas, porque este componente vive en la barra. Si algún día se quiere
+                       enseñarle algo, que sea un distintivo estático que ni llame a la API ni pase
+                       por el hub. *@
+                    @if (u.Rol == UserRole.Desarrollador)
                     {
                         <BotonDeAsistencia />
                     }
-                    <BotonDeEstado />
+                    @if (u.Rol is UserRole.Admin or UserRole.Desarrollador)
+                    {
+                        <BotonDeEstado />
+                    }
 
-                    <RadzenText TextStyle="TextStyle.Body2" Style="margin:0">
-                        👤 @u.NombreCompleto (@Etiqueta(u.Rol))
-                    </RadzenText>
+                    @* Aquí había un 👤 delante del nombre, y era justo lo que el comentario de Menu.cs
+                       explica que no debe hacerse: los emojis los dibuja el SISTEMA OPERATIVO, así que
+                       ni se ven igual en un Windows que en un Mac ni heredan currentColor — sobre el
+                       grafito de esta barra se quedaban con su color de siempre, distinto en cada
+                       equipo. El icono de la fuente sí hereda el color del texto.
+                       El tamaño se baja a mano porque --rz-icon-size vale 1.5rem y aquí acompaña a un
+                       Body2: sin esto el muñeco es más alto que el nombre. *@
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.3rem">
+                        <RadzenIcon Icon="person" Style="font-size:1.15rem" />
+                        <RadzenText TextStyle="TextStyle.Body2" Style="margin:0">
+                            @u.NombreCompleto (@Etiqueta(u.Rol))
+                        </RadzenText>
+                    </RadzenStack>
+                    @* «Salir» se queda SIN icono a propósito. El candidato natural sería «logout», pero
+                       en esta misma barra está BotonDeAsistencia, donde «logout» significa «marcar mi
+                       salida de la jornada»: dos puertas distintas con el mismo glifo, a un palmo una
+                       de otra. Si alguna vez se le pone uno, que sea «lock», y consultándolo antes. *@
                     <RadzenButton Text="Salir" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                                   Click="@Salir" />
                 }
