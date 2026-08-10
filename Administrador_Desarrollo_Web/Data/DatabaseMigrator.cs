@@ -922,6 +922,98 @@ public static class DatabaseMigrator
         try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Presence_User_Start"" ON ""WorkPresences""(""UserId"",""StartedAtUtc"")"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Presence_Ended"" ON ""WorkPresences""(""EndedAtUtc"")"); } catch { }
 
+        // ── Asistencia oficial (entrada y salida marcadas a mano) ──
+        db.Database.ExecuteSqlRaw(@"
+            CREATE TABLE IF NOT EXISTS ""AttendanceRecords"" (
+                ""Id""                       INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                ""UserId""                   INTEGER NOT NULL,
+                ""DeveloperId""              INTEGER,
+                ""DisplayName""              TEXT    NOT NULL,
+                ""CheckInUtc""               TEXT    NOT NULL,
+                ""CheckOutUtc""              TEXT,
+                ""CheckInOrigin""            TEXT,
+                ""CheckOutOrigin""           TEXT,
+                ""CheckInNote""              TEXT,
+                ""CheckOutNote""             TEXT,
+                ""CloseKind""                INTEGER,
+                ""CorrectionRequestNote""    TEXT,
+                ""CorrectionRequestedAtUtc"" TEXT,
+                ""CorrectedByUserId""        INTEGER,
+                ""CorrectedByName""          TEXT,
+                ""CorrectedAtUtc""           TEXT,
+                ""CorrectionReason""         TEXT
+            );");
+        try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Att_User_CheckIn"" ON ""AttendanceRecords""(""UserId"",""CheckInUtc"")"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Att_Open"" ON ""AttendanceRecords""(""CheckOutUtc"")"); } catch { }
+
+        // ── Pool de actividades valoradas ──────────────────────────
+        db.Database.ExecuteSqlRaw(@"
+            CREATE TABLE IF NOT EXISTS ""PoolActivities"" (
+                ""Id""                   INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                ""Title""                TEXT    NOT NULL,
+                ""Description""          TEXT,
+                ""WorkType""             INTEGER NOT NULL DEFAULT 0,
+                ""Complexity""           INTEGER NOT NULL DEFAULT 0,
+                ""Points""               INTEGER NOT NULL DEFAULT 0,
+                ""Status""               INTEGER NOT NULL DEFAULT 0,
+                ""ExternalUrl""          TEXT,
+                ""CreatedByUserId""      INTEGER,
+                ""CreatedAt""            TEXT    NOT NULL,
+                ""ClaimedByDeveloperId"" INTEGER,
+                ""ClaimedAt""            TEXT,
+                ""ClaimDeadlineAt""      TEXT,
+                ""ReturnedCount""        INTEGER NOT NULL DEFAULT 0,
+                ""DeliveredAt""          TEXT,
+                ""ReviewedByUserId""     INTEGER,
+                ""ReviewedAt""           TEXT,
+                ""ReviewComment""        TEXT,
+                ""ReviewRound""          INTEGER NOT NULL DEFAULT 0,
+                ""ReviewHistory""        TEXT,
+                ""PointEntryId""         INTEGER,
+                ""LinkedDevActivityId""  INTEGER,
+                CONSTRAINT ""FK_Pool_Dev"" FOREIGN KEY (""ClaimedByDeveloperId"") REFERENCES ""Developers""(""Id"") ON DELETE RESTRICT
+            );");
+        try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Pool_Status"" ON ""PoolActivities""(""Status"")"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Pool_Claimed_Status"" ON ""PoolActivities""(""ClaimedByDeveloperId"",""Status"")"); } catch { }
+
+        db.Database.ExecuteSqlRaw(@"
+            CREATE TABLE IF NOT EXISTS ""PoolPointsMatrix"" (
+                ""Id""              INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                ""WorkType""        INTEGER NOT NULL,
+                ""Complexity""      INTEGER NOT NULL,
+                ""Points""          INTEGER NOT NULL DEFAULT 0,
+                ""DiasLimite""      INTEGER NOT NULL DEFAULT 0,
+                ""UpdatedAt""       TEXT    NOT NULL,
+                ""UpdatedByUserId"" INTEGER
+            );");
+        try { db.Database.ExecuteSqlRaw(@"CREATE UNIQUE INDEX IF NOT EXISTS ""UX_PoolMatrix"" ON ""PoolPointsMatrix""(""WorkType"",""Complexity"")"); } catch { }
+
+        db.Database.ExecuteSqlRaw(@"
+            CREATE TABLE IF NOT EXISTS ""PoolChecklistTemplateItems"" (
+                ""Id""                INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                ""WorkType""          INTEGER NOT NULL,
+                ""Text""              TEXT    NOT NULL,
+                ""Orden""             INTEGER NOT NULL DEFAULT 0,
+                ""RequiereEvidencia"" INTEGER NOT NULL DEFAULT 0,
+                ""IsActive""          INTEGER NOT NULL DEFAULT 1,
+                ""CreatedAt""         TEXT    NOT NULL
+            );");
+        try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_PoolTpl_Tipo_Activo"" ON ""PoolChecklistTemplateItems""(""WorkType"",""IsActive"")"); } catch { }
+
+        db.Database.ExecuteSqlRaw(@"
+            CREATE TABLE IF NOT EXISTS ""PoolActivityChecklistItems"" (
+                ""Id""                INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                ""PoolActivityId""    INTEGER NOT NULL,
+                ""Text""              TEXT    NOT NULL,
+                ""Orden""             INTEGER NOT NULL DEFAULT 0,
+                ""RequiereEvidencia"" INTEGER NOT NULL DEFAULT 0,
+                ""IsDone""            INTEGER NOT NULL DEFAULT 0,
+                ""DoneAtUtc""         TEXT,
+                ""EvidenceUrl""       TEXT,
+                CONSTRAINT ""FK_PoolChk_Pool"" FOREIGN KEY (""PoolActivityId"") REFERENCES ""PoolActivities""(""Id"") ON DELETE CASCADE
+            );");
+        try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_PoolChk_Actividad"" ON ""PoolActivityChecklistItems""(""PoolActivityId"")"); } catch { }
+
         // ── Tramos trabajados (reporte de tiempo por día) ──────────
         db.Database.ExecuteSqlRaw(@"
             CREATE TABLE IF NOT EXISTS ""WorkIntervals"" (
@@ -1568,6 +1660,113 @@ CREATE TABLE [WorkPresences] (
 );");
         ExecIndex("WorkPresences", "IX_Presence_User_Start", "UserId", "[UserId],[StartedAtUtc]");
         ExecIndex("WorkPresences", "IX_Presence_Ended", "EndedAtUtc", "[EndedAtUtc]");
+
+        // ── Asistencia oficial (entrada y salida marcadas a mano) ──
+        Exec(@"
+IF OBJECT_ID(N'[AttendanceRecords]', N'U') IS NULL
+CREATE TABLE [AttendanceRecords] (
+    [Id] int IDENTITY(1,1) NOT NULL CONSTRAINT [PK_AttendanceRecords] PRIMARY KEY,
+    [UserId] int NOT NULL,
+    [DeveloperId] int NULL,
+    [DisplayName] nvarchar(200) NOT NULL,
+    [CheckInUtc] datetime2 NOT NULL,
+    [CheckOutUtc] datetime2 NULL,
+    [CheckInOrigin] nvarchar(200) NULL,
+    [CheckOutOrigin] nvarchar(200) NULL,
+    [CheckInNote] nvarchar(300) NULL,
+    [CheckOutNote] nvarchar(300) NULL,
+    [CloseKind] int NULL,
+    [CorrectionRequestNote] nvarchar(500) NULL,
+    [CorrectionRequestedAtUtc] datetime2 NULL,
+    [CorrectedByUserId] int NULL,
+    [CorrectedByName] nvarchar(200) NULL,
+    [CorrectedAtUtc] datetime2 NULL,
+    [CorrectionReason] nvarchar(500) NULL
+);");
+        ExecIndex("AttendanceRecords", "IX_Att_User_CheckIn", "UserId", "[UserId],[CheckInUtc]");
+        ExecIndex("AttendanceRecords", "IX_Att_Open", "CheckOutUtc", "[CheckOutUtc]");
+
+        // ── Pool de actividades valoradas ──────────────────────────
+        // FK a Developers sin cascada (NO ACTION), igual que FK_WS_Dev: una actividad ya aceptada
+        // justifica unos puntos y no debe desaparecer porque se borre la ficha de quien la hizo.
+        // PointEntryId y LinkedDevActivityId van sin FK a propósito (ver el modelo): con ellas
+        // habría dos rutas de cascada desde Developers y SQL Server rechaza crearlas.
+        Exec(@"
+IF OBJECT_ID(N'[PoolActivities]', N'U') IS NULL
+CREATE TABLE [PoolActivities] (
+    [Id] int IDENTITY(1,1) NOT NULL CONSTRAINT [PK_PoolActivities] PRIMARY KEY,
+    [Title] nvarchar(200) NOT NULL,
+    [Description] nvarchar(max) NULL,
+    [WorkType] int NOT NULL DEFAULT 0,
+    [Complexity] int NOT NULL DEFAULT 0,
+    [Points] int NOT NULL DEFAULT 0,
+    [Status] int NOT NULL DEFAULT 0,
+    [ExternalUrl] nvarchar(500) NULL,
+    [CreatedByUserId] int NULL,
+    [CreatedAt] datetime2 NOT NULL,
+    [ClaimedByDeveloperId] int NULL,
+    [ClaimedAt] datetime2 NULL,
+    [ClaimDeadlineAt] datetime2 NULL,
+    [ReturnedCount] int NOT NULL DEFAULT 0,
+    [DeliveredAt] datetime2 NULL,
+    [ReviewedByUserId] int NULL,
+    [ReviewedAt] datetime2 NULL,
+    [ReviewComment] nvarchar(1000) NULL,
+    [ReviewRound] int NOT NULL DEFAULT 0,
+    [ReviewHistory] nvarchar(max) NULL,
+    [PointEntryId] int NULL,
+    [LinkedDevActivityId] int NULL,
+    CONSTRAINT [FK_Pool_Dev] FOREIGN KEY ([ClaimedByDeveloperId]) REFERENCES [Developers]([Id])
+);");
+        ExecIndex("PoolActivities", "IX_Pool_Status", "Status", "[Status]");
+        ExecIndex("PoolActivities", "IX_Pool_Claimed_Status", "ClaimedByDeveloperId", "[ClaimedByDeveloperId],[Status]");
+
+        Exec(@"
+IF OBJECT_ID(N'[PoolPointsMatrix]', N'U') IS NULL
+CREATE TABLE [PoolPointsMatrix] (
+    [Id] int IDENTITY(1,1) NOT NULL CONSTRAINT [PK_PoolPointsMatrix] PRIMARY KEY,
+    [WorkType] int NOT NULL,
+    [Complexity] int NOT NULL,
+    [Points] int NOT NULL DEFAULT 0,
+    [DiasLimite] int NOT NULL DEFAULT 0,
+    [UpdatedAt] datetime2 NOT NULL,
+    [UpdatedByUserId] int NULL
+);");
+        // El índice ÚNICO va con Exec y no con ExecIndex: aquel crea índices normales, y aquí la
+        // unicidad es la regla (dos celdas del mismo par harían que el valor de una actividad
+        // dependiera de cuál se leyera primero).
+        Exec(@"
+IF OBJECT_ID(N'[PoolPointsMatrix]', N'U') IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_PoolMatrix' AND object_id = OBJECT_ID(N'[PoolPointsMatrix]'))
+CREATE UNIQUE INDEX [UX_PoolMatrix] ON [PoolPointsMatrix]([WorkType],[Complexity]);");
+
+        Exec(@"
+IF OBJECT_ID(N'[PoolChecklistTemplateItems]', N'U') IS NULL
+CREATE TABLE [PoolChecklistTemplateItems] (
+    [Id] int IDENTITY(1,1) NOT NULL CONSTRAINT [PK_PoolChecklistTemplateItems] PRIMARY KEY,
+    [WorkType] int NOT NULL,
+    [Text] nvarchar(300) NOT NULL,
+    [Orden] int NOT NULL DEFAULT 0,
+    [RequiereEvidencia] bit NOT NULL DEFAULT 0,
+    [IsActive] bit NOT NULL DEFAULT 1,
+    [CreatedAt] datetime2 NOT NULL
+);");
+        ExecIndex("PoolChecklistTemplateItems", "IX_PoolTpl_Tipo_Activo", "WorkType", "[WorkType],[IsActive]");
+
+        Exec(@"
+IF OBJECT_ID(N'[PoolActivityChecklistItems]', N'U') IS NULL
+CREATE TABLE [PoolActivityChecklistItems] (
+    [Id] int IDENTITY(1,1) NOT NULL CONSTRAINT [PK_PoolActivityChecklistItems] PRIMARY KEY,
+    [PoolActivityId] int NOT NULL,
+    [Text] nvarchar(300) NOT NULL,
+    [Orden] int NOT NULL DEFAULT 0,
+    [RequiereEvidencia] bit NOT NULL DEFAULT 0,
+    [IsDone] bit NOT NULL DEFAULT 0,
+    [DoneAtUtc] datetime2 NULL,
+    [EvidenceUrl] nvarchar(500) NULL,
+    CONSTRAINT [FK_PoolChk_Pool] FOREIGN KEY ([PoolActivityId]) REFERENCES [PoolActivities]([Id]) ON DELETE CASCADE
+);");
+        ExecIndex("PoolActivityChecklistItems", "IX_PoolChk_Actividad", "PoolActivityId", "[PoolActivityId]");
 
         // ── Tramos trabajados (reporte de tiempo por día) ──────────
         Exec(@"

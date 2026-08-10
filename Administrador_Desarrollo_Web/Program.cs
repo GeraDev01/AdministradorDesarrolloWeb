@@ -141,6 +141,7 @@ internal static class Program
         services.AddSingleton<EmailService>();
         services.AddSingleton<WorkSessionService>();
         services.AddSingleton<PerformanceScoringService>();
+        services.AddSingleton<PoolActivityService>();
         services.AddSingleton<VacationRequestService>();
         services.AddSingleton<LeaveRequestService>();
         services.AddSingleton<SuggestionService>();
@@ -154,6 +155,7 @@ internal static class Program
         services.AddSingleton<SlaNotificationService>();
         services.AddSingleton<TemplateService>();
         services.AddSingleton<PresenceService>();
+        services.AddSingleton<AttendanceService>();
         services.AddSingleton<ForumService>();
         services.AddSingleton<SprintService>();
         services.AddSingleton<CommitmentAlertService>();
@@ -181,6 +183,7 @@ internal static class Program
         services.AddTransient<SuggestionsControl>();
         services.AddTransient<LeaveRequestsControl>();
         services.AddTransient<PerformanceControl>();
+        services.AddTransient<PoolAdminControl>();
         services.AddTransient<DeveloperReportsControl>();
         // Fase 3
         services.AddTransient<DeploymentControl>();
@@ -198,6 +201,7 @@ internal static class Program
         services.AddTransient<SlaAdminControl>();
         services.AddTransient<MySlaControl>();
         services.AddTransient<MyDevPerformanceControl>();
+        services.AddTransient<MyPoolControl>();
         services.AddTransient<MyVacationsControl>();
         services.AddTransient<MyLeavesControl>();
         services.AddTransient<MySuggestionsControl>();
@@ -321,6 +325,10 @@ internal static class Program
             ScoringCriteriaSeed.Sembrar(db);
             // Catálogo inicial de plantillas: una sola vez, para que la pantalla no se estrene vacía.
             TemplateSeed.Sembrar(db);
+            // Matriz de puntos, checklists y criterios del pool. Va DESPUÉS del sembrado de
+            // criterios porque agrega los suyos al mismo catálogo.
+            int poolSembrado = PoolSeed.Sembrar(db);
+            if (poolSembrado > 0) logger.LogInformation("{n} fila(s) de configuración del pool sembradas.", poolSembrado);
             // Reconciliar cronómetros huérfanos de un cierre sucio/crash anterior
             // (evita contar el tiempo con la app cerrada).
             provider.GetRequiredService<WorkSessionService>().ReconcileOrphans();

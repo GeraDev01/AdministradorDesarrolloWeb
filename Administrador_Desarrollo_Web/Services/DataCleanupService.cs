@@ -178,13 +178,17 @@ public class DataCleanupService
 
         // ── Equipo ───────────────────────────────────────────────────────────────────────
         new("jornadas", "Equipo", "Jornadas y presencia",
-            "registro de asistencia, tramos trabajados y sesiones del cronómetro",
-            async c => await c.Db.WorkPresences.CountAsync(c.Ct) + await c.Db.WorkIntervals.CountAsync(c.Ct),
+            "asistencia marcada a mano, registro automático, tramos trabajados y sesiones del cronómetro",
+            async c => await c.Db.WorkPresences.CountAsync(c.Ct) + await c.Db.WorkIntervals.CountAsync(c.Ct)
+                     + await c.Db.AttendanceRecords.CountAsync(c.Ct),
             async c =>
             {
                 int n = await c.Db.WorkSessions.ExecuteDeleteAsync(c.Ct);
                 n += await c.Db.WorkIntervals.ExecuteDeleteAsync(c.Ct);
                 n += await c.Db.WorkPresences.ExecuteDeleteAsync(c.Ct);
+                // La asistencia oficial se va con lo demás: conservarla sin la telemetría dejaría un
+                // registro que ya no se puede contrastar, y borrar «jornadas» a medias sorprende.
+                n += await c.Db.AttendanceRecords.ExecuteDeleteAsync(c.Ct);
                 return n;
             }),
 
@@ -255,6 +259,10 @@ public class DataCleanupService
                 // Y después lo que no tiene sentido sin ella, de la hoja a la raíz.
                 int n = await c.Db.DevOpsAssignmentRules.ExecuteDeleteAsync(c.Ct);
                 n += await c.Db.Assignments.ExecuteDeleteAsync(c.Ct);
+                // El pool va antes que Developers y no se puede omitir: su FK es RESTRICT, así que
+                // una actividad reclamada impediría borrar la ficha y el área entera fallaría.
+                n += await c.Db.PoolActivityChecklistItems.ExecuteDeleteAsync(c.Ct);
+                n += await c.Db.PoolActivities.ExecuteDeleteAsync(c.Ct);
                 n += await c.Db.PointEntries.ExecuteDeleteAsync(c.Ct);
                 n += await c.Db.WorkSessions.ExecuteDeleteAsync(c.Ct);
                 n += await c.Db.SlaCommitments.ExecuteDeleteAsync(c.Ct);
@@ -269,7 +277,21 @@ public class DataCleanupService
                 n += await c.Db.Developers.ExecuteDeleteAsync(c.Ct);
                 return n;
             },
-            Advertencia: "Deja el equipo vacío y desvincula las cuentas de usuario."),
+            Advertencia: "Deja el equipo vacío y desvincula las cuentas de usuario. Se lleva también el pool de actividades."),
+
+        new("pool", "Trabajo", "Pool de actividades",
+            "sus checklists y la traza a los puntos que generaron",
+            c => c.Db.PoolActivities.CountAsync(c.Ct),
+            async c =>
+            {
+                // La matriz y las plantillas NO se borran: son configuración, no datos, y volverlas a
+                // capturar a mano sería el trabajo de una tarde. Los PointEntry ya abonados tampoco:
+                // esos puntos se ganaron y viven en el ranking por su cuenta.
+                int n = await c.Db.PoolActivityChecklistItems.ExecuteDeleteAsync(c.Ct);
+                n += await c.Db.PoolActivities.ExecuteDeleteAsync(c.Ct);
+                return n;
+            },
+            Advertencia: "Conserva la matriz de puntos, los checklists y los puntos ya abonados."),
 
         new("contactos", "Equipo", "Contactos", "nada más",
             c => c.Db.Contacts.CountAsync(c.Ct),

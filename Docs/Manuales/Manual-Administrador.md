@@ -16,13 +16,14 @@ Como **Administrador** ves el menú completo. No hay pantalla ni botón de la ap
 
 - Registrar al equipo (desarrolladores, equipos y contactos) y darles acceso a la aplicación.
 - Llevar el trabajo: requerimientos, minutas, permisos, vacaciones, métricas y reportes.
+- Publicar trabajo en el **pool de actividades** con su valor en puntos ya fijado, y verificar lo que se entrega.
 - Calificar el desempeño del equipo y aprobar o rechazar lo que los desarrolladores se autoasignan.
 - Asignar compromisos de atención (SLA) con recordatorios y vigilar los vencidos.
 - Publicar versiones de los sistemas y desplegarlas a servidores por FTP/FTPS, en el momento o programadas.
 - Administrar el contenedor de Azure Blob Storage: carpetas, metadatos y enlaces temporales de descarga.
 - Sincronizar tickets de Azure DevOps y Freshdesk y vincularlos entre sí.
 - Guardar en un solo lugar las plantillas del área: cuerpos de ticket de Freshdesk, respuestas al cliente, observaciones de requerimientos y de DevOps, documentos de entrega de estimaciones y scripts de utilería (SQL, PowerShell, Bash).
-- Ver **quién está conectado** y en qué anda, con el **registro de jornadas** por día.
+- Ver **quién está conectado** y en qué anda, revisar la **asistencia** que cada quien marca a mano y corregirla cuando haga falta.
 - Participar en el **foro del equipo**, y fijar o cerrar hilos cuando haga falta.
 - Crear y desactivar usuarios, consultar la bitácora de auditoría y configurar toda la aplicación (base de datos, Azure, correo e integraciones).
 
@@ -147,7 +148,9 @@ Todo (publicar, comentar, editar, retirar, fijar, cerrar) queda en la **Bitácor
 
 ## Equipo → Quién está
 
-Título en pantalla: *🟢 Quién está y registro de jornadas*. Dos pestañas: **🟢 Quién está** (ahora mismo) y **📋 Registro de jornadas** (el histórico por día).
+Título en pantalla: *🟢 Quién está y registro de jornadas*. Tres pestañas: **🟢 Quién está** (ahora mismo), **🕘 Asistencia (oficial)** (lo que cada quien marcó a mano) y **📋 Registro de jornadas** (lo que la aplicación registró sola).
+
+> **Las dos últimas miden cosas distintas y por eso están separadas.** La asistencia la *declara* la persona pulsando un botón: es el registro que cuenta. La jornada es lo que la aplicación puede ver por su cuenta, y sirve de contraste. Una aplicación abierta en un equipo encendido no prueba que alguien esté trabajando, y el trabajo hecho sin abrirla no deja de contar. Ninguna de las dos se deduce de la otra — es justamente el contraste entre ambas lo que delata un olvido.
 
 ### 🟢 Quién está
 
@@ -163,9 +166,45 @@ No se usa el par inicio/cierre de sesión, y hay una razón concreta: **cerrar c
 >
 > La nota de alguien desconectado tampoco se muestra: un *«Comiendo — vuelvo 15:30»* de hace tres días no informa de nada.
 
+### 🕘 Asistencia (oficial)
+
+Elige el **Día** (o pulsa **Hoy**). Lista **todas las cuentas activas**, marcaran o no.
+
+Columnas: *Persona*, *Entrada oficial*, *Salida oficial*, *Horas*, *Δ entrada*, *Δ salida*,
+*1ª señal app*, *Últ. señal app* y *Estado*.
+
+Las columnas **Δ** son la diferencia entre lo que la persona marcó y lo que vio la aplicación:
+`+12 min` significa que marcó doce minutos después de que su aplicación diera la primera señal. Se
+resaltan a partir de **15 minutos**. Una diferencia no es una falta —alguien puede llegar, atender a
+un cliente y marcar veinte minutos después—: es lo que vale la pena mirar.
+
+**Estado** te dice de un vistazo qué pasó ese día:
+
+| Estado | Qué significa |
+|---|---|
+| **Marcada** | Entró y salió pulsando el botón. Las horas son reales. |
+| **⚠ Olvido (estimada)** | Se le olvidó marcar su salida. La aplicación la cerró con la última señal de ese día; **es una estimación**, corrígela. |
+| **✏ Corregida por el líder** | Tú ajustaste esas horas. |
+| **⚠ Sin marcar** | Usó la aplicación ese día pero no marcó nada. |
+| **Sin actividad** | Ni marcó ni abrió la aplicación. |
+| **🙋 Pide corrección** | La persona te pidió que revises sus horas; el motivo sale al abrir **✏ Corregir…**. |
+
+**Botones:** ✏ Corregir… · ➕ Día olvidado… · 📤 Exportar
+
+- **✏ Corregir…** ajusta las horas de quien sí marcó. **El motivo es obligatorio**: este dato acaba
+  pesando en una nómina, y una corrección sin explicación es indistinguible de una manipulación. Las
+  horas anteriores quedan guardadas en la **Bitácora**, no se pierden.
+- **➕ Día olvidado…** da de alta un día entero de alguien que no marcó nada (trabajó sin abrir la
+  aplicación, o simplemente se le pasó). También pide motivo.
+- **📤 Exportar** saca el día completo a Excel, con las horas en formato `HH:mm`.
+
+> **El desarrollador nunca edita sus propias horas.** Si pudiera, el registro dejaría de probar nada.
+> Lo que sí puede es pedirte una corrección desde su pantalla «Mi jornada», y esa petición te aparece
+> aquí con su explicación.
+
 ### 📋 Registro de jornadas
 
-Elige el **Día** (o pulsa **Hoy**) y ves las jornadas de esa fecha: *Persona*, *Entrada*, *Salida*, *Duración*, *Cierre* y *Equipo* (desde qué máquina). Abajo, el total de jornadas, cuántas personas y la suma de horas.
+Esta es la telemetría, no la asistencia. Elige el **Día** (o pulsa **Hoy**) y ves las jornadas de esa fecha: *Persona*, *Entrada*, *Salida*, *Duración*, *Cierre* y *Equipo* (desde qué máquina). Abajo, el total de jornadas, cuántas personas y la suma de horas.
 
 La columna **Cierre** dice cómo terminó cada una:
 
@@ -462,6 +501,104 @@ Estados de una entrada: ⏳ Pendiente, ✅ Aprobado, ❌ Rechazado.
 Columnas: Criterio, Pts default, Tipo, Ámbito (*Individual* o *Equipo*), Descripción y Activo. La aplicación siembra por sí sola un catálogo amplio de criterios en el primer arranque; puedes desactivar los que no uses en lugar de borrarlos.
 
 > Solo los puntos **aprobados** cuentan en el ranking y en los reportes. Los pendientes y los rechazados no suman.
+
+> **La autocalificación ya no es la vía principal.** Desde que existe el **Pool de actividades**, la
+> mayoría de los puntos deberían nacer de ahí: trabajo con un valor fijado de antemano, que no hay
+> que juzgar después. Deja la autocalificación para lo que no cabe en el pool —una junta larga, un
+> apoyo imprevisto a otro equipo, un incidente que atendió quien estaba cerca—.
+
+---
+
+## Trabajo → Pool de actividades
+
+Título en pantalla: *🎯 Pool de actividades*. El botón del menú lleva su propio contador rojo (🔴 N)
+cuando hay actividades entregadas esperando que las verifiques.
+
+**Qué resuelve.** En la autocalificación, el desarrollador elige qué registrar y tú decides después
+si lo vale: dos juicios sobre trabajo ya hecho, y ninguno comparable entre personas. Aquí el valor
+está puesto **antes** de que nadie tome la actividad, y sale de una tabla, no de tu criterio del
+momento. Verificar deja de ser negociar cuánto vale y pasa a ser comprobar que está hecho.
+
+### El flujo completo
+
+1. **Tú publicas** una actividad: título, tipo (Bug / Tarea / Requerimiento) y complejidad
+   (Baja / Media / Alta / Muy alta). Los puntos **salen solos** de la matriz y quedan congelados.
+2. **Un desarrollador la toma** del pool. Ve cuánto vale antes de decidir. Se le copia el checklist
+   del tipo y se le fija una fecha de entrega esperada.
+3. **La trabaja y la entrega.** No puede entregarla sin completar todos los puntos del checklist, y
+   los puntos marcados como *exige enlace* necesitan la URL del PR o del work item.
+4. **Tú la verificas**: miras el checklist y su evidencia. Si está bien, **✅ Aceptar** abona los
+   puntos de inmediato al ranking del mes. Si falta algo, **↩ Devolver** con el motivo.
+
+### Pestaña 🎯 Pool
+
+**Filtros:** Estado y Tipo. **Botones:** ➕ Publicar · ✏ Editar · 🗑 Retirar · ↩ Liberar · 🔄 Recargar
+
+Columnas: Actividad, Tipo, Complejidad, Puntos, Estado, Quién la tiene, Entrega esperada y
+Devoluciones. Las que pasaron su fecha se resaltan en la columna *Entrega esperada*.
+
+- **✏ Editar** solo funciona mientras nadie la haya tomado. Cambiarle el alcance o el valor a alguien
+  que ya la está trabajando sería cambiarle el trato a medio camino. Si al editar cambias el tipo o
+  la complejidad, los puntos se recalculan desde la matriz.
+- **🗑 Retirar** quita del pool lo que ya no aplica; también solo si sigue libre.
+- **↩ Liberar** es para lo que ya tomó alguien y no avanza (se fue de vacaciones, cambió la
+  prioridad). Vuelve al pool, se le avisa a la persona y su checklist se descarta.
+
+**La columna Devoluciones** cuenta cuántas veces una actividad volvió al pool. Devolver no penaliza a
+nadie —si castigara, nadie se atrevería con lo difícil—, pero un número alto ahí te dice algo: o la
+actividad está mal planteada, o quien la toma no tiene con qué sacarla.
+
+### Pestaña ✅ Verificación
+
+**Botones:** ✅ Aceptar · ↩ Devolver · 🔗 Abrir evidencia · 🔄 Recargar
+
+Arriba, lo entregado. Abajo, el checklist de lo seleccionado con su evidencia: eso es lo que se
+verifica. Selecciona un punto con enlace y pulsa **🔗 Abrir evidencia** para revisarlo en el
+navegador.
+
+La columna **Vuelta** avisa si es una reentrega (🔁 2ª, 3ª…). No es lo mismo mirar algo por primera
+vez que ver por tercera vez lo que ya devolviste.
+
+Al **aceptar**, se crea una entrada de puntos **ya aprobada** a nombre de quien la trabajó, con el
+comentario `Pool #N: título` y la evidencia enlazada. No pasa por la cola de aprobación: verificar
+*es* la aprobación, y mandarla otra vez sería revisar dos veces lo mismo. Se imputa al mes en que la
+aceptas.
+
+Al **devolver**, el motivo es obligatorio, la actividad sigue siendo de quien la tomó y su checklist
+se conserva. Corrige y la vuelve a entregar. Cada vuelta queda fechada en el historial.
+
+### Pestaña ⚙ Configuración
+
+**La matriz de puntos** (izquierda) es el corazón del sistema. Doce celdas: tres tipos por cuatro
+complejidades, cada una con sus puntos y los días que se dan para entregar. Edita los números y pulsa
+**💾 Guardar matriz**.
+
+| | Baja | Media | Alta | Muy alta |
+|---|---|---|---|---|
+| **Bug** | 5 | 8 | 12 | 18 |
+| **Tarea** | 3 | 6 | 10 | 15 |
+| **Requerimiento** | 8 | 12 | 18 | 25 |
+
+Esos son los valores con los que arranca; ajústalos a tu equipo. Dos cosas a tener en cuenta:
+
+- **Cambiar la matriz no revalúa nada.** Las actividades ya publicadas conservan los puntos con los
+  que salieron. Es deliberado: quien tomó una actividad de 18 puntos no puede acabar cobrando 5.
+- **Mantén la distancia entre complejidades.** Si «muy alta» vale casi lo mismo que «baja», la mejor
+  estrategia para todos es tomar solo lo fácil, y el trabajo difícil se queda sin quien lo tome.
+
+**Los checklists** (derecha) definen qué es «terminado» para cada tipo. Elige el tipo y usa
+**➕ Agregar punto**, **✏ Editar punto** o **🚫 Activar/desactivar**. Al agregar te pregunta si ese
+punto **exige un enlace**: márcalo en al menos uno por tipo — sin evidencia, marcar una casilla no
+cuesta nada y te quedas sin nada que verificar.
+
+Los puntos se desactivan en lugar de borrarse, y los cambios **solo aplican a las actividades que se
+tomen a partir de entonces**: a nadie se le puede exigir algo que no se le pidió al empezar.
+
+### El tope de actividades simultáneas
+
+Por omisión, cada persona puede tener **3** actividades del pool sin entregar. Es lo que evita que
+alguien aparte todo lo valioso «para después». Se cambia en **Configuración** con la clave
+`pool.max-tomadas`.
 
 ---
 

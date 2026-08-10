@@ -28,6 +28,7 @@ public class MainForm : ResponsiveForm
     private System.Windows.Forms.Timer? _pendingTimer;
     private System.Windows.Forms.Timer? _slaTimer;
     private const string PerfNavBaseText  = "  🏆  Desempeño";
+    private const string PoolNavBaseText  = "  🎯  Pool de actividades";
     private const string SlaNavBaseText   = "  ⏱  Mis SLA";
     private const string NotifNavBaseText = "  🔔  Avisos";
     private int _lastUnreadCount = -1;
@@ -68,6 +69,13 @@ public class MainForm : ResponsiveForm
     private System.Windows.Forms.Timer? _presenceTimer;
     private Button? _btnEstado;
     private PresenceService Presencia => (PresenceService)_sp.GetService(typeof(PresenceService))!;
+
+    // ── Asistencia (entrada y salida marcadas a mano) ────────────
+    private Button? _btnAsistencia;
+    /// <summary>Uno solo para toda la vida de la ventana: el botón se repinta con cada latido, y
+    /// crear un ToolTip por repintado deja miles de controles sin liberar en una jornada.</summary>
+    private readonly ToolTip _tipAsistencia = new();
+    private AttendanceService Asistencia => (AttendanceService)_sp.GetService(typeof(AttendanceService))!;
 
     public MainForm(CurrentUserContext currentUser, AuthService auth, IServiceProvider sp)
     {
@@ -146,6 +154,7 @@ public class MainForm : ResponsiveForm
             AddNav(pnlNav, "🏖", "Vacaciones/Notas", "vacations");
             AddNav(pnlNav, "📋", "Permisos",          "leaves");
             AddNav(pnlNav, "🏆", "Desempeño",        "performance");
+            AddNav(pnlNav, "🎯", "Pool de actividades", "pool-admin");
             AddNav(pnlNav, "📄", "Evaluaciones",     "dev-reports");
             AddNav(pnlNav, "🧩", "Actividades libres", "activities-admin");
             AddNav(pnlNav, "⏱", "SLA y recordatorios", "sla-admin");
@@ -184,6 +193,7 @@ public class MainForm : ResponsiveForm
         else if (_currentUser.IsDesarrollador)
         {
             AddNav(pnlNav, "📊", "Mi Panel",         "my-performance");
+            AddNav(pnlNav, "🎯", "Pool de actividades", "my-pool");
             AddNav(pnlNav, "📋", "Mis Asignaciones", "my-assignments");
             AddNav(pnlNav, "🔷", "Mis tickets DevOps", "my-devops-tickets");
             AddNav(pnlNav, "🧩", "Mis Actividades",  "my-activities");
@@ -246,7 +256,7 @@ public class MainForm : ResponsiveForm
             BackColor = AppTheme.CardBg, CellBorderStyle = TableLayoutPanelCellBorderStyle.None
         };
         topbarTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-        topbarTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 340f));
+        topbarTbl.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 520f));
         topbarTbl.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
 
         // AutoEllipsis: en una pantalla estrecha el título del módulo y el nombre del usuario dejan
@@ -254,16 +264,24 @@ public class MainForm : ResponsiveForm
         // esto se corta con «…» y además el texto completo sale en el tooltip.
         _lblModuleTitle = new Label { Dock = DockStyle.Fill, Font = AppTheme.HeaderFont, ForeColor = AppTheme.TextPrimary, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(20, 0, 0, 0), AutoEllipsis = true };
 
-        // Estado + identidad, a la derecha. El estado va aquí y no dentro de una pantalla porque se
-        // cambia de paso, sin ir a buscarlo: si cuesta marcarlo, nadie lo marca y el tablero miente.
+        // Asistencia + estado + identidad, a la derecha. Los dos botones van aquí y no dentro de una
+        // pantalla porque se usan de paso, sin ir a buscarlos: si cuesta marcarlo, nadie lo marca —
+        // y entonces ni el tablero de estados ni el registro de asistencia dicen la verdad.
         var derecha = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1,
+            Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1,
             Margin = Padding.Empty, Padding = Padding.Empty, BackColor = AppTheme.CardBg
         };
+        derecha.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180f));
         derecha.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150f));
         derecha.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
         derecha.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+
+        // El líder no marca asistencia: la revisa. Su botón sobraría en la barra todo el día.
+        _btnAsistencia = AppTheme.MakeSecondaryButton("🕘 Marcar entrada", 172, 28);
+        _btnAsistencia.Margin = new Padding(0, 13, 8, 13);
+        _btnAsistencia.Visible = !_currentUser.IsAdmin;
+        _btnAsistencia.Click += (_, _) => MarcarAsistencia();
 
         _btnEstado = AppTheme.MakeSecondaryButton("🟢 Disponible", 142, 28);
         _btnEstado.Margin = new Padding(0, 13, 8, 13);
@@ -271,8 +289,9 @@ public class MainForm : ResponsiveForm
 
         _lblUserInfo = new Label { Dock = DockStyle.Fill, Font = AppTheme.DefaultFont, ForeColor = AppTheme.TextSecondary, TextAlign = ContentAlignment.MiddleRight, Padding = new Padding(0, 0, 20, 0), AutoEllipsis = true };
 
-        derecha.Controls.Add(_btnEstado,  0, 0);
-        derecha.Controls.Add(_lblUserInfo, 1, 0);
+        derecha.Controls.Add(_btnAsistencia, 0, 0);
+        derecha.Controls.Add(_btnEstado,     1, 0);
+        derecha.Controls.Add(_lblUserInfo,   2, 0);
 
         topbarTbl.Controls.Add(_lblModuleTitle, 0, 0);
         topbarTbl.Controls.Add(derecha,         1, 0);
@@ -376,8 +395,9 @@ public class MainForm : ResponsiveForm
         if (_currentUser.IsAdmin)
         {
             UpdatePendingBadge();
+            UpdatePoolBadge();
             _pendingTimer = new System.Windows.Forms.Timer { Interval = 60_000 };
-            _pendingTimer.Tick += (_, _) => UpdatePendingBadge();
+            _pendingTimer.Tick += (_, _) => { UpdatePendingBadge(); UpdatePoolBadge(); };
             _pendingTimer.Start();
         }
 
@@ -459,6 +479,7 @@ public class MainForm : ResponsiveForm
         {
             Presencia.Entrar();
             PintarEstado();
+            PintarAsistencia();
         }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Presencia: {ex.Message}"); }
 
@@ -470,8 +491,84 @@ public class MainForm : ResponsiveForm
         {
             // Un fallo de red no debe tumbar la aplicación ni parar el latido siguiente.
             try { Presencia.Latir(); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Latido: {ex.Message}"); }
+            // El botón de asistencia se repinta con el latido y no solo al entrar: si alguien deja
+            // la aplicación abierta de un día para otro, tiene que enterarse de que dejó una salida
+            // sin marcar sin necesidad de reiniciar nada.
+            PintarAsistencia();
         };
         _presenceTimer.Start();
+    }
+
+    // ── Asistencia ───────────────────────────────────────────────
+
+    /// <summary>
+    /// Marca la entrada o la salida, según lo que toque. La hora la pone el servicio: aquí no se
+    /// elige nada — un registro cuya hora escribe el propio interesado no prueba nada.
+    /// </summary>
+    private void MarcarAsistencia()
+    {
+        try
+        {
+            var abierto = Asistencia.MiRegistroAbierto();
+
+            if (abierto != null)
+            {
+                // La salida sí se confirma: es la que cierra el día y no tiene deshacer para quien
+                // la marca. La entrada no, porque equivocarse en ella es inofensivo.
+                var r = MessageBox.Show(
+                    $"¿Marcar tu salida a las {DateTime.Now:HH:mm}?\n\n" +
+                    $"Entraste a las {abierto.CheckInUtc.ToLocalTime():HH:mm}.",
+                    "Marcar salida", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                if (r != DialogResult.Yes) return;
+            }
+
+            var (ok, mensaje) = abierto != null ? Asistencia.MarcarSalida() : Asistencia.MarcarEntrada();
+            PintarAsistencia();
+
+            MessageBox.Show(mensaje, ok ? "Asistencia" : "No se pudo marcar",
+                MessageBoxButtons.OK, ok ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"No se pudo marcar tu asistencia:\n{ex.Message}", "Asistencia",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    private void PintarAsistencia()
+    {
+        if (_btnAsistencia == null || !_btnAsistencia.Visible) return;
+        try
+        {
+            var abierto = Asistencia.MiRegistroAbierto();
+
+            if (abierto == null)
+            {
+                _btnAsistencia.Text = "🕘 Marcar entrada";
+                _btnAsistencia.BackColor = AppTheme.CardBg;
+                _btnAsistencia.ForeColor = AppTheme.TextPrimary;
+                _tipAsistencia.SetToolTip(_btnAsistencia, "Tu asistencia del día. La hora la pone la aplicación al pulsar.");
+                return;
+            }
+
+            // El mismo criterio que el servicio: se avisa por horas transcurridas, no porque haya
+            // cambiado la fecha. Quien entró a las 22:00 sigue en su jornada a la 1:00.
+            bool olvidada = DateTime.UtcNow - abierto.CheckInUtc > AttendanceService.MaxJornadaAbierta;
+            var color = olvidada ? AppTheme.Warning : AppTheme.Success;
+
+            _btnAsistencia.Text = olvidada
+                ? "⚠ Salida sin marcar"
+                : $"🕔 Salida · entró {abierto.CheckInUtc.ToLocalTime():HH:mm}";
+            _btnAsistencia.BackColor = color;
+            _btnAsistencia.ForeColor = Color.White;
+            _btnAsistencia.Font = AppTheme.BoldFont;
+            _btnAsistencia.FlatAppearance.MouseOverBackColor = ControlPaint.Light(color, 0.15f);
+            _tipAsistencia.SetToolTip(_btnAsistencia, olvidada
+                ? $"Dejaste sin marcar la salida del {abierto.CheckInUtc.ToLocalTime():dd/MM}. " +
+                  "Al marcar tu entrada de hoy se cerrará con tu última señal de ese día; revísala en «Mi jornada»."
+                : $"Entraste a las {abierto.CheckInUtc.ToLocalTime():HH:mm}. Clic para marcar tu salida.");
+        }
+        catch { /* sin base, el botón se queda como esté */ }
     }
 
     private void MostrarMenuEstado()
@@ -762,7 +859,8 @@ public class MainForm : ResponsiveForm
         if (_currentUser.IsDesarrollador)
             return key is "notifications" or "forum" or "dashboard" or "my-performance" or "my-assignments"
                        or "my-devops-tickets" or "my-activities" or "my-evaluations" or "my-sla"
-                       or "my-vacations" or "my-leaves" or "my-suggestions" or "templates" or "sprint" or "my-presence";
+                       or "my-vacations" or "my-leaves" or "my-suggestions" or "templates" or "sprint"
+                       or "my-presence" or "my-pool";
 
         return false;
     }
@@ -857,6 +955,25 @@ public class MainForm : ResponsiveForm
         pair.btn.Text = pending > 0 ? $"{PerfNavBaseText}   🔴 {pending}" : PerfNavBaseText;
         // Resaltar cuando hay pendientes, salvo que sea el módulo activo.
         pair.btn.ForeColor = (pending > 0 && _currentKey != "performance") ? AppTheme.Warning : AppTheme.SidebarText;
+    }
+
+    /// <summary>
+    /// Contador de actividades del pool entregadas y sin verificar, en su botón del sidebar.
+    /// Va aparte del de autocalificaciones porque son dos colas distintas: una espera un juicio
+    /// sobre lo que alguien dice que hizo, y la otra solo comprobar evidencia ya entregada.
+    /// </summary>
+    private void UpdatePoolBadge()
+    {
+        if (!_currentUser.IsAdmin) return;
+        var pair = _navButtons.FirstOrDefault(x => x.key == "pool-admin");
+        if (pair.btn == null) return;
+
+        int pendientes;
+        try { pendientes = ((PoolActivityService)_sp.GetService(typeof(PoolActivityService))!).CuentaPendientesDeVerificar(); }
+        catch { return; }
+
+        pair.btn.Text = pendientes > 0 ? $"{PoolNavBaseText}   🔴 {pendientes}" : PoolNavBaseText;
+        pair.btn.ForeColor = (pendientes > 0 && _currentKey != "pool-admin") ? AppTheme.Warning : AppTheme.SidebarText;
     }
 
     private void AddNav(FlowLayoutPanel parent, string icon, string label, string key)
@@ -1029,6 +1146,7 @@ public class MainForm : ResponsiveForm
             "vacations"       => (UserControl)_sp.GetService(typeof(VacationsControl))!,
             "leaves"          => (UserControl)_sp.GetService(typeof(LeaveRequestsControl))!,
             "performance"     => (UserControl)_sp.GetService(typeof(PerformanceControl))!,
+            "pool-admin"      => (UserControl)_sp.GetService(typeof(PoolAdminControl))!,
             "dev-reports"     => (UserControl)_sp.GetService(typeof(DeveloperReportsControl))!,
             "deployments"     => (UserControl)_sp.GetService(typeof(DeploymentControl))!,
             "azure-resources" => (UserControl)_sp.GetService(typeof(AzureResourcesControl))!,
@@ -1055,6 +1173,7 @@ public class MainForm : ResponsiveForm
             "my-presence"     => (UserControl)_sp.GetService(typeof(MyPresenceControl))!,
             "notifications"   => (UserControl)_sp.GetService(typeof(NotificationsControl))!,
             "my-performance"  => (UserControl)_sp.GetService(typeof(MyDevPerformanceControl))!,
+            "my-pool"         => (UserControl)_sp.GetService(typeof(MyPoolControl))!,
             "my-activities"   => (UserControl)_sp.GetService(typeof(MyActivitiesControl))!,
             "my-evaluations"  => (UserControl)_sp.GetService(typeof(MyEvaluationsControl))!,
             "my-vacations"    => (UserControl)_sp.GetService(typeof(MyVacationsControl))!,
@@ -1082,6 +1201,7 @@ public class MainForm : ResponsiveForm
             "vacations"       => "🏖  Vacaciones y Notas",
             "leaves"          => "📋  Permisos",
             "performance"     => "🏆  Desempeño y Ranking",
+            "pool-admin"      => "🎯  Pool de actividades",
             "dev-reports"     => "📄  Evaluaciones y reportes de desarrollador",
             "deployments"     => "🚀  Despliegues",
             "azure-resources" => "☁  Recursos Azure",
@@ -1108,6 +1228,7 @@ public class MainForm : ResponsiveForm
             "notifications"   => "🔔  Avisos",
             "my-devops-tickets" => "🔷  Mis tickets de DevOps",
             "my-performance"  => "📊  Mi Panel",
+            "my-pool"         => "🎯  Pool de actividades",
             "my-activities"   => "🧩  Mis Actividades",
             "my-evaluations"  => "📄  Mis Evaluaciones",
             "my-vacations"    => "🏖  Mis Vacaciones",
@@ -1118,6 +1239,11 @@ public class MainForm : ResponsiveForm
         // Refrescar el badge de pendientes al instante cuando el jefe aprueba/rechaza.
         if (ctrl is PerformanceControl perf)
             perf.PendingCountChanged += UpdatePendingBadge;
+
+        // Lo mismo para el pool: al aceptar o devolver, el contador se actualiza en el momento y no
+        // dentro de un minuto.
+        if (ctrl is PoolAdminControl pool)
+            pool.PendingCountChanged += UpdatePoolBadge;
 
         // Refrescar el contador de avisos al marcar leído.
         if (ctrl is NotificationsControl notif)
@@ -1132,6 +1258,7 @@ public class MainForm : ResponsiveForm
         if (ctrl is DeploymentControl dc) dc.RefrescarAlEntrar();
 
         UpdatePendingBadge();
+        UpdatePoolBadge();
     }
 
     private void BtnLogout_Click(object? s, EventArgs e)

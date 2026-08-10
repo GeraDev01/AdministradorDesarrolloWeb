@@ -21,11 +21,13 @@ Tu menú lateral tiene exactamente estas opciones, en este orden:
 | 🔔 Avisos | Los avisos que te llegan cuando te asignan un ticket de DevOps o un requerimiento; doble clic abre el enlace |
 | 📊 Dashboard | Foto general del estado de los requerimientos y las entregas de los próximos 7 días |
 | 📊 Mi Panel | Tu equipo, tus puntos del mes, tu posición en el ranking, tus tickets de DevOps y el registro de actividades (autocalificación) |
+| 🎯 Pool de actividades | Trabajo disponible con sus puntos ya definidos: lo tomas, lo completas y lo entregas |
 | 📋 Mis Asignaciones | Los requerimientos asignados a ti y el cronómetro para medir el tiempo |
 | 🔷 Mis tickets DevOps | Los work items de Azure DevOps a tu nombre: comentar con evidencia, cambiar prioridad y abrirlos |
 | 🧩 Mis Actividades | Trabajo que no cae en ningún requerimiento asignado, también con cronómetro |
 | 📄 Mis Evaluaciones | Tus evaluaciones e hitos registrados por tu líder y la descarga de tu reporte en PDF |
 | ⏱ Mis SLA | Compromisos con fecha límite y el botón para comentar el ticket en Azure DevOps |
+| 🕒 Mi jornada | Tu asistencia marcada y las horas que registró la aplicación, por día |
 | 🏖 Mis Vacaciones | Tu saldo de días, solicitar días, adjuntar respaldo, cancelar y eliminar solicitudes |
 | 💡 Sugerencias | Enviar sugerencias o propuestas para mejorar el producto o el departamento, darles seguimiento y votar las propuestas del equipo |
 
@@ -49,10 +51,29 @@ Arriba a la derecha, junto a tu nombre, hay un botón con tu **estado**: 🟢 Di
 
 Dos cosas que conviene que sepas, para que no te sorprendan:
 
-- **Se guarda a qué hora entras y a qué hora sales** (tu jornada), como registro de asistencia.
+- **Se guarda a qué hora abres y cierras la aplicación** (tu jornada). Es información de apoyo, no tu asistencia: esa la marcas tú (ver abajo).
 - **Tu estado NO se guarda minutado.** Se ve en el momento y se sobrescribe: no queda un histórico de cuánto tiempo estuviste en cada uno. Marcar «en un descanso» no deja rastro de cuánto duró.
 
 Mientras la aplicación esté abierta manda una señal cada dos minutos. Si se cuelga o se apaga el equipo, tu jornada se cierra sola **con la hora de esa última señal** — no con la de cuando alguien vuelva a abrirla.
+
+### Marcar tu entrada y tu salida
+
+A la izquierda del botón de estado hay otro botón: es tu **asistencia**, y es el registro que cuenta.
+
+- Al llegar, pulsa **🕘 Marcar entrada**. El botón se pone verde y muestra a qué hora entraste.
+- Al terminar, pulsa **🕔 Salida** y confirma. Te dice cuánto duró tu jornada.
+
+**La hora la pone la aplicación, no tú.** No hay dónde escribirla, y es a propósito: un registro cuya
+hora escribe el propio interesado no prueba nada. Si te equivocas o se te olvida, puedes pedir una
+corrección desde **🕒 Mi jornada** (abajo se explica).
+
+Se marca **una vez al día**: entrada y salida. No hay que marcar cada vez que sales a comer o vuelves
+a tu lugar — los ratos sueltos del día no se registran, y eso es deliberado.
+
+**Si se te olvida marcar la salida**, el botón amanece en naranja diciendo *⚠ Salida sin marcar*. Al
+marcar tu entrada del día siguiente, la jornada anterior se cierra sola usando la **última señal que
+dio tu aplicación ese día**, y queda marcada como estimada. Nunca se te cobra la noche entera, pero
+tampoco es una hora real: revísala en «Mi jornada» y pide que te la corrijan si no cuadra.
 
 ---
 
@@ -162,6 +183,11 @@ En los dos rankings **solo cuentan los puntos aprobados**. Lo que tienes en revi
 
 ### Registrar actividad (autocalificación)
 
+> **Esta ya no es la vía principal para ganar puntos.** Para eso está el **🎯 Pool de actividades**,
+> donde el trabajo trae su valor puesto de antemano y no hay que argumentar nada después. Usa la
+> autocalificación para lo que no cabe en el pool: una junta larga, un apoyo imprevisto a otro
+> equipo, un incidente que atendiste porque estabas cerca.
+
 1. Pulsa **📝 Registrar actividad**. Se abre la ventana **Registrar actividad (autocalificación)**, encabezada con el aviso «Los puntos que registres quedan PENDIENTES hasta que el jefe los apruebe».
 2. Elige la **Actividad / criterio**. La lista muestra el nombre y lo que vale, por ejemplo `Documentación entregada (+5 pts)`. Solo aparecen criterios activos, individuales y que otorguen puntos positivos.
 3. Mira el recuadro **Puntos que otorga esta actividad**. Es una **etiqueta de solo lectura**, no un campo: lo fija el criterio que eligió el administrador. Al lado lo dice la propia ventana: «Lo define el administrador en el criterio. Solo él puede ajustarlo al revisar».
@@ -177,6 +203,69 @@ Si todo salió bien verás el mensaje «Actividad registrada (+N pts). Queda pen
 
 - **Los puntos no son editables.** Tú eliges *qué* actividad registras, no *cuánto* vale. Aunque llegaras a la ventana por otra vía, el sistema vuelve a leer el puntaje del criterio antes de guardar.
 - **Nada cuenta hasta que el jefe apruebe.** Mientras esté pendiente no suma en el ranking ni en tu posición. Si te la rechazan, se ve en la tarjeta **❌ Rechazado** y el motivo queda en la pestaña **📝 Mis actividades y puntos**.
+
+---
+
+## Pool de actividades
+
+Título en pantalla: *🎯 Pool de actividades*. Es de donde salen la mayoría de tus puntos.
+
+**La idea es simple:** el líder publica trabajo con su valor en puntos **ya definido**. Tú ves cuánto
+vale antes de decidir si lo tomas, lo trabajas, marcas el checklist y lo entregas. Cuando el líder
+verifica que está hecho, los puntos entran directo a tu ranking.
+
+La diferencia con la autocalificación: aquí **no tienes que convencer a nadie de cuánto valía lo que
+hiciste**. Ya estaba escrito antes de empezar.
+
+### 🎯 Disponibles
+
+Lo que hay libre ahora mismo, de lo que más vale a lo que menos. Puedes filtrar por **Tipo**.
+
+Columnas: Actividad, Tipo, Complejidad, **Puntos** (en verde: es el dato por el que se elige) y
+Detalle.
+
+**Botones:** 🙋 Tomar esta · 🔗 Ver el ticket · 🔄 Recargar
+
+Al **tomar** una actividad:
+
+- Queda a tu nombre y desaparece del pool: nadie más puede tomarla. Si dos personas la abren a la
+  vez, la toma quien pulse primero; al otro le dice *«Alguien más la tomó primero»*.
+- Se te copia el **checklist** de ese tipo de trabajo y una **fecha de entrega esperada**.
+- Se crea una actividad libre llamada `Pool #N: …` para que puedas **cronometrar** el trabajo desde
+  *🧩 Mis Actividades*, como con cualquier otra.
+
+**Puedes tener 3 actividades del pool a la vez** (el líder puede cambiar ese número). Es lo que
+impide que alguien aparte todo lo valioso «para después».
+
+### 🧑‍💻 Mis actividades del pool
+
+Arriba, las que has tomado. Abajo, el checklist de la que tengas seleccionada.
+
+**Botones:** ✔ Marcar punto · ✖ Desmarcar · 📤 Entregar · ↩ Devolver al pool · 🔄 Recargar
+
+Para **marcar un punto**, selecciónalo abajo y pulsa **✔ Marcar punto**. Si el punto dice *Sí* en
+«¿Exige enlace?», te pedirá la URL del pull request, del work item o del ticket. Sin ese enlace no se
+puede marcar — y no es burocracia: es lo que el líder mira para verificarlo sin tener que
+preguntarte.
+
+**📤 Entregar** solo funciona con el checklist completo. Si te falta algo, te dice exactamente qué.
+A partir de ahí queda *Por verificar* y ya no puedes tocarla.
+
+**↩ Devolver al pool** la libera para que la tome alguien más. **No te quita puntos ni te penaliza**:
+si no vas a poder con ella, es mejor devolverla que tenerla parada. Puedes escribir por qué (opcional).
+
+### Cuando te la devuelven
+
+Si al líder le falta algo, te la regresa con un motivo y la ves en estado *Devuelta para corregir*.
+El motivo aparece en la línea de abajo, en naranja. **Tu checklist se conserva** —lo hecho está
+hecho—: corriges lo que falta y vuelves a pulsar **📤 Entregar**. No hay límite de vueltas, pero cada
+una queda registrada.
+
+### Cuando te la aceptan
+
+Los puntos entran **ya aprobados** al ranking del mes en curso, sin pasar por la cola de aprobación:
+la verificación ya fue la aprobación. Los ves en *📊 Mi Panel* como una entrada con el comentario
+`Pool #N: título`, y la actividad del cronómetro se cierra sola.
 
 ---
 
@@ -458,6 +547,45 @@ Sobre el ícono de la bandeja tienes:
 Cerrar sesión con **🚪 Cerrar sesión** **apaga la vigilancia** y quita el ícono de la bandeja: sin sesión no hay a quién avisar. Si quieres seguir recibiendo recordatorios, deja la sesión abierta y usa la X.
 
 Si el administrador tiene configurado el correo, además de estos avisos puedes recibir un correo con la lista de tus compromisos pendientes. El correo es un complemento; el aviso dentro de la aplicación siempre se da.
+
+---
+
+## Mi jornada
+
+Título en pantalla: *🕒 Mi jornada*. Tu asistencia y tus horas, agrupadas por día. Elige el rango con
+**Del / al**, o usa **Hoy**, **Esta semana** o **Este mes**.
+
+De cada día ves dos cosas, y en este orden:
+
+1. **La fila OFICIAL**, en negrita: la entrada y la salida que **tú marcaste** con el botón de la
+   barra superior. Es la que cuenta como asistencia.
+2. **Debajo, tus jornadas automáticas**: lo que la aplicación registró sola mientras estuvo abierta.
+   Es información de apoyo, no tu asistencia.
+
+En la fila oficial, la columna **Cierre** te dice cómo quedó:
+
+| Cierre | Qué pasó |
+|---|---|
+| **Marcada** | Marcaste entrada y salida. Las horas son reales. |
+| **⚠ Olvido (estimada)** | Se te olvidó marcar la salida. Se cerró con tu última señal de ese día: **es una estimación**. |
+| **✏ Corregida por el líder** | Tu líder ajustó esas horas. |
+| **⚠ No marcaste ese día** | Ese día no marcaste nada, aunque hayas usado la aplicación. |
+
+Abajo se resumen los dos totales por separado: *Oficial* y *Registro automático*. **Nunca se suman
+entre sí**: miden cosas distintas y juntarlos daría un número que no significa nada.
+
+### Pedir una corrección
+
+Si una hora no cuadra —llegaste antes de abrir la aplicación, se te olvidó marcar la salida, marcaste
+por error—, selecciona la fila **OFICIAL** de ese día y pulsa **🙋 Solicitar corrección**. Escribe qué
+habría que cambiar: es lo que va a leer tu líder.
+
+**Tú no puedes editar tus propias horas**, y no es desconfianza: un registro cuyas horas escribe el
+propio interesado no probaría nada, ni a tu favor ni en tu contra. Lo que sí queda es tu petición,
+dentro de la aplicación y con fecha, en lugar de un mensaje suelto en un chat.
+
+Tu líder ve la solicitud en su pantalla y, al corregir, tiene que escribir un motivo. Las horas
+anteriores quedan guardadas en la bitácora.
 
 ---
 
@@ -755,6 +883,9 @@ Botones de la barra: **👍 Votar**, **👁 Ver** y **🔄 Recargar**. Con **�
 - **No decides cuánto valen tus puntos.** En *Registrar actividad* eliges **qué** actividad registras; el puntaje lo fija el criterio que configuró el administrador y se muestra como texto, no como campo editable. Aunque se intentara por otra ruta, el sistema relee el puntaje del criterio antes de guardar.
 - **No puedes registrar puntos negativos ni aprobar los tuyos.** Solo aparecen criterios positivos, tu entrada nace **Pendiente** y no cuenta en el ranking hasta que el jefe la apruebe. Los descuentos son exclusivos del administrador. Cuando te rechazan una entrada, el motivo que escribió el jefe lo ves en la pestaña **📝 Mis actividades y puntos**.
 - **No ves el detalle de los puntos de los demás.** En los rankings solo se muestran nombre y total; ni las entradas, ni los comentarios, ni las evidencias de otros.
+- **No negocias lo que vale una actividad del pool.** Su valor sale de la matriz que configuró el líder y queda congelado al publicarla: lo conoces **antes** de tomarla, y no cambia después ni aunque el líder ajuste la matriz. Tampoco puedes tomar más de las que permite el tope simultáneo, ni tomar una que otro ya tomó.
+- **No puedes entregar una actividad del pool con el checklist a medias.** Y los puntos que exigen enlace necesitan la URL del PR o del work item: sin evidencia, marcar la casilla no demuestra nada. Devolver una actividad al pool, en cambio, no te cuesta puntos.
+- **No editas tus horas de asistencia.** Marcas entrada y salida con un botón y la hora la pone la aplicación; no hay dónde escribirla. Si algo no cuadra, pides una corrección desde *Mi jornada* y la resuelve tu líder, dejando el motivo y las horas anteriores en la bitácora.
 - **No editas los requerimientos.** No puedes cambiar su título, descripción, horas estimadas, fecha de compromiso ni porcentaje de avance. El único cambio de estado que provocas es el automático de *Por estimar*/*Estimado* a **En desarrollo** al iniciar el cronómetro. **La excepción es la prioridad:** desde *Mis tickets DevOps* sí puedes cambiar la prioridad de un ticket de Azure DevOps a tu nombre; eso se escribe en DevOps, actualiza la prioridad del requerimiento vinculado y recalcula tu SLA.
 - **No te asignas ni te quitas requerimientos.** Las asignaciones las hace el administrador.
 - **No sincronizas Azure DevOps.** La sincronización de los tickets la hace el administrador; tú lees los que ya están a tu nombre (empatados por tu correo) y, sobre ellos, comentas —con evidencia— y cambias su prioridad usando tu PAT personal. **🔄 Traer mis tickets DevOps** solo materializa como requerimientos los tickets ya sincronizados, para cronometrarlos.

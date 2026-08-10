@@ -1,14 +1,19 @@
-﻿using Administrador_Desarrollo_Web.Models;
+﻿using Administrador_Desarrollo_Web.Forms;
+using Administrador_Desarrollo_Web.Models;
 using Administrador_Desarrollo_Web.Services;
 
 namespace Administrador_Desarrollo_Web.Forms.Controls;
 
 /// <summary>
-/// «Mi jornada»: el registro de asistencia PROPIO, agrupado por día y con el total del rango.
+/// «Mi jornada»: la asistencia PROPIA, agrupada por día y con el total del rango.
 ///
-/// Existe para que la presencia sea transparente y no unilateral: el administrador ya veía estas
-/// horas en «Quién está»; que cada quien vea las suyas convierte el mismo dato en algo que ambos
-/// pueden mirar juntos, y ahorra la discusión de «yo sí estuve conectado».
+/// De cada día se ven dos cosas distintas y en ese orden: primero lo OFICIAL —la entrada y la
+/// salida que la persona marcó a mano, que es lo que cuenta como asistencia— y debajo lo que la
+/// aplicación registró sola por el latido, que sirve de contraste.
+///
+/// Existe para que todo esto sea transparente y no unilateral: el administrador ya veía estas horas
+/// en «Quién está»; que cada quien vea las suyas convierte el mismo dato en algo que ambos pueden
+/// mirar juntos, y ahorra la discusión de «yo sí estuve».
 ///
 /// Lo que NO se muestra, a propósito: el estado (comiendo, descanso). No se historiza — un
 /// registro minutado de las pausas de alguien es vigilancia, no asistencia.
@@ -16,6 +21,7 @@ namespace Administrador_Desarrollo_Web.Forms.Controls;
 public class MyPresenceControl : UserControl
 {
     private readonly PresenceService _presence;
+    private readonly AttendanceService _attendance;
 
     private DateTimePicker _dtpDesde = null!, _dtpHasta = null!;
     private DataGridView _grid = null!;
@@ -23,9 +29,12 @@ public class MyPresenceControl : UserControl
     /// <summary>Mientras se mueven las dos fechas a la vez, sus eventos no recargan.</summary>
     private bool _suspendido;
 
-    public MyPresenceControl(PresenceService presence)
+    /// <summary>Id del registro oficial de cada fila que lo tenga, para «Solicitar corrección».</summary>
+    private readonly Dictionary<int, int> _oficialPorFila = [];
+
+    public MyPresenceControl(PresenceService presence, AttendanceService attendance)
     {
-        _presence = presence;
+        _presence = presence; _attendance = attendance;
         BuildUI();
         EstaSemana();
     }
@@ -68,6 +77,13 @@ public class MyPresenceControl : UserControl
             var primero = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
             Rango(primero, DateTime.Today);
         }));
+
+        // Corregir no es algo que cada quien pueda hacer sobre sus propias horas —si pudiera, el
+        // registro no probaría nada—, pero sí puede decirlo aquí y que quede constancia.
+        var btnCorreccion = AppTheme.MakeSecondaryButton("🙋 Solicitar corrección", 190, 28);
+        btnCorreccion.Margin = new Padding(12, 3, 0, 0);
+        btnCorreccion.Click += BtnSolicitarCorreccion_Click;
+        barra.Controls.Add(btnCorreccion);
 
         _grid = AppTheme.MakeGrid();
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Día",       Name = "Dia",      FillWeight = 26 });
@@ -132,7 +148,12 @@ public class MyPresenceControl : UserControl
         }
 
         List<MiJornada> jornadas;
-        try { jornadas = _presence.MisJornadas(desde, hasta); }
+        List<AttendanceRecord> oficiales;
+        try
+        {
+            jornadas = _presence.MisJornadas(desde, hasta);
+            oficiales = _attendance.MisRegistros(desde, hasta);
+        }
         catch (AuthorizationException ex) { _lblResumen.Text = ex.Message; return; }
         catch (Exception ex)
         {
@@ -141,23 +162,64 @@ public class MyPresenceControl : UserControl
         }
 
         _grid.Rows.Clear();
+        _oficialPorFila.Clear();
 
         // Agrupado por día LOCAL, no UTC: una jornada que empieza a las 19:00 caería en el día
         // siguiente si se agrupara por la fecha UTC, y el total por día mentiría.
+        // Uno por día es la regla; si el líder dio de alta alguno a mano y hay dos, se muestra el
+        // primero (cuando empezó la jornada de verdad). El total del pie usa EXACTAMENTE los que se
+        // muestran: sumar los ocultos daría un número que no cuadra con lo que se ve en la tabla.
+        var oficialPorDia = oficiales
+            .GroupBy(a => a.CheckInUtc.ToLocalTime().Date)
+            .ToDictionary(g => g.Key, g => g.OrderBy(a => a.CheckInUtc).First());
+
         var porDia = jornadas
             .GroupBy(j => j.InicioUtc.ToLocalTime().Date)
-            .OrderByDescending(g => g.Key);
+            .ToDictionary(g => g.Key, g => g.ToList());
 
-        foreach (var dia in porDia)
+        // Los días con marca pero sin telemetría también salen: trabajar sin abrir la aplicación es
+        // legítimo, y si el día desapareciera de la lista parecería que no se marcó nada.
+        var dias = porDia.Keys.Union(oficialPorDia.Keys).OrderByDescending(d => d).ToList();
+
+        foreach (var dia in dias)
         {
-            var totalDia = TimeSpan.FromTicks(dia.Sum(j => j.Duracion.Ticks));
-            int cab = _grid.Rows.Add($"{dia.Key:dddd dd/MM}", "", "", PresenceService.Duracion(totalDia), "", "");
+            var delDia = porDia.TryGetValue(dia, out var lista) ? lista : [];
+            var totalDia = TimeSpan.FromTicks(delDia.Sum(j => j.Duracion.Ticks));
+            int cab = _grid.Rows.Add($"{dia:dddd dd/MM}", "", "", PresenceService.Duracion(totalDia), "", "");
             _grid.Rows[cab].DefaultCellStyle.Font = AppTheme.BoldFont;
             _grid.Rows[cab].DefaultCellStyle.BackColor = AppTheme.GridAlt;
             _grid.Rows[cab].DefaultCellStyle.SelectionBackColor = AppTheme.GridAlt;
             _grid.Rows[cab].DefaultCellStyle.SelectionForeColor = AppTheme.TextPrimary;
 
-            foreach (var j in dia.OrderBy(x => x.InicioUtc))
+            // La fila OFICIAL va primero: es la que cuenta. Lo de abajo es el contraste.
+            if (oficialPorDia.TryGetValue(dia, out var oficial))
+            {
+                int io = _grid.Rows.Add(
+                    "OFICIAL",
+                    oficial.CheckInUtc.ToLocalTime().ToString("HH:mm"),
+                    oficial.CheckOutUtc is DateTime fo ? fo.ToLocalTime().ToString("HH:mm") : "— sin marcar",
+                    oficial.Duracion is TimeSpan d ? PresenceService.Duracion(d) : "",
+                    AttendanceService.EtiquetaCierre(oficial.CloseKind) +
+                        (oficial.CorrectionRequestedAtUtc != null ? "  🙋 pediste corrección" : ""),
+                    oficial.CheckInOrigin ?? "");
+
+                _oficialPorFila[io] = oficial.Id;
+                var estilo = _grid.Rows[io].DefaultCellStyle;
+                estilo.Font = AppTheme.BoldFont;
+                var color = oficial.CloseKind == AttendanceCloseKind.Olvido ? AppTheme.Warning : AppTheme.Success;
+                estilo.ForeColor = color;
+                estilo.SelectionForeColor = color;
+            }
+            else
+            {
+                int isin = _grid.Rows.Add("OFICIAL", "", "", "", "⚠ No marcaste ese día", "");
+                var estilo = _grid.Rows[isin].DefaultCellStyle;
+                estilo.Font = AppTheme.BoldFont;
+                estilo.ForeColor = AppTheme.Warning;
+                estilo.SelectionForeColor = AppTheme.Warning;
+            }
+
+            foreach (var j in delDia.OrderBy(x => x.InicioUtc))
             {
                 int i = _grid.Rows.Add(
                     "",
@@ -185,15 +247,61 @@ public class MyPresenceControl : UserControl
             }
         }
 
-        var total = TimeSpan.FromTicks(jornadas.Sum(j => j.Duracion.Ticks));
+        var mostrados = oficialPorDia.Values.ToList();
+        var totalAuto = TimeSpan.FromTicks(jornadas.Sum(j => j.Duracion.Ticks));
+        var totalOficial = TimeSpan.FromTicks(mostrados.Sum(a => (a.Duracion ?? TimeSpan.Zero).Ticks));
         int caidas = jornadas.Count(j => j.Cierre == PresenceEnd.SinLatido);
-        _lblResumen.Text = jornadas.Count == 0
-            ? "No hay jornadas tuyas en ese rango."
-            : $"{jornadas.Count} jornada(s) en {porDia.Count()} día(s)  ·  {PresenceService.Duracion(total)} en total." +
-              (caidas > 0
-                  ? $"  ⚠ {caidas} cerró sin señales: en esas, la salida es tu última señal (hasta " +
-                    $"{PresenceService.ToleranciaSinLatido.TotalMinutes:0} min menos de lo trabajado), no una hora real de salida."
-                  : "");
+        int olvidos = mostrados.Count(a => a.CloseKind == AttendanceCloseKind.Olvido);
+        int sinMarcar = dias.Count(d => !oficialPorDia.ContainsKey(d));
+
+        if (dias.Count == 0)
+        {
+            _lblResumen.Text = "No hay nada tuyo en ese rango.";
+            return;
+        }
+
+        // Los dos totales se muestran por separado y nunca sumados: miden cosas distintas, y
+        // juntarlos daría un número que no significa nada.
+        _lblResumen.Text =
+            $"Oficial: {PresenceService.Duracion(totalOficial)} en {mostrados.Count} día(s) marcados  ·  " +
+            $"Registro automático: {PresenceService.Duracion(totalAuto)} en {jornadas.Count} jornada(s)." +
+            (sinMarcar > 0 ? $"  ⚠ {sinMarcar} día(s) sin marcar." : "") +
+            (olvidos > 0
+                ? $"  ⚠ {olvidos} sin salida marcada: la hora es una estimación, pide corrección si no cuadra."
+                : "") +
+            (caidas > 0
+                ? $"  ⚠ {caidas} jornada(s) cerraron sin señales (la aplicación dejó de responder), " +
+                  "no son una hora real de salida."
+                : "");
+    }
+
+    private void BtnSolicitarCorreccion_Click(object? sender, EventArgs e)
+    {
+        if (_grid.CurrentRow is not { Index: >= 0 } fila || !_oficialPorFila.TryGetValue(fila.Index, out int registroId))
+        {
+            MessageBox.Show(
+                "Selecciona la fila OFICIAL del día que quieres corregir.\n\n" +
+                "Si ese día no marcaste nada, díselo a tu líder: él puede darlo de alta.",
+                "Elige un registro", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var motivo = EntradaDeTextoSimple.Pedir(FindForm(), "Solicitar corrección",
+            "¿Qué habría que corregir? Es lo que va a leer tu líder.",
+            maxLength: AttendanceService.MaxMotivo);
+        if (string.IsNullOrWhiteSpace(motivo)) return;
+
+        try
+        {
+            var (ok, mensaje) = _attendance.SolicitarCorreccion(registroId, motivo);
+            MessageBox.Show(mensaje, ok ? "Enviada" : "No se pudo",
+                MessageBoxButtons.OK, ok ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+            if (ok) LoadData();
+        }
+        catch (AuthorizationException ex)
+        {
+            MessageBox.Show(ex.Message, "Sin permiso", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
     }
 
     protected override void OnVisibleChanged(EventArgs e)

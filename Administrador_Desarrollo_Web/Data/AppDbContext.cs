@@ -79,8 +79,15 @@ public class AppDbContext : DbContext
     // Biblioteca de plantillas y scripts (administrador)
     public DbSet<Template> Templates => Set<Template>();
 
-    // Presencia en vivo y registro de asistencia
+    // Presencia en vivo (telemetría por latido) y asistencia oficial (marcada a mano)
     public DbSet<WorkPresence> WorkPresences => Set<WorkPresence>();
+    public DbSet<AttendanceRecord> AttendanceRecords => Set<AttendanceRecord>();
+
+    // Pool de actividades valoradas (puntos fijados antes de trabajarlas)
+    public DbSet<PoolActivity> PoolActivities => Set<PoolActivity>();
+    public DbSet<PoolPointsMatrixEntry> PoolPointsMatrix => Set<PoolPointsMatrixEntry>();
+    public DbSet<PoolChecklistTemplateItem> PoolChecklistTemplateItems => Set<PoolChecklistTemplateItem>();
+    public DbSet<PoolActivityChecklistItem> PoolActivityChecklistItems => Set<PoolActivityChecklistItem>();
 
     // Foro del equipo
     public DbSet<ForumPost> ForumPosts => Set<ForumPost>();
@@ -436,6 +443,73 @@ public class AppDbContext : DbContext
             // Las dos consultas que existen: «quién está ahora» (abiertas) y «la jornada de fulano».
             e.HasIndex(p => new { p.UserId, p.StartedAtUtc });
             e.HasIndex(p => p.EndedAtUtc);
+        });
+
+        // Asistencia oficial. Sin FK, por lo mismo que la presencia: es histórico y debe sobrevivir
+        // a que se borre la cuenta. Lo que se marcó a mano no deja de haber pasado porque alguien
+        // salga del equipo.
+        modelBuilder.Entity<AttendanceRecord>(e =>
+        {
+            e.Property(a => a.CloseKind).HasConversion<int>();
+            e.Property(a => a.DisplayName).IsRequired().HasMaxLength(200);
+            e.Property(a => a.CheckInOrigin).HasMaxLength(200);
+            e.Property(a => a.CheckOutOrigin).HasMaxLength(200);
+            e.Property(a => a.CheckInNote).HasMaxLength(300);
+            e.Property(a => a.CheckOutNote).HasMaxLength(300);
+            e.Property(a => a.CorrectionRequestNote).HasMaxLength(500);
+            e.Property(a => a.CorrectedByName).HasMaxLength(200);
+            e.Property(a => a.CorrectionReason).HasMaxLength(500);
+            e.Ignore(a => a.Abierto);
+            e.Ignore(a => a.Duracion);
+            // Las dos consultas que existen: «mis marcas» / «las del día X», y «la que sigue abierta».
+            e.HasIndex(a => new { a.UserId, a.CheckInUtc });
+            e.HasIndex(a => a.CheckOutUtc);
+        });
+
+        // Pool de actividades. La FK a Developers es RESTRICT: una actividad ya aceptada es la
+        // justificación de unos puntos, y borrar la ficha de quien la hizo no debe borrar esa
+        // evidencia en silencio. Los enlaces a PointEntry y a DevActivity van SIN FK (ver el modelo):
+        // con ellas habría dos rutas de cascada desde Developers y SQL Server las rechaza.
+        modelBuilder.Entity<PoolActivity>(e =>
+        {
+            e.Property(p => p.WorkType).HasConversion<int>();
+            e.Property(p => p.Complexity).HasConversion<int>();
+            e.Property(p => p.Status).HasConversion<int>();
+            e.Property(p => p.Title).IsRequired().HasMaxLength(200);
+            e.Property(p => p.ExternalUrl).HasMaxLength(500);
+            e.Property(p => p.ReviewComment).HasMaxLength(1000);
+            e.Ignore(p => p.EnCurso);
+            e.Ignore(p => p.Vencida);
+            e.HasOne(p => p.ClaimedBy).WithMany()
+                .HasForeignKey(p => p.ClaimedByDeveloperId).OnDelete(DeleteBehavior.Restrict);
+            e.HasIndex(p => p.Status);                                      // el pool disponible
+            e.HasIndex(p => new { p.ClaimedByDeveloperId, p.Status });      // «las mías»
+        });
+
+        modelBuilder.Entity<PoolPointsMatrixEntry>(e =>
+        {
+            e.Property(m => m.WorkType).HasConversion<int>();
+            e.Property(m => m.Complexity).HasConversion<int>();
+            // Único: dos celdas para el mismo par harían que el valor de una actividad dependiera
+            // de cuál se leyera primero.
+            e.HasIndex(m => new { m.WorkType, m.Complexity }).IsUnique();
+        });
+
+        modelBuilder.Entity<PoolChecklistTemplateItem>(e =>
+        {
+            e.Property(t => t.WorkType).HasConversion<int>();
+            e.Property(t => t.Text).IsRequired().HasMaxLength(300);
+            e.HasIndex(t => new { t.WorkType, t.IsActive });
+        });
+
+        modelBuilder.Entity<PoolActivityChecklistItem>(e =>
+        {
+            e.Property(c => c.Text).IsRequired().HasMaxLength(300);
+            e.Property(c => c.EvidenceUrl).HasMaxLength(500);
+            // Cascade: el checklist de una actividad no significa nada sin ella.
+            e.HasOne(c => c.Activity).WithMany()
+                .HasForeignKey(c => c.PoolActivityId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(c => c.PoolActivityId);
         });
 
         // Foro. Sin FK al autor a propósito: una publicación es histórica y debe sobrevivir a que
