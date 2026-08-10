@@ -35,9 +35,19 @@
 
                    aria-hidden: el nombre de la aplicación está aquí al lado en texto. Anunciarlo dos
                    veces no informa de nada, solo alarga la lectura. *@
-                <svg class="acceso-marca-trazo" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-                    <rect width="32" height="32" rx="7" />
-                    <path d="M9 21.5V10.5h3.4l3.6 6.6 3.6-6.6H23v11h-2.7v-6.7l-3 5.4h-1.6l-3-5.4v6.7z" />
+                @* El width, el height y el fill van como ATRIBUTOS aunque acceso.css los ponga
+                   también, y no es duplicar por gusto: son el suelo para cuando esa hoja no llegue.
+                   Un <svg> sin medidas mide 300×150 por omisión y un <rect> sin relleno se pinta
+                   NEGRO, así que una hoja de estilos que no llegue —o que llegue vieja de la caché—
+                   convertía esta marca en un cuadrado negro de 600 píxeles con el formulario
+                   desordenado debajo. Pasó, y desde fuera parece que la aplicación esté rota.
+                   Con esto, lo peor que puede pasar es que la marca se vea sosa. El CSS gana sobre
+                   los atributos, así que cuando la hoja está —siempre— manda ella. *@
+                <svg class="acceso-marca-trazo" viewBox="0 0 32 32" width="44" height="44"
+                     aria-hidden="true" focusable="false">
+                    <rect width="32" height="32" rx="7" fill="currentColor" />
+                    <path d="M9 21.5V10.5h3.4l3.6 6.6 3.6-6.6H23v11h-2.7v-6.7l-3 5.4h-1.6l-3-5.4v6.7z"
+                          fill="none" />
                 </svg>
 
                 @* El <br> con el espacio DETRÁS, no delante: cuando el corte se quita, el espacio

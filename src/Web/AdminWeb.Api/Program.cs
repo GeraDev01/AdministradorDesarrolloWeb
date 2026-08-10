@@ -334,7 +334,33 @@ if (!app.Environment.IsDevelopment())
 
 // Los archivos del cliente Blazor los sirve esta misma aplicación.
 app.UseBlazorFrameworkFiles();
-app.UseStaticFiles();
+
+// NUESTROS archivos estáticos SE REVALIDAN SIEMPRE, y esto no es una optimización al revés: es lo
+// único que evita que un despliegue deje a media plantilla con la hoja de estilos vieja.
+//
+// El problema es que nuestros archivos NO llevan huella en el nombre: css/tema.css se llama igual
+// hoy que mañana, y la fuente de iconos también —cambia de contenido cada vez que se añade un
+// icono, conservando el nombre—. Sin ninguna cabecera de caché, el navegador aplica su regla
+// heurística y puede darse por bueno un archivo guardado sin volver a preguntar. Ya ocurrió: una
+// hoja de estilos vieja dejó la pantalla de acceso con la marca convertida en un cuadrado negro de
+// 600 píxeles y el formulario desordenado debajo, en una aplicación cuyo servidor estaba sirviendo
+// la versión correcta. Diagnosticarlo desde fuera es carísimo, porque el servidor no tiene la culpa
+// y todo lo que se mire ahí sale bien.
+//
+// «no-cache» NO significa «no guardes»: significa «guárdalo, pero pregunta antes de usarlo». La
+// respuesta normal es un 304 sin cuerpo, así que el coste es un viaje de ida y vuelta por archivo
+// y no la descarga. A cambio, un despliegue se ve en la siguiente recarga, sin pedirle a nadie que
+// vacíe la caché ni que sepa qué es Ctrl+F5.
+//
+// Lo de _framework/ NO pasa por aquí y no hace falta tocarlo: esos nombres SÍ llevan huella y los
+// gestiona UseBlazorFrameworkFiles, que ya los marca como inmutables. Ahí cachear para siempre es
+// correcto, porque un archivo distinto tiene un nombre distinto.
+var archivosQueSeRevalidan = new StaticFileOptions
+{
+    OnPrepareResponse = contexto =>
+        contexto.Context.Response.Headers.CacheControl = "no-cache, must-revalidate"
+};
+app.UseStaticFiles(archivosQueSeRevalidan);
 
 app.UseAuthentication();
 app.UseAuthorization();
@@ -405,7 +431,12 @@ app.MapGet("/api/version", () => Results.Ok(new
 
 // Cualquier ruta que no sea de la API la resuelve el enrutador de Blazor: es lo que hace que
 // recargar el navegador sobre una pantalla concreta (o compartir su enlace) funcione.
-app.MapFallbackToFile("index.html").AllowAnonymous();
+// Con LAS MISMAS opciones, y es el archivo donde más importa: index.html no se sirve por
+// UseStaticFiles sino por aquí —no hay UseDefaultFiles—, así que sin pasarlas se quedaría fuera
+// precisamente el archivo del que cuelgan los enlaces a todos los demás. Un index.html viejo en
+// caché no solo trae estilos viejos: puede no mencionar siquiera una hoja añadida después, y
+// entonces no hay recarga normal que la traiga.
+app.MapFallbackToFile("index.html", archivosQueSeRevalidan).AllowAnonymous();
 
 app.Run();
 
