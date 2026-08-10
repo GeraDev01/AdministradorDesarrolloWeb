@@ -41,6 +41,26 @@ Si algo falla en el ensayo, se arregla y se vuelve a ensayar. El ensayo es barat
 
 ## El día del corte
 
+### 0. Con el escritorio TODAVÍA abierto: convertir los secretos heredados
+
+**Este paso hay que hacerlo antes de cerrarlo, y es el único que no tiene marcha atrás si se
+olvida.**
+
+Las contraseñas FTP de los servidores y la cadena del Blob pueden estar cifradas con DPAPI, que ata
+el cifrado a la cuenta de Windows que las guardó. **El servidor web no puede leerlas nunca**, y el
+único programa capaz de convertirlas es el escritorio que se está retirando: su
+`SharedSecretMigrationService` corre en cada arranque y pasa al formato portable todo lo que ESA
+máquina alcance a descifrar.
+
+Así que, antes de cerrar nada:
+
+1. Abrir el escritorio **en el equipo de quien capturó esos secretos** (normalmente el líder). Con
+   abrirlo basta: la conversión ocurre sola al arrancar.
+2. Repetirlo en cada equipo donde se hubiera capturado alguno. Lo que una máquina no pueda leer,
+   ninguna otra podrá.
+3. Lo que quede sin convertir habrá que recapturarlo a mano en el paso 5 — que se puede, pero
+   significa volver a pedir contraseñas de servidores que quizá nadie recuerde.
+
 ### 1. Avisar y cerrar el escritorio
 
 El equipo tiene que estar fuera de la aplicación de escritorio. Mientras alguien la tenga abierta,
@@ -89,6 +109,16 @@ hacer antes**: hasta aquí, los temporizadores del escritorio hacían ese trabaj
 ### 7. Que entre el equipo
 
 Y quedarse mirando la primera hora: los avisos, las jornadas que se abren, los cronómetros.
+
+**Avísales de dos cosas al entrar**, porque ninguna se puede resolver por ellos:
+
+- **Cada quien tiene que volver a capturar su PAT de Azure DevOps**, en «Mis tickets DevOps». El
+  anterior vivía en un archivo cifrado con DPAPI en su propia máquina y no hay forma de migrarlo. A
+  cambio, el nuevo va cifrado en el servidor y les sigue al cambiar de equipo — que era justo lo que
+  antes se perdía. Mientras no lo hagan, sus comentarios en DevOps saldrán firmados por la cuenta de
+  la instalación.
+- **La primera vez que se abra la web pedirá permiso para los avisos.** Sin aceptarlo no llegan
+  avisos con la pestaña cerrada, que es lo que sustituye al globo de la bandeja del escritorio.
 
 ### 8. Si hay que volver atrás
 
