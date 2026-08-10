@@ -25,6 +25,20 @@
     común a todos los adjuntos guardados en la base y la misma que usa el líder al resolver. Los
     bytes nunca viajan en la lista: se piden cuando alguien pulsa.
 
+    LA FIRMA. El escritorio dejaba el hueco del colaborador en blanco para firmarlo a mano sobre el
+    papel impreso; aquí se firma desde la pantalla, con el dedo o el ratón, y el trazo sale ya en el
+    documento de Word que mantiene RH. Tres decisiones que conviene no deshacer:
+
+      · SE FIRMA AL SOLICITAR, por eso el recuadro está en el formulario de alta: lo que la persona
+        firma es SU PETICIÓN, no la respuesta del jefe. El documento definitivo, con las dos firmas,
+        sale cuando el líder resuelve.
+      · Es OPCIONAL. Quien prefiera imprimir y firmar a mano sigue pudiendo: el documento sale igual,
+        con la raya esperando una pluma. Obligarla dejaría fuera a quien no tiene pantalla táctil.
+      · SI LA SOLICITUD CAMBIA DESPUÉS, LA FIRMA DEJA DE VALER y la columna lo dice con todas las
+        letras. Una firma pegada a unas fechas que ya no son las que se firmaron es un papel falso, y
+        de los que nadie mira hasta que hay un problema. Quien lo decide es el servidor comparando la
+        huella de lo que se firmó; esta pantalla solo lo cuenta.
+
     Los botones aparecen según lo que responde el SERVIDOR (SePuedeCancelar / SePuedeAdjuntar /
     SePuedeEliminar), que es lo que decide el propio servicio. Una solicitud rechazada no ofrece
     ninguno: es historial, y enseñar un botón que la API va a rechazar es peor que no enseñarlo.
@@ -113,15 +127,28 @@
                         {
                             <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
                                         Style="color:var(--rz-success)">
-                                📎 @elegido.Nombre (@(elegido.Contenido.Length / 1024) KB)
+                                <RadzenIcon Icon="attach_file" /> @elegido.Nombre (@(elegido.Contenido.Length / 1024) KB)
                             </RadzenText>
                         }
+                    </RadzenStack>
+
+                    @* La firma va DENTRO del formulario de alta porque se firma al solicitar: lo que
+                       se firma es esta petición, con estas fechas y este motivo. Si luego cambian,
+                       la firma deja de valer y hay que volver a trazarla — y eso se avisa aquí, antes
+                       de firmar, y no solo cuando ya ha pasado. *@
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Tu firma (opcional)" />
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                            Sale en el documento, en el hueco del colaborador. Si no firmas aquí, el
+                            documento se imprime con la raya en blanco para firmarlo a mano.
+                        </RadzenText>
+                        <FirmaEnLienzo @ref="_lienzoDelAlta" Alto="150" />
                     </RadzenStack>
 
                     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
                         <RadzenButton Text="Solicitar" Icon="send" ButtonStyle="ButtonStyle.Primary"
                                       Click="@Solicitar" Disabled="@(_ocupado || !RangoValido)" />
-                        <RadzenButton Text="Descartar" ButtonStyle="ButtonStyle.Light"
+                        <RadzenButton Text="Descartar" Icon="close" ButtonStyle="ButtonStyle.Light"
                                       Click="@(() => _pidiendo = false)" Disabled="@_ocupado" />
                     </RadzenStack>
                 </RadzenStack>
@@ -133,16 +160,46 @@
             <RadzenCard Style="border-left:5px solid var(--rz-info)">
                 <RadzenStack Gap="0.5rem">
                     <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">
-                        📎 Respaldo de la solicitud del @_adjuntandoDescripcion
+                        <RadzenIcon Icon="attach_file" /> Respaldo de la solicitud del @_adjuntandoDescripcion
                     </RadzenText>
                     <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                         Hasta @Megas(d) MB. Si ya había uno, este lo reemplaza.
                     </RadzenText>
                     <InputFile OnChange="@(e => AdjuntarAExistente(e, solicitudId, d))" />
                     <div>
-                        <RadzenButton Text="Cerrar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                        <RadzenButton Text="Cerrar" Icon="close" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                                       Click="@(() => _adjuntandoEn = null)" Disabled="@_ocupado" />
                     </div>
+                </RadzenStack>
+            </RadzenCard>
+        }
+
+        @* Firmar una solicitud que ya está enviada: la que se pidió antes de que esto existiera, la
+           que se envió sin firmar, y la que hay que volver a firmar porque cambió. Es un panel y no
+           un diálogo por lo mismo que el respaldo: el lienzo necesita ancho y un cuadro emergente lo
+           estrecha justo donde hay que dibujar. *@
+        @if (_firmandoEn is int firmandoId)
+        {
+            <RadzenCard Style="border-left:5px solid var(--rz-info)">
+                <RadzenStack Gap="0.5rem">
+                    <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">
+                        <RadzenIcon Icon="draw" /> Firmar la solicitud del @_firmandoDescripcion
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                        Firmas ESTA petición, con estas fechas y este motivo. Si después cambia algo,
+                        tu firma dejará de valer y tendrás que volver a trazarla.
+                    </RadzenText>
+
+                    <FirmaEnLienzo @ref="_lienzo" Alto="170" />
+
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                        <RadzenButton Text="Firmar" Icon="draw" ButtonStyle="ButtonStyle.Primary"
+                                      Size="ButtonSize.Small" Disabled="@_ocupado"
+                                      Click="@(() => FirmarExistente(firmandoId))" />
+                        <RadzenButton Text="Cerrar" Icon="close" ButtonStyle="ButtonStyle.Light"
+                                      Size="ButtonSize.Small" Disabled="@_ocupado"
+                                      Click="@(() => _firmandoEn = null)" />
+                    </RadzenStack>
                 </RadzenStack>
             </RadzenCard>
         }
@@ -168,20 +225,101 @@
                         <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" Wrap="FlexWrap.Wrap">
                             @if (v.TieneRespaldo)
                             {
-                                <RadzenButton Text="📎 Ver" ButtonStyle="ButtonStyle.Light"
+                                <RadzenButton Text="Ver" Icon="visibility" ButtonStyle="ButtonStyle.Light"
                                               Size="ButtonSize.ExtraSmall"
                                               title="Abre el documento que subiste."
                                               Click="@(() => VerRespaldo(v))" />
                             }
                             @if (v.SePuedeAdjuntar)
                             {
-                                <RadzenButton Text="@(v.TieneRespaldo ? "Cambiar" : "📎 Adjuntar")"
+                                <RadzenButton Text="@(v.TieneRespaldo ? "Cambiar" : "Adjuntar")"
+                                              Icon="attach_file"
                                               ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                               Disabled="@_ocupado" Click="@(() => AbrirAdjunto(v))" />
                             }
                             @if (!v.TieneRespaldo && !v.SePuedeAdjuntar)
                             {
                                 <span>—</span>
+                            }
+                        </RadzenStack>
+                    </Template>
+                </RadzenDataGridColumn>
+                @* La firma: tres situaciones, no dos. «Dejó de valer» es la que no puede quedarse en
+                   un icono discreto — es la que obliga a hacer algo—, así que va en rojo y con el
+                   motivo escrito. Sin ella, la persona vería su solicitud «sin firmar» sin entender
+                   por qué, después de haberla firmado. *@
+                <RadzenDataGridColumn TItem="SolicitudDeVacacionesDto" Title="Mi firma" Width="230px" Sortable="false">
+                    <Template Context="v">
+                        @{ var f = Firma(v); }
+                        <RadzenStack Gap="0.25rem">
+                            @if (f is { DejoDeValer: true })
+                            {
+                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                                            Style="color:var(--rz-danger)"
+                                            title="Lo que firmaste ya no es lo que dice esta solicitud.">
+                                    <RadzenIcon Icon="warning" />
+                                    <b>Tu firma dejó de valer:</b> la solicitud cambió después de que la
+                                    firmaras. Vuelve a firmarla.
+                                </RadzenText>
+                            }
+                            else if (f is { Firmada: true })
+                            {
+                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                                            Style="color:var(--rz-success)">
+                                    <RadzenIcon Icon="verified" /> Firmada
+                                    @if (f.FirmadaUtc is DateTime cuando)
+                                    {
+                                        <span> el @cuando.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</span>
+                                    }
+                                </RadzenText>
+                            }
+                            else if (f is { SePuedeFirmar: true })
+                            {
+                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">Sin firmar</RadzenText>
+                            }
+                            else
+                            {
+                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                                            title="Se firma la petición mientras espera respuesta; ésta ya se resolvió.">
+                                    —
+                                </RadzenText>
+                            }
+
+                            @if (f is { SePuedeFirmar: true })
+                            {
+                                <div>
+                                    <RadzenButton Text="@(f.Firmada || f.DejoDeValer ? "Volver a firmar" : "Firmar")"
+                                                  Icon="draw" ButtonStyle="ButtonStyle.Light"
+                                                  Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                  Click="@(() => AbrirFirma(v))" />
+                                </div>
+                            }
+                        </RadzenStack>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="SolicitudDeVacacionesDto" Title="Documento" Width="150px" Sortable="false">
+                    @* Los dos formatos que ve el líder, y por su misma ruta de servicio: el PDF lo
+                       maqueta el código y el Word sale de la plantilla que mantiene RH. Se ofrecen
+                       siempre —el papel existe desde que se pide— y con la firma puesta si la hay. *@
+                    <Template Context="v">
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" Wrap="FlexWrap.Wrap">
+                            <RadzenButton Text="PDF" Icon="description" ButtonStyle="ButtonStyle.Light"
+                                          Size="ButtonSize.ExtraSmall"
+                                          title="El documento de tu solicitud, tal como queda."
+                                          Click="@(() => Descargas.DesdeApiAsync($"api/ausencias/vacaciones/{v.Id}/documento"))" />
+                            <RadzenButton Text="Word" Icon="download" ButtonStyle="ButtonStyle.Light"
+                                          Size="ButtonSize.ExtraSmall"
+                                          title="El mismo documento sobre la plantilla editable."
+                                          Click="@(() => Descargas.DesdeApiAsync($"api/ausencias/vacaciones/{v.Id}/documento/word"))" />
+                            @* El archivado solo se ofrece cuando existe: pedirlo antes contestaría un
+                               404 que el navegador se traga sin decir nada, y quien pulsó creería que
+                               falló la descarga en vez de entender que el líder aún no ha resuelto. *@
+                            @if (Firma(v) is { DocumentoArchivado: true })
+                            {
+                                <RadzenButton Text="Firmado" Icon="fact_check" ButtonStyle="ButtonStyle.Light"
+                                              Size="ButtonSize.ExtraSmall"
+                                              title="El documento definitivo que archivó el líder, con las dos firmas."
+                                              Click="@(() => Descargas.DesdeApiAsync($"api/ausencias/vacaciones/{v.Id}/documento/firmado"))" />
                             }
                         </RadzenStack>
                     </Template>
@@ -221,7 +359,7 @@
                             }
                             @if (v.SePuedeEliminar)
                             {
-                                <RadzenButton Text="Eliminar" ButtonStyle="ButtonStyle.Danger"
+                                <RadzenButton Text="Eliminar" Icon="delete" ButtonStyle="ButtonStyle.Danger"
                                               Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                               Click="@(() => EliminarSolicitud(v))" />
                             }
@@ -256,9 +394,17 @@
     private string? _comentario;
     private ArchivoElegido? _archivoDelAlta;
 
+    /// <summary>El lienzo del formulario de alta: se firma AL SOLICITAR, que es lo que se firma.</summary>
+    private FirmaEnLienzo? _lienzoDelAlta;
+
     // ── Respaldo de una solicitud ya existente ───────────────────────────────
     private int? _adjuntandoEn;
     private string _adjuntandoDescripcion = "";
+
+    // ── Firma de una solicitud ya existente ──────────────────────────────────
+    private int? _firmandoEn;
+    private string _firmandoDescripcion = "";
+    private FirmaEnLienzo? _lienzo;
 
     private bool RangoValido => _fin.Date >= _inicio.Date;
     private int DiasPedidos => (_fin.Date - _inicio.Date).Days + 1;
@@ -284,23 +430,40 @@
         _comentario = null;
         _archivoDelAlta = null;
         _adjuntandoEn = null;
+        _firmandoEn = null;
         _pidiendo = true;
     }
+
+    /// <summary>
+    /// El estado de la firma de una solicitud. Nulo si el servidor no lo mandó, que es lo que pasaría
+    /// con una respuesta vieja: la pantalla lo trata como «no se sabe» y no enseña nada, en vez de
+    /// afirmar que no está firmada.
+    /// </summary>
+    private FirmaDeSolicitudDto? Firma(SolicitudDeVacacionesDto v) =>
+        _datos?.Firmas?.FirstOrDefault(f => f.SolicitudId == v.Id);
 
     // ── Acciones ─────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Pide las vacaciones y, si se eligió respaldo, lo sube después contra la solicitud recién
-    /// creada.
+    /// Pide las vacaciones y, si se eligió respaldo o se trazó una firma, los sube después contra la
+    /// solicitud recién creada.
     ///
-    /// Son dos peticiones y no una porque el archivo viaja como multipart mientras que el resto del
-    /// formulario es JSON, como toda la escritura de esta API. La ventaja es que un rechazo del alta
-    /// —un rango al revés, una cuenta sin ficha— se responde sin haber empujado el archivo por la
-    /// red. Si el alta pasa y la subida falla, la solicitud queda enviada y sin respaldo, y eso se
-    /// dice: se puede volver a adjuntar desde la lista mientras siga pendiente.
+    /// Son varias peticiones y no una porque los archivos viajan como multipart mientras que el resto
+    /// del formulario es JSON, como toda la escritura de esta API. La ventaja es que un rechazo del
+    /// alta —un rango al revés, una cuenta sin ficha— se responde sin haber empujado nada por la red.
+    /// Si el alta pasa y una subida falla, la solicitud queda enviada sin esa pieza, y eso se dice:
+    /// las dos se pueden volver a poner desde la lista mientras siga pendiente.
+    ///
+    /// <para>La FIRMA se lee del lienzo ANTES de enviar el alta, aunque se suba después. Es a
+    /// propósito: al ocultar el formulario, el lienzo se destruye con él y el trazo se pierde — así
+    /// que leerlo más tarde devolvería una firma vacía sin que nada fallara.</para>
     /// </summary>
     private async Task Solicitar()
     {
+        var firma = _lienzoDelAlta is not null && !await _lienzoDelAlta.EstaVaciaAsync()
+            ? await _lienzoDelAlta.ObtenerAsync()
+            : null;
+
         _ocupado = true;
         int id;
         try
@@ -326,7 +489,66 @@
             _archivoDelAlta = null;
         }
 
+        if (firma is not null) await SubirFirma(id, firma);
+
         await Cargar();
+    }
+
+    // ── La firma ─────────────────────────────────────────────────────────────
+
+    private void AbrirFirma(SolicitudDeVacacionesDto v)
+    {
+        _firmandoEn = v.Id;
+        _firmandoDescripcion = $"{v.Inicio:dd/MM/yyyy} al {v.Fin:dd/MM/yyyy}";
+        _adjuntandoEn = null;
+    }
+
+    private async Task FirmarExistente(int solicitudId)
+    {
+        if (_lienzo is null) return;
+
+        // Se comprueba aquí para no gastar una subida en un lienzo en blanco. El servidor lo vuelve a
+        // rechazar de todas formas: a esa ruta se puede llamar sin pasar por esta pantalla.
+        if (await _lienzo.EstaVaciaAsync())
+        {
+            Avisos.Aviso("Traza tu firma dentro del recuadro antes de firmar.");
+            return;
+        }
+
+        if (await _lienzo.ObtenerAsync() is not { } firma) return;
+
+        _ocupado = true;
+        try
+        {
+            if (!await SubirFirma(solicitudId, firma)) return;
+            _firmandoEn = null;
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+
+        await Cargar();
+    }
+
+    /// <summary>
+    /// Sube el trazo. Va como ARCHIVO y no como texto en base64, igual que las firmas del jefe: son
+    /// bytes y base64 los infla un tercio. Las MEDIDAS viajan en la cadena de consulta y no son un
+    /// extra: sin ellas el documento no sabe a qué tamaño estamparla y la firma sale de un píxel.
+    /// </summary>
+    private async Task<bool> SubirFirma(int solicitudId, FirmaCapturada firma)
+    {
+        var formulario = new MultipartFormDataContent
+        {
+            { new ByteArrayContent(firma.Png), "archivo", "firma.png" }
+        };
+
+        var (ok, respuesta) = await Api.SubirAsync<ResultadoDto>(
+            $"api/ausencias/vacaciones/{solicitudId}/firma?ancho={firma.Ancho}&alto={firma.Alto}",
+            formulario, _cancelacion.Token);
+
+        if (ok && respuesta is not null) Avisos.Exito(respuesta.Mensaje);
+        return ok;
     }
 
     // ── Documento de respaldo ────────────────────────────────────────────────
@@ -335,6 +557,9 @@
     {
         _adjuntandoEn = v.Id;
         _adjuntandoDescripcion = $"{v.Inicio:dd/MM/yyyy} al {v.Fin:dd/MM/yyyy}";
+        // Los dos paneles no conviven: cada uno es alto y tenerlos abiertos a la vez empuja la lista
+        // fuera de la pantalla justo cuando hay que ver de qué solicitud se está hablando.
+        _firmandoEn = null;
     }
 
     private async Task ElegirParaElAlta(InputFileChangeEventArgs e, MisVacacionesDto d)

@@ -1,6 +1,7 @@
 using AdminWeb.Application.Services;
 using AdminWeb.Domain.Security;
 using AdminWeb.Infrastructure.Data;
+using AdminWeb.Infrastructure.Documentos;
 using AdminWeb.Infrastructure.Integraciones;
 using AdminWeb.Shared.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -98,5 +99,29 @@ internal static class Fabrica
     {
         var actual = usuario ?? UsuarioDePrueba.Anonimo();
         return new AuthService(db, actual, new AuditService(db, actual, new OrigenDePrueba()));
+    }
+
+    /// <summary>
+    /// El servicio de las solicitudes propias, ya con sus dependencias.
+    ///
+    /// Se arma aquí y no en cada archivo de pruebas porque son cuatro piezas y crecen: cuando entró
+    /// la firma del colaborador hubo que añadirle SignatureService, y con la construcción repetida
+    /// eso fueron tres archivos tocados para no probar nada nuevo.
+    /// </summary>
+    public static VacationRequestService Vacaciones(AppDbContext db, ICurrentUser usuario)
+    {
+        var auditoria = new AuditService(db, usuario, new OrigenDePrueba());
+        return new VacationRequestService(db, usuario, auditoria, new SignatureService(db, usuario, auditoria));
+    }
+
+    /// <summary>El lado del líder: resolver, emitir el documento y firmarlo.</summary>
+    public static DocumentoDeVacacionesService DocumentoDeVacaciones(AppDbContext db, ICurrentUser usuario)
+    {
+        var auditoria = new AuditService(db, usuario, new OrigenDePrueba());
+        return new DocumentoDeVacacionesService(
+            db, usuario, new SettingsService(db, usuario, auditoria),
+            new SignatureService(db, usuario, auditoria),
+            new GeneradorDeDocumentosQuestPdf(), new PlantillaDeVacacionesOpenXml(), auditoria,
+            Vacaciones(db, usuario));
     }
 }

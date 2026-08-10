@@ -34,7 +34,8 @@ public class DocumentoDeVacacionesService(
     SignatureService firmas,
     IGeneradorDeDocumentos generador,
     IPlantillaDeVacacionesEnWord plantillaWord,
-    AuditService auditoria)
+    AuditService auditoria,
+    VacationRequestService solicitudes)
 {
     /// <summary>
     /// Cultura de las fechas del documento. Fija y no la del servidor: el papel se archiva en el
@@ -230,12 +231,16 @@ public class DocumentoDeVacacionesService(
     /// Que se pueda emitir antes de resolverse es del escritorio y se conserva: la solicitud existe
     /// desde que se pide, y el papel se lleva a firmar precisamente para resolverla.
     /// </summary>
+    /// <remarks>
+    /// La guarda ya no es «solo el líder»: la pone <see cref="ArmarAsync"/> y es «el dueño o el
+    /// líder», la misma que el respaldo. <b>El desarrollador tiene que poder ver SU documento</b> —es
+    /// lo que firma— y mandarlo a pedírselo al jefe para leer su propio papel no tenía defensa. La
+    /// firma del jefe sigue siendo cosa del jefe: <c>firmaId</c> se ignora para quien no lo es.
+    /// </remarks>
     public async Task<(bool ok, string mensaje, byte[] pdf, string nombre)> GenerarAsync(
         int solicitudId, int? firmaId, CancellationToken ct = default)
     {
-        AuthorizationGuard.RequireAdmin(usuarioActual);
-
-        var (datos, nombreArchivo, error) = await ArmarAsync(solicitudId, firmaId, ct);
+        var (datos, nombreArchivo, _, _, error) = await ArmarAsync(solicitudId, firmaId, ct);
         if (datos == null) return (false, error!, [], "");
 
         return (true, "", generador.SolicitudDeVacaciones(datos), nombreArchivo!);
@@ -250,28 +255,21 @@ public class DocumentoDeVacacionesService(
     /// último se había perdido al quitar LibreOffice — pero LibreOffice nunca hizo falta para
     /// rellenar un .docx, solo para convertirlo a PDF.</para>
     ///
-    /// <para>La firma se estampa igual que en el PDF: si viene una elegida, va dentro del Word.</para>
+    /// <para>Las firmas se estampan igual que en el PDF: <b>las dos</b>, cada una en su hueco. La del
+    /// colaborador la puso él al solicitar; la del jefe, si viene elegida.</para>
     /// </summary>
     public async Task<(bool ok, string mensaje, byte[] docx, string nombre)> GenerarWordAsync(
         int solicitudId, int? firmaId, CancellationToken ct = default)
     {
-        AuthorizationGuard.RequireAdmin(usuarioActual);
-
-        var (datos, nombreArchivo, error) = await ArmarAsync(solicitudId, firmaId, ct);
+        var (datos, nombreArchivo, delJefe, delColaborador, error) =
+            await ArmarAsync(solicitudId, firmaId, ct);
         if (datos == null) return (false, error!, [], "");
 
         var plantilla = await PlantillaVigenteAsync(ct);
 
-        // Las medidas de la firma se conservan: la plantilla reserva un hueco concreto y estamparla
-        // sin ellas la dejaba de un píxel.
-        FirmaEnPng? firma = null;
-        if (datos.FirmaDelJefe is { Length: > 0 } && firmaId is int id)
-        {
-            var (png, ancho, alto) = await firmas.ImagenAsync(id, ct);
-            firma = new FirmaEnPng(png, ancho, alto);
-        }
-
-        var docx = plantillaWord.Rellenar(plantilla, datos, firma);
+        // Las MEDIDAS viajan con cada firma: la plantilla reserva un hueco concreto y estamparla sin
+        // ellas la dejaba de un píxel. Vienen ya de ArmarAsync para no volver a leer la misma imagen.
+        var docx = plantillaWord.Rellenar(plantilla, datos, delJefe, delColaborador);
         return (true, "", docx, Path.ChangeExtension(nombreArchivo!, ".docx"));
     }
 
@@ -388,15 +386,21 @@ public class DocumentoDeVacacionesService(
             return (false, "Resuelve la solicitud antes de firmarla: el documento imprime la casilla " +
                            "de autorizada o rechazada, y sin decisión saldrían las dos en blanco.");
 
-        var (datos, nombreArchivo, error) = await ArmarAsync(solicitudId, firmaId, ct);
+        var (datos, nombreArchivo, _, _, error) = await ArmarAsync(solicitudId, firmaId, ct);
         if (datos == null) return (false, error!);
         if (datos.FirmaDelJefe is not { Length: > 0 })
             return (false, "Esa firma no tiene imagen guardada. Elige otra o vuelve a trazarla.");
 
+        // El PDF que se archiva sale de los mismos datos, así que si el colaborador firmó su petición
+        // el documento definitivo queda con LAS DOS firmas, que es lo que se lleva al expediente.
         var pdf = generador.SolicitudDeVacaciones(datos);
 
+        // La fila de la firma del colaborador se excluye a propósito: vive en esta misma tabla y sin
+        // este filtro sería la que se encontrara aquí, y el documento firmado la sobrescribiría —se
+        // llevaría por delante la firma de quien pidió las vacaciones justo al archivar el papel.
         var documento = await db.VacationDocuments
-            .FirstOrDefaultAsync(d => d.VacationRequestId == solicitudId, ct);
+            .FirstOrDefaultAsync(d => d.VacationRequestId == solicitudId
+                && d.FileName != VacationRequestService.MarcaDeLaFirmaDelColaborador, ct);
 
         // Se reemplaza el documento en vez de acumular uno por firma: el que vale es el último, y
         // guardar la historia entera sería llenar la base de PDF idénticos salvo el trazo.
@@ -423,17 +427,30 @@ public class DocumentoDeVacacionesService(
         return (true, "Documento firmado y archivado.");
     }
 
-    /// <summary>El PDF firmado que quedó archivado, si lo hay. Vacío si nunca se firmó.</summary>
+    /// <summary>
+    /// El PDF firmado que quedó archivado, si lo hay. Vacío si nunca se firmó.
+    ///
+    /// <b>Lo ve su dueño o el líder</b>, como el respaldo: es el papel resuelto de esa persona, y el
+    /// documento que ella firmó al pedirlo va dentro. La guarda va aquí y no solo en el endpoint
+    /// porque éste es el único sitio por donde salen esos bytes.
+    /// </summary>
     public async Task<(byte[] pdf, string nombre)> DocumentoFirmadoAsync(int solicitudId,
         CancellationToken ct = default)
     {
-        AuthorizationGuard.RequireAdmin(usuarioActual);
+        AuthorizationGuard.RequireLoggedIn(usuarioActual);
 
         var documento = await db.VacationDocuments.AsNoTracking()
-            .FirstOrDefaultAsync(d => d.VacationRequestId == solicitudId
-                                   && d.Status == VacationDocStatus.Firmado, ct);
+            .Where(d => d.VacationRequestId == solicitudId && d.Status == VacationDocStatus.Firmado)
+            .Select(d => new { d.SignedPdfBytes, d.FileName, d.VacationRequest.DeveloperId })
+            .FirstOrDefaultAsync(ct);
 
-        return documento?.SignedPdfBytes is { Length: > 0 } pdf
+        // Sin documento se vuelve vacío SIN comprobar de quién era: el endpoint lo traduce a «todavía
+        // no está firmado», y contestar 403 aquí delataría a quién pertenece cada identificador.
+        if (documento is null) return ([], "");
+
+        AuthorizationGuard.RequireOwnershipOrAdmin(usuarioActual, documento.DeveloperId);
+
+        return documento.SignedPdfBytes is { Length: > 0 } pdf
             ? (pdf, ArchivosSubidos.NombreSeguro(documento.FileName))
             : ([], "");
     }
@@ -441,33 +458,57 @@ public class DocumentoDeVacacionesService(
     // ── Los campos del papel ─────────────────────────────────────────────────────
 
     /// <summary>
-    /// Reúne de la base y de la configuración todo lo que el documento imprime.
+    /// Reúne de la base y de la configuración todo lo que el documento imprime, y las DOS firmas.
     ///
     /// Los valores por omisión son los del escritorio: departamento «DESARROLLO», puesto el nivel de
     /// la ficha, y jefe directo el nombre de quien tiene la sesión. Que la configuración mande evita
     /// que el papel dependa de qué cuenta lo generó.
+    ///
+    /// <para><b>Aquí está la guarda de los dos generadores</b>, y es «el dueño o el líder»: el
+    /// documento es de la persona a la que se refiere. Como el <c>firmaId</c> viaja en la petición, lo
+    /// primero que se hace es descartarlo si quien pide no es el líder — si no, cualquiera podría
+    /// pedir su propio documento estampado con la firma del jefe y tendría un papel autorizado que
+    /// nadie autorizó.</para>
     /// </summary>
-    private async Task<(DatosDeVacaciones? datos, string? nombreArchivo, string? error)> ArmarAsync(
+    private async Task<(DatosDeVacaciones? datos, string? nombreArchivo,
+                        FirmaEnPng? delJefe, FirmaEnPng? delColaborador, string? error)> ArmarAsync(
         int solicitudId, int? firmaId, CancellationToken ct)
     {
+        AuthorizationGuard.RequireLoggedIn(usuarioActual);
+        if (!usuarioActual.IsAdmin) firmaId = null;
+
         var solicitud = await db.VacationRequests.AsNoTracking()
             .Where(v => v.Id == solicitudId)
             .Select(v => new
             {
+                v.DeveloperId,
                 v.StartDate, v.EndDate, v.Status, v.Comment, v.ReviewComment,
                 v.Developer.FullName, v.Developer.HireDate, v.Developer.Seniority,
                 v.Developer.VacationDaysLeft
             })
             .FirstOrDefaultAsync(ct);
 
-        if (solicitud == null) return (null, null, "La solicitud ya no existe. Actualiza la lista.");
+        if (solicitud == null) return (null, null, null, null, "La solicitud ya no existe. Actualiza la lista.");
 
-        byte[]? firma = null;
+        AuthorizationGuard.RequireOwnershipOrAdmin(usuarioActual, solicitud.DeveloperId);
+
+        FirmaEnPng? delJefe = null;
         if (firmaId is int id)
         {
-            var (png, _, _) = await firmas.ImagenAsync(id, ct);
-            if (png.Length == 0) return (null, null, "Esa firma ya no existe. Actualiza la lista.");
-            firma = png;
+            var (png, ancho, alto) = await firmas.ImagenAsync(id, ct);
+            if (png.Length == 0) return (null, null, null, null, "Esa firma ya no existe. Actualiza la lista.");
+            delJefe = new FirmaEnPng(png, ancho, alto);
+        }
+
+        // La del colaborador NO se elige: es la que él puso al firmar su petición, y solo entra si
+        // HOY sigue valiendo. Quien decide eso es VacationRequestService, comparando la huella de lo
+        // que se firmó con lo que la solicitud dice ahora; aquí no se vuelve a razonar sobre ello para
+        // que no haya dos criterios que puedan discrepar.
+        FirmaEnPng? delColaborador = null;
+        if (await solicitudes.FirmaVigenteAsync(solicitudId, ct) is int suya)
+        {
+            var (png, ancho, alto) = await firmas.ImagenAsync(suya, ct);
+            if (png.Length > 0) delColaborador = new FirmaEnPng(png, ancho, alto);
         }
 
         var departamento = await configuracion.ObtenerAsync(SettingsService.Claves.VacationDepartamento, ct);
@@ -491,9 +532,11 @@ public class DocumentoDeVacacionesService(
             departamento: departamento,
             puesto: puesto,
             jefeDirecto: jefe,
-            firmaDelJefe: firma);
+            firmaDelJefe: delJefe?.Png,
+            firmaDelColaborador: delColaborador?.Png);
 
-        return (datos, NombreDelArchivo(solicitud.FullName, solicitud.StartDate), null);
+        return (datos, NombreDelArchivo(solicitud.FullName, solicitud.StartDate),
+                delJefe, delColaborador, null);
     }
 
     /// <summary>
@@ -508,6 +551,9 @@ public class DocumentoDeVacacionesService(
     /// mientras nadie haya respondido nada.</param>
     /// <param name="hoy">La fecha de solicitud impresa. Se recibe en vez de leerse del reloj para que
     /// el resultado sea comprobable; por omisión, hoy.</param>
+    /// <param name="firmaDelColaborador">El trazo con el que la persona firmó SU petición. Va al
+    /// final y con valor por omisión para que las llamadas de siempre —que no la conocían— sigan
+    /// escritas igual.</param>
     public static DatosDeVacaciones Campos(
         string nombre,
         DateTime? fechaDeIngreso,
@@ -521,7 +567,8 @@ public class DocumentoDeVacacionesService(
         string puesto,
         string jefeDirecto,
         byte[]? firmaDelJefe = null,
-        DateTime? hoy = null)
+        DateTime? hoy = null,
+        byte[]? firmaDelColaborador = null)
     {
         var regreso = SiguienteDiaHabil(fin);
 
@@ -545,7 +592,8 @@ public class DocumentoDeVacacionesService(
             Autorizada: estado == VacationStatus.Aprobada,
             Rechazada: estado == VacationStatus.Rechazada,
             Observaciones: respuestaDelLider ?? comentario ?? "",
-            FirmaDelJefe: firmaDelJefe);
+            FirmaDelJefe: firmaDelJefe,
+            FirmaDelColaborador: firmaDelColaborador);
     }
 
     /// <summary>

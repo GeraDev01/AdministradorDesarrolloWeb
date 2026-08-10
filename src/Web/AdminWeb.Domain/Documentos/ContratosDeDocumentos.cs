@@ -57,7 +57,16 @@ public record DatosDeVacaciones(
     bool Rechazada,
     string Observaciones,
     /// <summary>PNG de la firma del jefe. Null en un borrador todavía sin resolver.</summary>
-    byte[]? FirmaDelJefe);
+    byte[]? FirmaDelJefe,
+    /// <summary>
+    /// PNG de la firma de quien pide las vacaciones. Null mientras no la haya firmado — o mientras la
+    /// que hay no valga, porque la solicitud cambió después de firmarse.
+    ///
+    /// <para>Va con valor por omisión para que las dos salidas del documento —el PDF maquetado en
+    /// código y el .docx de la plantilla— sigan construyéndose igual que antes cuando no hay firma del
+    /// colaborador, que es el caso de todo lo que se pidió antes de que esto existiera.</para>
+    /// </summary>
+    byte[]? FirmaDelColaborador = null);
 
 // ── Ficha de desarrollador ──────────────────────────────────────────────────────
 
@@ -112,9 +121,11 @@ public static class TokensDeVacaciones
     /// enteraría hasta tenerlo firmado.
     ///
     /// <para><see cref="FirmaDelJefe"/> está aquí: sin su ancla, la firma no tiene dónde entrar y el
-    /// documento «firmado» saldría sin firma. <see cref="FirmaDelColaborador"/> NO, porque el
-    /// escritorio solo lo BORRA —la persona firma a mano sobre el papel— y exigirlo rechazaría una
-    /// plantilla que dibuje la raya sin poner el marcador.</para>
+    /// documento «firmado» saldría sin firma. <see cref="FirmaDelColaborador"/> sigue SIN estar,
+    /// aunque ya se estampe: exigirlo rechazaría una plantilla que dibuje la raya sin poner el
+    /// marcador —que es como venían las de antes—, y esa plantilla no está rota: el documento sale
+    /// igual que siempre y la persona firma a mano sobre el papel. Lo que se pierde sin el ancla es
+    /// la firma desde la web, no el documento.</para>
     /// </summary>
     public static readonly IReadOnlyList<string> Obligatorios =
     [
@@ -124,7 +135,16 @@ public static class TokensDeVacaciones
         "{{OBSERVACIONES}}", FirmaDelJefe
     ];
 
-    /// <summary>Qué texto sustituye a cada marcador. La firma del jefe NO está: es una imagen.</summary>
+    /// <summary>
+    /// Qué texto sustituye a cada marcador. <b>NINGUNA de las dos firmas está aquí: son imágenes.</b>
+    ///
+    /// <para>La del colaborador sí estuvo, mapeada a cadena vacía, porque antes se BORRABA siempre
+    /// —la persona firmaba a mano sobre el papel impreso—. Se quitó al poder firmarse desde la web:
+    /// sustituirla por vacío aquí se ejecuta ANTES de estampar y le dejaba al estampado un ancla que
+    /// ya no existía, así que la firma no se pegaba en ninguna parte y el documento salía sin ella
+    /// sin que nada fallara. Ahora las dos anclas las resuelve el mismo paso, que es también quien
+    /// las borra cuando no hay firma que poner.</para>
+    /// </summary>
     public static IReadOnlyDictionary<string, string> Mapa(DatosDeVacaciones d) => new Dictionary<string, string>
     {
         ["{{NOMBRE}}"]          = d.Nombre,
@@ -141,9 +161,7 @@ public static class TokensDeVacaciones
         ["{{DIAS_PENDIENTES}}"] = d.DiasPendientes,
         ["{{AUTORIZA_SI}}"]     = d.Autorizada ? "X" : "",
         ["{{AUTORIZA_NO}}"]     = d.Rechazada ? "X" : "",
-        ["{{OBSERVACIONES}}"]   = d.Observaciones,
-        // Se BORRA, no se rellena: quien pide las vacaciones firma a mano sobre el papel impreso.
-        [FirmaDelColaborador]   = ""
+        ["{{OBSERVACIONES}}"]   = d.Observaciones
     };
 }
 
@@ -168,8 +186,15 @@ public record ValidacionDePlantilla(bool Ok, string Mensaje, IReadOnlyList<strin
 /// </summary>
 public interface IPlantillaDeVacacionesEnWord
 {
-    /// <summary>Devuelve el .docx relleno. La firma va estampada en su ancla si viene.</summary>
-    byte[] Rellenar(byte[] plantillaDocx, DatosDeVacaciones datos, FirmaEnPng? firmaDelJefe);
+    /// <summary>
+    /// Devuelve el .docx relleno. Cada firma va estampada en SU ancla si viene, y el ancla se borra
+    /// cuando no viene, para que el marcador no acabe impreso.
+    /// </summary>
+    /// <param name="firmaDelColaborador">La de quien pide las vacaciones, que firma al solicitar.
+    /// Es opcional —y no un parámetro más— para que una solicitud sin firmar siga produciendo el
+    /// mismo documento de siempre: el que se imprime y se firma a mano.</param>
+    byte[] Rellenar(byte[] plantillaDocx, DatosDeVacaciones datos, FirmaEnPng? firmaDelJefe,
+        FirmaEnPng? firmaDelColaborador = null);
 
     /// <summary>Comprueba que lo subido sea un .docx de verdad y lleve los marcadores necesarios.</summary>
     ValidacionDePlantilla Validar(byte[] posibleDocx);

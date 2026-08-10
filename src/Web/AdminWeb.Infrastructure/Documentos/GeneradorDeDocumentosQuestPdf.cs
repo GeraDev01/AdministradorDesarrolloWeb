@@ -80,7 +80,8 @@ public class GeneradorDeDocumentosQuestPdf : IGeneradorDeDocumentos
                     if (!string.IsNullOrWhiteSpace(d.Observaciones))
                         col.Item().Element(e => Bloque(e, "Observaciones", d.Observaciones));
 
-                    col.Item().PaddingTop(24).Element(e => Firmas(e, d.Nombre, d.JefeDirecto, d.FirmaDelJefe));
+                    col.Item().PaddingTop(24)
+                       .Element(e => Firmas(e, d.Nombre, d.JefeDirecto, d.FirmaDelJefe, d.FirmaDelColaborador));
                 });
 
                 pagina.Footer().Element(PieDePagina);
@@ -95,10 +96,16 @@ public class GeneradorDeDocumentosQuestPdf : IGeneradorDeDocumentos
             fila.ConstantItem(110).Text($"[{(rechazada ? "X" : " ")}]  Rechazada");
         });
 
-    private static void Firmas(IContainer c, string colaborador, string jefe, byte[]? firmaDelJefe) =>
+    /// <summary>
+    /// El pie de firmas. La del colaborador iba siempre en blanco —se firmaba a mano sobre el papel
+    /// impreso— y ahora entra cuando la persona firmó su solicitud desde la web. El hueco se sigue
+    /// reservando igual si no la hay: es el mismo papel, con la raya esperando una pluma.
+    /// </summary>
+    private static void Firmas(IContainer c, string colaborador, string jefe, byte[]? firmaDelJefe,
+        byte[]? firmaDelColaborador) =>
         c.Row(fila =>
         {
-            fila.RelativeItem().Element(e => Firma(e, colaborador, "Colaborador", null));
+            fila.RelativeItem().Element(e => Firma(e, colaborador, "Colaborador", firmaDelColaborador));
             fila.ConstantItem(40);
             fila.RelativeItem().Element(e => Firma(e, jefe, "Jefe directo", firmaDelJefe));
         });

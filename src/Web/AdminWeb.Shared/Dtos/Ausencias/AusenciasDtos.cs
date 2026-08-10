@@ -13,10 +13,36 @@ namespace AdminWeb.Shared.Dtos.Ausencias;
 /// </summary>
 /// <param name="MaxRespaldoBytes">El tope del documento de respaldo, para que el formulario avise
 /// antes de empujar 20 MB por la red y que se los rechacen. El que cuenta lo aplica el servidor.</param>
+/// <param name="Firmas">Qué le pasa a la firma de cada solicitud. <b>Lo añade el endpoint</b>, no el
+/// servicio que arma el resto: la firma la lleva <c>VacationRequestService</c>, que es quien decide
+/// si todavía vale. Viaja en la MISMA respuesta —y no en una segunda petición— porque la pantalla lo
+/// pinta a la vez que la lista, y en dos viajes habría un instante enseñando una solicitud firmada
+/// como si no lo estuviera. Puede venir nula: solo significa que quien respondió no la calculó.</param>
 public record MisVacacionesDto(
     SaldoDeVacacionesDto Saldo,
     IReadOnlyList<SolicitudDeVacacionesDto> Solicitudes,
-    long MaxRespaldoBytes);
+    long MaxRespaldoBytes,
+    IReadOnlyList<FirmaDeSolicitudDto>? Firmas = null);
+
+/// <summary>
+/// El estado de la firma de una solicitud, tal como la pantalla tiene que contarlo.
+///
+/// <para>Son tres situaciones y no dos, y la tercera es la que importa: <b>firmada pero ya sin
+/// valer</b>, porque la solicitud cambió después de firmarse. Enseñarla como «sin firmar» a secas
+/// escondería que hubo una firma y que dejó de servir, que es justo lo que la persona necesita saber
+/// para volver a firmarla.</para>
+/// </summary>
+/// <param name="DejoDeValer">Firmó, y lo que firmó ya no es lo que dice la solicitud.</param>
+/// <param name="SePuedeFirmar">Lo decide el servicio: solo se firma lo que sigue esperando respuesta.</param>
+/// <param name="DocumentoArchivado">El líder ya resolvió y archivó el documento definitivo. Es el que
+/// lleva las dos firmas, así que hasta que existe no hay nada archivado que ofrecer.</param>
+public record FirmaDeSolicitudDto(
+    int SolicitudId,
+    bool Firmada,
+    bool DejoDeValer,
+    DateTime? FirmadaUtc,
+    bool SePuedeFirmar,
+    bool DocumentoArchivado);
 
 /// <summary>
 /// El saldo del año en curso: los días que RH dejó en la ficha menos los ya tomados (aprobados) de

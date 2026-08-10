@@ -31,7 +31,8 @@ public sealed class PlantillaDeVacacionesOpenXml : IPlantillaDeVacacionesEnWord
         return memoria.ToArray();
     }
 
-    public byte[] Rellenar(byte[] plantillaDocx, DatosDeVacaciones datos, FirmaEnPng? firmaDelJefe)
+    public byte[] Rellenar(byte[] plantillaDocx, DatosDeVacaciones datos, FirmaEnPng? firmaDelJefe,
+        FirmaEnPng? firmaDelColaborador = null)
     {
         // (1) Se trabaja sobre una COPIA. OpenXml abre el MemoryStream en escritura y modifica el
         //     búfer: pasarle el array recibido corrompería la plantilla guardada en la base la
@@ -59,7 +60,13 @@ public sealed class PlantillaDeVacacionesOpenXml : IPlantillaDeVacacionesEnWord
                             texto.Text = texto.Text.Replace(token, valor);
             }
 
-            EstamparFirma(principal, firmaDelJefe);
+            // Las DOS anclas, y en este orden por una razón concreta: cada estampado numera su dibujo
+            // con el ordinal que se le pasa, y repetir ese identificador deja un documento que Word
+            // abre pero del que se queja al validarlo.
+            EstamparFirma(principal, TokensDeVacaciones.FirmaDelColaborador, firmaDelColaborador,
+                          ordinal: 1, nombre: "Firma del colaborador");
+            EstamparFirma(principal, TokensDeVacaciones.FirmaDelJefe, firmaDelJefe,
+                          ordinal: 2, nombre: "Firma del jefe");
 
             // Se guarda CADA parte, no solo el documento principal: si un marcador estaba en el
             // membrete, guardar únicamente el cuerpo dejaría ese cambio sin escribir.
@@ -169,19 +176,33 @@ public sealed class PlantillaDeVacacionesOpenXml : IPlantillaDeVacacionesEnWord
     }
 
     /// <summary>
-    /// Pone la firma del jefe en su ancla. Sin firma, borra el marcador para que no salga impreso.
+    /// Pone UNA firma en SU ancla. Sin firma, borra el marcador para que no salga impreso.
+    ///
+    /// <para>Estaba atada a la del jefe, que era la única que se estampaba; ahora recibe el marcador
+    /// porque la plantilla tiene dos huecos y el trato es idéntico. <b>Lo que no puede desaparecer es
+    /// el borrado del ancla</b>: es lo que impide que un documento sin firmar salga con
+    /// «{{FIRMA_COLABORADOR}}» impreso en la raya donde alguien iba a firmar a mano.</para>
+    ///
+    /// <para>Y se busca el ancla de nuevo en cada llamada, en vez de localizar las dos de una vez al
+    /// principio: la primera pasada MODIFICA el árbol —vacía un &lt;w:t&gt; y le cuelga un dibujo al
+    /// párrafo—, y una referencia guardada antes de eso puede quedar apuntando a un nodo que ya no
+    /// dice lo que decía.</para>
     /// </summary>
-    private static void EstamparFirma(MainDocumentPart principal, FirmaEnPng? firma)
+    /// <param name="ordinal">Numera el dibujo dentro del documento. Con las dos firmas puestas tienen
+    /// que ser distintos: Word tolera el choque, pero su validador lo marca y algunos visores dejan de
+    /// pintar la segunda imagen.</param>
+    private static void EstamparFirma(MainDocumentPart principal, string marcador, FirmaEnPng? firma,
+        uint ordinal, string nombre)
     {
         var ancla = Raices(principal)
             .SelectMany(r => r.Descendants<Text>())
-            .FirstOrDefault(t => t.Text.Contains(TokensDeVacaciones.FirmaDelJefe, StringComparison.Ordinal));
+            .FirstOrDefault(t => t.Text.Contains(marcador, StringComparison.Ordinal));
 
         if (ancla is null) return;
 
         if (firma is null || firma.Png.Length == 0)
         {
-            ancla.Text = ancla.Text.Replace(TokensDeVacaciones.FirmaDelJefe, "");
+            ancla.Text = ancla.Text.Replace(marcador, "");
             return;
         }
 
@@ -209,24 +230,27 @@ public sealed class PlantillaDeVacacionesOpenXml : IPlantillaDeVacacionesEnWord
         long cx = (long)(ancho * 9525L * escala);
         long cy = (long)(alto  * 9525L * escala);
 
-        ancla.Text = ancla.Text.Replace(TokensDeVacaciones.FirmaDelJefe, "");
-        ancla.Parent?.AppendChild(Dibujo(relacion, cx, cy));
+        ancla.Text = ancla.Text.Replace(marcador, "");
+        ancla.Parent?.AppendChild(Dibujo(relacion, cx, cy, ordinal, nombre));
     }
 
     /// <summary>Los píxeles pasados a puntos de documento: 96 píxeles por pulgada, 72 puntos por pulgada.</summary>
     private static double AlturaEnPuntos(int pixeles) => pixeles * 72.0 / 96.0;
 
-    /// <summary>El armazón XML de una imagen en línea. Copiado del escritorio sin cambios.</summary>
-    private static Drawing Dibujo(string relacion, long cx, long cy) => new(
+    /// <summary>
+    /// El armazón XML de una imagen en línea. Copiado del escritorio, con lo único que allí no hacía
+    /// falta: el identificador y el nombre entran por parámetro, porque ahora puede haber DOS.
+    /// </summary>
+    private static Drawing Dibujo(string relacion, long cx, long cy, uint ordinal, string nombre) => new(
         new DW.Inline(
             new DW.Extent { Cx = cx, Cy = cy },
             new DW.EffectExtent { LeftEdge = 0L, TopEdge = 0L, RightEdge = 0L, BottomEdge = 0L },
-            new DW.DocProperties { Id = 1U, Name = "Firma" },
+            new DW.DocProperties { Id = ordinal, Name = nombre },
             new DW.NonVisualGraphicFrameDrawingProperties(new A.GraphicFrameLocks { NoChangeAspect = true }),
             new A.Graphic(new A.GraphicData(
                 new PIC.Picture(
                     new PIC.NonVisualPictureProperties(
-                        new PIC.NonVisualDrawingProperties { Id = 0U, Name = "firma.png" },
+                        new PIC.NonVisualDrawingProperties { Id = ordinal, Name = $"{nombre}.png" },
                         new PIC.NonVisualPictureDrawingProperties()),
                     new PIC.BlipFill(
                         new A.Blip { Embed = relacion },

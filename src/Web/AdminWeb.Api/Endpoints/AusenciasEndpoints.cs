@@ -27,9 +27,40 @@ public static class AusenciasEndpoints
 
         // ── Vacaciones ───────────────────────────────────────────────────────────
 
-        grupo.MapGet("/vacaciones/mias", async (AusenciasService ausencias, CancellationToken ct) =>
-            Results.Ok(await ausencias.MisVacacionesAsync(ct)))
-        .WithSummary("Saldo del año y solicitudes de vacaciones propias, de una vez");
+        // El estado de las FIRMAS se pega aquí, sobre lo que arma AusenciasService. Es composición y
+        // no un endpoint aparte a propósito: la pantalla pinta la lista y el estado de la firma en el
+        // mismo renglón, y en dos peticiones habría un instante enseñando como «sin firmar» algo que
+        // sí lo está — justo el dato que esta pantalla existe para dejar claro.
+        grupo.MapGet("/vacaciones/mias", async (
+            AusenciasService ausencias, VacationRequestService vacaciones, CancellationToken ct) =>
+        {
+            var datos = await ausencias.MisVacacionesAsync(ct);
+            var papeles = await vacaciones.PapelesDeAsync(datos.Solicitudes.Select(s => s.Id), ct);
+
+            var firmas = datos.Solicitudes
+                .Select(s =>
+                {
+                    var p = papeles[s.Id];
+                    return new FirmaDeSolicitudDto(
+                        s.Id,
+                        Firmada: p.SigueValiendo,
+                        DejoDeValer: p.Firmada && !p.SigueValiendo,
+                        FirmadaUtc: p.FirmadaUtc,
+                        SePuedeFirmar: VacationRequestService.PuedeFirmar(s.Estado),
+                        DocumentoArchivado: p.DocumentoDelLiderArchivado);
+                })
+                .ToList();
+
+            // Y se corrige el conteo de documentos con el que sí descuenta la fila de la firma: el
+            // enlace vive en la misma tabla que los documentos generados, y sin esto la confirmación
+            // de borrado avisaría de un papel que nadie generó.
+            var solicitudes = datos.Solicitudes
+                .Select(s => s with { DocumentosGenerados = papeles[s.Id].DocumentosGenerados })
+                .ToList();
+
+            return Results.Ok(datos with { Solicitudes = solicitudes, Firmas = firmas });
+        })
+        .WithSummary("Saldo del año, solicitudes de vacaciones propias y el estado de sus firmas");
 
         grupo.MapPost("/vacaciones", async (
             NuevaSolicitudDeVacacionesRequest cuerpo, AusenciasService ausencias, CancellationToken ct) =>
@@ -87,6 +118,78 @@ public static class AusenciasEndpoints
         // El testigo antifalsificación lo exige el middleware por ser multipart, y lo adjunta el
         // cliente sin que la pantalla tenga que acordarse (ClienteApi.SubirAsync).
         .WithSummary("Sube o reemplaza el documento de respaldo de unas vacaciones propias aún pendientes");
+
+        // ── La firma de la propia solicitud ──────────────────────────────────────
+        //
+        // Va en ESTE grupo y no en el del líder, y no es un detalle de organización: aquí ninguna ruta
+        // lleva identificador de persona porque todas actúan sobre quien tiene la sesión, y firmar es
+        // la operación donde eso más importa. El servicio lo vuelve a exigir —firmar por otro no se
+        // permite ni siendo líder—, pero que ni siquiera exista un hueco donde escribir «a nombre de»
+        // es la primera barrera y la que no se puede olvidar.
+        //
+        // La imagen sube como ARCHIVO y no como texto en base64, igual que las firmas del jefe: son
+        // bytes, y base64 los infla un tercio. Las medidas viajan en la cadena de consulta porque en
+        // el cuerpo multipart solo va el archivo, que es lo que el enrutado ata sin ambigüedad; y no
+        // son opcionales: sin ellas el documento no sabe a qué tamaño estamparla y la firma sale de un
+        // píxel — que es exactamente lo que hacía el escritorio al caer a su valor de respaldo.
+        grupo.MapPost("/vacaciones/{id:int}/firma", async (
+            int id, IFormFile archivo, int ancho, int alto,
+            VacationRequestService vacaciones, CancellationToken ct) =>
+        {
+            // El tope se mira ANTES de copiar, y es el de las firmas y no el de los adjuntos: un
+            // trazo recortado son unos pocos KB, y lo que llegue por encima no es una firma.
+            if (archivo.Length > SignatureService.MaxBytes)
+                return Rechazo($"La imagen de la firma pasa de {SignatureService.MaxBytes / 1024} KB; " +
+                               "eso no es un trazo.");
+
+            using var memoria = new MemoryStream();
+            await archivo.CopyToAsync(memoria, ct);
+            var contenido = memoria.ToArray();
+
+            // Se exige que sea una imagen DE VERDAD, por los BYTES y no por el nombre: acabará pegada
+            // en un documento que alguien archiva. La comprobación que cuenta se hace aquí porque a
+            // esta ruta se puede llamar sin pasar por el navegador.
+            var (valido, error, _) = ArchivosSubidos.Validar(archivo.FileName, contenido, soloImagenes: true);
+            if (!valido) return Rechazo(error);
+
+            var (ok, mensaje) = await vacaciones.FirmarAsync(id, contenido, ancho, alto, ct);
+            return Resultado(ok, mensaje);
+        })
+        .WithSummary("Firma una solicitud de vacaciones propia con el trazo capturado a mano");
+
+        // ── El documento propio ──────────────────────────────────────────────────
+        //
+        // El desarrollador tiene que poder VER lo que firma. Son las mismas dos salidas que ve el
+        // líder y salen del mismo servicio —que ahora deja pasar «al dueño o al líder»—, así que no
+        // hay una segunda forma de armar el papel que pudiera decir otra cosa. Lo que el servicio no
+        // deja es elegir firma: el parámetro de la firma del jefe se ignora para quien no lo es.
+        grupo.MapGet("/vacaciones/{id:int}/documento", async (
+            int id, HttpContext ctx, DocumentoDeVacacionesService documentos, CancellationToken ct) =>
+        {
+            var (ok, mensaje, pdf, nombre) = await documentos.GenerarAsync(id, firmaId: null, ct);
+            return ok ? ResultadosDeArchivo.Adjunto(ctx, pdf, nombre) : Rechazo(mensaje);
+        })
+        .WithSummary("El PDF de la solicitud propia, con la firma de quien la pidió si ya la firmó");
+
+        grupo.MapGet("/vacaciones/{id:int}/documento/word", async (
+            int id, HttpContext ctx, DocumentoDeVacacionesService documentos, CancellationToken ct) =>
+        {
+            var (ok, mensaje, docx, nombre) = await documentos.GenerarWordAsync(id, firmaId: null, ct);
+            return ok ? ResultadosDeArchivo.Adjunto(ctx, docx, nombre) : Rechazo(mensaje);
+        })
+        .WithSummary("La solicitud propia en Word, sobre la plantilla editable y con la firma puesta");
+
+        grupo.MapGet("/vacaciones/{id:int}/documento/firmado", async (
+            int id, HttpContext ctx, DocumentoDeVacacionesService documentos, CancellationToken ct) =>
+        {
+            var (pdf, nombre) = await documentos.DocumentoFirmadoAsync(id, ct);
+            // El «todavía no está firmado» se dice aquí y no se deja al 404 genérico: es un estado
+            // normal de la solicitud, no un archivo perdido.
+            return pdf.Length == 0
+                ? Results.NotFound(new { mensaje = "Esa solicitud todavía no tiene documento firmado por el líder." })
+                : ResultadosDeArchivo.Adjunto(ctx, pdf, nombre);
+        })
+        .WithSummary("El PDF ya resuelto y archivado de una solicitud propia, con las dos firmas");
 
         // ── Permisos ─────────────────────────────────────────────────────────────
 

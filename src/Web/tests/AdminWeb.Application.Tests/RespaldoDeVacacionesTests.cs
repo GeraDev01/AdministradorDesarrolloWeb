@@ -36,7 +36,7 @@ public class RespaldoDeVacacionesTests
     }
 
     private static VacationRequestService Svc(AppDbContext db, ICurrentUser quien) =>
-        new(db, quien, new AuditService(db, quien, new OrigenDePrueba()));
+        Fabrica.Vacaciones(db, quien);
 
     private static VacationRequestService ComoDesarrollador(AppDbContext db, int devId = MiDevId) =>
         Svc(db, UsuarioDePrueba.Como(UserRole.Desarrollador, devId, userId: devId));
