@@ -325,7 +325,10 @@
 
     // Auditoría
     private RadzenDataGrid<ForoAuditoriaFilaDto>? _rejilla;
-    private IReadOnlyList<ForoAuditoriaFilaDto> _auditoria = [];
+    // EMPIEZA EN NULL, no en lista vacía: Radzen solo lanza el LoadData inicial cuando `Data` le
+    // llega nulo. Con una lista vacía la rejilla da por hecho que ya tiene sus datos y jamás pide
+    // la primera página, así que la auditoría se ve vacía sin dar ningún error. No lo inicialices.
+    private IReadOnlyList<ForoAuditoriaFilaDto>? _auditoria;
     private IReadOnlyList<string> _autoresAud = [];
     private string _textoAud = "";
     private int? _temaAud;

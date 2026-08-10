@@ -121,11 +121,16 @@
 
     private RadzenDataGrid<EntradaBitacoraDto>? _rejilla;
 
-    private List<EntradaBitacoraDto> _filas = [];
+    // EMPIEZA EN NULL, no en lista vacía, y de eso depende que la pantalla muestre algo. Radzen
+    // solo lanza el LoadData inicial cuando `Data` le llega nulo; una lista vacía le dice «ya tengo
+    // mis datos, y son cero», así que se queda ahí para siempre sin pedir la primera página. El
+    // síntoma no es un error —no hay excepción, ni petición en la red, ni nada en la consola— sino
+    // una bitácora que parece vacía teniendo miles de filas. No lo inicialices.
+    private List<EntradaBitacoraDto>? _filas;
     private List<string> _usuarios = [];
     private HashSet<string> _ocultas = [];
     private int _total;
-    private bool _cargando = true;
+    private bool _cargando;
 
     // Últimos 30 días, igual que el escritorio: sin un rango por omisión, abrir la pantalla sería
     // pedir la tabla entera desde el primer día del sistema.

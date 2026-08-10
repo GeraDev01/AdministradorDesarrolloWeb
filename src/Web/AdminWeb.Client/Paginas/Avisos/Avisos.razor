@@ -67,7 +67,11 @@
     /// <summary>El azul del escritorio para el punto de «sin leer» (AppTheme.SidebarActive).</summary>
     private const string Azul = "#2563eb";
 
-    private IReadOnlyList<AvisoDto> _filas = [];
+    // EMPIEZA EN NULL, no en lista vacía: Radzen solo lanza el LoadData inicial cuando `Data` le
+    // llega nulo. Con una lista vacía la rejilla da por hecho que ya tiene sus datos y jamás pide
+    // la primera página, así que la pantalla se queda sin avisos sin dar ningún error. No lo
+    // inicialices.
+    private IReadOnlyList<AvisoDto>? _filas;
     private int _total;
     private int _pagina = 1;
     private int _tamanoPagina = 25;
@@ -94,7 +98,13 @@
 
             // null significa que algo falló y el mensaje ya se mostró: se deja lo que había en
             // pantalla en vez de vaciarla, que se leería como «no tienes avisos» y sería mentira.
-            if (pagina is null) return;
+            // Si falló la PRIMERA lectura no había nada que dejar, y hay que sacar la rejilla de
+            // «null» igualmente: si no, se queda girando para siempre bajo el mensaje de error.
+            if (pagina is null)
+            {
+                _filas ??= [];
+                return;
+            }
 
             _filas = pagina.Filas;
             _total = pagina.Total;
