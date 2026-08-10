@@ -124,6 +124,29 @@ public static class DesplieguesEndpoints
         .RequireAuthorization(PoliticaDelDespliegue)
         .WithSummary("Da de alta un servidor de destino");
 
+        // Alta MASIVA desde un JSON, como en el escritorio. Es del LÍDER y no de Operaciones,
+        // aunque el alta de uno en uno sí lo sea: aquí un archivo puede reescribir de golpe el
+        // inventario entero —incluidas las contraseñas de servidores que ya estaban— y eso es
+        // corregir lo existente, no dar de alta un destino nuevo.
+        grupo.MapPost("/servidores/importar", async Task<IResult> (
+            IFormFile archivo, DeploymentTargetService servidores, CancellationToken ct) =>
+        {
+            // Tope pequeño y a propósito: es un JSON de texto con unas decenas de servidores. Un
+            // archivo de megabytes aquí es un error, no un inventario.
+            const long tope = 1024 * 1024;
+            if (archivo.Length is 0 or > tope)
+                return Resultado((false,
+                    $"El archivo está vacío o pasa de {tope / 1024} KB. Es un JSON de texto."));
+
+            using var lector = new StreamReader(archivo.OpenReadStream());
+            var json = await lector.ReadToEndAsync(ct);
+
+            var (ok, mensaje, _, _) = await servidores.ImportarDesdeJsonAsync(json, ct);
+            return Resultado((ok, mensaje));
+        })
+        .RequireAuthorization(PoliticaDelLider)
+        .WithSummary("Da de alta o actualiza varios servidores desde un JSON");
+
         grupo.MapPost("/servidores/{id:int}/editar", async (
             int id, GuardarServidorRequest cuerpo, DeploymentTargetService servidores, CancellationToken ct) =>
             // Contraseña vacía = conservar la que tiene. No es una comodidad: como nunca viaja de

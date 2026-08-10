@@ -18,23 +18,54 @@ namespace AdminWeb.Application.Services;
 public class JornadaQueryService(
     AppDbContext db,
     ICurrentUser currentUser,
-    AttendanceService asistencia)
+    AttendanceService asistencia,
+    PresenceService presencia)
 {
-    /// <summary>Cuántos días atrás enseña el historial. Un mes cubre el ciclo de nómina.</summary>
+    /// <summary>Cuántos días atrás enseña el historial por omisión. Un mes cubre el ciclo de nómina.</summary>
     public const int DiasDeHistorial = 30;
 
-    public async Task<MiJornadaDto> MiJornadaAsync(CancellationToken ct = default)
+    /// <summary>
+    /// Tope del rango que se puede pedir. Un año es más de lo que nadie repasa de una vez, y sin
+    /// tope una petición de una línea podría traer todas las jornadas que existan.
+    /// </summary>
+    public const int TopeDeDias = 366;
+
+    /// <param name="desdeLocal">Primer día del historial. Nulo = los últimos 30, como antes.</param>
+    /// <param name="hastaLocal">Último día, incluido. Nulo = hoy.</param>
+    public async Task<MiJornadaDto> MiJornadaAsync(
+        DateTime? desdeLocal = null, DateTime? hastaLocal = null, CancellationToken ct = default)
     {
         AuthorizationGuard.RequireLoggedIn(currentUser);
 
+        // El rango se acota en el SERVIDOR y no se confía en el que llegue. Sin tope, «desde 1990»
+        // traería años de filas por una petición de una línea; y un rango al revés devolvería vacío
+        // sin que nadie entendiera por qué, así que se ordena en vez de rechazarlo.
+        var hasta = (hastaLocal ?? DateTime.Today).Date;
+        var desde = (desdeLocal ?? hasta.AddDays(-DiasDeHistorial)).Date;
+        if (desde > hasta) (desde, hasta) = (hasta, desde);
+        if ((hasta - desde).TotalDays > TopeDeDias) desde = hasta.AddDays(-TopeDeDias);
+
         var abierto = await asistencia.MiRegistroAbiertoAsync(ct);
-        var registros = await asistencia.MisRegistrosAsync(
-            DateTime.Today.AddDays(-DiasDeHistorial), DateTime.Today, ct);
+        var registros = await asistencia.MisRegistrosAsync(desde, hasta, ct);
 
         // Cuánto se cronometró cada día, para poder contrastarlo con lo marcado. Es el dato que hace
         // útil la pantalla: una jornada de ocho horas con veinte minutos de cronómetro no es una
         // falta, pero es justo lo que la persona quiere ver antes de que se lo pregunten.
-        var porDia = await SegundosPorDiaAsync(ct);
+        var porDia = await SegundosPorDiaAsync(desde, ct);
+
+        // Lo que la aplicación vio SOLA, agrupado por día local. Es la otra mitad de la pantalla: sin
+        // esto, quien quiere comprobar si su marcaje cuadra con lo que trabajó no tiene con qué
+        // compararlo, y era justo lo que el escritorio sí enseñaba.
+        var telemetria = (await presencia.MisJornadasAsync(desde, hasta, ct))
+            .GroupBy(j => DateOnly.FromDateTime(j.InicioUtc.ToLocalTime()))
+            .ToDictionary(g => g.Key, g => new TelemetriaDelDia(
+                g.Min(j => j.InicioUtc),
+                g.Max(j => j.FinUtc ?? j.InicioUtc),
+                (int)g.Sum(j => j.Duracion.TotalSeconds),
+                // «Sin señal» si alguna de las jornadas del día se cerró sola por dejar de latir:
+                // esa salida no es una hora real y conviene que se vea.
+                g.Any(j => j.Cierre == PresenceEnd.SinLatido),
+                g.Select(j => j.Equipo).FirstOrDefault(e => !string.IsNullOrWhiteSpace(e))));
 
         var historial = registros
             .OrderByDescending(r => r.CheckInUtc)
@@ -47,8 +78,28 @@ public class JornadaQueryService(
                 AttendanceService.EtiquetaCierre(r.CloseKind),
                 r.CorrectionRequestedAtUtc != null,
                 r.CorrectionRequestNote,
-                porDia.GetValueOrDefault(DateOnly.FromDateTime(r.CheckInUtc.ToLocalTime()))))
+                porDia.GetValueOrDefault(DateOnly.FromDateTime(r.CheckInUtc.ToLocalTime())),
+                telemetria.GetValueOrDefault(DateOnly.FromDateTime(r.CheckInUtc.ToLocalTime()))))
             .ToList();
+
+        // Días con TELEMETRÍA pero SIN marcaje: la aplicación estuvo abierta y nadie marcó. Se
+        // añaden como filas propias porque son exactamente el caso que la pantalla existe para
+        // enseñar —«olvidé marcar el jueves»— y sin ellas ese día simplemente no aparece.
+        var conMarcaje = registros
+            .Select(r => DateOnly.FromDateTime(r.CheckInUtc.ToLocalTime()))
+            .ToHashSet();
+
+        historial.AddRange(telemetria
+            .Where(t => !conMarcaje.Contains(t.Key))
+            .Select(t => new DiaDeJornadaDto(
+                // Sin Id: no hay registro que corregir, así que tampoco se ofrece el botón.
+                null,
+                t.Value.PrimeraSenalUtc, t.Value.UltimaSenalUtc,
+                null, null,
+                "⚠ Sin marcar (solo telemetría)",
+                false, null, porDia.GetValueOrDefault(t.Key), t.Value)));
+
+        historial = [.. historial.OrderByDescending(h => h.EntradaUtc)];
 
         // «Ya cerró hoy» también impide volver a marcar: si no, quien se equivoca al salir abriría una
         // segunda jornada del mismo día en vez de pedir la corrección, que es lo que debe hacer.
@@ -119,11 +170,10 @@ public class JornadaQueryService(
     /// abierta el lunes y detenida el martes no es tiempo del lunes. El tramo ya trae su día local
     /// calculado, así que el agrupado lo hace SQL y aquí no se convierte ninguna zona horaria.
     /// </summary>
-    private async Task<Dictionary<DateOnly, int>> SegundosPorDiaAsync(CancellationToken ct)
+    private async Task<Dictionary<DateOnly, int>> SegundosPorDiaAsync(
+        DateTime desde, CancellationToken ct)
     {
         if (currentUser.DeveloperId is not int devId) return [];
-
-        var desde = DateTime.Today.AddDays(-DiasDeHistorial);
 
         var porDia = await db.WorkIntervals.AsNoTracking()
             .Where(i => i.DeveloperId == devId && i.LocalDate >= desde)

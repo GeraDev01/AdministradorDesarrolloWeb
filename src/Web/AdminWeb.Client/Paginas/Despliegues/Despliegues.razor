@@ -431,6 +431,17 @@
                                 <RadzenButton Text="➕ Nuevo servidor" Size="ButtonSize.Small"
                                               Disabled="@_ocupado" Click="@NuevoServidor" />
                             }
+                            @* El alta MASIVA es del líder aunque la de uno en uno la tenga también
+                               Operaciones: un archivo puede reescribir de golpe el inventario entero,
+                               contraseñas incluidas, y eso es corregir lo existente. *@
+                            @if (opciones.PuedeEditarServidores)
+                            {
+                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                    o importar varios desde un JSON:
+                                </RadzenText>
+                                <InputFile OnChange="@ImportarServidores" accept=".json" disabled="@_ocupado" />
+                            }
+
                             @if (!opciones.PuedeEditarServidores)
                             {
                                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
@@ -1012,6 +1023,54 @@
     }
 
     // ── Servidores ───────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Alta masiva de servidores desde un JSON, como en el escritorio: el archivo que el área ya
+    /// tiene sirve tal cual.
+    ///
+    /// <para>El servidor valida TODO antes de escribir nada: si una fila está mal, no entra ninguna
+    /// y dice cuál. Y el archivo lleva contraseñas en claro —no hay otra forma de importarlas—, así
+    /// que conviene no dejarlo en un disco compartido.</para>
+    /// </summary>
+    private async Task ImportarServidores(InputFileChangeEventArgs e)
+    {
+        var archivo = e.File;
+        if (archivo is null) return;
+
+        const long tope = 1024 * 1024;
+        if (archivo.Size > tope)
+        {
+            Avisos.Aviso($"El archivo pasa de {tope / 1024} KB. Es un JSON de texto, no un volcado.");
+            return;
+        }
+
+        if (!await Avisos.ConfirmarAsync(
+                $"Se van a dar de alta o ACTUALIZAR los servidores de «{archivo.Name}». " +
+                "Los que ya existan con el mismo nombre se sobrescriben, contraseña incluida. ¿Seguir?",
+                "Importar servidores"))
+            return;
+
+        _ocupado = true;
+        try
+        {
+            using var flujo = archivo.OpenReadStream(tope, _cancelacion.Token);
+            using var memoria = new MemoryStream();
+            await flujo.CopyToAsync(memoria, _cancelacion.Token);
+
+            var formulario = new MultipartFormDataContent
+            {
+                { new ByteArrayContent(memoria.ToArray()), "archivo", archivo.Name }
+            };
+
+            var (ok, r) = await Api.SubirAsync<ResultadoDto>(
+                "api/despliegues/servidores/importar", formulario, _cancelacion.Token);
+
+            // El rechazo lo enseña el manejador de respuestas nombrando la fila que falla.
+            if (ok && r is not null) Avisos.Exito(r.Mensaje);
+            if (ok) await Cargar();
+        }
+        finally { _ocupado = false; }
+    }
 
     private async Task NuevoServidor()
     {

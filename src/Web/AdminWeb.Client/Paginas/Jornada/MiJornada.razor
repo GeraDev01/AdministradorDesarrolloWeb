@@ -94,6 +94,26 @@
             </RadzenCard>
         }
 
+        @* El rango, con los mismos atajos del escritorio. Antes el historial eran 30 días fijos:
+           para revisar el mes pasado no había forma de llegar. *@
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center"
+                     Wrap="FlexWrap.Wrap">
+            <RadzenButton Text="Hoy" Size="ButtonSize.Small" Disabled="@_ocupado"
+                          ButtonStyle="@Estilo(Rango.Hoy)" Click="@(() => Ir(Rango.Hoy))" />
+            <RadzenButton Text="Esta semana" Size="ButtonSize.Small" Disabled="@_ocupado"
+                          ButtonStyle="@Estilo(Rango.Semana)" Click="@(() => Ir(Rango.Semana))" />
+            <RadzenButton Text="Este mes" Size="ButtonSize.Small" Disabled="@_ocupado"
+                          ButtonStyle="@Estilo(Rango.Mes)" Click="@(() => Ir(Rango.Mes))" />
+            <RadzenButton Text="Últimos 30 días" Size="ButtonSize.Small" Disabled="@_ocupado"
+                          ButtonStyle="@Estilo(Rango.TreintaDias)" Click="@(() => Ir(Rango.TreintaDias))" />
+
+            <RadzenDatePicker TValue="DateTime" @bind-Value="_desde" DateFormat="dd/MM/yyyy"
+                              Disabled="@_ocupado" Style="width:9rem" Change="@(_ => IrALibre())" />
+            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">a</RadzenText>
+            <RadzenDatePicker TValue="DateTime" @bind-Value="_hasta" DateFormat="dd/MM/yyyy"
+                              Disabled="@_ocupado" Style="width:9rem" Change="@(_ => IrALibre())" />
+        </RadzenStack>
+
         <RadzenDataGrid TItem="DiaDeJornadaDto" Data="@d.Historial" IsLoading="@_ocupado"
                         AllowSorting="true" AllowPaging="true" PageSize="15"
                         EmptyText="Todavía no has marcado ninguna jornada.">
@@ -118,6 +138,40 @@
                        pero es lo que uno quiere ver ANTES de que se lo pregunten. *@
                     <Template Context="f">@Reloj(f.SegundosCronometrados)</Template>
                 </RadzenDataGridColumn>
+                @* Lo que la aplicación vio SOLA, frente a lo que se marcó. Es la mitad que faltaba:
+                   sin esto no había con qué comparar el marcaje. Una diferencia grande no es una
+                   falta —se puede trabajar sin la web abierta— pero es lo que uno quiere ver antes
+                   de que se lo pregunten. *@
+                <RadzenDataGridColumn TItem="DiaDeJornadaDto" Title="App abierta" Width="200px" Sortable="false">
+                    <Template Context="f">
+                        @if (f.Telemetria is not { } t)
+                        {
+                            <span style="opacity:.5">—</span>
+                        }
+                        else
+                        {
+                            <RadzenStack Gap="0.1rem">
+                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                    @t.PrimeraSenalUtc.ToLocalTime().ToString("HH:mm")
+                                    – @t.UltimaSenalUtc.ToLocalTime().ToString("HH:mm")
+                                    (@Reloj(t.Segundos))
+                                </RadzenText>
+                                @if (t.CierreSinSenal)
+                                {
+                                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                                                Style="color:var(--rz-warning)">
+                                        se cerró sola: la última hora no es una salida real
+                                    </RadzenText>
+                                }
+                                @if (Desfase(f) is { } desfase)
+                                {
+                                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                                                Style="opacity:.7">@desfase</RadzenText>
+                                }
+                            </RadzenStack>
+                        }
+                    </Template>
+                </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="DiaDeJornadaDto" Property="Cierre" Title="Cierre" Width="170px" />
                 <RadzenDataGridColumn TItem="DiaDeJornadaDto" Title="" Width="150px" Sortable="false">
                     <Template Context="f">
@@ -126,7 +180,7 @@
                             <RadzenBadge BadgeStyle="BadgeStyle.Info" Text="Corrección pedida"
                                          title="@f.NotaCorreccion" />
                         }
-                        else
+                        else if (f.Id is not null)
                         {
                             <RadzenButton Text="Pedir corrección" ButtonStyle="ButtonStyle.Light"
                                           Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
@@ -171,7 +225,9 @@
         _ocupado = true;
         try
         {
-            _datos = await Api.LeerAsync<MiJornadaDto>("api/jornada/mia", _cancelacion.Token);
+            _datos = await Api.LeerAsync<MiJornadaDto>(
+                $"api/jornada/mia?desde={_desde:yyyy-MM-dd}&hasta={_hasta:yyyy-MM-dd}",
+                _cancelacion.Token);
 
             if (_datos?.Cronometro is { } c)
             {
@@ -296,6 +352,62 @@
     }
 
     // ── Formato ──────────────────────────────────────────────────────────────
+
+    // ── El rango del historial ───────────────────────────────────────────────
+
+    /// <summary>Los atajos del escritorio. «Libre» es cuando se tocan los selectores de fecha.</summary>
+    private enum Rango { Hoy, Semana, Mes, TreintaDias, Libre }
+
+    private Rango _rango = Rango.TreintaDias;
+    private DateTime _desde = DateTime.Today.AddDays(-30);
+    private DateTime _hasta = DateTime.Today;
+
+    private ButtonStyle Estilo(Rango r) =>
+        _rango == r ? ButtonStyle.Primary : ButtonStyle.Light;
+
+    private Task Ir(Rango r)
+    {
+        _rango = r;
+        _hasta = DateTime.Today;
+        _desde = r switch
+        {
+            Rango.Hoy    => DateTime.Today,
+            // La semana empieza en LUNES: es el calendario del equipo, no el del sistema, que en
+            // es-MX arranca en domingo y partiría la semana laboral por la mitad.
+            Rango.Semana => DateTime.Today.AddDays(-(((int)DateTime.Today.DayOfWeek + 6) % 7)),
+            Rango.Mes    => new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1),
+            _            => DateTime.Today.AddDays(-30)
+        };
+        return Cargar();
+    }
+
+    /// <summary>Al tocar una fecha a mano, el rango deja de ser uno de los atajos.</summary>
+    private Task IrALibre()
+    {
+        _rango = Rango.Libre;
+        return Cargar();
+    }
+
+    /// <summary>
+    /// La diferencia entre lo marcado y lo que la aplicación vio, en palabras.
+    ///
+    /// Solo se enseña si pasa de quince minutos: por debajo es el rato entre abrir el navegador y
+    /// pulsar «entrada», y anunciarlo cada día convertiría un dato útil en ruido que nadie mira.
+    /// </summary>
+    private static string? Desfase(DiaDeJornadaDto f)
+    {
+        if (f.Telemetria is not { } t || f.SalidaUtc is not { } salida) return null;
+
+        var marcado = salida - f.EntradaUtc;
+        var visto = TimeSpan.FromSeconds(t.Segundos);
+        var diferencia = marcado - visto;
+
+        if (Math.Abs(diferencia.TotalMinutes) < 15) return null;
+
+        return diferencia > TimeSpan.Zero
+            ? $"marcaste {Reloj((int)diferencia.TotalSeconds)} más de lo que estuvo abierta"
+            : $"estuvo abierta {Reloj((int)(-diferencia).TotalSeconds)} más de lo que marcaste";
+    }
 
     private static string Reloj(int segundos) =>
         $"{segundos / 3600}:{segundos / 60 % 60:00}:{segundos % 60:00}";

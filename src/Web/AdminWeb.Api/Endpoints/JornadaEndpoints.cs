@@ -23,9 +23,13 @@ public static class JornadaEndpoints
     {
         var grupo = app.MapGroup("/api/jornada").WithTags("Jornada");
 
-        grupo.MapGet("/mia", async (JornadaQueryService jornada, CancellationToken ct) =>
-            Results.Ok(await jornada.MiJornadaAsync(ct)))
-        .WithSummary("Marcaje del día, cronómetro en marcha e historial reciente, de una vez");
+        // El rango es opcional: sin él salen los últimos 30 días, como antes. Con él, la pantalla
+        // ofrece Hoy / Esta semana / Este mes / un rango libre, que es lo que tenía el escritorio.
+        grupo.MapGet("/mia", async (
+            DateOnly? desde, DateOnly? hasta, JornadaQueryService jornada, CancellationToken ct) =>
+            Results.Ok(await jornada.MiJornadaAsync(
+                desde?.ToDateTime(TimeOnly.MinValue), hasta?.ToDateTime(TimeOnly.MinValue), ct)))
+        .WithSummary("Marcaje del día, cronómetro, telemetría propia e historial del rango pedido");
 
         grupo.MapGet("/estado", async (JornadaQueryService jornada, CancellationToken ct) =>
             Results.Ok(await jornada.EstadoDeMarcajeAsync(ct)))

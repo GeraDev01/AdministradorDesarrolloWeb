@@ -125,8 +125,13 @@ public class SignatureService(AppDbContext db, ICurrentUser usuarioActual, Audit
         if (png.Length == 0) return (false, "No se dibujó ninguna firma.", 0);
         if (png.Length > MaxBytes)
             return (false, $"La imagen de la firma pasa de {MaxBytes / 1024} KB; eso no es un trazo.", 0);
+        // Las medidas SÍ se usan: el documento en Word estampa la imagen a su proporción, acotada a
+        // la misma altura que el PDF. Sin ellas no hay forma de saber cuánto ocupa el trazo y la
+        // firma saldría de un píxel — que es exactamente lo que hacía el escritorio al caer a su
+        // valor de respaldo.
         if (ancho <= 0 || alto <= 0)
-            return (false, "La firma llegó sin medidas y el documento las necesita para no deformarla.", 0);
+            return (false, "La firma llegó sin medidas y el documento las necesita para estamparla " +
+                           "a su tamaño. Vuelve a trazarla o a subirla.", 0);
 
         if (predeterminada) await QuitarPredeterminadaAsync(duenoDeveloperId, ct);
 

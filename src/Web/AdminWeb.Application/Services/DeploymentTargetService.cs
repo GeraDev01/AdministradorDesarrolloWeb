@@ -1,3 +1,4 @@
+using System.Text.Json;
 using AdminWeb.Domain.Entities;
 using AdminWeb.Domain.Security;
 using AdminWeb.Infrastructure.Data;
@@ -192,5 +193,109 @@ public class DeploymentTargetService(AppDbContext db, ICurrentUser quien, AuditS
             : await db.DeploymentTargets.AnyAsync(x => x.Nombre == t.Nombre && x.Id != t.Id, ct);
 
         return duplicado ? $"Ya existe un servidor llamado «{t.Nombre}»." : null;
+    }
+
+    // ── Alta masiva desde JSON ───────────────────────────────────────────────────
+
+    /// <summary>
+    /// Da de alta o actualiza varios servidores de golpe desde un JSON.
+    ///
+    /// <para>Es lo que tenía el escritorio y usaba el área para montar el inventario de una vez.
+    /// El formato es el mismo, así que el archivo que ya tengan sirve tal cual: una lista de
+    /// objetos con <c>nombre</c>, <c>host</c>, <c>puerto</c>, <c>usuario</c>, <c>contrasena</c>,
+    /// <c>rutaRemota</c> y <c>url</c> opcional.</para>
+    ///
+    /// <para><b>Se cotejan por NOMBRE, igual que allí</b>: el que ya existe se actualiza y el que no,
+    /// se crea. Cotejar por host habría fusionado dos servidores distintos que comparten máquina y
+    /// se distinguen por la carpeta, que es un caso real de este inventario.</para>
+    ///
+    /// <para><b>Todo o nada.</b> El escritorio guardaba al final del bucle sin transacción, así que
+    /// un fallo a media lista dejaba media importación hecha y nadie sabía por dónde iba. Aquí se
+    /// valida TODO antes de escribir: si una fila está mal, no entra ninguna y se dice cuál.</para>
+    ///
+    /// <para>La contraseña se cifra con el esquema COMPARTIDO con el escritorio, no con Data
+    /// Protection: hasta el corte las dos aplicaciones despliegan leyendo estas mismas filas.</para>
+    /// </summary>
+    public async Task<(bool ok, string mensaje, int altas, int actualizados)> ImportarDesdeJsonAsync(
+        string json, CancellationToken ct = default)
+    {
+        AuthorizationGuard.RequireAdminOrOperaciones(quien);
+
+        List<ServidorImportadoDto>? lista;
+        try
+        {
+            lista = JsonSerializer.Deserialize<List<ServidorImportadoDto>>(json,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        }
+        catch (JsonException ex)
+        {
+            // Se cita la posición pero NO el contenido: en este archivo hay contraseñas, y el
+            // mensaje del analizador entrecomilla el trozo que no entendió.
+            return (false, $"El JSON no se puede leer (línea {ex.LineNumber}, posición {ex.BytePositionInLine}). " +
+                           "Tiene que ser una lista de objetos.", 0, 0);
+        }
+
+        if (lista is null || lista.Count == 0)
+            return (false, "El archivo no trae ningún servidor.", 0, 0);
+
+        // Un nombre repetido DENTRO del archivo se rechaza: si no, la última fila ganaría en
+        // silencio y el resultado dependería del orden.
+        var repetido = lista.GroupBy(x => (x.Nombre ?? "").Trim(), StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(g => g.Count() > 1);
+        if (repetido is not null)
+            return (false, $"«{repetido.Key}» aparece {repetido.Count()} veces en el archivo.", 0, 0);
+
+        var existentes = await db.DeploymentTargets
+            .Where(t => lista.Select(x => x.Nombre).Contains(t.Nombre))
+            .ToDictionaryAsync(t => t.Nombre, StringComparer.OrdinalIgnoreCase, ct);
+
+        // Primera pasada: VALIDAR todo. Nada se escribe hasta que la lista entera esté bien.
+        var preparados = new List<(DeploymentTarget destino, string contrasena, bool esNuevo)>();
+        foreach (var fila in lista)
+        {
+            var nombre = (fila.Nombre ?? "").Trim();
+            if (nombre.Length == 0)
+                return (false, "Hay un servidor sin nombre en el archivo.", 0, 0);
+            if (string.IsNullOrWhiteSpace(fila.Contrasena))
+                return (false, $"«{nombre}» viene sin contraseña. Sin ella no se puede desplegar.", 0, 0);
+
+            existentes.TryGetValue(nombre, out var actual);
+            bool esNuevo = actual is null;
+            var destino = actual ?? new DeploymentTarget { Nombre = nombre, IsActive = true };
+
+            destino.Host       = (fila.Host ?? "").Trim();
+            destino.Puerto     = fila.Puerto;
+            destino.Usuario    = (fila.Usuario ?? "").Trim();
+            destino.RutaRemota = (fila.RutaRemota ?? "").Trim();
+            destino.URL        = string.IsNullOrWhiteSpace(fila.Url) ? null : fila.Url.Trim();
+
+            // La MISMA validación que el alta de uno en uno. Importar no puede ser la puerta por la
+            // que entren servidores que el formulario habría rechazado.
+            var error = await ValidarAsync(destino, esNuevo, ct);
+            if (error != null) return (false, $"«{nombre}»: {error}", 0, 0);
+
+            preparados.Add((destino, fila.Contrasena!, esNuevo));
+        }
+
+        // Segunda pasada: escribir.
+        foreach (var (destino, contrasena, esNuevo) in preparados)
+        {
+            destino.Contrasena = ProtectorPortable.Cifrar(contrasena);
+            if (esNuevo) db.DeploymentTargets.Add(destino);
+        }
+        await db.SaveChangesAsync(ct);
+
+        int altas = preparados.Count(p => p.esNuevo);
+        int actualizados = preparados.Count - altas;
+
+        // En la bitácora van los NOMBRES, nunca las contraseñas ni el archivo.
+        await bitacora.RecordAsync(AuditAction.Create, "DeploymentTarget", null,
+            $"Importación de servidores: {altas} alta(s), {actualizados} actualizado(s) " +
+            $"({string.Join(", ", preparados.Select(p => p.destino.Nombre))})", ct);
+
+        return (true,
+            $"{altas} servidor(es) dados de alta y {actualizados} actualizado(s). " +
+            "Sus contraseñas quedaron cifradas en la base compartida.",
+            altas, actualizados);
     }
 }

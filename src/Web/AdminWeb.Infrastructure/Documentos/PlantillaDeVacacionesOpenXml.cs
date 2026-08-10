@@ -190,17 +190,31 @@ public sealed class PlantillaDeVacacionesOpenXml : IPlantillaDeVacacionesEnWord
         var relacion = principal.GetIdOfPart(imagen);
 
         // (4) Medidas de respaldo si vinieran en cero. El escritorio ponía 9525 EMU —UN píxel— y la
-        //     firma salía como un punto invisible en mitad del papel. 190x60 puntos es el hueco que
-        //     la plantilla reserva.
+        //     firma salía como un punto invisible en mitad del papel. 190x60 es el hueco que la
+        //     plantilla reserva.
         int ancho = firma.Ancho > 0 ? firma.Ancho : 190;
         int alto  = firma.Alto  > 0 ? firma.Alto  : 60;
 
+        // Se ACOTA a la misma altura que usa el PDF (48 puntos) conservando la proporción.
+        //
+        // Sin esto los dos formatos del MISMO documento salían distintos: el PDF limita la firma a
+        // 48 puntos de alto y el Word la estampaba a su tamaño natural en píxeles, así que un trazo
+        // capturado en un lienzo grande se imprimía enorme y se salía de la celda de la tabla. Que
+        // el mismo papel se vea igual en Word y en PDF no es cosmética: es lo que permite revisar
+        // uno y archivar el otro sin compararlos.
+        const double AltoMaximoEnPuntos = 48;
+        double escala = Math.Min(1, AltoMaximoEnPuntos / AlturaEnPuntos(alto));
+
         // EMU: 914400 por pulgada, 96 píxeles por pulgada → 9525 EMU por píxel.
-        long cx = ancho * 9525L, cy = alto * 9525L;
+        long cx = (long)(ancho * 9525L * escala);
+        long cy = (long)(alto  * 9525L * escala);
 
         ancla.Text = ancla.Text.Replace(TokensDeVacaciones.FirmaDelJefe, "");
         ancla.Parent?.AppendChild(Dibujo(relacion, cx, cy));
     }
+
+    /// <summary>Los píxeles pasados a puntos de documento: 96 píxeles por pulgada, 72 puntos por pulgada.</summary>
+    private static double AlturaEnPuntos(int pixeles) => pixeles * 72.0 / 96.0;
 
     /// <summary>El armazón XML de una imagen en línea. Copiado del escritorio sin cambios.</summary>
     private static Drawing Dibujo(string relacion, long cx, long cy) => new(

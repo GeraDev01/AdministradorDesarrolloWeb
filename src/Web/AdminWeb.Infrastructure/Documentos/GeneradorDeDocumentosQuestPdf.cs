@@ -30,6 +30,14 @@ public class GeneradorDeDocumentosQuestPdf : IGeneradorDeDocumentos
     private const string Tenue = "#6b7280";
     private const string Linea = "#d1d5db";
 
+    // Verde y rojo de la sección de fortalezas y debilidades. Son los MISMOS del escritorio, para
+    // que el documento no cambie de aspecto al cambiar de aplicación. Los oscuros van en el texto y
+    // los claros en el título: al revés, el cuerpo se leería mal impreso en blanco y negro.
+    private const string Verde = "#2e7d32";
+    private const string VerdeOscuro = "#1b5e20";
+    private const string Rojo = "#c62828";
+    private const string RojoOscuro = "#8e1b1b";
+
     // ── Solicitud de vacaciones ─────────────────────────────────────────────────
 
     public byte[] SolicitudDeVacaciones(DatosDeVacaciones d) =>
@@ -142,6 +150,16 @@ public class GeneradorDeDocumentosQuestPdf : IGeneradorDeDocumentos
                         fila.RelativeItem().Element(e => Indicador(e, "Asignaciones activas", d.AsignacionesActivas.ToString()));
                     });
 
+                    // FORTALEZAS Y DEBILIDADES de la evaluación MÁS RECIENTE, destacadas aparte.
+                    //
+                    // Están además dentro de su tarjeta más abajo, junto al resto del historial;
+                    // esto es lo que el escritorio ponía primero y en color. La diferencia importa:
+                    // quien abre esta ficha —normalmente para una conversación de desempeño— viene a
+                    // por lo de AHORA, y tenerlo que buscar entre ocho evaluaciones anteriores hace
+                    // que se lea la primera que aparece, que es la más vieja.
+                    col.Item().Element(e => Seccion(e, "Fortalezas y debilidades"));
+                    col.Item().Element(e => UltimaEvaluacion(e, d.Evaluaciones));
+
                     col.Item().Element(e => Seccion(e, "Evaluaciones"));
                     if (d.Evaluaciones.Count == 0)
                         col.Item().Text("Todavía no tiene evaluaciones.").FontColor(Tenue).FontSize(9);
@@ -160,6 +178,45 @@ public class GeneradorDeDocumentosQuestPdf : IGeneradorDeDocumentos
                 pagina.Footer().Element(PieDePagina);
             });
         }).GeneratePdf();
+
+    /// <summary>
+    /// Lo más reciente que se dijo de esta persona, en verde y rojo como en el escritorio.
+    ///
+    /// <para>El color NO es decoración: separa de un vistazo lo que se le reconoce de lo que se le
+    /// pide, y en una conversación de desempeño esas dos listas se leen por separado. En gris, como
+    /// estaban dentro de la tarjeta, se leen como un párrafo más.</para>
+    ///
+    /// <para>Se toma la PRIMERA de la lista porque llegan ordenadas de más reciente a más antigua;
+    /// es la misma suposición que hacía el escritorio y la que sostiene el título de la sección.</para>
+    /// </summary>
+    private static void UltimaEvaluacion(IContainer c, IReadOnlyList<EvaluacionImpresa> evaluaciones)
+    {
+        if (evaluaciones.Count == 0)
+        {
+            c.Text("(sin evaluaciones registradas todavía)").FontColor(Tenue).FontSize(9);
+            return;
+        }
+
+        var ultima = evaluaciones[0];
+
+        c.PaddingBottom(8).Column(col =>
+        {
+            col.Item().Text($"Según la evaluación del {ultima.Fecha:dd/MM/yyyy}" +
+                            (string.IsNullOrWhiteSpace(ultima.Periodo) ? "" : $" · {ultima.Periodo}"))
+                .FontSize(8).FontColor(Tenue);
+
+            col.Item().PaddingTop(4).Text("Fortalezas").SemiBold().FontColor(Verde);
+            col.Item().Text(Vacio(ultima.Fortalezas, "(no se anotaron)")).FontSize(9).FontColor(VerdeOscuro);
+
+            col.Item().PaddingTop(4).Text("Debilidades / áreas de mejora").SemiBold().FontColor(Rojo);
+            col.Item().Text(Vacio(ultima.Debilidades, "(no se anotaron)")).FontSize(9).FontColor(RojoOscuro);
+        });
+    }
+
+    /// <summary>El texto, o una nota en su lugar cuando está vacío. Un hueco en blanco en un papel
+    /// oficial se lee como un error de impresión, no como «no había nada que decir».</summary>
+    private static string Vacio(string? texto, string siNoHay) =>
+        string.IsNullOrWhiteSpace(texto) ? siNoHay : texto.Trim();
 
     private static void Evaluacion(IContainer c, EvaluacionImpresa ev) =>
         c.PaddingBottom(8).Border(1).BorderColor(Linea).Padding(8).Column(col =>

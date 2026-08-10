@@ -23,8 +23,12 @@ public record MiJornadaDto(
 /// Un día ya registrado. Las horas viajan en UTC y las pinta el navegador en la hora de quien mira:
 /// mandarlas ya formateadas obligaría al servidor a adivinar la zona del cliente.
 /// </summary>
+/// <param name="Id">Nulo cuando el día NO tiene marcaje y la fila viene solo de la telemetría: en
+/// ese caso no hay registro que corregir, así que la pantalla tampoco ofrece pedirlo.</param>
+/// <param name="Telemetria">Lo que la aplicación vio sola ese día. Nulo si no vio nada — que con un
+/// marcaje presente significa que se marcó desde otro sitio o que no hubo sesión abierta.</param>
 public record DiaDeJornadaDto(
-    int Id,
+    int? Id,
     DateTime EntradaUtc,
     DateTime? SalidaUtc,
     string? NotaEntrada,
@@ -32,7 +36,26 @@ public record DiaDeJornadaDto(
     string Cierre,
     bool CorreccionSolicitada,
     string? NotaCorreccion,
-    int SegundosCronometrados);
+    int SegundosCronometrados,
+    TelemetriaDelDia? Telemetria = null);
+
+/// <summary>
+/// Lo que la aplicación observó por su cuenta en un día: cuándo dio la primera señal, la última, y
+/// cuánto tiempo estuvo abierta en total.
+///
+/// <para>Es la mitad que faltaba de «Mi jornada». Sirve para lo único que de verdad se viene a
+/// mirar aquí: si lo que marqué cuadra con lo que la aplicación vio. Una diferencia grande no es
+/// una falta —se puede trabajar sin la web abierta— pero es justo lo que conviene ver ANTES de que
+/// alguien lo pregunte.</para>
+/// </summary>
+/// <param name="CierreSinSenal">Alguna sesión del día se cerró sola por dejar de latir. Entonces la
+/// «última señal» no es una hora de salida real, y conviene que se note.</param>
+public record TelemetriaDelDia(
+    DateTime PrimeraSenalUtc,
+    DateTime UltimaSenalUtc,
+    int Segundos,
+    bool CierreSinSenal,
+    string? Equipo);
 
 /// <summary>
 /// El cronómetro en marcha. <paramref name="AhoraUtc"/> es la hora del SERVIDOR en el momento de

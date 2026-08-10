@@ -24,7 +24,8 @@ namespace AdminWeb.Application.Tests;
 public class JornadaQueryServiceTests
 {
     private static JornadaQueryService Svc(AppDbContext db, ICurrentUser cu) =>
-        new(db, cu, new AttendanceService(db, cu, new AuditService(db, cu, new OrigenDePrueba()), new OrigenDePrueba()));
+        new(db, cu, new AttendanceService(db, cu, new AuditService(db, cu, new OrigenDePrueba()), new OrigenDePrueba()),
+            new PresenceService(db, cu, new OrigenDePrueba()));
 
     private static ICurrentUser Sembrar(AppDbContext db, int userId = 1, int? devId = 7,
         UserRole rol = UserRole.Desarrollador)

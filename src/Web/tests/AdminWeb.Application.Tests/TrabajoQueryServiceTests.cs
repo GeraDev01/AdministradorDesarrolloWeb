@@ -33,7 +33,8 @@ public class TrabajoQueryServiceTests
             new RequirementService(db, cu, audit, new NotificationService(db)),
             new RequirementAttachmentService(db, cu, audit),
             new SprintService(db, cu, audit),
-            new JornadaQueryService(db, cu, new AttendanceService(db, cu, audit, new OrigenDePrueba())));
+            new JornadaQueryService(db, cu, new AttendanceService(db, cu, audit, new OrigenDePrueba()),
+                                    new PresenceService(db, cu, new OrigenDePrueba())));
     }
 
     private static TrabajoQueryService Admin(AppDbContext db, int? devId = null) =>
