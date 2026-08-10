@@ -125,7 +125,16 @@
                              title="@(item.Disponible ? null : "Todavía no está en la web; usa la aplicación de escritorio.")" />
     };
 
-    private void Repintar() => InvokeAsync(StateHasChanged);
+    private void Repintar() => InvokeAsync(async () =>
+    {
+        // Cambió la sesión. Si ahora hay usuario, es el momento de asegurarse de que la conexión en
+        // vivo está abierta: el primer intento pudo caer sin sesión —este layout se monta un
+        // instante antes de que la aplicación redirija al acceso— y llevarse un 401. Volver a
+        // pedirla no cuesta nada si ya está abierta, y es lo único que evita pasar toda la sesión
+        // sin presencia ni latido por un fallo de medio segundo al arrancar.
+        if (Sesion.Usuario is not null) await EnVivo.IniciarAsync();
+        StateHasChanged();
+    });
 
     private async Task Salir()
     {

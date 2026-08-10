@@ -24,6 +24,7 @@ public class ConexionEnVivo(NavigationManager navegacion, ILogger<ConexionEnVivo
 {
     private HubConnection? _hub;
     private Timer? _latido;
+    private readonly SemaphoreSlim _puerta = new(1, 1);
 
     /// <summary>Qué cronómetro hay que mantener vivo, si es que hay alguno.</summary>
     private (int? requerimiento, int? actividad)? _cronometro;
@@ -66,27 +67,74 @@ public class ConexionEnVivo(NavigationManager navegacion, ILogger<ConexionEnVivo
     /// <summary>Reconectando: la interfaz puede avisarlo sin tratarlo como error.</summary>
     public bool Reconectando => _hub?.State is HubConnectionState.Reconnecting or HubConnectionState.Connecting;
 
+    /// <summary>
+    /// Abre la conexión en vivo, o la vuelve a abrir si el intento anterior no llegó a cuajar.
+    ///
+    /// Se puede llamar las veces que haga falta, y hace falta. El primer intento ocurre casi siempre
+    /// SIN sesión: el layout de dentro se monta un instante antes de que la aplicación redirija a la
+    /// pantalla de acceso, y el hub contesta 401. Ese fallo no lo cura la reconexión automática
+    /// —WithAutomaticReconnect solo reintenta conexiones que llegaron a establecerse, nunca un
+    /// arranque fallido—, así que si esto se cortara en seco al ver que ya existe el objeto de
+    /// conexión, quien inicia sesión se quedaría sin tiempo real hasta recargar la página: sin
+    /// presencia, sin latido del cronómetro y sin avance de despliegues, y sin nada que lo explique.
+    /// </summary>
     public async Task IniciarAsync()
     {
-        if (_hub != null) return;
+        // Una a la vez: el layout puede montarse dos veces casi seguidas (redirección al acceso y
+        // vuelta), y dos StartAsync simultáneos sobre la misma conexión se pisan.
+        await _puerta.WaitAsync();
+        try
+        {
+            _hub ??= Construir();
 
-        _hub = new HubConnectionBuilder()
+            // Conectada, conectando o reconectando: no hay nada que hacer. Solo se arranca lo que
+            // está parado del todo.
+            if (_hub.State != HubConnectionState.Disconnected) return;
+
+            try
+            {
+                await _hub.StartAsync();
+                EstadoCambio?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                // Sin conexión en vivo la aplicación sigue funcionando: solo se pierde el tiempo
+                // real. Por eso esto se registra y no se le echa encima al usuario.
+                log.LogWarning(ex, "No se pudo abrir la conexión en vivo.");
+            }
+
+            // El temporizador es único y siempre corre: manda el latido de presencia y, si hay
+            // cronómetro, también el suyo. Dos temporizadores separados era lo que hacía el
+            // escritorio y era una fuente segura de que uno se quedara vivo al cerrar la pantalla.
+            // Con «??=» porque esto se reintenta: uno nuevo por intento serían latidos duplicados.
+            _latido ??= new Timer(async _ => await LatirAsync(), null,
+                WorkSessionServiceIntervalos.Latido, WorkSessionServiceIntervalos.Latido);
+        }
+        finally
+        {
+            _puerta.Release();
+        }
+    }
+
+    private HubConnection Construir()
+    {
+        var hub = new HubConnectionBuilder()
             .WithUrl(navegacion.ToAbsoluteUri(RutasDeTiempoReal.Hub))
             // Reintentos crecientes y sin tope: quien deja el portátil dormido toda la noche debe
             // encontrárselo reconectado, no con un error de hace ocho horas.
             .WithAutomaticReconnect(new ReintentosCrecientes())
             .Build();
 
-        _hub.On(Eventos.AvisoNuevo, () => AvisoNuevo?.Invoke());
-        _hub.On(Eventos.ContadoresCambiaron, () => AvisoNuevo?.Invoke());
-        _hub.On(Eventos.PresenciaCambiada, () => PresenciaCambiada?.Invoke());
+        hub.On(Eventos.AvisoNuevo, () => AvisoNuevo?.Invoke());
+        hub.On(Eventos.ContadoresCambiaron, () => AvisoNuevo?.Invoke());
+        hub.On(Eventos.PresenciaCambiada, () => PresenciaCambiada?.Invoke());
 
-        _hub.On<AvanceDeDespliegueDto>(Eventos.DespliegueAvanzo, a => DespliegueAvanzo?.Invoke(a));
-        _hub.On<RenglonDeBitacoraDto>(Eventos.DespliegueRegistro, r => DespliegueRegistro?.Invoke(r));
-        _hub.On<FinDeDespliegueDto>(Eventos.DespliegueTermino, f => DespliegueTermino?.Invoke(f));
+        hub.On<AvanceDeDespliegueDto>(Eventos.DespliegueAvanzo, a => DespliegueAvanzo?.Invoke(a));
+        hub.On<RenglonDeBitacoraDto>(Eventos.DespliegueRegistro, r => DespliegueRegistro?.Invoke(r));
+        hub.On<FinDeDespliegueDto>(Eventos.DespliegueTermino, f => DespliegueTermino?.Invoke(f));
 
-        _hub.Reconnecting += _ => { EstadoCambio?.Invoke(); return Task.CompletedTask; };
-        _hub.Reconnected += async _ =>
+        hub.Reconnecting += _ => { EstadoCambio?.Invoke(); return Task.CompletedTask; };
+        hub.Reconnected += async _ =>
         {
             // Volver a apuntarse a los despliegues que se estaban mirando: la reconexión trae una
             // conexión NUEVA y el servidor no sabe a qué grupos pertenecía la anterior. Lo que se
@@ -94,25 +142,9 @@ public class ConexionEnVivo(NavigationManager navegacion, ILogger<ConexionEnVivo
             await ReengancharDesplieguesAsync();
             EstadoCambio?.Invoke();
         };
-        _hub.Closed += _ => { EstadoCambio?.Invoke(); return Task.CompletedTask; };
+        hub.Closed += _ => { EstadoCambio?.Invoke(); return Task.CompletedTask; };
 
-        try
-        {
-            await _hub.StartAsync();
-            EstadoCambio?.Invoke();
-        }
-        catch (Exception ex)
-        {
-            // Sin conexión en vivo la aplicación sigue funcionando: solo se pierde el tiempo real.
-            // Por eso esto se registra y no se le echa encima al usuario.
-            log.LogWarning(ex, "No se pudo abrir la conexión en vivo.");
-        }
-
-        // El temporizador es único y siempre corre: manda el latido de presencia y, si hay
-        // cronómetro, también el suyo. Dos temporizadores separados era lo que hacía el escritorio y
-        // era una fuente segura de que uno se quedara vivo al cerrar la pantalla.
-        _latido = new Timer(async _ => await LatirAsync(), null,
-            WorkSessionServiceIntervalos.Latido, WorkSessionServiceIntervalos.Latido);
+        return hub;
     }
 
     /// <summary>

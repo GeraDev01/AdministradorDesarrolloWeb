@@ -14,7 +14,11 @@
     estado actual.
 *@
 
-<RadzenProfileMenu>
+@* El manejador del clic va en el MENÚ, no en cada entrada. RadzenProfileMenuItem no tiene
+   parámetro Click: lo que se le ponga cae en el diccionario de atributos sueltos, compila sin dar
+   error y no se ejecuta jamás —el menú se abría, se elegía un estado y no pasaba nada—. Radzen
+   entrega la entrada elegida, así que cada una viaja identificada por su Value. *@
+<RadzenProfileMenu Click="@AlElegirAsync">
     <Template>
         @* La nota se ve JUNTO al estado, no escondida en el menú: quien escribió «vuelvo 15:30»
            tiene que poder comprobar de un vistazo que sigue puesta. *@
@@ -25,11 +29,11 @@
     <ChildContent>
         @foreach (var e in Estados)
         {
-            <RadzenProfileMenuItem Text="@($"{Icono(e)} {Etiqueta(e)}")" Click="@(() => Cambiar(e))" />
+            <RadzenProfileMenuItem Text="@($"{Icono(e)} {Etiqueta(e)}")" Value="@e.ToString()" />
         }
         @* El escritorio tenía esta misma entrada aparte. Es lo que llenaba la columna «Nota» del
            tablero del líder, que sin ella llevaba tiempo vacía. *@
-        <RadzenProfileMenuItem Text="✏ Estado con nota…" Click="@ConNota" />
+        <RadzenProfileMenuItem Text="✏ Estado con nota…" Value="@ValorNota" />
     </ChildContent>
 </RadzenProfileMenu>
 
@@ -65,6 +69,28 @@
 
         _estado = mio.Estado;
         _nota = mio.Nota;
+    }
+
+    /// <summary>
+    /// Identifica la entrada «con nota…» dentro del menú. No es el nombre de ningún PresenceState,
+    /// así que no puede confundirse con un estado por mucho que crezca el enumerado.
+    /// </summary>
+    private const string ValorNota = "__nota__";
+
+    /// <summary>
+    /// Se eligió una entrada del menú. Radzen avisa una sola vez, a nivel de menú, entregando la
+    /// entrada elegida: quién era se sabe por su Value.
+    /// </summary>
+    private async Task AlElegirAsync(RadzenProfileMenuItem elegido)
+    {
+        if (elegido.Value == ValorNota)
+        {
+            await ConNota();
+            return;
+        }
+
+        if (Enum.TryParse<PresenceState>(elegido.Value, out var nuevo))
+            await Cambiar(nuevo);
     }
 
     private Task Cambiar(PresenceState nuevo) => Aplicar(nuevo, null);
