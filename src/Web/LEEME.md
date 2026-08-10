@@ -142,9 +142,16 @@ menú. Pasan **1187 pruebas de servicios**, **19 de la API levantada** y la prue
 que recorre unas setenta rutas contra la aplicación arrancada de verdad. El escritorio sigue intacto
 y sus **1085 pruebas** también pasan.
 
-**Lo que falta no es código: es el CORTE.** Está descrito paso a paso en
-[EL-CORTE.md](EL-CORTE.md), incluido el ensayo previo obligatorio contra una copia de producción. Es
-una operación manual contra la base real y no la ejecuta ninguna herramienta.
+**Lo que falta no es código: es el CORTE.**
+
+- **[GUIA-DE-PUESTA-EN-MARCHA.md](GUIA-DE-PUESTA-EN-MARCHA.md)** — el camino completo desde aquí:
+  probarla en local, preparar Azure, el ensayo y el corte. Empieza por ahí.
+- **[EL-CORTE.md](EL-CORTE.md)** — solo el día del corte, paso por paso. Es una operación manual
+  contra la base real y no la ejecuta ninguna herramienta.
+
+Las fases 0, 1 y 2 de la guía —probar en local, preparar Azure y ensayar contra una copia— **no
+tocan producción**: se pueden hacer con calma, en varios días y sin avisar a nadie. La única que la
+toca es la fase 3, que es el corte.
 
 ### Fases 4 y 5 — integraciones, trabajos de fondo y despliegues
 
