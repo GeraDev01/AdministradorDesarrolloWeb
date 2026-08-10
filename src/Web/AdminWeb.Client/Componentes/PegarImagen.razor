@@ -16,14 +16,21 @@
     captura y pulse Ctrl+V con el foco en otro sitio pensará que el componente no funciona.
 *@
 
+@* La variable es --rz-border-COLOR. Antes ponía var(--rz-border), que no existe ni en el tema de
+   Radzen ni en tema.css: una variable indefinida invalida la declaración ENTERA, así que no es que
+   el borde saliera de otro color — es que no había borde, y el recuadro donde hay que pulsar para
+   pegar no se veía por ningún lado. *@
 <div class="pegar-imagen" tabindex="0" @ref="_recuadro"
-     style="border:1px dashed var(--rz-border); border-radius:6px; padding:.75rem">
+     style="border:1px dashed var(--rz-border-color); border-radius:6px; padding:.75rem">
     <RadzenStack Gap="0.5rem">
         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.75rem">
             @* El label dispara el InputFile sin JavaScript: es lo que hace el navegador de serie. *@
             <label for="@_idCampo" class="rz-button rz-button-sm rz-secondary"
                    style="cursor:pointer; display:inline-flex; align-items:center; gap:.35rem">
-                <span>📎</span><span>Elegir imagen@(Maximo > 1 ? "es" : "")</span>
+                @* Era un 📎: lo dibuja el sistema operativo, sale en color aunque el resto del botón
+                   sea monocromo y no hereda currentColor. Y el clip además significa «adjuntos» en el
+                   resto de la aplicación; esto no lista adjuntos, elige una IMAGEN. *@
+                <RadzenIcon Icon="image" Style="font-size:1.1rem" /><span>Elegir imagen@(Maximo > 1 ? "es" : "")</span>
             </label>
             <InputFile id="@_idCampo" OnChange="AlElegir" accept="image/png,image/jpeg,image/gif,image/bmp"
                        multiple="@(Maximo > 1)" style="position:absolute; width:0; height:0; opacity:0" />
@@ -46,14 +53,17 @@
             <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.5rem">
                 @foreach (var img in Imagenes)
                 {
-                    <div style="position:relative; border:1px solid var(--rz-border); border-radius:4px; padding:.25rem">
+                    <div style="position:relative; border:1px solid var(--rz-border-color); border-radius:4px; padding:.25rem">
                         <img src="@img.ComoDatosEnLinea()" alt="@img.Nombre"
                              style="max-width:160px; max-height:120px; display:block" />
                         <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
                                     style="max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">
                             @img.Nombre
                         </RadzenText>
-                        <RadzenButton Icon="close" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                        @* «clear» y no «close»: quitar una imagen que acabas de pegar es VACIAR lo
+                           elegido, no cerrar una ventana. Son dos aspas distintas y no se
+                           intercambian; «close» queda para cerrar diálogos y cancelar. *@
+                        <RadzenButton Icon="clear" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                       Click="@(() => Quitar(img))" title="Quitar esta imagen"
                                       style="position:absolute; top:2px; right:2px" />
                     </div>

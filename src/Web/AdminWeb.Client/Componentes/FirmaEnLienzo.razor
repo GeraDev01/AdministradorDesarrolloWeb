@@ -13,15 +13,60 @@
     El PNG sale con FONDO TRANSPARENTE y recortado a lo dibujado. Las dos cosas importan porque esta
     imagen se pega dentro de un documento que alguien archiva: un rectángulo blanco encima del papel
     se nota, y una firma pequeña en un lienzo grande saldría diminuta al escalarla.
+
+    EL LIENZO NO SIGUE AL TEMA, Y NO ES UN DESCUIDO. Una firma es TINTA SOBRE PAPEL. La tinta la fija
+    el guion en grafito y ahí se queda: este PNG acaba impreso sobre papel blanco de verdad, así que
+    aclararla para que luciera en el modo oscuro dejaría la firma invisible en la hoja archivada — un
+    defecto que no se descubre hasta tenerla en la mano. Lo que tiene que comportarse como papel es la
+    SUPERFICIE, y por eso el fondo del recuadro vale IGUAL en los dos modos. Antes colgaba de
+    var(--rz-base-background-color), que en el modo oscuro es una superficie oscura —era #1e293b con
+    la pizarra azul y hoy es #1c1a18 con el grafito—: tinta oscura sobre fondo oscuro, se firmaba a
+    ciegas. Cambiar la paleta no arregló nada, y por eso el valor va aquí escrito: si alguien vuelve
+    a meter una variable del tema, el defecto vuelve con ella.
+
+    Y ESTO ES SEGURO PARA LA EXPORTACIÓN porque el `background` CSS de un <canvas> NO forma parte de su
+    mapa de bits: toDataURL() y getImageData() solo ven lo que dibujó el contexto 2D, así que el PNG
+    sigue saliendo transparente aunque el recuadro se vea marfil. Lo que SÍ rompería la transparencia
+    es pintar el fondo dentro del bitmap con un fillRect; eso no se hace nunca, ni para «limpiar».
 *@
 
 <RadzenStack Gap="0.5rem">
+    @* Los tokens del papel se declaran en el propio lienzo, y no en tema.css, porque tema.css no es
+       de este componente. Van en el elemento que los usa —en vez de en un :root o en el RadzenStack
+       de arriba— para que el recuadro se pinte bien esté donde esté y sin depender de quién lo
+       hospede.
+
+       MARFIL Y NO BLANCO PURO: a pantalla completa sobre una mesa oscura, el blanco puro deslumbra.
+       Contraste tinta/papel ~13:1, el mismo con el interruptor donde sea.
+
+       La guía va DENTRO de la hoja, así que su color se elige contra el marfil y no contra el tema.
+       Poner aquí var(--rz-border-color) parecería lo natural y fallaría por partida doble: en claro
+       vale #e8e3da, que sobre el marfil da 1.13 y no se ve, y en oscuro se va a #33302a, que sobre
+       ese mismo marfil sería una raya casi negra.
+
+       Y NO es #a8a29e, que es lo que había: daba 2,40 sobre el papel. Este recuadro no es un adorno
+       —es lo ÚNICO que dice dónde hay que firmar—, así que el listón son 3, el mismo que acceso.css
+       exige al borde de sus campos y por el mismo motivo. #8f8a83 da 3,26 y sigue cumpliendo la
+       regla de la escala cálida (R > G > B), así que no devuelve la aplicación al gris azulado.
+
+       Y el punteado usaba var(--rz-border), una variable que NO EXISTE en ningún sitio —ni en el tema
+       de Radzen ni en tema.css, donde la que hay se llama --rz-border-color—. Una var() sin definir
+       invalida la declaración entera, así que el borde se resolvía a border-style:none y no se
+       pintaba NUNCA, en ningún modo: no se veía el trazo, y tampoco dónde trazarlo.
+
+       Si algún día estos tokens suben a :root en tema.css, hay que BORRARLOS de aquí en vez de
+       dejarlos: una declaración local gana sobre la global y anclaría el recuadro al valor viejo. *@
     <canvas @ref="_lienzo"
-            style="width:100%; height:@(Alto)px; border:1px dashed var(--rz-border); border-radius:6px;
-                   background:var(--rz-base-background-color); touch-action:none; cursor:crosshair"></canvas>
+            style="--adminweb-papel:#faf9f7; --adminweb-papel-guia:#8f8a83;
+                   width:100%; height:@(Alto)px; border:1px dashed var(--adminweb-papel-guia); border-radius:6px;
+                   background:var(--adminweb-papel); touch-action:none; cursor:crosshair"></canvas>
 
     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
-        <RadzenButton Text="Borrar" Icon="delete" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+        @* «clear» y NO «delete»: el bote de basura no es lo que hace este botón. No borra una firma
+           guardada; vacía el lienzo antes de que se haya guardado nada. La aplicación reparte los
+           dos glifos así —«clear» para Limpiar/Quitar y «delete» para Eliminar un registro de
+           verdad—, y ponerle aquí el bote haría creer que esto tira algo ya escrito. *@
+        <RadzenButton Text="Borrar" Icon="clear" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                       Click="@Limpiar" />
         <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
             Firma con el dedo, el lápiz o el ratón dentro del recuadro.

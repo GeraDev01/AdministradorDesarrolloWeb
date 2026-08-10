@@ -25,6 +25,24 @@
     PNG se piden uno a uno por su ruta al pintarlos.
 *@
 
+@*
+    EL PAPEL DE LAS FIRMAS, que aquí se usa en dos sitios (la vista previa de la escaneada y las
+    miniaturas de la rejilla) y en los dos por la misma razón.
+
+    Una firma es TINTA SOBRE PAPEL. La tinta del PNG es grafito y es fija a propósito: ese PNG sale
+    transparente y acaba impreso sobre papel blanco de verdad, así que aclararla para que luciera en
+    el modo oscuro dejaría la firma invisible en la hoja archivada. Lo único que puede adaptarse es la
+    SUPERFICIE donde se enseña, y por eso el papel vale IGUAL en claro y en oscuro: en oscuro es una
+    hoja apoyada sobre la mesa, no un agujero. Todo lo que se pinte DENTRO del papel —el borde, los
+    cuadros del damero— se elige contra el marfil y nunca contra el tema; en cuanto se cuela ahí una
+    variable de Radzen, el defecto vuelve en el modo contrario.
+
+    Los tokens --adminweb-papel* se declaran en cada elemento que los usa, y no en tema.css, porque
+    tema.css no es de este componente. Repetir los dos valores es a conciencia: así cada superficie se
+    pinta bien por su cuenta, sin depender de un antepasado ni del orden en que se rendericen los
+    componentes. Si algún día suben a :root en tema.css, hay que BORRARLOS de aquí en vez de dejarlos
+    —una declaración local gana sobre la global y anclaría estas superficies al valor viejo—.
+*@
 <RadzenStack Gap="0.75rem">
     <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
         Las firmas que se estampan en los documentos que autoriza el líder. Se guardan una vez y se
@@ -73,11 +91,19 @@
             {
                 @* Se ve ANTES de guardar, y sobre un fondo a cuadros para que se note qué quedó
                    transparente: una firma con el rectángulo del papel todavía pegado se descubriría
-                   si no, ya estampada dentro de un documento oficial. *@
-                <div style="display:inline-block;padding:.5rem;border:1px solid var(--rz-border-color);
-                            border-radius:6px;
-                            background-image:linear-gradient(45deg,#0001 25%,transparent 25%,transparent 75%,#0001 75%),
-                                             linear-gradient(45deg,#0001 25%,transparent 25%,transparent 75%,#0001 75%);
+                   si no, ya estampada dentro de un documento oficial.
+
+                   Los cuadros se pintan sobre el PAPEL y con un gris cálido explícito. Antes eran
+                   #0001 —negro al 6 %— sobre el fondo HEREDADO de la tarjeta, así que en oscuro no se
+                   veía ni el cuadriculado ni la firma: la única pantalla que existe para comprobar la
+                   transparencia dejaba de comprobar nada, y el rectángulo del escaneo se colaba hasta
+                   el documento. El tamaño y el desfase de los cuadros no se tocan: son los que hacen
+                   el damero. *@
+                <div style="--adminweb-papel:#faf9f7;--adminweb-papel-borde:#d6d3d1;
+                            display:inline-block;padding:.5rem;border:1px solid var(--adminweb-papel-borde);
+                            border-radius:6px;background-color:var(--adminweb-papel);
+                            background-image:linear-gradient(45deg,rgba(28,25,23,.10) 25%,transparent 25%,transparent 75%,rgba(28,25,23,.10) 75%),
+                                             linear-gradient(45deg,rgba(28,25,23,.10) 25%,transparent 25%,transparent 75%,rgba(28,25,23,.10) 75%);
                             background-size:12px 12px;background-position:0 0,6px 6px">
                     <img src="@($"data:image/png;base64,{Convert.ToBase64String(vista.Png)}")"
                          alt="Vista previa de la firma importada"
@@ -92,17 +118,32 @@
         <Columns>
             <RadzenDataGridColumn TItem="FirmaDelLiderDto" Title="Firma" Width="140px" Sortable="false">
                 @* La imagen se pide por su ruta y no viaja en la lista: con diez firmas guardadas se
-                   descargarían las diez para enseñar una. *@
+                   descargarían las diez para enseñar una.
+
+                   Y se enseña sobre PAPEL, no sobre la fila. El PNG es transparente con tinta oscura,
+                   así que sin fondo propio se pintaba contra la rejilla y en oscuro todas las firmas
+                   se veían igual de vacías — justo en la pantalla donde se ELIGE cuál estampar. El
+                   relleno es para que el trazo no toque el borde. En claro también se gana: hasta
+                   ahora el trazo caía sobre el rayado sin nada que lo delimitara. *@
                 <Template Context="f">
                     <img src="@($"api/ausencias-lider/firmas/{f.Id}/imagen")"
                          alt="@($"Firma {f.Nombre}")"
-                         style="max-height:48px; max-width:120px" />
+                         style="--adminweb-papel:#faf9f7; --adminweb-papel-borde:#d6d3d1;
+                                max-height:48px; max-width:120px; display:block; object-fit:contain;
+                                padding:.25rem; background:var(--adminweb-papel);
+                                border:1px solid var(--adminweb-papel-borde); border-radius:6px" />
                 </Template>
             </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="FirmaDelLiderDto" Title="Nombre" Property="Nombre" />
             <RadzenDataGridColumn TItem="FirmaDelLiderDto" Title="Predeterminada"
                                   Property="Predeterminada" Width="150px">
-                <Template Context="f">@(f.Predeterminada ? "⭐ Sí" : "—")</Template>
+                @* La estrella se queda —marca de un vistazo cuál se va a estampar sin pedirla— pero
+                   como glifo de la fuente: la ⭐ del emoji la dibuja el sistema operativo y es
+                   amarilla pase lo que pase, así que en el tema oscuro era el único punto de color
+                   de toda la tabla. «star» hereda currentColor y se apaga con el renglón. El guion
+                   de la otra rama no se toca: un guion medio es tipografía, no un dibujo, y aquí
+                   significa lo mismo que en el resto de la aplicación —«no hay dato». *@
+                <Template Context="f">@if (f.Predeterminada) { <RadzenIcon Icon="star" /> <text>Sí</text> } else { <text>—</text> }</Template>
             </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="FirmaDelLiderDto" Title="Guardada" Property="CreadaUtc" Width="150px">
                 <Template Context="f">@f.CreadaUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</Template>

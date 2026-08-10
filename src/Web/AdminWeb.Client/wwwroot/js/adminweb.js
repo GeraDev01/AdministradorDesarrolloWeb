@@ -310,6 +310,20 @@ window.adminweb = {
             ctx.lineWidth = 2;
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
+
+            // LA TINTA, Y SE QUEDA FIJA A PROPOSITO: no la ates al tema.
+            //
+            // Cuando alguien reporta «en modo oscuro no se ve la firma», esta linea parece la
+            // culpable —grafito sobre fondo oscuro— y es justo la que no hay que tocar. El PNG que
+            // sale de aqui es transparente y se pega en un documento que alguien imprime y archiva
+            // sobre papel blanco de verdad: si la tinta se aclarara con el tema, el documento
+            // archivado saldria en blanco sobre blanco, y eso no se descubre hasta tener la hoja
+            // firmada en la mano. Lo que se adapta es el PAPEL, no la tinta — el fondo del lienzo lo
+            // pone el CSS de FirmaEnLienzo y vale igual en los dos modos.
+            //
+            // Y ese fondo se queda en el CSS: el background de un <canvas> NO forma parte de su mapa
+            // de bits, asi que toDataURL() y getImageData() siguen viendo solo el trazo. Pintar aqui
+            // el fondo con un fillRect es el atajo que rompe la transparencia del PNG. No se hace.
             ctx.strokeStyle = '#1f2937';
 
             let trazando = false;
@@ -355,6 +369,10 @@ window.adminweb = {
         limpiar: function (lienzo) {
             if (!lienzo) return;
             const ctx = lienzo.getContext('2d');
+            // clearRect y NO un fillRect del color del papel: borrar rellenando dejaria el bitmap
+            // opaco y la siguiente firma se guardaria con un rectangulo de fondo encima del
+            // documento. Lo que se ve de fondo mientras se firma lo pone el CSS. Ver la nota de la
+            // tinta en iniciar().
             ctx.clearRect(0, 0, lienzo.width, lienzo.height);
             lienzo._firmaVacia = true;
         },
