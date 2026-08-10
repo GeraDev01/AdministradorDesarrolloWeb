@@ -1,0 +1,71 @@
+@page "/cambiar-contrasena"
+@inject EstadoSesion Sesion
+@inject NavigationManager Navegacion
+
+<PageTitle>Cambiar contraseña</PageTitle>
+
+<RadzenCard Style="max-width:520px">
+    <RadzenStack Gap="1rem">
+        <RadzenText TextStyle="TextStyle.H6">Cambiar contraseña</RadzenText>
+
+        @if (Sesion.Usuario?.DebeCambiarContrasena == true)
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+                Estás usando una contraseña temporal. Cámbiala para poder continuar.
+            </RadzenAlert>
+        }
+
+        <RadzenPassword @bind-Value="_nueva" Placeholder="Nueva contraseña" Disabled="@_ocupado" />
+        <RadzenPassword @bind-Value="_confirmacion" Placeholder="Repite la contraseña" Disabled="@_ocupado" />
+
+        <RadzenText TextStyle="TextStyle.Caption">
+            Al menos 8 caracteres. Al cambiarla se cierran las sesiones abiertas en otros equipos.
+        </RadzenText>
+
+        @if (_mensaje != null)
+        {
+            <RadzenAlert AlertStyle="@(_ok ? AlertStyle.Success : AlertStyle.Danger)"
+                         Shade="Shade.Lighter" AllowClose="false">
+                @_mensaje
+            </RadzenAlert>
+        }
+
+        <RadzenButton Text="@(_ocupado ? "Guardando…" : "Guardar")" Disabled="@_ocupado" Click="@Guardar" />
+    </RadzenStack>
+</RadzenCard>
+
+@code {
+    private string _nueva = "";
+    private string _confirmacion = "";
+    private string? _mensaje;
+    private bool _ok;
+    private bool _ocupado;
+
+    private async Task Guardar()
+    {
+        if (_ocupado) return;
+        _mensaje = null;
+
+        // La comprobación de fondo (longitud, coincidencia) también vive en el servidor; esta es
+        // solo para no hacer ir y volver por lo evidente.
+        if (_nueva != _confirmacion)
+        {
+            (_ok, _mensaje) = (false, "Las dos contraseñas no coinciden.");
+            return;
+        }
+
+        _ocupado = true;
+        try
+        {
+            var (ok, mensaje) = await Sesion.CambiarContrasenaAsync(_nueva, _confirmacion);
+            (_ok, _mensaje) = (ok, mensaje);
+
+            if (ok)
+            {
+                _nueva = _confirmacion = "";
+                Navegacion.NavigateTo("", replace: true);
+            }
+        }
+        finally { _ocupado = false; }
+    }
+}

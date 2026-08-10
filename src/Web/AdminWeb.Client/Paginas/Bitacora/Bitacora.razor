@@ -1,0 +1,188 @@
+@page "/bitacora"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Client.Componentes
+@using AdminWeb.Shared.Dtos
+@using AdminWeb.Shared.Dtos.Bitacora
+@inject ClienteApi Api
+
+@*
+    La bitácora. Solo el líder: una bitácora que puede consultar cualquiera deja de servir para
+    vigilar a nadie.
+
+    PAGINADA EN EL SERVIDOR, sin excepción. Es la tabla que más crece de todo el sistema —cada
+    inicio de sesión, cada alta y cada despliegue dejan una fila, y nada las borra— y el escritorio
+    la traía entera para filtrarla en memoria. Aquí la rejilla pide de a una página con LoadData y
+    el servidor decide qué mandar; el rango de fechas viene puesto a los últimos 30 días por la
+    misma razón, igual que en el escritorio.
+
+    La columna «Origen» es lo único que cambia de contenido respecto al escritorio: allí guardaba
+    «MÁQUINA\usuario» porque cada quien corría su propio .exe; aquí todas las operaciones salen del
+    mismo servidor, así que lo que identifica al cliente es su IP y su navegador.
+*@
+
+<PageTitle>Bitácora</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenText TextStyle="TextStyle.H5" Style="margin:0">Bitácora</RadzenText>
+
+    <RadzenCard>
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                     Gap="1rem" Wrap="FlexWrap.Wrap">
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.4rem">
+                <RadzenLabel Text="Desde" />
+                <RadzenDatePicker TValue="DateTime" @bind-Value="_desde" DateFormat="dd/MM/yyyy"
+                                  ShowTime="false" Change="@(_ => Recargar())" Style="width:9rem" />
+            </RadzenStack>
+
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.4rem">
+                <RadzenLabel Text="Hasta" />
+                <RadzenDatePicker TValue="DateTime" @bind-Value="_hasta" DateFormat="dd/MM/yyyy"
+                                  ShowTime="false" Change="@(_ => Recargar())" Style="width:9rem" />
+            </RadzenStack>
+
+            <RadzenDropDown TValue="string" @bind-Value="_usuario" Data="@_usuarios"
+                            AllowClear="true" Placeholder="Todos los usuarios"
+                            Change="@(_ => Recargar())" Style="min-width:12rem" />
+
+            <RadzenDropDown TValue="AuditAction?" @bind-Value="_accion" Data="@Acciones"
+                            TextProperty="Texto" ValueProperty="Valor" AllowClear="true"
+                            Placeholder="Todas las acciones" Change="@(_ => Recargar())"
+                            Style="min-width:14rem" />
+
+            <RadzenTextBox @bind-Value="_texto" Placeholder="Texto en detalles o entidad…"
+                           Change="@(_ => Recargar())" Style="min-width:16rem" />
+
+            <SelectorDeColumnas Clave="bitacora" Columnas="@TodasLasColumnas"
+                                OcultasCambiaron="@(o => _ocultas = o)" />
+
+            <RadzenText TextStyle="TextStyle.Caption" Style="margin:0 0 0 auto">
+                @_total entrada(s)
+            </RadzenText>
+        </RadzenStack>
+    </RadzenCard>
+
+    @* Count + LoadData es la paginación DEL SERVIDOR: la rejilla nunca tiene en memoria más que la
+       página que se está viendo, pase lo que pase con el tamaño de la tabla. *@
+    <RadzenDataGrid @ref="_rejilla" TItem="EntradaBitacoraDto" Data="@_filas" Count="@_total"
+                    LoadData="@Cargar" IsLoading="@_cargando"
+                    AllowPaging="true" PageSize="50" PageSizeOptions="@(new[] { 25, 50, 100, 200 })"
+                    AllowSorting="false"
+                    EmptyText="No hay entradas en ese rango con esos filtros.">
+        <Columns>
+            <RadzenDataGridColumn TItem="EntradaBitacoraDto" Property="Fecha" Title="Fecha/Hora" Width="160px"
+                                  Visible="@Ver("Fecha/Hora")">
+                @* Se guarda en UTC y se muestra en la hora de quien mira: es lo que permite que dos
+                   personas en husos distintos lean la misma secuencia de hechos. *@
+                <Template Context="l">@l.Fecha.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="EntradaBitacoraDto" Property="Usuario" Title="Usuario" Width="150px"
+                                  Visible="@Ver("Usuario")" />
+            <RadzenDataGridColumn TItem="EntradaBitacoraDto" Property="AccionTexto" Title="Acción" Width="160px"
+                                  Visible="@Ver("Acción")" />
+            <RadzenDataGridColumn TItem="EntradaBitacoraDto" Property="ResultadoTexto" Title="Resultado" Width="120px"
+                                  Visible="@Ver("Resultado")" />
+            <RadzenDataGridColumn TItem="EntradaBitacoraDto" Property="Entidad" Title="Entidad" Width="130px"
+                                  Visible="@Ver("Entidad")">
+                <Template Context="l">@(l.Entidad ?? "—")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="EntradaBitacoraDto" Property="EntidadId" Title="ID" Width="90px"
+                                  Visible="@Ver("ID")">
+                <Template Context="l">@(l.EntidadId ?? "—")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="EntradaBitacoraDto" Property="Detalles" Title="Detalles"
+                                  Visible="@Ver("Detalles")">
+                <Template Context="l">@(l.Detalles ?? "—")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="EntradaBitacoraDto" Property="Origen" Title="Origen" Width="220px"
+                                  Visible="@Ver("Origen")">
+                <Template Context="l">@(l.Origen ?? "—")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="EntradaBitacoraDto" Property="Correlacion" Title="Correlación" Width="130px"
+                                  Visible="@Ver("Correlación")">
+                <Template Context="l">@(l.Correlacion ?? "—")</Template>
+            </RadzenDataGridColumn>
+        </Columns>
+    </RadzenDataGrid>
+</RadzenStack>
+
+@code {
+    private static readonly string[] TodasLasColumnas =
+    [
+        "Fecha/Hora", "Usuario", "Acción", "Resultado", "Entidad", "ID", "Detalles",
+        "Origen", "Correlación"
+    ];
+
+    private record Opcion(AuditAction? Valor, string Texto);
+
+    private static readonly List<Opcion> Acciones =
+        Enum.GetValues<AuditAction>()
+            .Select(a => new Opcion(a, EtiquetasDeCatalogo.Accion(a)))
+            .ToList();
+
+    private RadzenDataGrid<EntradaBitacoraDto>? _rejilla;
+
+    private List<EntradaBitacoraDto> _filas = [];
+    private List<string> _usuarios = [];
+    private HashSet<string> _ocultas = [];
+    private int _total;
+    private bool _cargando = true;
+
+    // Últimos 30 días, igual que el escritorio: sin un rango por omisión, abrir la pantalla sería
+    // pedir la tabla entera desde el primer día del sistema.
+    private DateTime _desde = DateTime.Today.AddDays(-30);
+    private DateTime _hasta = DateTime.Today;
+    private string? _usuario;
+    private AuditAction? _accion;
+    private string _texto = "";
+
+    private bool Ver(string columna) => !_ocultas.Contains(columna);
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Los usuarios del filtro se piden UNA vez: es un DISTINCT sobre la tabla más grande del
+        // sistema y su respuesta no cambia entre una página y la siguiente.
+        var opciones = await Api.LeerAsync<OpcionesDeBitacoraDto>("api/bitacora/opciones");
+        _usuarios = opciones?.Usuarios.ToList() ?? [];
+    }
+
+    /// <summary>
+    /// La rejilla pide una página. Es el único sitio que consulta: cambiar un filtro se limita a
+    /// pedirle a la rejilla que vuelva por la primera página.
+    /// </summary>
+    private async Task Cargar(LoadDataArgs args)
+    {
+        _cargando = true;
+        try
+        {
+            var tamano = args.Top ?? 50;
+            var pagina = tamano <= 0 ? 1 : ((args.Skip ?? 0) / tamano) + 1;
+
+            // Los días elegidos salen con SU DESFASE horario incluido (DateTimeOffset): el servidor
+            // guarda en UTC y no tiene forma de saber en qué zona está quien pregunta, y mandar la
+            // fecha «pelada» dejaría la conversión a merced de cómo la interprete el otro lado.
+            // «Hasta» es el final del día elegido: nadie entiende «hasta el 5» como «hasta las
+            // 00:00 del 5».
+            var desde = new DateTimeOffset(_desde.Date);
+            var hasta = new DateTimeOffset(_hasta.Date.AddDays(1));
+
+            var ruta = $"api/bitacora?pagina={pagina}&tamano={tamano}" +
+                       $"&desde={Uri.EscapeDataString(desde.ToString("O"))}" +
+                       $"&hasta={Uri.EscapeDataString(hasta.ToString("O"))}" +
+                       $"&texto={Uri.EscapeDataString(_texto ?? "")}";
+            if (!string.IsNullOrWhiteSpace(_usuario)) ruta += $"&usuario={Uri.EscapeDataString(_usuario)}";
+            if (_accion is { } a) ruta += $"&accion={a}";
+
+            var pag = await Api.LeerAsync<PaginaDto<EntradaBitacoraDto>>(ruta);
+            _filas = pag?.Filas.ToList() ?? [];
+            _total = pag?.Total ?? 0;
+        }
+        finally { _cargando = false; }
+    }
+
+    /// <summary>Al cambiar un filtro se vuelve a la primera página: quedarse en la página 7 de un
+    /// resultado que ahora tiene 2 deja la pantalla en blanco sin explicación.</summary>
+    private async Task Recargar()
+    {
+        if (_rejilla != null) await _rejilla.GoToPage(0, forceReload: true);
+    }
+}

@@ -1,0 +1,94 @@
+@page "/acceso"
+@layout Layout.LayoutVacio
+@attribute [AllowAnonymous]
+@inject EstadoSesion Sesion
+@inject NavigationManager Navegacion
+@inject AuthenticationStateProvider ProveedorAuth
+
+<PageTitle>Entrar · Administrador de Desarrollo</PageTitle>
+
+<div class="acceso-fondo">
+    <RadzenCard class="acceso-tarjeta">
+        <RadzenStack Gap="1rem">
+            <RadzenText TextStyle="TextStyle.H5">Administrador de Desarrollo</RadzenText>
+
+            <RadzenTextBox @bind-Value="_usuario" Placeholder="Usuario" aria-label="Usuario"
+                           @onkeydown="AlTeclear" Disabled="@_ocupado" />
+            <RadzenPassword @bind-Value="_contrasena" Placeholder="Contraseña" aria-label="Contraseña"
+                            @onkeydown="AlTeclear" Disabled="@_ocupado" />
+
+            @if (_error != null)
+            {
+                <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false">
+                    @_error
+                </RadzenAlert>
+            }
+
+            <RadzenButton Text="@(_ocupado ? "Entrando…" : "Entrar")" Disabled="@_ocupado"
+                          Click="@Entrar" Style="width:100%" />
+        </RadzenStack>
+    </RadzenCard>
+</div>
+
+@code {
+    private string _usuario = "";
+    private string _contrasena = "";
+    private string? _error;
+    private bool _ocupado;
+
+    [SupplyParameterFromQuery(Name = "volverA")]
+    private string? VolverA { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Si ya hay sesión (por ejemplo al recargar), no tiene sentido pedirla otra vez.
+        if (await Sesion.RefrescarAsync() != null) Continuar();
+    }
+
+    private async Task AlTeclear(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await Entrar();
+    }
+
+    private async Task Entrar()
+    {
+        if (_ocupado) return;
+        _error = null;
+
+        if (string.IsNullOrWhiteSpace(_usuario) || string.IsNullOrEmpty(_contrasena))
+        {
+            _error = "Escribe tu usuario y tu contraseña.";
+            return;
+        }
+
+        _ocupado = true;
+        try
+        {
+            var (ok, mensaje) = await Sesion.EntrarAsync(_usuario.Trim(), _contrasena);
+            if (!ok) { _error = mensaje; return; }
+
+            (ProveedorAuth as ProveedorEstadoAutenticacion)?.Notificar();
+            Continuar();
+        }
+        finally
+        {
+            _ocupado = false;
+            _contrasena = "";
+        }
+    }
+
+    /// <summary>
+    /// Con una contraseña temporal no se llega a ninguna pantalla: el servidor rechaza todo lo demás
+    /// mientras siga sin cambiarse, así que llevar ahí directo evita un rebote incomprensible.
+    /// </summary>
+    private void Continuar()
+    {
+        if (Sesion.Usuario?.DebeCambiarContrasena == true)
+        {
+            Navegacion.NavigateTo("cambiar-contrasena", replace: true);
+            return;
+        }
+
+        Navegacion.NavigateTo(string.IsNullOrWhiteSpace(VolverA) ? "" : VolverA, replace: true);
+    }
+}

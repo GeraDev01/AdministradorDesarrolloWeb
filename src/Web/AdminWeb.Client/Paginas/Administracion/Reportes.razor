@@ -1,0 +1,336 @@
+@page "/reportes"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Shared.Dtos.Administracion
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+@inject Descargas Descargas
+
+@*
+    El centro de reportes: se elige uno, un período y a quién se mira; se previsualiza en tabla y en
+    tablero, y se baja a Excel.
+
+    Decisiones del escritorio que se conservan:
+
+      · La DESCRIPCIÓN del reporte está siempre a la vista bajo la barra. Quince reportes con
+        nombres parecidos («por desarrollador», «carga de trabajo por desarrollador») se distinguen
+        por lo que miden, no por cómo se llaman.
+      · Cambiar el reporte, el período o el filtro de personas REGENERA en el acto. No hay un estado
+        intermedio donde la tabla enseñe una cosa y los filtros digan otra.
+      · El tablero es el mismo: las cifras grandes y una gráfica de barras con las catorce categorías
+        mayores. Qué columna agrupa y cuál suma lo declara cada reporte en el servidor.
+
+    LO QUE CAMBIA, y por qué:
+
+      · Los cálculos ya no viven en la pantalla sino en el servidor. No había alternativa: el
+        navegador tendría que descargarse el histórico completo de requerimientos para agrupar cuatro
+        columnas.
+      · La tabla va PAGINADA. En el escritorio la rejilla aguantaba miles de renglones en memoria;
+        aquí pintar mil filas de golpe deja el navegador pensando. Lo que se baja a Excel son TODAS,
+        no la página que se está viendo.
+      · El envío por correo pide los destinatarios aquí mismo, en lugar del formulario de redacción
+        que abría el escritorio. Lo que se manda —el reporte, el período y el filtro— ya está
+        elegido en esta pantalla; lo único que falta preguntar es a quién.
+*@
+
+<PageTitle>Reportes</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Reportes</RadzenText>
+
+    <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:flex-start">
+        <RadzenCard Style="flex:0 1 20rem;min-width:16rem">
+            <RadzenStack Gap="0.5rem">
+                <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">Reportes disponibles</RadzenText>
+                <RadzenListBox TValue="string" Value="@_clave" ValueChanged="@Elegir"
+                               Data="@Disponibles" TextProperty="Nombre" ValueProperty="Clave"
+                               Style="width:100%;height:26rem" />
+            </RadzenStack>
+        </RadzenCard>
+
+        <div style="flex:1 1 40rem;min-width:24rem;display:flex;flex-direction:column;gap:1rem">
+            <RadzenCard>
+                <RadzenStack Gap="0.75rem">
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem"
+                                 AlignItems="AlignItems.Center" Wrap="FlexWrap.Wrap">
+                        <RadzenLabel Text="Del:" Component="desde" />
+                        <RadzenDatePicker TValue="DateTime" Value="@_desde" ValueChanged="@CambiarDesde"
+                                          Name="desde" DateFormat="dd/MM/yyyy" ShowTime="false"
+                                          Disabled="@_ocupado" Style="width:9rem" />
+
+                        <RadzenLabel Text="Al:" Component="hasta" />
+                        <RadzenDatePicker TValue="DateTime" Value="@_hasta" ValueChanged="@CambiarHasta"
+                                          Name="hasta" DateFormat="dd/MM/yyyy" ShowTime="false"
+                                          Disabled="@_ocupado" Style="width:9rem" />
+
+                        <RadzenDropDown TValue="IEnumerable<int>" Value="@_devs" ValueChanged="@CambiarDevs"
+                                        Data="@Personas" TextProperty="Texto" ValueProperty="Id"
+                                        Multiple="true" AllowClear="true" Chips="false" MaxSelectedLabels="0"
+                                        SelectedItemsText="@TextoDePersonas()" Placeholder="Todos"
+                                        Disabled="@_ocupado" Style="min-width:14rem" />
+
+                        <RadzenButton Text="▶ Generar" Click="@Generar" Disabled="@_ocupado" />
+                        <RadzenButton Text="📊 Excel" ButtonStyle="ButtonStyle.Light"
+                                      Click="@Exportar" Disabled="@(_ocupado || _reporte is null)" />
+                        <RadzenButton Text="✉ Enviar por correo" ButtonStyle="ButtonStyle.Light"
+                                      Click="@(() => _enviando = !_enviando)"
+                                      Disabled="@(_ocupado || _reporte is null)" />
+                    </RadzenStack>
+
+                    @if (_enviando && _reporte is not null)
+                    {
+                        <RadzenStack Gap="0.5rem">
+                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                Va el reporte que se está viendo, con este período y este filtro, adjunto
+                                en una hoja de cálculo. Varios destinatarios, separados por coma o punto y
+                                coma.
+                            </RadzenText>
+
+                            <RadzenTextBox @bind-Value="_destinatarios" Style="width:100%"
+                                           Placeholder="Para" aria-label="Destinatarios" />
+
+                            <RadzenTextArea @bind-Value="_nota" Rows="3" Style="width:100%"
+                                            Placeholder="Nota (opcional)" aria-label="Nota" />
+
+                            <div>
+                                <RadzenButton Text="Enviar" ButtonStyle="ButtonStyle.Primary"
+                                              Size="ButtonSize.Small" Disabled="@_ocupado"
+                                              Click="@EnviarPorCorreo" />
+                            </div>
+                        </RadzenStack>
+                    }
+
+                    @if (_reporte is { } r)
+                    {
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@r.Descripcion</RadzenText>
+                    }
+                </RadzenStack>
+            </RadzenCard>
+
+            @if (_reporte is { } reporte)
+            {
+                <RadzenTabs>
+                    <Tabs>
+                        <RadzenTabsItem Text="📋 Datos">
+                            <RadzenDataGrid TItem="IReadOnlyList<string>" Data="@reporte.Filas"
+                                            IsLoading="@_ocupado" AllowPaging="true" PageSize="20"
+                                            EmptyText="El reporte no devolvió ninguna fila para ese período.">
+                                <Columns>
+                                    @for (int i = 0; i < reporte.Columnas.Count; i++)
+                                    {
+                                        var columna = i;
+                                        <RadzenDataGridColumn TItem="IReadOnlyList<string>" Sortable="false"
+                                                              Title="@reporte.Columnas[columna]">
+                                            <Template Context="fila">
+                                                @(columna < fila.Count ? fila[columna] : "")
+                                            </Template>
+                                        </RadzenDataGridColumn>
+                                    }
+                                </Columns>
+                            </RadzenDataGrid>
+                        </RadzenTabsItem>
+
+                        <RadzenTabsItem Text="📊 Tablero">
+                            <RadzenStack Gap="1rem">
+                                <div style="display:flex;gap:.75rem;flex-wrap:wrap">
+                                    @foreach (var kpi in reporte.Indicadores)
+                                    {
+                                        <RadzenCard Style="flex:0 0 11rem">
+                                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@kpi.Titulo</RadzenText>
+                                            <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">@kpi.Valor</RadzenText>
+                                        </RadzenCard>
+                                    }
+                                </div>
+
+                                <RadzenCard>
+                                    <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">
+                                        @reporte.TituloDeGrafica
+                                    </RadzenText>
+
+                                    @if (reporte.Barras.Count == 0)
+                                    {
+                                        <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                                            No hay nada que graficar.
+                                        </RadzenText>
+                                    }
+                                    else
+                                    {
+                                        @* Barras en HTML y no una librería de gráficas: son catorce
+                                           valores con su etiqueta, y una dependencia más en el
+                                           navegador cuesta descarga de arranque a las 49 pantallas. *@
+                                        <div style="display:flex;flex-direction:column;gap:.35rem;margin-top:.75rem">
+                                            @foreach (var barra in reporte.Barras)
+                                            {
+                                                <div style="display:flex;gap:.6rem;align-items:center">
+                                                    <span style="flex:0 0 12rem;overflow:hidden;text-overflow:ellipsis;
+                                                                 white-space:nowrap" title="@barra.Etiqueta">
+                                                        @barra.Etiqueta
+                                                    </span>
+                                                    <span style="flex:1 1 auto;background:var(--rz-base-200);
+                                                                 border-radius:.2rem;overflow:hidden">
+                                                        <span style="@EstiloDeBarra(barra, reporte)">&nbsp;</span>
+                                                    </span>
+                                                    <span style="flex:0 0 5rem;text-align:right">@Cifra(barra.Valor)</span>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                </RadzenCard>
+                            </RadzenStack>
+                        </RadzenTabsItem>
+                    </Tabs>
+                </RadzenTabs>
+            }
+        </div>
+    </div>
+</RadzenStack>
+
+@code {
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private CatalogoDeReportesDto? _catalogo;
+    private ReporteGeneradoDto? _reporte;
+    private bool _ocupado;
+
+    private string? _clave;
+
+    // Del primer día del mes en curso a hoy, igual que el escritorio: es el período que se pide casi
+    // siempre, y sin uno por omisión la primera consulta recorrería el histórico completo.
+    private DateTime _desde = new(DateTime.Today.Year, DateTime.Today.Month, 1);
+    private DateTime _hasta = DateTime.Today;
+    private IEnumerable<int> _devs = [];
+
+    // El panel de envío empieza cerrado: mandar un reporte por correo es lo que menos se hace en
+    // esta pantalla, y tener dos campos de texto permanentes junto a los filtros invita a escribir
+    // en el que no era.
+    private bool _enviando;
+    private string _destinatarios = "";
+    private string _nota = "";
+
+    private IReadOnlyList<ReporteDisponibleDto> Disponibles => _catalogo?.Reportes ?? [];
+    private IReadOnlyList<OpcionDto> Personas => _catalogo?.Desarrolladores ?? [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _catalogo = await Api.LeerAsync<CatalogoDeReportesDto>("api/reportes", _cancelacion.Token);
+
+        // Se abre con el primero ya generado, como el escritorio: una pantalla de reportes vacía
+        // obliga a adivinar que hay que elegir algo de la lista de la izquierda.
+        if (Disponibles.Count > 0)
+        {
+            _clave = Disponibles[0].Clave;
+            await Generar();
+        }
+    }
+
+    private async Task Elegir(string? clave)
+    {
+        _clave = clave;
+        await Generar();
+    }
+
+    private async Task CambiarDesde(DateTime valor) { _desde = valor; await Generar(); }
+    private async Task CambiarHasta(DateTime valor) { _hasta = valor; await Generar(); }
+    private async Task CambiarDevs(IEnumerable<int>? valor) { _devs = valor ?? []; await Generar(); }
+
+    private async Task Generar()
+    {
+        if (_clave is null) return;
+
+        if (_desde > _hasta)
+        {
+            Avisos.Aviso("El «del» es posterior al «al»: no hay período que reportar.");
+            return;
+        }
+
+        _ocupado = true;
+        try { _reporte = await Api.LeerAsync<ReporteGeneradoDto>(Ruta(""), _cancelacion.Token); }
+        finally { _ocupado = false; }
+    }
+
+    private async Task Exportar()
+    {
+        if (_clave is null || _reporte is null) return;
+        await Descargas.DesdeApiAsync(Ruta("/excel"));
+    }
+
+    /// <summary>
+    /// Manda el reporte que se está viendo. No se validan aquí ni los destinatarios ni el estado del
+    /// correo: eso lo decide el servidor y su mensaje se enseña tal cual, porque es el que sabe si
+    /// falta configurar la cuenta o si el servidor SMTP rechazó el envío.
+    /// </summary>
+    private async Task EnviarPorCorreo()
+    {
+        if (_clave is null || _reporte is null) return;
+
+        _ocupado = true;
+        try
+        {
+            var (ok, resultado) = await Api.EnviarAsync<EnviarReportePorCorreoRequest, ResultadoDto>(
+                Ruta("/correo"), new EnviarReportePorCorreoRequest(_destinatarios, _nota),
+                _cancelacion.Token);
+
+            if (!ok) return;
+
+            if (resultado != null) Avisos.Exito(resultado.Mensaje);
+
+            // El panel se cierra y los campos se limpian solo cuando el envío salió: si falló, lo que
+            // se escribió sigue ahí para corregir la dirección y volver a intentarlo.
+            _enviando = false;
+            _destinatarios = "";
+            _nota = "";
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    /// <summary>
+    /// La dirección del reporte con su período y su filtro. Las fechas van como día suelto porque es
+    /// lo que son: el período de un reporte es de calendario, no un instante con huso.
+    /// </summary>
+    private string Ruta(string sufijo)
+    {
+        var ruta = $"api/reportes/{Uri.EscapeDataString(_clave!)}{sufijo}" +
+                   $"?desde={_desde:yyyy-MM-dd}&hasta={_hasta:yyyy-MM-dd}";
+
+        var elegidos = _devs.ToList();
+        if (elegidos.Count > 0) ruta += $"&devs={string.Join(",", elegidos)}";
+
+        return ruta;
+    }
+
+    private string TextoDePersonas()
+    {
+        int n = _devs.Count();
+        return n switch
+        {
+            0 => "Todos",
+            1 => Personas.FirstOrDefault(p => p.Id == _devs.First())?.Texto ?? "1 persona",
+            _ => $"{n} personas"
+        };
+    }
+
+    /// <summary>
+    /// El ancho de una barra, relativo a la mayor del reporte. Se usa el valor ABSOLUTO porque hay
+    /// reportes con cifras negativas (las penalizaciones de desempeño) y una barra de ancho negativo
+    /// simplemente no se vería.
+    /// </summary>
+    private static string EstiloDeBarra(BarraDeReporteDto barra, ReporteGeneradoDto reporte)
+    {
+        double mayor = reporte.Barras.Max(b => Math.Abs(b.Valor));
+        double ancho = mayor <= 0 ? 0 : Math.Abs(barra.Valor) / mayor * 100;
+        var color = barra.Valor < 0 ? "var(--rz-danger)" : "var(--rz-primary)";
+
+        return $"display:block;height:1.1rem;width:{ancho:0.#}%;background:{color}";
+    }
+
+    private static string Cifra(double v) => v == Math.Floor(v) ? ((long)v).ToString() : v.ToString("0.#");
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

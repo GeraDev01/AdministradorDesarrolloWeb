@@ -1,0 +1,256 @@
+@page "/actividades"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Shared.Dtos.AusenciasLider
+@implements IDisposable
+@inject ClienteApi Api
+@inject Descargas Descargas
+
+@*
+    Las actividades libres del equipo: el trabajo que los desarrolladores registran fuera de sus
+    requerimientos asignados. Existe para contestar «¿en qué se fue el tiempo que no aparece en
+    ningún requerimiento?».
+
+    Decisiones del escritorio que se conservan:
+
+      · SOLO LECTURA. La evidencia de una actividad ajena se consulta y se guarda, no se cambia: eso
+        es de su dueño.
+      · Los tres indicadores de arriba —cuántas, cuántas abiertas y el tiempo total— son la respuesta
+        rápida; la rejilla es el detalle.
+      · La DESCRIPCIÓN es lo que hay que leer para entender una actividad, así que se enseña entera
+        en su columna en vez de esconderla detrás de un tooltip.
+      · La exportación a Excel baja LO QUE EL FILTRO ESTÁ ENSEÑANDO, igual que en minutas: el botón
+        está junto a los desplegables de persona y de estado, y bajar el histórico completo sorprende
+        a quien acaba de acotar. La hoja lleva además los segundos en crudo, que es lo que permite
+        sumarlos y ordenarlos: «1h 05m 00s» ordenado como texto pone «59m» por encima de «2h».
+
+    Lo que cambia: la evidencia ya no se vuelca a una carpeta temporal para abrirla con el programa
+    asociado —el escritorio dejaba esos archivos ahí para siempre—; la sirve la API y la abre el
+    navegador, que la previsualiza o la descarga sin dejar rastro.
+*@
+
+<PageTitle>Actividades del equipo</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Actividades libres del equipo</RadzenText>
+        <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
+    </RadzenStack>
+
+    @if (_datos is { } d)
+    {
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap">
+            <RadzenCard Style="min-width:14rem; border-left:5px solid var(--rz-info)">
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-1">🧩 Actividades</RadzenText>
+                <RadzenText TextStyle="TextStyle.H4" class="rz-mb-0">@d.Total</RadzenText>
+            </RadzenCard>
+            <RadzenCard Style="min-width:14rem; border-left:5px solid var(--rz-success)">
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-1">🟢 Abiertas</RadzenText>
+                <RadzenText TextStyle="TextStyle.H4" class="rz-mb-0">@d.Abiertas</RadzenText>
+            </RadzenCard>
+            <RadzenCard Style="min-width:20rem; border-left:5px solid var(--rz-warning)">
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-1">
+                    ⏱ Tiempo fuera de asignaciones
+                </RadzenText>
+                <RadzenText TextStyle="TextStyle.H4" class="rz-mb-0">@d.TiempoTotal</RadzenText>
+            </RadzenCard>
+        </RadzenStack>
+
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                     Gap="1rem" Wrap="FlexWrap.Wrap">
+            <RadzenLabel Text="Desarrollador:" Component="dev" />
+            <RadzenDropDown TValue="int?" @bind-Value="_developerId" Name="dev"
+                            Data="@d.Desarrolladores" TextProperty="Texto" ValueProperty="Valor"
+                            AllowClear="true" Placeholder="Todos" Disabled="@_ocupado"
+                            Change="@(_ => Cargar())" Style="min-width:14rem" />
+
+            <RadzenLabel Text="Estado:" Component="estado" />
+            <RadzenDropDown TValue="DevActivityStatus?" @bind-Value="_estado" Name="estado"
+                            Data="@d.Estados" TextProperty="Texto" ValueProperty="Valor"
+                            AllowClear="true" Placeholder="Todas" Disabled="@_ocupado"
+                            Change="@(_ => Cargar())" Style="min-width:14rem" />
+
+            @* Pegado a los filtros a propósito: es lo que hace evidente que baja lo que están
+               enseñando y no la tabla entera. *@
+            <RadzenButton Text="📊 Excel" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+                          Style="margin-left:auto"
+                          Click="@(() => Descargas.DesdeApiAsync(RutaDelFiltro("/excel")))" />
+        </RadzenStack>
+
+        @if (_detalle is { } det && _abierta is { } act)
+        {
+            <RadzenCard>
+                <RadzenStack Gap="0.75rem">
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                 Gap="1rem" Wrap="FlexWrap.Wrap">
+                        <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                            🔍 @act.Titulo — @act.Desarrollador
+                        </RadzenText>
+                        <RadzenBadge BadgeStyle="BadgeStyle.Light" Text="@($"⏱ {det.TiempoTotal}")" />
+                        <RadzenButton Text="Cerrar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                      Click="@(() => { _detalle = null; _abierta = null; })" />
+                    </RadzenStack>
+
+                    <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                        @(string.IsNullOrWhiteSpace(act.Descripcion) ? "(sin descripción)" : act.Descripcion)
+                    </RadzenText>
+
+                    <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">Sesiones de cronómetro</RadzenText>
+                    <RadzenDataGrid TItem="SesionDeActividadDto" Data="@det.Sesiones" AllowPaging="true" PageSize="10"
+                                    EmptyText="Todavía no tiene tiempo registrado.">
+                        <Columns>
+                            <RadzenDataGridColumn TItem="SesionDeActividadDto" Title="Inicio" Property="InicioUtc"
+                                                  Width="180px">
+                                <Template Context="s">@s.InicioUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="SesionDeActividadDto" Title="Fin" Property="FinUtc"
+                                                  Width="180px">
+                                <Template Context="s">
+                                    @(s.FinUtc is DateTime fin ? fin.ToLocalTime().ToString("dd/MM/yyyy HH:mm") : "en curso")
+                                </Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="SesionDeActividadDto" Title="Duración" Property="Duracion" />
+                        </Columns>
+                    </RadzenDataGrid>
+
+                    <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">Evidencia adjunta</RadzenText>
+                    <RadzenDataGrid TItem="EvidenciaDeActividadDto" Data="@det.Evidencias" AllowPaging="true" PageSize="10"
+                                    EmptyText="No adjuntó evidencia.">
+                        <Columns>
+                            <RadzenDataGridColumn TItem="EvidenciaDeActividadDto" Title="Archivo" Property="Nombre" />
+                            <RadzenDataGridColumn TItem="EvidenciaDeActividadDto" Title="Tamaño" Property="Bytes"
+                                                  Width="120px">
+                                <Template Context="e">@($"{e.Bytes / 1024} KB")</Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="EvidenciaDeActividadDto" Title="Descripción"
+                                                  Property="Descripcion">
+                                <Template Context="e">@(e.Descripcion ?? "—")</Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="EvidenciaDeActividadDto" Title="" Width="110px" Sortable="false">
+                                <Template Context="e">
+                                    <RadzenButton Text="Abrir" ButtonStyle="ButtonStyle.Light"
+                                                  Size="ButtonSize.ExtraSmall" Click="@(() => VerEvidencia(e))" />
+                                </Template>
+                            </RadzenDataGridColumn>
+                        </Columns>
+                    </RadzenDataGrid>
+                </RadzenStack>
+            </RadzenCard>
+        }
+
+        <RadzenDataGrid TItem="ActividadDelEquipoDto" Data="@d.Actividades" IsLoading="@_ocupado"
+                        AllowSorting="true" AllowPaging="true" PageSize="15"
+                        EmptyText="No hay actividades con ese filtro.">
+            <Columns>
+                <RadzenDataGridColumn TItem="ActividadDelEquipoDto" Title="Desarrollador"
+                                      Property="Desarrollador" Width="170px" />
+                <RadzenDataGridColumn TItem="ActividadDelEquipoDto" Title="Actividad" Property="Titulo" />
+                <RadzenDataGridColumn TItem="ActividadDelEquipoDto" Title="Estado" Property="Estado" Width="120px">
+                    <Template Context="a">
+                        <b style="@(a.Estado == DevActivityStatus.Abierta
+                                      ? "color:var(--rz-success)" : "color:var(--rz-text-secondary-color)")">
+                            @a.EtiquetaEstado
+                        </b>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="ActividadDelEquipoDto" Title="Creada" Property="CreadaUtc" Width="120px">
+                    <Template Context="a">@a.CreadaUtc.ToLocalTime().ToString("dd/MM/yyyy")</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="ActividadDelEquipoDto" Title="Cerrada" Property="CerradaUtc" Width="120px">
+                    <Template Context="a">
+                        @(a.CerradaUtc is DateTime c ? c.ToLocalTime().ToString("dd/MM/yyyy") : "—")
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="ActividadDelEquipoDto" Title="⏱ Tiempo" Property="Segundos" Width="150px">
+                    @* Ordena por SEGUNDOS y enseña el texto: ordenar por «1h 05m 00s» sería ordenar
+                       alfabéticamente y pondría «59m» por encima de «2h». *@
+                    <Template Context="a">@a.Tiempo</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="ActividadDelEquipoDto" Title="📎" Property="Evidencias" Width="70px">
+                    <Template Context="a">@(a.Evidencias > 0 ? $"📎 {a.Evidencias}" : "")</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="ActividadDelEquipoDto" Title="Descripción" Property="Descripcion">
+                    <Template Context="a">
+                        @(string.IsNullOrWhiteSpace(a.Descripcion) ? "(sin descripción)" : a.Descripcion)
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="ActividadDelEquipoDto" Title="" Width="120px" Sortable="false">
+                    <Template Context="a">
+                        <RadzenButton Text="🔍 Detalle" ButtonStyle="ButtonStyle.Light"
+                                      Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                      Click="@(() => VerDetalle(a))" />
+                    </Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
+    }
+</RadzenStack>
+
+@code {
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private ActividadesDelEquipoDto? _datos;
+    private bool _ocupado;
+
+    private int? _developerId;
+    private DevActivityStatus? _estado;
+
+    // La ficha se pide solo al abrirla: las sesiones y la evidencia de todo el equipo a la vez serían
+    // muchos datos para una pantalla en la que casi siempre se mira una sola actividad.
+    private ActividadDelEquipoDto? _abierta;
+    private DetalleDeActividadDto? _detalle;
+
+    protected override Task OnInitializedAsync() => Cargar();
+
+    /// <summary>
+    /// La dirección de la lista con sus filtros; el sufijo la convierte en la exportación. Es una
+    /// sola función para que la hoja de cálculo no pueda salir con un filtro distinto del que se ve.
+    /// </summary>
+    private string RutaDelFiltro(string sufijo = "")
+    {
+        var ruta = $"api/ausencias-lider/actividades{sufijo}";
+        var filtros = new List<string>();
+        if (_developerId is int dev) filtros.Add($"developerId={dev}");
+        if (_estado is DevActivityStatus e) filtros.Add($"estado={(int)e}");
+        return filtros.Count > 0 ? ruta + "?" + string.Join("&", filtros) : ruta;
+    }
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            _datos = await Api.LeerAsync<ActividadesDelEquipoDto>(RutaDelFiltro(), _cancelacion.Token);
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    private async Task VerDetalle(ActividadDelEquipoDto a)
+    {
+        _ocupado = true;
+        try
+        {
+            _detalle = await Api.LeerAsync<DetalleDeActividadDto>(
+                $"api/ausencias-lider/actividades/{a.Id}/detalle", _cancelacion.Token);
+            _abierta = _detalle is null ? null : a;
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    private Task VerEvidencia(EvidenciaDeActividadDto e) =>
+        // La sirve /api/adjuntos, que ya decide el tipo por los bytes y manda nosniff. Duplicar esa
+        // bajada aquí sería tener dos sitios donde equivocarse.
+        Descargas.AbrirEnOtraPestanaAsync($"api/adjuntos/actividad/{e.Id}").AsTask();
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

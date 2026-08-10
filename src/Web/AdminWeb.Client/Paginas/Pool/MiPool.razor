@@ -1,0 +1,438 @@
+@page "/mi-pool"
+@attribute [Authorize(Policy = "AdminUDesarrollador")]
+@using AdminWeb.Shared.Dtos.Pool
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+
+@*
+    Mi pool: lo que hay libre para tomar y lo que ya está a mi nombre.
+
+    Decisiones del escritorio que se conservan porque son del sistema, no del pintado:
+
+      · Los PUNTOS se ven ANTES de tomar nada, junto al título. Es la diferencia con la
+        autocalificación libre: nadie trabaja sin saber cuánto vale lo que va a hacer ni tiene que
+        argumentar después para que se lo reconozcan. Vienen congelados del servidor; aquí solo se
+        pintan.
+      · Lo PROPIO va primero y lo disponible después: a lo que se vuelve a diario es a lo que uno
+        tiene en curso.
+      · El CHECKLIST no es un trámite: es exactamente lo que hay que cumplir para entregar, escrito
+        de antemano. Por eso está a la vista debajo de la actividad elegida y no detrás de un botón.
+      · Devolver al pool NO se castiga, y el texto lo dice: penalizarlo haría que nadie se atreviera
+        con lo difícil, que es lo contrario de lo que se busca.
+
+    Lo que cambia respecto al escritorio: el enlace del ticket es un enlace de verdad y lo abre el
+    navegador. Allí era un botón que lanzaba el proceso del sistema porque no había otra forma.
+*@
+
+<PageTitle>Mi pool</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Mi pool de actividades</RadzenText>
+        <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
+    </RadzenStack>
+
+    @if (_datos is { } d)
+    {
+        @if (!d.TieneFicha)
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+                Tu cuenta no tiene ficha de desarrollador ligada, así que puedes mirar el pool pero no
+                tomar actividades: los puntos se abonan a una ficha. Pídeselo al líder.
+            </RadzenAlert>
+        }
+
+        <RadzenTabs>
+            <Tabs>
+                <RadzenTabsItem Text="🧑‍💻 Mis actividades del pool">
+                    <RadzenStack Gap="0.75rem">
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@ResumenDeLasMias(d)</RadzenText>
+
+                        <RadzenDataGrid TItem="MiActividadDelPoolDto" Data="@d.Mias" IsLoading="@_ocupado"
+                                        AllowSorting="true" AllowPaging="true" PageSize="10"
+                                        SelectionMode="DataGridSelectionMode.Single"
+                                        Value="@_seleccion" ValueChanged="@Seleccionar"
+                                        EmptyText="Todavía no has tomado ninguna actividad del pool. Búscalas en «Disponibles».">
+                            <Columns>
+                                <RadzenDataGridColumn TItem="MiActividadDelPoolDto" Property="Titulo" Title="Actividad" />
+                                <RadzenDataGridColumn TItem="MiActividadDelPoolDto" Property="TipoTexto" Title="Tipo" Width="130px" />
+                                <RadzenDataGridColumn TItem="MiActividadDelPoolDto" Property="Puntos" Title="Puntos"
+                                                      Width="90px" TextAlign="TextAlign.Right">
+                                    <Template Context="a">
+                                        <b style="@(a.Estado == PoolActivityStatus.Aceptada ? "color:var(--rz-success)" : "")">@a.Puntos</b>
+                                    </Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="MiActividadDelPoolDto" Property="EstadoTexto" Title="Estado" Width="180px">
+                                    <Template Context="a">
+                                        @if (a.Estado == PoolActivityStatus.Devuelta)
+                                        {
+                                            <RadzenBadge BadgeStyle="BadgeStyle.Warning" Text="@a.EstadoTexto" />
+                                        }
+                                        else
+                                        {
+                                            @a.EstadoTexto
+                                        }
+                                    </Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="MiActividadDelPoolDto" Property="LimiteUtc"
+                                                      Title="Entregar antes de" Width="150px">
+                                    @* Vencida se resalta y no dispara nada: la actividad sigue siendo suya
+                                       hasta que el líder decida liberarla. *@
+                                    <Template Context="a">
+                                        <span style="@(a.Vencida ? "color:var(--rz-warning)" : "")">
+                                            @(a.LimiteUtc?.ToLocalTime().ToString("dd/MM/yyyy") ?? "—")
+                                        </span>
+                                    </Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="MiActividadDelPoolDto" Property="Avance"
+                                                      Title="Checklist" Width="110px" Sortable="false" />
+                                <RadzenDataGridColumn TItem="MiActividadDelPoolDto" Title="" Width="230px" Sortable="false">
+                                    <Template Context="a">
+                                        @if (a.EnCurso)
+                                        {
+                                            <RadzenButton Text="Entregar" Icon="outbox" Size="ButtonSize.ExtraSmall"
+                                                          Disabled="@_ocupado" Click="@(() => Entregar(a))" />
+                                            <RadzenButton Text="Devolver al pool" ButtonStyle="ButtonStyle.Light"
+                                                          Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                          Click="@(() => Devolver(a))" />
+                                        }
+                                    </Template>
+                                </RadzenDataGridColumn>
+                            </Columns>
+                        </RadzenDataGrid>
+
+                        <RadzenCard>
+                            @if (Abierta is not { } a)
+                            {
+                                <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                                    Selecciona una actividad para ver qué le falta.
+                                </RadzenText>
+                            }
+                            else
+                            {
+                                <RadzenStack Gap="0.75rem">
+                                    @if (a.Estado == PoolActivityStatus.Devuelta && a.MotivoDeDevolucion is { } motivo)
+                                    {
+                                        @* Lo primero que hay que leer cuando te la devuelven: sin esto se
+                                           vuelve a entregar exactamente igual. *@
+                                        <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+                                            ↩ Te la devolvieron: @motivo
+                                        </RadzenAlert>
+                                    }
+                                    else
+                                    {
+                                        <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                                            <b>@a.Titulo</b> — @a.Puntos pts. @EstadoExplicado(a)
+                                        </RadzenText>
+                                    }
+
+                                    @if (!string.IsNullOrWhiteSpace(a.Detalle))
+                                    {
+                                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@a.Detalle</RadzenText>
+                                    }
+
+                                    @if (!string.IsNullOrWhiteSpace(a.Enlace))
+                                    {
+                                        <a href="@a.Enlace" target="_blank" rel="noopener">🔗 Ver el ticket</a>
+                                    }
+
+                                    <RadzenDataGrid TItem="PuntoDeChecklistDto" Data="@_checklist" IsLoading="@_ocupado"
+                                                    AllowSorting="false"
+                                                    EmptyText="Esta actividad se quedó sin checklist: devuélvela al pool y vuelve a tomarla.">
+                                        <Columns>
+                                            <RadzenDataGridColumn TItem="PuntoDeChecklistDto" Title="" Width="50px">
+                                                <Template Context="c">@(c.Hecho ? "✔" : "○")</Template>
+                                            </RadzenDataGridColumn>
+                                            <RadzenDataGridColumn TItem="PuntoDeChecklistDto" Property="Texto"
+                                                                  Title="Qué hay que cumplir" />
+                                            <RadzenDataGridColumn TItem="PuntoDeChecklistDto" Property="RequiereEvidencia"
+                                                                  Title="¿Exige enlace?" Width="130px">
+                                                <Template Context="c">@(c.RequiereEvidencia ? "Sí" : "")</Template>
+                                            </RadzenDataGridColumn>
+                                            <RadzenDataGridColumn TItem="PuntoDeChecklistDto" Property="Evidencia"
+                                                                  Title="Evidencia" Width="220px">
+                                                <Template Context="c">
+                                                    @if (string.IsNullOrWhiteSpace(c.Evidencia))
+                                                    {
+                                                        <span>—</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <a href="@c.Evidencia" target="_blank" rel="noopener">@c.Evidencia</a>
+                                                    }
+                                                </Template>
+                                            </RadzenDataGridColumn>
+                                            <RadzenDataGridColumn TItem="PuntoDeChecklistDto" Title="" Width="130px">
+                                                <Template Context="c">
+                                                    @if (a.EnCurso)
+                                                    {
+                                                        <RadzenButton Text="@(c.Hecho ? "Desmarcar" : "Marcar")"
+                                                                      ButtonStyle="@(c.Hecho ? ButtonStyle.Light : ButtonStyle.Primary)"
+                                                                      Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                                      Click="@(() => MarcarPunto(c, !c.Hecho))" />
+                                                    }
+                                                </Template>
+                                            </RadzenDataGridColumn>
+                                        </Columns>
+                                    </RadzenDataGrid>
+                                </RadzenStack>
+                            }
+                        </RadzenCard>
+                    </RadzenStack>
+                </RadzenTabsItem>
+
+                <RadzenTabsItem Text="🎯 Disponibles">
+                    <RadzenStack Gap="0.75rem">
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                     Gap="1rem" Wrap="FlexWrap.Wrap">
+                            <RadzenLabel Text="Tipo:" Component="tipo" />
+                            <RadzenDropDown TValue="PoolWorkType?" @bind-Value="_tipo" Data="@d.Tipos" Name="tipo"
+                                            TextProperty="Texto" ValueProperty="Valor" AllowClear="true"
+                                            Placeholder="Todos" Change="@(_ => Cargar())" Disabled="@_ocupado"
+                                            Style="min-width:12rem" />
+                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@ResumenDeLibres(d)</RadzenText>
+                        </RadzenStack>
+
+                        <RadzenDataGrid TItem="ActividadLibreDto" Data="@d.Disponibles" IsLoading="@_ocupado"
+                                        AllowSorting="true" AllowPaging="true" PageSize="15"
+                                        EmptyText="No hay actividades libres en el pool ahora mismo.">
+                            <Columns>
+                                <RadzenDataGridColumn TItem="ActividadLibreDto" Property="Titulo" Title="Actividad" />
+                                <RadzenDataGridColumn TItem="ActividadLibreDto" Property="TipoTexto" Title="Tipo" Width="130px" />
+                                <RadzenDataGridColumn TItem="ActividadLibreDto" Property="ComplejidadTexto"
+                                                      Title="Complejidad" Width="130px" />
+                                <RadzenDataGridColumn TItem="ActividadLibreDto" Property="Puntos" Title="Puntos"
+                                                      Width="120px" TextAlign="TextAlign.Right">
+                                    @* En verde y en negrita, como en el escritorio: es el dato por el que
+                                       se elige qué tomar. *@
+                                    <Template Context="a">
+                                        <b style="color:var(--rz-success)">@a.Puntos</b>
+                                        @if (a.PuntosMaximos > a.Puntos)
+                                        {
+                                            <span style="opacity:.7"> → @a.PuntosMaximos</span>
+                                        }
+                                    </Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="ActividadLibreDto" Property="Prioridad"
+                                                      Title="Prioridad" Width="115px">
+                                    <Template Context="a">
+                                        <RadzenBadge Text="@a.PrioridadTexto"
+                                                     BadgeStyle="@EstiloDePrioridad(a.Prioridad)" />
+                                    </Template>
+                                </RadzenDataGridColumn>
+                                @* Lo que se pide DE MÁS, visible antes de tomarla. Es la razón de que este
+                                   dato viaje en la lista y no solo al abrirla: enterarse después de que
+                                   «además había que documentarla» convertiría el extra en una trampa. *@
+                                <RadzenDataGridColumn TItem="ActividadLibreDto" Title="Además se evalúa"
+                                                      Width="240px" Sortable="false">
+                                    <Template Context="a">
+                                        @if (a.CriteriosExtra.Count == 0)
+                                        {
+                                            <span style="opacity:.5">—</span>
+                                        }
+                                        else
+                                        {
+                                            <RadzenStack Gap="0.15rem">
+                                                @foreach (var c in a.CriteriosExtra)
+                                                {
+                                                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                                        <b>+@c.Puntos</b> @c.Nombre
+                                                    </RadzenText>
+                                                }
+                                            </RadzenStack>
+                                        }
+                                    </Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="ActividadLibreDto" Property="Detalle" Title="Detalle" Width="260px">
+                                    <Template Context="a">@Resumir(a.Detalle)</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="ActividadLibreDto" Title="" Width="190px" Sortable="false">
+                                    <Template Context="a">
+                                        <RadzenButton Text="Tomar esta" Icon="pan_tool" Size="ButtonSize.ExtraSmall"
+                                                      Disabled="@(_ocupado || !d.TieneFicha)" Click="@(() => Tomar(a))" />
+                                        @if (!string.IsNullOrWhiteSpace(a.Enlace))
+                                        {
+                                            <a href="@a.Enlace" target="_blank" rel="noopener" title="Abrir el ticket"> 🔗</a>
+                                        }
+                                    </Template>
+                                </RadzenDataGridColumn>
+                            </Columns>
+                        </RadzenDataGrid>
+                    </RadzenStack>
+                </RadzenTabsItem>
+            </Tabs>
+        </RadzenTabs>
+    }
+</RadzenStack>
+
+@code {
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private MiPoolDto? _datos;
+    private IList<MiActividadDelPoolDto>? _seleccion;
+    private List<PuntoDeChecklistDto> _checklist = [];
+    private PoolWorkType? _tipo;
+    private bool _ocupado;
+
+    /// <summary>
+    /// La actividad abierta. Se guarda su identificador y no la instancia porque cada recarga trae
+    /// objetos nuevos: sin esto, entregar o marcar un punto cerraría el detalle que se estaba mirando.
+    /// </summary>
+    private int? _abiertaId;
+
+    /// <summary>La actividad abierta, resuelta contra la última carga.</summary>
+    private MiActividadDelPoolDto? Abierta =>
+        _abiertaId is int id ? _datos?.Mias.FirstOrDefault(a => a.Id == id) : null;
+
+    protected override Task OnInitializedAsync() => Cargar();
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            var ruta = "api/pool/mio" + (_tipo is { } t ? $"?tipo={t}" : "");
+            _datos = await Api.LeerAsync<MiPoolDto>(ruta, _cancelacion.Token);
+
+            // La actividad abierta pudo dejar de estar en la lista (se aceptó, se liberó): dejar su
+            // checklist colgando haría creer que sigue siendo suya.
+            var abierta = Abierta;
+            if (abierta is null) { _abiertaId = null; _seleccion = null; _checklist = []; }
+            else { _seleccion = [abierta]; await CargarChecklist(); }
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task Seleccionar(IList<MiActividadDelPoolDto>? seleccion)
+    {
+        _seleccion = seleccion;
+        _abiertaId = seleccion?.FirstOrDefault()?.Id;
+        await CargarChecklist();
+    }
+
+    private async Task CargarChecklist()
+    {
+        if (_abiertaId is not int id) { _checklist = []; return; }
+        _checklist = await Api.LeerAsync<List<PuntoDeChecklistDto>>(
+            $"api/pool/{id}/checklist", _cancelacion.Token) ?? [];
+    }
+
+    // ── Acciones ─────────────────────────────────────────────────────────────
+
+    private async Task Tomar(ActividadLibreDto actividad)
+    {
+        // Con confirmación, y con el texto del escritorio: lo que hay que dejar claro antes de
+        // aceptar es cuánto vale y que devolverla no cuesta nada.
+        if (!await Avisos.ConfirmarAsync(
+            $"¿Tomar «{actividad.Titulo}»? Vale {actividad.Puntos} puntos y queda a tu nombre. " +
+            "Puedes devolverla al pool si no vas a poder con ella; eso no te resta nada.",
+            "Tomar actividad", "Sí, tomarla"))
+            return;
+
+        await Enviar<object?>($"api/pool/{actividad.Id}/tomar", null);
+    }
+
+    private async Task Entregar(MiActividadDelPoolDto actividad) =>
+        await Enviar<object?>($"api/pool/{actividad.Id}/entregar", null);
+
+    private async Task Devolver(MiActividadDelPoolDto actividad)
+    {
+        var motivo = await Avisos.PedirTextoAsync(
+            $"«{actividad.Titulo}» vuelve al pool y cualquiera podrá tomarla. ¿Por qué la devuelves? (opcional)",
+            "Devolver al pool");
+
+        if (motivo is null) return;   // null es cancelar; vacío es aceptar sin escribir
+
+        await Enviar($"api/pool/{actividad.Id}/devolver", new MotivoRequest(motivo));
+    }
+
+    /// <summary>
+    /// Marca o desmarca un punto. Los que exigen evidencia piden el enlace ANTES de mandar nada:
+    /// el servicio lo rechazaría igual, pero preguntarlo aquí ahorra el viaje y el mensaje de error.
+    /// </summary>
+    private async Task MarcarPunto(PuntoDeChecklistDto punto, bool hecho)
+    {
+        // Al desmarcar se conserva el enlace ya capturado, como en el escritorio: quien se
+        // equivocó de casilla no tiene por qué volver a buscar el pull request.
+        var evidencia = punto.Evidencia;
+
+        if (hecho && punto.RequiereEvidencia)
+        {
+            evidencia = await Avisos.PedirTextoAsync(
+                $"«{punto.Texto}» necesita un enlace que lo respalde (el pull request, el work item " +
+                $"o el ticket).{(punto.Evidencia is null ? "" : $" El actual es {punto.Evidencia}.")}",
+                "Enlace de evidencia");
+            if (string.IsNullOrWhiteSpace(evidencia)) return;
+        }
+
+        // Sin aviso de éxito, a propósito: marcar es lo que más se repite en esta pantalla y un
+        // mensaje por casilla acabaría tapando los que sí importan.
+        await Enviar($"api/pool/checklist/{punto.Id}/marcar",
+            new MarcarPuntoRequest(hecho, evidencia), avisarExito: false);
+    }
+
+    /// <summary>
+    /// El envío que comparten todas las acciones. El mensaje del servidor se enseña TAL CUAL: dice el
+    /// motivo concreto («alguien más la tomó primero», «te faltan 2 puntos del checklist»), y
+    /// cambiarlo por un «no se pudo» genérico tiraría lo que el escritorio hacía bien.
+    /// </summary>
+    private async Task Enviar<T>(string ruta, T cuerpo, bool avisarExito = true)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, r) = await Api.EnviarAsync<T, ResultadoDto>(ruta, cuerpo, _cancelacion.Token);
+            if (ok && avisarExito && r is not null) Avisos.Exito(r.Mensaje);
+            if (ok) await Cargar();
+        }
+        finally { _ocupado = false; }
+    }
+
+    // ── Textos ───────────────────────────────────────────────────────────────
+
+    private static string ResumenDeLasMias(MiPoolDto d)
+    {
+        if (d.Mias.Count == 0)
+            return "Todavía no has tomado ninguna actividad del pool. Búscalas en la pestaña «Disponibles».";
+
+        int enCurso = d.Mias.Count(a => a.EnCurso);
+        int ganados = d.Mias.Where(a => a.Estado == PoolActivityStatus.Aceptada).Sum(a => a.Puntos);
+        int enJuego = d.Mias.Where(a => a.Estado != PoolActivityStatus.Aceptada).Sum(a => a.Puntos);
+        return $"{enCurso} en curso  ·  {enJuego} punto(s) por ganar  ·  {ganados} ya aceptados.";
+    }
+
+    private static string ResumenDeLibres(MiPoolDto d) =>
+        d.Disponibles.Count == 0
+            ? "No hay actividades libres en el pool ahora mismo."
+            : $"{d.Disponibles.Count} actividad(es) libres por {d.Disponibles.Sum(a => a.Puntos)} puntos en total. " +
+              "Al tomar una, el valor queda fijado: es lo que se te abona al aceptarla.";
+
+    private static string EstadoExplicado(MiActividadDelPoolDto a) => a.Estado switch
+    {
+        PoolActivityStatus.EnRevision => "Entregada, esperando la verificación del líder.",
+        PoolActivityStatus.Aceptada   => "Aceptada: los puntos ya están en tu ranking.",
+        _                             => "Completa todos los puntos para poder entregarla."
+    };
+
+    private static string Resumir(string? texto)
+    {
+        texto = (texto ?? "").Replace('\n', ' ').Replace('\r', ' ').Trim();
+        return texto.Length <= 80 ? texto : texto[..80] + "…";
+    }
+
+    /// <summary>Solo lo urgente se colorea. Si todo llevara color, el color dejaría de avisar.</summary>
+    private static BadgeStyle EstiloDePrioridad(PoolPriority p) => p switch
+    {
+        PoolPriority.Critica => BadgeStyle.Danger,
+        PoolPriority.Alta    => BadgeStyle.Warning,
+        _                    => BadgeStyle.Light
+    };
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

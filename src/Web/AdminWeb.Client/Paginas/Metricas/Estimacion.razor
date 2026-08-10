@@ -1,0 +1,240 @@
+@page "/estimacion"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Shared.Dtos.Metricas
+@implements IDisposable
+@inject ClienteApi Api
+
+@*
+    Estimación y capacidad (clave del escritorio: «estimation-capacity»), en SOLO LECTURA.
+
+    Dos preguntas y una pantalla: ¿qué tan bien estimamos? y ¿a quién le puedo asignar lo siguiente?
+
+    Decisiones del escritorio que explican los números:
+
+      · Solo entran los requerimientos CON horas estimadas. Sin estimación no hay nada contra qué
+        comparar, e incluirlos con cero hundiría el ratio promedio.
+      · «Preciso» es dentro de ±20 % de lo estimado. Por encima de 1.2 se subestimó (costó más) y por
+        debajo de 0.8 se sobreestimó; el ratio promedio solo cuenta lo que ya tiene tiempo medido.
+      · «Sobrecargado» es tener más horas estimadas pendientes que la capacidad. Estar de vacaciones
+        gana a todo lo demás: da igual cuánto tenga abierto quien hoy no está.
+      · La ventana de vacaciones es INCLUSIVA y cuenta hoy: «30 días» son hoy y los 29 siguientes.
+
+    Las gráficas sustituyen al SimpleBarChart dibujado a mano del escritorio; aquí las pinta Radzen,
+    que ya está en el proyecto.
+*@
+
+<PageTitle>Estimación y capacidad</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Estimación y capacidad</RadzenText>
+        <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
+    </RadzenStack>
+
+    @if (_datos is { } d)
+    {
+        <RadzenTabs>
+            <Tabs>
+                <RadzenTabsItem Text="🎯 Estimación vs real">
+                    <RadzenStack Gap="1rem">
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                            @foreach (var indicador in d.IndicadoresDeEstimacion)
+                            {
+                                @Tarjeta(indicador)
+                            }
+                        </RadzenStack>
+
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@d.ResumenDeEstimacion</RadzenText>
+
+                        @if (Desviados.Count > 0)
+                        {
+                            @* Solo los que más se desviaron: la gráfica sirve para ver DÓNDE se rompió
+                               la estimación, no para dibujar el catálogo entero. La tabla de abajo los
+                               trae todos. *@
+                            <RadzenChart>
+                                <RadzenColumnSeries Data="@Desviados" CategoryProperty="Titulo"
+                                                    ValueProperty="HorasEstimadas" Title="Estimadas (h)" />
+                                <RadzenColumnSeries Data="@Desviados" CategoryProperty="Titulo"
+                                                    ValueProperty="HorasReales" Title="Reales (h)" />
+                                <RadzenCategoryAxis Padding="20" />
+                                <RadzenValueAxis>
+                                    <RadzenGridLines Visible="true" />
+                                    <RadzenAxisTitle Text="Horas" />
+                                </RadzenValueAxis>
+                                <RadzenLegend Position="LegendPosition.Bottom" />
+                            </RadzenChart>
+                        }
+
+                        <RadzenDataGrid TItem="FilaDeEstimacionDto" Data="@d.Estimacion" IsLoading="@_ocupado"
+                                        AllowSorting="true" AllowColumnResize="true" AllowPaging="true" PageSize="25"
+                                        EmptyText="No hay requerimientos con horas estimadas.">
+                            <Columns>
+                                <RadzenDataGridColumn TItem="FilaDeEstimacionDto" Property="RequerimientoId"
+                                                      Title="ID" Width="80px" TextAlign="TextAlign.Right" />
+                                <RadzenDataGridColumn TItem="FilaDeEstimacionDto" Property="Titulo" Title="Título" />
+                                <RadzenDataGridColumn TItem="FilaDeEstimacionDto" Property="Estado"
+                                                      Title="Estado" Width="140px" />
+                                <RadzenDataGridColumn TItem="FilaDeEstimacionDto" Property="HorasEstimadas"
+                                                      Title="Estimadas (h)" Width="140px" TextAlign="TextAlign.Right">
+                                    <Template Context="f">@f.HorasEstimadas.ToString("0.#")</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="FilaDeEstimacionDto" Property="HorasReales"
+                                                      Title="Reales (h)" Width="130px" TextAlign="TextAlign.Right">
+                                    <Template Context="f">@f.HorasReales.ToString("0.#")</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="FilaDeEstimacionDto" Property="Delta"
+                                                      Title="Δ (h)" Width="110px" TextAlign="TextAlign.Right">
+                                    <Template Context="f">@f.Delta.ToString("+0.#;-0.#;0")</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="FilaDeEstimacionDto" Property="Ratio"
+                                                      Title="Ratio" Width="100px" TextAlign="TextAlign.Right">
+                                    <Template Context="f">@(f.Ratio?.ToString("0.00") ?? "—")</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="FilaDeEstimacionDto" Property="Clasificacion"
+                                                      Title="Clasificación" Width="230px">
+                                    <Template Context="f">
+                                        <b style="@($"color:{Color(f.Tono)}")">@f.Clasificacion</b>
+                                    </Template>
+                                </RadzenDataGridColumn>
+                            </Columns>
+                        </RadzenDataGrid>
+                    </RadzenStack>
+                </RadzenTabsItem>
+
+                <RadzenTabsItem Text="👥 Capacidad del equipo">
+                    <RadzenStack Gap="1rem">
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                     Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                            <RadzenLabel Text="Vacaciones en los próximos" Component="dias" />
+                            <RadzenNumeric @bind-Value="_dias" Min="1" Max="365" Name="dias" Style="width:100px"
+                                           Change="@((int _) => Cargar())" Disabled="@_ocupado" />
+                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                días. «Sobrecargado» = más de @d.CapacidadHoras.ToString("0") h estimadas pendientes.
+                            </RadzenText>
+                        </RadzenStack>
+
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                            @foreach (var indicador in d.IndicadoresDeCapacidad)
+                            {
+                                @Tarjeta(indicador)
+                            }
+                        </RadzenStack>
+
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@d.ResumenDeCapacidad</RadzenText>
+
+                        @if (d.Capacidad.Count > 0)
+                        {
+                            @* La línea de la capacidad no se dibuja: se lee en la tarjeta y en el
+                               semáforo de cada fila, que es donde se decide. *@
+                            <RadzenChart>
+                                <RadzenColumnSeries Data="@d.Capacidad" CategoryProperty="Desarrollador"
+                                                    ValueProperty="HorasPendientes" Title="Horas pendientes" />
+                                <RadzenCategoryAxis Padding="20" />
+                                <RadzenValueAxis>
+                                    <RadzenGridLines Visible="true" />
+                                    <RadzenAxisTitle Text="Horas estimadas pendientes" />
+                                </RadzenValueAxis>
+                                <RadzenLegend Position="LegendPosition.Bottom" />
+                            </RadzenChart>
+                        }
+
+                        <RadzenDataGrid TItem="FilaDeCapacidadDto" Data="@d.Capacidad" IsLoading="@_ocupado"
+                                        AllowSorting="true" AllowPaging="true" PageSize="25"
+                                        EmptyText="No hay desarrolladores activos.">
+                            <Columns>
+                                <RadzenDataGridColumn TItem="FilaDeCapacidadDto" Property="Desarrollador"
+                                                      Title="Desarrollador" />
+                                <RadzenDataGridColumn TItem="FilaDeCapacidadDto" Property="Abiertos"
+                                                      Title="Req. abiertos" Width="150px" TextAlign="TextAlign.Right" />
+                                <RadzenDataGridColumn TItem="FilaDeCapacidadDto" Property="HorasPendientes"
+                                                      Title="Horas pendientes" Width="170px" TextAlign="TextAlign.Right">
+                                    <Template Context="f">@f.HorasPendientes.ToString("0.#")</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="FilaDeCapacidadDto" Property="HorasRegistradas"
+                                                      Title="Horas registradas" Width="180px" TextAlign="TextAlign.Right">
+                                    <Template Context="f">@f.HorasRegistradas.ToString("0.#")</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="FilaDeCapacidadDto" Property="DiasDeVacaciones"
+                                                      Title="Vacaciones (días)" Width="170px" TextAlign="TextAlign.Right" />
+                                <RadzenDataGridColumn TItem="FilaDeCapacidadDto" Property="Disponibilidad"
+                                                      Title="Disponibilidad" Width="200px">
+                                    <Template Context="f">
+                                        <b style="@($"color:{Color(f.Tono)}")">@f.Disponibilidad</b>
+                                    </Template>
+                                </RadzenDataGridColumn>
+                            </Columns>
+                        </RadzenDataGrid>
+                    </RadzenStack>
+                </RadzenTabsItem>
+            </Tabs>
+        </RadzenTabs>
+    }
+</RadzenStack>
+
+@code {
+    /// <summary>
+    /// Cuántos requerimientos entran en la gráfica de estimación. Con todos, las etiquetas se
+    /// solapan y deja de leerse; vienen ya ordenados por desviación, así que los primeros son
+    /// justamente los que hay que mirar.
+    /// </summary>
+    private const int MaxEnLaGrafica = 10;
+
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private EstimacionYCapacidadDto? _datos;
+    private int _dias = 30;
+    private bool _ocupado;
+
+    /// <summary>Los que más se desviaron y ya tienen tiempo medido: sin tiempo no hay nada que comparar.</summary>
+    private IReadOnlyList<FilaDeEstimacionDto> Desviados =>
+        (_datos?.Estimacion ?? [])
+            .Where(f => f.HorasReales > 0)
+            .Take(MaxEnLaGrafica)
+            .ToList();
+
+    protected override Task OnInitializedAsync() => Cargar();
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            _datos = await Api.LeerAsync<EstimacionYCapacidadDto>(
+                $"api/metricas/estimacion?dias={_dias}", _cancelacion.Token);
+
+            // El servidor acota la ventana; si la recortó, la pantalla enseña la que de verdad se
+            // usó en vez de un número que no corresponde con los días contados.
+            if (_datos is { } d) _dias = d.DiasDeVentana;
+        }
+        finally { _ocupado = false; }
+    }
+
+    /// <summary>
+    /// Tarjeta de indicador. El título va arriba y pequeño y el dato grande, como en el escritorio:
+    /// lo que se busca de un vistazo es el número, no la etiqueta.
+    /// </summary>
+    private RenderFragment Tarjeta(IndicadorDto indicador) => __builder =>
+    {
+        var color = Color(indicador.Tono);
+        <RadzenCard Style="@($"min-width:170px;border-left:5px solid {color}")" title="@indicador.Explicacion">
+            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-1">@indicador.Titulo</RadzenText>
+            <RadzenText TextStyle="TextStyle.H6" Style="@($"margin:0;color:{color}")">@indicador.Valor</RadzenText>
+        </RadzenCard>
+    };
+
+    /// <summary>El tono que decidió el servidor, traducido a la variable de tema que le toca.</summary>
+    private static string Color(TonoDeIndicador tono) => tono switch
+    {
+        TonoDeIndicador.Exito => "var(--rz-success)",
+        TonoDeIndicador.Aviso => "var(--rz-warning)",
+        TonoDeIndicador.Peligro => "var(--rz-danger)",
+        _ => "var(--rz-text-color)"
+    };
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

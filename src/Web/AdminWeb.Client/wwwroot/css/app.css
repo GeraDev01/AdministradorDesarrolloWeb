@@ -1,0 +1,164 @@
+/* Lo propio de la aplicación. La paleta y el modo claro/oscuro viven en tema.css;
+   aquí solo van las piezas que Radzen no cubre.
+
+   Todo se expresa con VARIABLES, nunca con colores literales: un color escrito a
+   mano aquí se vería bien en claro y quedaría ilegible en oscuro, y nadie se
+   entera hasta que alguien cambia el modo. */
+
+html, body {
+    margin: 0;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    /* Suaviza el trazo en pantallas normales; en oscuro se nota bastante. */
+    -webkit-font-smoothing: antialiased;
+}
+
+.cargando {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    color: var(--adminweb-cargando-color);
+    /* Este texto se ve ANTES de que arranque el WebAssembly, cuando las variables
+       de Radzen todavía no existen: por eso lleva su propio color de respaldo. */
+    background: var(--rz-body-background-color, #f8fafc);
+}
+
+/* Pantalla de acceso: centrada y sin menú, para que no haya nada más que hacer ahí. */
+.acceso-fondo {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background: var(--adminweb-acceso-fondo);
+    padding: 1rem;
+}
+
+.acceso-tarjeta {
+    width: 100%;
+    max-width: 380px;
+}
+
+#blazor-error-ui {
+    display: none;
+    position: fixed;
+    bottom: 0;
+    width: 100%;
+    padding: 0.75rem 1.25rem;
+    background: var(--adminweb-aviso-fondo);
+    color: var(--adminweb-aviso-color);
+    box-shadow: 0 -1px 2px rgba(0, 0, 0, .2);
+    z-index: 1000;
+}
+
+#blazor-error-ui .reload {
+    margin-left: 1rem;
+    color: inherit;
+    text-decoration: underline;
+}
+
+/* Búsqueda global de la barra superior. */
+.busqueda-global {
+    position: relative;
+    min-width: 14rem;
+}
+
+.busqueda-caja {
+    width: 100%;
+    padding: 0.4rem 0.7rem;
+    border: 1px solid rgba(255, 255, 255, .25);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, .10);
+    color: var(--rz-header-color);
+    font-size: .9rem;
+    font-family: inherit;
+}
+
+.busqueda-caja::placeholder { color: var(--rz-header-color); opacity: .6; }
+
+.busqueda-caja:focus {
+    outline: none;
+    border-color: var(--rz-primary-light);
+    background: rgba(255, 255, 255, .16);
+}
+
+/* La lista flota SOBRE la página; por eso lleva el fondo del panel y no el de la barra. */
+.busqueda-lista {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    min-width: 22rem;
+    max-height: 22rem;
+    overflow-y: auto;
+    background: var(--rz-panel-background-color);
+    color: var(--rz-text-color);
+    border: 1px solid var(--rz-border-color);
+    border-radius: 6px;
+    box-shadow: var(--rz-shadow-4);
+    z-index: 1200;
+}
+
+.busqueda-fila {
+    display: flex;
+    align-items: baseline;
+    gap: .6rem;
+    width: 100%;
+    padding: .5rem .7rem;
+    border: none;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: .9rem;
+}
+
+.busqueda-fila:hover { background: var(--rz-primary-lighter); }
+
+.busqueda-tipo {
+    flex: 0 0 auto;
+    font-size: .72rem;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    color: var(--rz-text-secondary-color);
+}
+
+.busqueda-texto {
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.busqueda-vacio {
+    padding: .6rem .7rem;
+    font-size: .85rem;
+    color: var(--rz-text-secondary-color);
+}
+
+/* El interruptor de tema: un botón de icono en la barra, sin fondo propio para
+   que no compita con las acciones de verdad. */
+.interruptor-tema {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--rz-header-color);
+    cursor: pointer;
+    font-size: 1.15rem;
+    line-height: 1;
+    transition: background-color .15s ease;
+}
+
+.interruptor-tema:hover {
+    background: rgba(255, 255, 255, .12);
+}
+
+.interruptor-tema:focus-visible {
+    outline: 2px solid var(--rz-primary-light);
+    outline-offset: 2px;
+}

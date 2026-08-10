@@ -1,0 +1,165 @@
+@page "/mi-panel"
+@attribute [Authorize(Policy = "AdminUDesarrollador")]
+@using AdminWeb.Shared.Dtos.Desempeno
+@implements IDisposable
+@inject ClienteApi Api
+
+@*
+    Mi panel: los indicadores del mes de quien está usando la aplicación y los dos rankings
+    generales. Clave del escritorio: «my-performance».
+
+    De aquel panel se porta aquí la parte de DESEMPEÑO: los indicadores y los dos rankings. Registrar,
+    corregir o replicar una actividad es escritura y vive en «Mis Actividades»; las asignaciones y los
+    tickets de DevOps, en las suyas.
+
+    Los rankings que se ven en esta pantalla traen SOLO nombre y total. No es un recorte de pintado:
+    el servidor manda otro contrato (RankingPublicoFilaDto), sin entradas, comentarios ni evidencias
+    de los demás. Esconderlo en el cliente no serviría de nada.
+*@
+
+<PageTitle>Mi panel</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Mi panel</RadzenText>
+
+    <RadzenCard>
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                     Gap="0.75rem" Wrap="FlexWrap.Wrap">
+            <RadzenLabel Text="Ranking del mes:" Component="mes" />
+            <RadzenDropDown @bind-Value="_mes" Data="@Meses" TextProperty="Texto" ValueProperty="Id"
+                            Name="mes" Style="width:150px" Change="@(_ => Cargar())" Disabled="@_ocupado" />
+            <RadzenNumeric @bind-Value="_anio" Min="2020" Max="2099" Name="anio"
+                           Style="width:110px" Change="@((int _) => Cargar())" Disabled="@_ocupado" />
+            <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                          Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
+        </RadzenStack>
+    </RadzenCard>
+
+    @if (_datos is { } d)
+    {
+        @if (!d.TieneFicha)
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+                Tu cuenta no está vinculada a una ficha de desarrollador, así que no tienes puntos ni
+                posición. Los rankings los puedes ver igual. Contacta al líder si esto no es correcto.
+            </RadzenAlert>
+        }
+
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
+            @Tarjeta("🎓 Mi nivel", d.Nivel, "var(--rz-text-secondary-color)", d.ExplicacionNivel)
+            @Tarjeta("👥 Mi equipo", d.Equipo, "var(--rz-info)", d.RolEnEquipo)
+            @Tarjeta("✅ Aprobado (mes)", ConSigno(d.Aprobado), "var(--rz-success)",
+                     "Puntos que ya te aprobaron en el período elegido.")
+            @Tarjeta("⏳ En revisión", ConSigno(d.EnRevision), "var(--rz-warning)",
+                     "Puntos que registraste y siguen pendientes de aprobación.")
+            @Tarjeta("❌ Rechazado", d.Rechazadas.ToString(), "var(--rz-danger)",
+                     "Cuántas actividades te rechazaron en el período. Se corrigen en «Mis Actividades».")
+            @Tarjeta("🏅 Mi posición", d.Posicion, "var(--rz-text-color)", null)
+        </RadzenStack>
+
+        <RadzenTabs>
+            <Tabs>
+                <RadzenTabsItem Text="🏅 Ranking individual">
+                    <RadzenDataGrid TItem="RankingPublicoFilaDto" Data="@d.Individual"
+                                    IsLoading="@_ocupado" AllowSorting="true" PageSize="25" AllowPaging="true"
+                                    EmptyText="Sin puntos aprobados en el mes." RowRender="@ResaltarLaMia">
+                        <Columns>
+                            <RadzenDataGridColumn TItem="RankingPublicoFilaDto" Property="Posicion" Title="Pos." Width="80px">
+                                <Template Context="fila">@fila.Medalla</Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="RankingPublicoFilaDto" Property="Nombre" Title="Desarrollador" />
+                            <RadzenDataGridColumn TItem="RankingPublicoFilaDto" Property="Total" Title="Puntos"
+                                                  Width="120px" TextAlign="TextAlign.Right">
+                                <Template Context="fila">
+                                    <b style="@EstiloDeTotal(fila.Total)">@ConSigno(fila.Total)</b>
+                                </Template>
+                            </RadzenDataGridColumn>
+                        </Columns>
+                    </RadzenDataGrid>
+                </RadzenTabsItem>
+
+                <RadzenTabsItem Text="👥 Ranking por equipo">
+                    <RadzenDataGrid TItem="RankingPublicoFilaDto" Data="@d.Equipos"
+                                    IsLoading="@_ocupado" AllowSorting="true" PageSize="25" AllowPaging="true"
+                                    EmptyText="No hay equipos." RowRender="@ResaltarLaMia">
+                        <Columns>
+                            <RadzenDataGridColumn TItem="RankingPublicoFilaDto" Property="Posicion" Title="Pos." Width="80px">
+                                <Template Context="fila">@fila.Medalla</Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="RankingPublicoFilaDto" Property="Nombre" Title="Equipo" />
+                            <RadzenDataGridColumn TItem="RankingPublicoFilaDto" Property="Total" Title="Puntos"
+                                                  Width="120px" TextAlign="TextAlign.Right">
+                                <Template Context="fila">
+                                    <b style="@EstiloDeTotal(fila.Total)">@ConSigno(fila.Total)</b>
+                                </Template>
+                            </RadzenDataGridColumn>
+                        </Columns>
+                    </RadzenDataGrid>
+                </RadzenTabsItem>
+            </Tabs>
+        </RadzenTabs>
+    }
+</RadzenStack>
+
+@code {
+    private static readonly OpcionDeMes[] Meses =
+    [
+        new(1, "Enero"), new(2, "Febrero"), new(3, "Marzo"), new(4, "Abril"),
+        new(5, "Mayo"), new(6, "Junio"), new(7, "Julio"), new(8, "Agosto"),
+        new(9, "Septiembre"), new(10, "Octubre"), new(11, "Noviembre"), new(12, "Diciembre")
+    ];
+
+    private record OpcionDeMes(int Id, string Texto);
+
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private int _anio = DateTime.Today.Year;
+    private int _mes = DateTime.Today.Month;
+    private bool _ocupado;
+    private MiPanelDto? _datos;
+
+    protected override Task OnInitializedAsync() => Cargar();
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            _datos = await Api.LeerAsync<MiPanelDto>(
+                $"api/desempeno/mi-panel?anio={_anio}&mes={_mes}", _cancelacion.Token);
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    /// <summary>
+    /// Tarjeta de indicador. El título va arriba y pequeño y el dato grande, como en el escritorio:
+    /// lo que se busca de un vistazo es el número, no la etiqueta.
+    /// </summary>
+    private RenderFragment Tarjeta(string titulo, string valor, string color, string? explicacion) => __builder =>
+    {
+        <RadzenCard Style="@($"min-width:210px;border-left:5px solid {color}")" title="@explicacion">
+            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-1">@titulo</RadzenText>
+            <RadzenText TextStyle="TextStyle.H6" Style="@($"margin:0;color:{color}")">@valor</RadzenText>
+        </RadzenCard>
+    };
+
+    /// <summary>Resalta la fila propia (o la del equipo propio); lo decide el servidor, no la pantalla.</summary>
+    private void ResaltarLaMia(RowRenderEventArgs<RankingPublicoFilaDto> args)
+    {
+        if (args.Data.EsMio) args.Attributes["style"] = "background-color:#fff8dc";
+    }
+
+    private static string ConSigno(int puntos) => puntos >= 0 ? $"+{puntos}" : puntos.ToString();
+
+    private static string EstiloDeTotal(int total) =>
+        total > 0 ? "color:var(--rz-success)" : total < 0 ? "color:var(--rz-danger)" : "";
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

@@ -1,0 +1,17 @@
+<!--
+  El icono de la pestaña.
+
+  En SVG y no en .ico a propósito: no hace falta un binario en el repositorio, se ve nítido en
+  cualquier densidad de pantalla y se edita como texto.
+
+  Que exista importa por algo más que la estética. Sin él, el navegador pide /favicon.ico en cada
+  carga; esa ruta no coincide con ningún archivo ni con el enrutador de Blazor —que solo atiende
+  direcciones sin extensión—, así que cae en la política de respaldo de la API y responde 401. El
+  resultado era un error rojo en la consola de todo el que abriera la aplicación, que no significaba
+  nada pero que había que descartar cada vez que se diagnosticaba algo de verdad.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="7" fill="#1f2937"/>
+  <path d="M9 21.5V10.5h3.4l3.6 6.6 3.6-6.6H23v11h-2.7v-6.7l-3 5.4h-1.6l-3-5.4v6.7z"
+        fill="#ffffff"/>
+</svg>

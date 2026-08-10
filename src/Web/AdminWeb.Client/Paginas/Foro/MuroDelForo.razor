@@ -1,0 +1,518 @@
+@page "/foro"
+@using System.Globalization
+@using AdminWeb.Shared.Dtos
+@using AdminWeb.Shared.Dtos.Foro
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+@inject NavigationManager Navegacion
+@inject EstadoSesion Sesion
+@inject PreferenciasDeUsuario Preferencias
+
+@*
+    El foro del equipo, en dos vistas de los MISMOS datos (igual que el escritorio):
+
+     · 🗂 Muro      — tarjetas con ❤ y contador de comentarios; al abrir una se ve su hilo con los
+                      comentarios anidados. Es la vista del día a día, y desde aquí se publica.
+     · 📋 Auditoría — rejilla con filtros: quién dijo qué, cuándo, en qué hilo, si se editó y si se
+                      retiró. Es para reconstruir una conversación, no para participar, y SOLO la ve
+                      el administrador.
+
+    El muro lo ve todo el que tenga sesión, sea cual sea su rol: ese es el punto del foro.
+
+    La pestaña de auditoría no se pinta para quien no es administrador — pero eso es COMODIDAD, no
+    seguridad: esta pantalla corre en la máquina de cada quien y se puede manipular. La barrera real
+    es el .RequireAuthorization("SoloAdmin") de /api/foro/auditoria y la guarda del servicio.
+
+    El formulario de publicar está PLEGADO por omisión. El escritorio abría un diálogo aparte para
+    escribir; aquí se despliega en su sitio, que evita la ventana pero también obliga a plegarlo: un
+    muro que empieza con un formulario de cinco campos deja de parecer un muro.
+*@
+
+<PageTitle>Foro del equipo</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenText TextStyle="TextStyle.H5">Foro del equipo</RadzenText>
+
+    <RadzenTabs>
+        <Tabs>
+            <RadzenTabsItem Text="🗂  Muro">
+                <RadzenStack Gap="0.75rem">
+
+                    @* ── Publicar ────────────────────────────────────────────────────────── *@
+                    <RadzenCard>
+                        <RadzenStack Gap="0.6rem">
+                            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                         Wrap="FlexWrap.Wrap" Gap="0.75rem">
+                                <RadzenButton Text="@(_publicando ? "✖  Cancelar" : "✍  Publicar algo")"
+                                              ButtonStyle="@(_publicando ? ButtonStyle.Light : ButtonStyle.Primary)"
+                                              Size="ButtonSize.Small" Disabled="@_enviando"
+                                              Click="@AlternarFormulario" />
+                                @if (!_publicando)
+                                {
+                                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                        Una idea, una pregunta o algo que aprendiste y no debería perderse.
+                                    </RadzenText>
+                                }
+                            </RadzenStack>
+
+                            @if (_publicando)
+                            {
+                                <RadzenTextBox @bind-Value="_nuevoTitulo" MaxLength="200" Style="width:100%"
+                                               Placeholder="Título" aria-label="Título de la publicación" />
+
+                                <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.5rem">
+                                    <RadzenDropDown TValue="int?" Data="@_temas" TextProperty="Texto" ValueProperty="Id"
+                                                    @bind-Value="_nuevoTema" Placeholder="Tema"
+                                                    aria-label="Tema" Style="width:200px" />
+
+                                    <RadzenTextBox @bind-Value="_nuevasEtiquetas" MaxLength="300" Style="width:300px"
+                                                   Placeholder="Etiquetas separadas por comas"
+                                                   aria-label="Etiquetas" />
+                                </RadzenStack>
+
+                                @* El texto es TEXTO LLANO: no se interpreta marcado. Lo único que se
+                                   vuelve pulsable son las direcciones, y quien lo decide es el
+                                   servidor. *@
+                                <RadzenTextArea @bind-Value="_nuevoCuerpo" Rows="6" MaxLength="20000"
+                                                Style="width:100%" aria-label="Texto de la publicación"
+                                                Placeholder="Escribe aquí. Las direcciones se vuelven enlaces solas; para ponerles nombre, [así](https://…)." />
+
+                                <PegarImagen @bind-Imagenes="_nuevasImagenes"
+                                             Maximo="@MaxImagenes" MaxBytes="@MaxBytesImagen" />
+
+                                <div>
+                                    <RadzenButton Text="Publicar" ButtonStyle="ButtonStyle.Primary"
+                                                  Size="ButtonSize.Small" Disabled="@_enviando"
+                                                  Click="@PublicarAsync" />
+                                </div>
+                            }
+                        </RadzenStack>
+                    </RadzenCard>
+
+                    @* ── Filtros ─────────────────────────────────────────────────────────── *@
+                    <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap"
+                                 AlignItems="AlignItems.Center" Gap="0.5rem">
+                        @*
+                            La búsqueda se dispara al salir del campo o con Enter, no en cada tecla.
+                            El escritorio filtraba en memoria y podía permitírselo; aquí cada cambio
+                            es una consulta paginada al servidor.
+                        *@
+                        <RadzenTextBox @bind-Value="_texto" Placeholder="Buscar en el foro…"
+                                       aria-label="Buscar en el foro" Style="width:230px"
+                                       Change="@(async _ => await RecargarMuroAsync())" />
+
+                        <RadzenDropDown TValue="int?" Data="@_temas" TextProperty="Texto" ValueProperty="Id"
+                                        @bind-Value="_tema" AllowClear="true" Placeholder="Todos los temas"
+                                        aria-label="Tema" Style="width:180px"
+                                        Change="@(async _ => await RecargarMuroAsync())" />
+
+                        <RadzenDropDown TValue="string" Data="@_autores"
+                                        @bind-Value="_autor" AllowClear="true" Placeholder="Todos los autores"
+                                        aria-label="Autor" Style="width:200px"
+                                        Change="@(async _ => await RecargarMuroAsync())" />
+
+                        <RadzenDropDown TValue="int?" Data="@Ventanas" TextProperty="Texto" ValueProperty="Id"
+                                        @bind-Value="_dias" AllowClear="true" Placeholder="Todo el tiempo"
+                                        aria-label="Ventana de tiempo" Style="width:170px"
+                                        Change="@(async _ => await RecargarMuroAsync())" />
+
+                        <RadzenCheckBox TValue="bool" Value="@_soloMias" Name="soloMias"
+                                        ValueChanged="@(async (bool v) => { _soloMias = v; await RecargarMuroAsync(); })" />
+                        <RadzenLabel Text="Solo mías" Component="soloMias" />
+
+                        <RadzenButton Text="🔄 Recargar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                      Click="@(async () => await CargarMuroAsync())" />
+                    </RadzenStack>
+
+                    @* ── Tarjetas ────────────────────────────────────────────────────────── *@
+                    @if (_cargandoMuro)
+                    {
+                        <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" />
+                    }
+                    else if (_tarjetas.Count == 0)
+                    {
+                        <RadzenAlert AlertStyle="AlertStyle.Info" AllowClose="false">
+                            No hay publicaciones con ese filtro.
+                        </RadzenAlert>
+                    }
+                    else
+                    {
+                        @foreach (var t in _tarjetas)
+                        {
+                            @* En un muro la tarjeta ES el botón: el clic en cualquier parte abre el
+                               hilo. El botón de abajo existe para quien navega con teclado, que no
+                               puede «hacer clic en una tarjeta». *@
+                            <div @onclick="@(() => AbrirHilo(t.Id))" style="cursor:pointer">
+                                <RadzenCard>
+                                    <RadzenStack Gap="0.35rem">
+                                        <RadzenText TextStyle="TextStyle.H6" Style="margin:0">
+                                            @t.TemaIcono @(t.Fijada ? "📌 " : "")@t.Titulo
+                                        </RadzenText>
+
+                                        <RadzenText TextStyle="TextStyle.Caption" Style="margin:0"
+                                                    title="@TiempoDelForo.Fecha(t.UltimaActividadUtc)">
+                                            🧑 @t.Autor
+                                            &nbsp;·&nbsp; @TiempoDelForo.HaceCuanto(t.UltimaActividadUtc)
+                                            @if (t.Cerrada)
+                                            {
+                                                <text>&nbsp;·&nbsp; 🔒 cerrado</text>
+                                            }
+                                            @if (t.Retirada)
+                                            {
+                                                <text>&nbsp;·&nbsp; 🗑 retirada</text>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(t.Etiquetas))
+                                            {
+                                                <text>&nbsp;·&nbsp; @t.Etiquetas</text>
+                                            }
+                                        </RadzenText>
+
+                                        @*
+                                            El extracto va como TEXTO, sin enlaces: es contenido
+                                            escrito por otra persona y en la tarjeta no hace falta
+                                            que sea pulsable. El hilo sí los pinta, ya validados por
+                                            el servidor.
+                                        *@
+                                        <RadzenText TextStyle="TextStyle.Body2" Style="margin:0">@t.Extracto</RadzenText>
+
+                                        <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
+                                            @(t.YoDiMeGusta ? "❤" : "♡") @t.MeGusta
+                                            &nbsp;&nbsp; 💬 @t.Comentarios comentario(s)
+                                            @if (t.Imagenes > 0)
+                                            {
+                                                <text>&nbsp;&nbsp; 🖼 @t.Imagenes imagen(es)</text>
+                                            }
+                                        </RadzenText>
+
+                                        <div>
+                                            <RadzenButton Text="Abrir el hilo →" ButtonStyle="ButtonStyle.Light"
+                                                          Size="ButtonSize.Small" Click="@(() => AbrirHilo(t.Id))" />
+                                        </div>
+                                    </RadzenStack>
+                                </RadzenCard>
+                            </div>
+                        }
+
+                        @* Paginado en el SERVIDOR: el muro crece sin límite y traerlo entero deja de
+                           funcionar al segundo mes. *@
+                        <RadzenPager Count="@_total" PageSize="@TamanoMuro" PageNumbersCount="5"
+                                     PageChanged="@AlCambiarPaginaAsync" />
+
+                        <RadzenText TextStyle="TextStyle.Caption">
+                            @_total publicación(es). Las fijadas van primero; el resto, por última actividad,
+                            así que un hilo viejo que revive vuelve a subir.
+                        </RadzenText>
+                    }
+                </RadzenStack>
+            </RadzenTabsItem>
+
+            @if (_esAdmin)
+            {
+                <RadzenTabsItem Text="📋  Auditoría">
+                    <RadzenStack Gap="0.75rem">
+                        <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap"
+                                     AlignItems="AlignItems.Center" Gap="0.5rem">
+                            <RadzenTextBox @bind-Value="_textoAud" Placeholder="Buscar en todo el foro…"
+                                           aria-label="Buscar en todo el foro" Style="width:240px"
+                                           Change="@(async _ => await RecargarAuditoriaAsync())" />
+
+                            <RadzenDropDown TValue="int?" Data="@_temas" TextProperty="Texto" ValueProperty="Id"
+                                            @bind-Value="_temaAud" AllowClear="true" Placeholder="Todos los temas"
+                                            aria-label="Tema" Style="width:180px"
+                                            Change="@(async _ => await RecargarAuditoriaAsync())" />
+
+                            @* Armado con quien de verdad ha escrito, comentaristas incluidos. *@
+                            <RadzenDropDown TValue="string" Data="@_autoresAud"
+                                            @bind-Value="_autorAud" AllowClear="true" Placeholder="Todos los autores"
+                                            aria-label="Autor" Style="width:220px"
+                                            Change="@(async _ => await RecargarAuditoriaAsync())" />
+                        </RadzenStack>
+
+                        <RadzenDataGrid @ref="_rejilla" TItem="ForoAuditoriaFilaDto"
+                                        Data="@_auditoria" Count="@_totalAuditoria"
+                                        LoadData="@CargarAuditoriaAsync" IsLoading="@_cargandoAuditoria"
+                                        AllowPaging="true" PageSize="@TamanoAuditoria" AllowColumnPicking="true"
+                                        PickedColumnsChanged="@AlElegirColumnasAsync"
+                                        EmptyText="No hay entradas con ese filtro."
+                                        RowDoubleClick="@(a => AbrirHilo(a.Data.HiloId))">
+                            <Columns>
+                                <RadzenDataGridColumn TItem="ForoAuditoriaFilaDto" Title="Cuándo" Width="150px"
+                                                      Sortable="false" Filterable="false" Visible="@Visible("Cuándo")">
+                                    <Template Context="f">@TiempoDelForo.Fecha(f.CreadaUtc)</Template>
+                                </RadzenDataGridColumn>
+
+                                <RadzenDataGridColumn TItem="ForoAuditoriaFilaDto" Property="Autor" Title="Autor"
+                                                      Width="170px" Sortable="false" Filterable="false"
+                                                      Visible="@Visible("Autor")" />
+
+                                <RadzenDataGridColumn TItem="ForoAuditoriaFilaDto" Property="Tipo" Title="Tipo"
+                                                      Width="150px" Sortable="false" Filterable="false"
+                                                      Visible="@Visible("Tipo")" />
+
+                                <RadzenDataGridColumn TItem="ForoAuditoriaFilaDto" Property="Hilo" Title="Hilo"
+                                                      Width="220px" Sortable="false" Filterable="false"
+                                                      Visible="@Visible("Hilo")" />
+
+                                <RadzenDataGridColumn TItem="ForoAuditoriaFilaDto" Property="Texto" Title="Texto"
+                                                      Sortable="false" Filterable="false" Visible="@Visible("Texto")" />
+
+                                <RadzenDataGridColumn TItem="ForoAuditoriaFilaDto" Property="Estado" Title="Estado"
+                                                      Width="120px" Sortable="false" Filterable="false"
+                                                      Visible="@Visible("Estado")" />
+                            </Columns>
+                        </RadzenDataGrid>
+
+                        <RadzenText TextStyle="TextStyle.Caption">
+                            Doble clic abre el hilo completo. Nada se borra: lo retirado conserva su hueco en la
+                            conversación y su texto ya no se devuelve —tampoco aquí—.
+                        </RadzenText>
+                    </RadzenStack>
+                </RadzenTabsItem>
+            }
+        </Tabs>
+    </RadzenTabs>
+</RadzenStack>
+
+@code {
+    private const int TamanoMuro = 10;
+    private const int TamanoAuditoria = 20;
+
+    /// <summary>
+    /// Los topes de las imágenes, repetidos aquí porque el cliente no ve las constantes de
+    /// <c>ForumService</c> (el navegador solo referencia Shared, que no depende de nada). Sirven para
+    /// avisar ANTES de subir cinco megas para nada; el tope que cuenta lo sigue aplicando el
+    /// servidor, y si algún día cambia allá, aquí solo se pierde el aviso previo.
+    /// </summary>
+    private const int MaxImagenes = 6;
+    private const long MaxBytesImagen = 4L * 1024 * 1024;
+
+    /// <summary>La misma clave de columnas que usaba la rejilla del escritorio: quien ya tenía sus
+    /// columnas escondidas se las encuentra igual en la web.</summary>
+    private const string ClaveColumnas = "forum.auditoria";
+
+    private static readonly OpcionDto[] Ventanas =
+    [
+        new(7, "Últimos 7 días"), new(30, "Últimos 30 días"), new(90, "Últimos 90 días")
+    ];
+
+    private static readonly string[] TodasLasColumnas = ["Cuándo", "Autor", "Tipo", "Hilo", "Texto", "Estado"];
+
+    private bool _esAdmin;
+
+    // Muro
+    private IReadOnlyList<ForoTarjetaDto> _tarjetas = [];
+    private IReadOnlyList<OpcionDto> _temas = [];
+    private IReadOnlyList<string> _autores = [];
+    private string _texto = "";
+    private int? _tema, _dias;
+    private string? _autor;
+    private bool _soloMias;
+    private int _pagina = 1, _total;
+    private bool _cargandoMuro = true;
+
+    // Publicar
+    private bool _publicando, _enviando;
+    private string _nuevoTitulo = "", _nuevoCuerpo = "", _nuevasEtiquetas = "";
+
+    /// <summary>
+    /// El tema arranca elegido y no en blanco. En blanco se guardaría como «Otro» —es lo que hace el
+    /// servidor con un tema que no reconoce—, y lo publicado no coincidiría con lo que la pantalla
+    /// enseñaba mientras se escribía.
+    /// </summary>
+    private int? _nuevoTema = (int)ForumTopic.Idea;
+
+    private List<ImagenAdjunta> _nuevasImagenes = [];
+
+    // Auditoría
+    private RadzenDataGrid<ForoAuditoriaFilaDto>? _rejilla;
+    private IReadOnlyList<ForoAuditoriaFilaDto> _auditoria = [];
+    private IReadOnlyList<string> _autoresAud = [];
+    private string _textoAud = "";
+    private int? _temaAud;
+    private string? _autorAud;
+    private int _paginaAuditoria = 1, _totalAuditoria;
+    private bool _cargandoAuditoria;
+    private HashSet<string> _ocultas = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Al entrar por una dirección compartida la sesión puede no estar leída todavía.
+        var usuario = Sesion.Usuario ?? await Sesion.RefrescarAsync();
+        _esAdmin = usuario?.Rol == UserRole.Admin;
+
+        var opciones = await Api.LeerAsync<ForoOpcionesDto>("api/foro/opciones");
+        if (opciones != null) { _temas = opciones.Temas; _autores = opciones.Autores; }
+
+        if (_esAdmin)
+        {
+            _ocultas = await Preferencias.ColumnasOcultasAsync(ClaveColumnas);
+            var opcionesAud = await Api.LeerAsync<ForoOpcionesDto>("api/foro/auditoria/opciones");
+            if (opcionesAud != null) _autoresAud = opcionesAud.Autores;
+        }
+
+        await CargarMuroAsync();
+    }
+
+    // ── Publicar ─────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Cerrar el formulario tira lo escrito. Es deliberado: conservarlo escondido dejaría media
+    /// publicación y sus capturas ocupando memoria sin que nada en pantalla recordara que están ahí.
+    /// </summary>
+    private void AlternarFormulario()
+    {
+        _publicando = !_publicando;
+        if (!_publicando) LimpiarFormulario();
+    }
+
+    /// <summary>
+    /// Envía la publicación con sus capturas en un solo formulario multipart.
+    ///
+    /// Va todo junto y no la imagen por un lado y el texto por otro para que no quede un adjunto
+    /// huérfano: una captura guardada en la base cuya publicación nunca llegó a escribirse porque
+    /// quien la subía se arrepintió a mitad. En el escritorio no podía pasar porque todo se guardaba
+    /// de una vez.
+    ///
+    /// Las validaciones —título corto, cuerpo vacío, imagen que no es imagen— las hace el servicio y
+    /// su mensaje se enseña TAL CUAL. Repetirlas aquí solo crearía un segundo sitio donde se pueden
+    /// desincronizar.
+    /// </summary>
+    private async Task PublicarAsync()
+    {
+        _enviando = true;
+        try
+        {
+            var formulario = new MultipartFormDataContent
+            {
+                { new StringContent(_nuevoTitulo), "titulo" },
+                { new StringContent(_nuevoCuerpo), "cuerpo" },
+                { new StringContent(Numero(_nuevoTema ?? (int)ForumTopic.Otro)), "tema" },
+                { new StringContent(_nuevasEtiquetas), "etiquetas" }
+            };
+
+            EnvioDeImagenes.Adjuntar(formulario, _nuevasImagenes);
+
+            var (ok, creada) = await Api.SubirAsync<ForoPublicadaDto>("api/foro/publicaciones", formulario);
+            if (!ok || creada == null) return;
+
+            Avisos.Exito(creada.Mensaje);
+            LimpiarFormulario();
+            _publicando = false;
+
+            // Se abre el hilo recién creado en vez de recargar el muro: quien acaba de escribir
+            // quiere ver cómo quedó, y en el muro tendría que buscarlo entre las tarjetas.
+            AbrirHilo(creada.Id);
+        }
+        finally
+        {
+            _enviando = false;
+        }
+    }
+
+    private void LimpiarFormulario()
+    {
+        _nuevoTitulo = "";
+        _nuevoCuerpo = "";
+        _nuevasEtiquetas = "";
+        _nuevoTema = (int)ForumTopic.Idea;
+        _nuevasImagenes = [];
+    }
+
+    /// <summary>
+    /// Un número para un campo de formulario, siempre con la cultura invariante. La cultura del
+    /// navegador es es-MX y en ella el separador de grupos es la coma: un valor formateado con ella
+    /// llegaría al servidor como «1,234» y no se podría interpretar.
+    /// </summary>
+    private static string Numero(int valor) => valor.ToString(CultureInfo.InvariantCulture);
+
+    // ── Muro ─────────────────────────────────────────────────────────────────
+
+    /// <summary>Cambiar un filtro vuelve a la primera página: si no, se quedaría mirando una página
+    /// que ya no existe en el resultado nuevo.</summary>
+    private Task RecargarMuroAsync()
+    {
+        _pagina = 1;
+        return CargarMuroAsync();
+    }
+
+    private async Task CargarMuroAsync()
+    {
+        _cargandoMuro = true;
+        var pagina = await Api.LeerAsync<PaginaDto<ForoTarjetaDto>>(RutaDelMuro());
+        _cargandoMuro = false;
+
+        // null = el error ya se mostró; se deja lo que hubiera en pantalla en vez de vaciarla.
+        if (pagina == null) return;
+
+        _tarjetas = pagina.Filas;
+        _total = pagina.Total;
+    }
+
+    private string RutaDelMuro()
+    {
+        var parametros = new List<string> { $"pagina={_pagina}", $"tamano={TamanoMuro}" };
+        if (!string.IsNullOrWhiteSpace(_texto)) parametros.Add($"texto={Uri.EscapeDataString(_texto.Trim())}");
+        if (_tema is int t) parametros.Add($"tema={t}");
+        if (!string.IsNullOrWhiteSpace(_autor)) parametros.Add($"autor={Uri.EscapeDataString(_autor)}");
+        if (_dias is int d) parametros.Add($"dias={d}");
+        if (_soloMias) parametros.Add("soloMias=true");
+        return "api/foro/muro?" + string.Join("&", parametros);
+    }
+
+    private Task AlCambiarPaginaAsync(PagerEventArgs e)
+    {
+        _pagina = e.PageIndex + 1;
+        return CargarMuroAsync();
+    }
+
+    private void AbrirHilo(int id) => Navegacion.NavigateTo($"foro/{id}");
+
+    // ── Auditoría ────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// La rejilla pide su página al servidor (LoadData) en vez de recibir la tabla entera: el foro
+    /// crece sin límite y esta es la vista que mira TODAS las entradas, no solo las publicaciones.
+    /// </summary>
+    private async Task CargarAuditoriaAsync(LoadDataArgs args)
+    {
+        int tamano = args.Top ?? TamanoAuditoria;
+        _paginaAuditoria = ((args.Skip ?? 0) / Math.Max(1, tamano)) + 1;
+
+        _cargandoAuditoria = true;
+        var pagina = await Api.LeerAsync<PaginaDto<ForoAuditoriaFilaDto>>(RutaDeAuditoria(tamano));
+        _cargandoAuditoria = false;
+
+        if (pagina == null) return;
+
+        _auditoria = pagina.Filas;
+        _totalAuditoria = pagina.Total;
+    }
+
+    private async Task RecargarAuditoriaAsync()
+    {
+        _paginaAuditoria = 1;
+        if (_rejilla != null) await _rejilla.Reload();
+    }
+
+    private string RutaDeAuditoria(int tamano)
+    {
+        var parametros = new List<string> { $"pagina={_paginaAuditoria}", $"tamano={tamano}" };
+        if (!string.IsNullOrWhiteSpace(_textoAud)) parametros.Add($"texto={Uri.EscapeDataString(_textoAud.Trim())}");
+        if (_temaAud is int t) parametros.Add($"tema={t}");
+        if (!string.IsNullOrWhiteSpace(_autorAud)) parametros.Add($"autor={Uri.EscapeDataString(_autorAud)}");
+        return "api/foro/auditoria?" + string.Join("&", parametros);
+    }
+
+    private bool Visible(string columna) => !_ocultas.Contains(columna);
+
+    /// <summary>
+    /// Se guarda lo OCULTO y no lo visible, igual que en el escritorio: guardando lo visible, una
+    /// columna nueva quedaría escondida para todo el que ya tuviera preferencias guardadas.
+    /// </summary>
+    private async Task AlElegirColumnasAsync(DataGridPickedColumnsChangedEventArgs<ForoAuditoriaFilaDto> args)
+    {
+        var visibles = args.Columns.Select(c => c.Title ?? "").ToHashSet();
+        _ocultas = TodasLasColumnas.Where(c => !visibles.Contains(c)).ToHashSet();
+        await Preferencias.GuardarColumnasOcultasAsync(ClaveColumnas, _ocultas);
+    }
+}

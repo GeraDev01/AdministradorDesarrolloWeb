@@ -1,0 +1,191 @@
+@page "/metricas"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Shared.Dtos.Metricas
+@implements IDisposable
+@inject ClienteApi Api
+
+@*
+    Métricas (clave del escritorio: «metrics»), en SOLO LECTURA.
+
+    Es el medidor de tiempo de vida: cuánto lleva vivo cada requerimiento, cuánto lleva atorado en su
+    estado actual y cómo va de carga y de atrasos cada desarrollador. Todo se deriva de fechas que ya
+    existen, así que no hay nada que capturar ni nada que alguien tenga que mantener al día — que es
+    lo que hacía útil esta pantalla en el escritorio.
+
+    Dos decisiones del escritorio que explican los números:
+
+      · La EDAD de un requerimiento entregado se mide hasta su entrega, no hasta hoy. Si no, lo
+        entregado hace un año seguiría envejeciendo en el reporte y taparía lo que sí está atorado.
+      · Un requerimiento cuya fecha comprometida ya pasó cuenta como ATRASADO aunque nadie lo haya
+        marcado: se mide el plazo, no la etiqueta.
+
+    Lo que cambia respecto al escritorio: sin ninguna entrega comprometida todavía, «Entregados a
+    tiempo» enseña «—» y no «0 %», que se leería como «cumplió el cero por ciento». Es la misma
+    decisión que ya se tomó en Cumplimiento de SLA para esta misma medida.
+
+    La gráfica sustituye al SimpleBarChart dibujado a mano del escritorio; aquí la pinta Radzen, que
+    ya está en el proyecto.
+*@
+
+<PageTitle>Métricas</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Métricas</RadzenText>
+        <RadzenButton Text="Recalcular" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
+    </RadzenStack>
+
+    @if (_datos is { } d)
+    {
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
+            @foreach (var indicador in d.Indicadores)
+            {
+                @Tarjeta(indicador)
+            }
+        </RadzenStack>
+
+        <RadzenTabs>
+            <Tabs>
+                <RadzenTabsItem Text="📋 Requerimientos">
+                    <RadzenDataGrid TItem="MetricaDeRequerimientoDto" Data="@d.Requerimientos"
+                                    IsLoading="@_ocupado" AllowSorting="true" AllowColumnResize="true"
+                                    AllowPaging="true" PageSize="25"
+                                    EmptyText="No hay requerimientos registrados.">
+                        <Columns>
+                            <RadzenDataGridColumn TItem="MetricaDeRequerimientoDto" Property="Id"
+                                                  Title="ID" Width="80px" TextAlign="TextAlign.Right" />
+                            <RadzenDataGridColumn TItem="MetricaDeRequerimientoDto" Property="Titulo" Title="Título" />
+                            <RadzenDataGridColumn TItem="MetricaDeRequerimientoDto" Property="Estado"
+                                                  Title="Estado" Width="140px" />
+                            <RadzenDataGridColumn TItem="MetricaDeRequerimientoDto" Property="DiasVivo"
+                                                  Title="Días vivo" Width="110px" TextAlign="TextAlign.Right" />
+                            <RadzenDataGridColumn TItem="MetricaDeRequerimientoDto" Property="DiasEnEstado"
+                                                  Title="Días en estado" Width="140px" TextAlign="TextAlign.Right" />
+                            <RadzenDataGridColumn TItem="MetricaDeRequerimientoDto" Property="Compromiso"
+                                                  Title="Compromiso" Width="130px" />
+                            <RadzenDataGridColumn TItem="MetricaDeRequerimientoDto" Property="DiasParaCompromiso"
+                                                  Title="Días rest. / atraso" Width="160px">
+                                <Template Context="m">
+                                    <span style="@(m.Atrasado ? "color:var(--rz-danger);font-weight:600" : "")">
+                                        @m.PlazoTexto
+                                    </span>
+                                </Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="MetricaDeRequerimientoDto" Property="Desarrolladores"
+                                                  Title="Desarrolladores">
+                                <Template Context="m">@(m.Desarrolladores.Length == 0 ? "—" : m.Desarrolladores)</Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="MetricaDeRequerimientoDto" Property="Avance"
+                                                  Title="Avance" Width="100px" TextAlign="TextAlign.Right">
+                                <Template Context="m">@(m.Avance)%</Template>
+                            </RadzenDataGridColumn>
+                        </Columns>
+                    </RadzenDataGrid>
+                </RadzenTabsItem>
+
+                <RadzenTabsItem Text="👤 Por desarrollador">
+                    <RadzenStack Gap="1rem">
+                        @if (Graficable.Count > 0)
+                        {
+                            @* Carga y atrasos juntos y en el mismo eje: la comparación que importa no es
+                               «cuántos tiene» sino «de los que tiene, cuántos van tarde». *@
+                            <RadzenChart>
+                                <RadzenColumnSeries Data="@Graficable" CategoryProperty="Desarrollador"
+                                                    ValueProperty="Activos" Title="Activos" />
+                                <RadzenColumnSeries Data="@Graficable" CategoryProperty="Desarrollador"
+                                                    ValueProperty="Atrasados" Title="Atrasados" />
+                                <RadzenCategoryAxis Padding="20" />
+                                <RadzenValueAxis>
+                                    <RadzenGridLines Visible="true" />
+                                    <RadzenAxisTitle Text="Requerimientos abiertos" />
+                                </RadzenValueAxis>
+                                <RadzenLegend Position="LegendPosition.Bottom" />
+                            </RadzenChart>
+                        }
+
+                        <RadzenDataGrid TItem="MetricaPorDesarrolladorDto" Data="@d.PorDesarrollador"
+                                        IsLoading="@_ocupado" AllowSorting="true" AllowPaging="true" PageSize="25"
+                                        EmptyText="No hay desarrolladores activos.">
+                            <Columns>
+                                <RadzenDataGridColumn TItem="MetricaPorDesarrolladorDto" Property="Desarrollador"
+                                                      Title="Desarrollador" />
+                                <RadzenDataGridColumn TItem="MetricaPorDesarrolladorDto" Property="Activos"
+                                                      Title="Activos" Width="120px" TextAlign="TextAlign.Right" />
+                                <RadzenDataGridColumn TItem="MetricaPorDesarrolladorDto" Property="Atrasados"
+                                                      Title="Atrasados" Width="130px" TextAlign="TextAlign.Right">
+                                    <Template Context="m">
+                                        <b style="@(m.Atrasados > 0 ? "color:var(--rz-danger)" : "")">@m.Atrasados</b>
+                                    </Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="MetricaPorDesarrolladorDto" Property="EdadPromedio"
+                                                      Title="Edad prom. (días)" Width="170px" TextAlign="TextAlign.Right" />
+                                <RadzenDataGridColumn TItem="MetricaPorDesarrolladorDto" Property="MasAntiguo"
+                                                      Title="Más antiguo (días)" Width="180px" TextAlign="TextAlign.Right" />
+                            </Columns>
+                        </RadzenDataGrid>
+                    </RadzenStack>
+                </RadzenTabsItem>
+            </Tabs>
+        </RadzenTabs>
+    }
+</RadzenStack>
+
+@code {
+    /// <summary>
+    /// Cuántas personas entran en la gráfica. Con el equipo entero las etiquetas se solapan y deja de
+    /// leerse; la tabla de abajo sigue trayéndolas todas. Vienen ya ordenadas por atrasos.
+    /// </summary>
+    private const int MaxEnLaGrafica = 12;
+
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private MetricasDto? _datos;
+    private bool _ocupado;
+
+    private IReadOnlyList<MetricaPorDesarrolladorDto> Graficable =>
+        (_datos?.PorDesarrollador ?? [])
+            .Where(m => m.Activos > 0)
+            .Take(MaxEnLaGrafica)
+            .ToList();
+
+    protected override Task OnInitializedAsync() => Cargar();
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            _datos = await Api.LeerAsync<MetricasDto>("api/metricas", _cancelacion.Token);
+        }
+        finally { _ocupado = false; }
+    }
+
+    /// <summary>
+    /// Tarjeta de indicador. El título va arriba y pequeño y el dato grande, como en el escritorio:
+    /// lo que se busca de un vistazo es el número, no la etiqueta.
+    /// </summary>
+    private RenderFragment Tarjeta(IndicadorDto indicador) => __builder =>
+    {
+        var color = Color(indicador.Tono);
+        <RadzenCard Style="@($"min-width:190px;border-left:5px solid {color}")" title="@indicador.Explicacion">
+            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-1">@indicador.Titulo</RadzenText>
+            <RadzenText TextStyle="TextStyle.H6" Style="@($"margin:0;color:{color}")">@indicador.Valor</RadzenText>
+        </RadzenCard>
+    };
+
+    /// <summary>El tono que decidió el servidor, traducido a la variable de tema que le toca.</summary>
+    private static string Color(TonoDeIndicador tono) => tono switch
+    {
+        TonoDeIndicador.Exito => "var(--rz-success)",
+        TonoDeIndicador.Aviso => "var(--rz-warning)",
+        TonoDeIndicador.Peligro => "var(--rz-danger)",
+        _ => "var(--rz-text-color)"
+    };
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

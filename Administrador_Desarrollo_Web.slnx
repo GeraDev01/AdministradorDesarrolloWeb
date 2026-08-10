@@ -1,3 +1,16 @@
 <Solution>
+  <!-- Aplicación de escritorio: sigue en producción hasta el corte, no se toca. -->
   <Project Path="Administrador_Desarrollo_Web/Administrador_Desarrollo_Web.csproj" />
+
+  <!-- Réplica web (.NET 10 + Blazor WebAssembly, arquitectura limpia). -->
+  <Folder Name="/Web/">
+    <Project Path="src/Web/AdminWeb.Shared/AdminWeb.Shared.csproj" />
+    <Project Path="src/Web/AdminWeb.Domain/AdminWeb.Domain.csproj" />
+    <Project Path="src/Web/AdminWeb.Infrastructure/AdminWeb.Infrastructure.csproj" />
+    <Project Path="src/Web/AdminWeb.Application/AdminWeb.Application.csproj" />
+    <Project Path="src/Web/AdminWeb.Api/AdminWeb.Api.csproj" />
+    <Project Path="src/Web/AdminWeb.Client/AdminWeb.Client.csproj" />
+    <Project Path="src/Web/tests/AdminWeb.Application.Tests/AdminWeb.Application.Tests.csproj" />
+    <Project Path="src/Web/tests/AdminWeb.Api.Tests/AdminWeb.Api.Tests.csproj" />
+  </Folder>
 </Solution>

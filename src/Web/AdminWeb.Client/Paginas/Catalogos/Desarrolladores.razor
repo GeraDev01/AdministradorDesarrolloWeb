@@ -1,0 +1,466 @@
+@page "/desarrolladores"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Client.Componentes
+@using AdminWeb.Shared.Dtos
+@using AdminWeb.Shared.Dtos.Catalogos
+@inject ClienteApi Api
+@inject Descargas Descargas
+@inject AvisosDeInterfaz Avisos
+
+@*
+    La lista de desarrolladores: alta, edición, baja, cuenta de acceso, correo y Excel.
+
+    El filtrado ocurre EN EL SERVIDOR. En el escritorio la pantalla traía la tabla entera y
+    filtraba en memoria; aquí eso multiplicaría la tabla por cada sesión abierta.
+
+    Tres cosas heredadas del escritorio que conviene no perder de vista:
+
+      · La BAJA desactiva, no borra. La ficha está referenciada por asignaciones, evaluaciones y
+        bitácora, y borrarla dejaría huérfano el historial de alguien que sí trabajó aquí.
+
+      · «Calcular (LFT)» solo SUGIERE los días de vacaciones. Rellena el campo y el líder puede
+        ajustarlo; el número lo da el servidor para que «hoy» sea el mismo día para todos.
+
+      · «Acceso» crea la cuenta y enseña su contraseña temporal UNA vez. Si ya tiene cuenta, aquí
+        se dice y ahí acaba: restablecer la contraseña de alguien es una decisión con consecuencia
+        propia y se toma en «Usuarios», no como plan B de este botón.
+*@
+
+<PageTitle>Desarrolladores</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenText TextStyle="TextStyle.H5" Style="margin:0">Desarrolladores</RadzenText>
+
+    <RadzenCard>
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                     Gap="1rem" Wrap="FlexWrap.Wrap">
+            <RadzenTextBox @bind-Value="_texto" Placeholder="Buscar por nombre, correo o teléfono…"
+                           Change="@(_ => Buscar())" Style="min-width:20rem" />
+
+            @* Marcada por omisión, igual que en el escritorio: la baja de alguien no borra su
+               ficha, así que sin este filtro la lista del día a día se llena de gente que ya no está. *@
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.4rem">
+                @* El tipo del parámetro va explícito: Change es EventCallback<bool> y con un lambda
+                   sin tipar el compilador lo toma como EventCallback a secas y no compila. *@
+                <RadzenCheckBox @bind-Value="_soloActivos" Name="soloActivos" Change="@((bool _) => Buscar())" />
+                <RadzenLabel Text="Solo activos" Component="soloActivos" />
+            </RadzenStack>
+
+            <SelectorDeColumnas Clave="desarrolladores" Columnas="@TodasLasColumnas"
+                                OcultasCambiaron="@(o => _ocultas = o)" />
+
+            <RadzenText TextStyle="TextStyle.Caption" Style="margin:0 0 0 auto">
+                @_filas.Count registro(s)
+            </RadzenText>
+        </RadzenStack>
+    </RadzenCard>
+
+    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+        <RadzenButton Text="➕ Nuevo" Disabled="@_ocupado" Click="@AbrirNuevo" />
+        <RadzenButton Text="✏ Editar" ButtonStyle="ButtonStyle.Light" Disabled="@(_ocupado || _elegido is null)"
+                      Click="@AbrirEdicion" />
+        <RadzenButton Text="🔑 Acceso" ButtonStyle="ButtonStyle.Light" Disabled="@(_ocupado || _elegido is null)"
+                      Click="@CrearAcceso" />
+        <RadzenButton Text="✉ Correo" ButtonStyle="ButtonStyle.Light" Disabled="@(_ocupado || _elegido is null)"
+                      Click="@Escribir" />
+        <RadzenButton Text="🚫 Desactivar" ButtonStyle="ButtonStyle.Light" Disabled="@(_ocupado || _elegido is null)"
+                      Click="@Desactivar" />
+        @* La exportación baja LO QUE EL FILTRO ESTÁ ENSEÑANDO, igual que en minutas y vacaciones. *@
+        <RadzenButton Text="📊 Excel" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+                      Style="margin-left:auto" Click="@Exportar" />
+    </RadzenStack>
+
+    @if (_capturando)
+    {
+        <RadzenCard>
+            <RadzenStack Gap="0.75rem">
+                <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                    @(_id is null ? "Nuevo desarrollador" : $"Editar «{_nombreOriginal}»")
+                </RadzenText>
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap">
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Nombre" Component="nombreDev" />
+                        <RadzenTextBox @bind-Value="_nombre" Name="nombreDev" MaxLength="150"
+                                       Style="width:20rem" />
+                    </RadzenStack>
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Correo" Component="correoDev" />
+                        <RadzenTextBox @bind-Value="_correo" Name="correoDev" MaxLength="150"
+                                       Style="width:18rem" />
+                    </RadzenStack>
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Teléfono" Component="telDev" />
+                        <RadzenTextBox @bind-Value="_telefono" Name="telDev" MaxLength="40"
+                                       Style="width:11rem" />
+                    </RadzenStack>
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Seniority" Component="senDev" />
+                        <RadzenDropDown @bind-Value="_seniority" Name="senDev" Data="@Seniorities"
+                                        AllowClear="true" Style="width:11rem" />
+                    </RadzenStack>
+                </RadzenStack>
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap"
+                             AlignItems="AlignItems.End">
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Fecha de ingreso" Component="ingresoDev" />
+                        <RadzenDatePicker @bind-Value="_ingreso" Name="ingresoDev" DateFormat="dd/MM/yyyy"
+                                          AllowClear="true" Style="width:11rem" />
+                    </RadzenStack>
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Días de vacaciones" Component="vacDev" />
+                        <RadzenNumeric @bind-Value="_diasVacaciones" Name="vacDev" Min="0" Max="365"
+                                       Style="width:8rem" />
+                    </RadzenStack>
+                    @* Solo SUGIERE: rellena el campo de al lado y el líder puede ajustarlo. Está
+                       apagado sin fecha de ingreso porque sin ella no hay antigüedad que calcular. *@
+                    <RadzenButton Text="⚖ Calcular (LFT)" ButtonStyle="ButtonStyle.Light"
+                                  Disabled="@(_ocupado || _ingreso is null)" Click="@CalcularLft" />
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="N.° de serie del equipo" Component="serieDev" />
+                        <RadzenTextBox @bind-Value="_serie" Name="serieDev" MaxLength="80"
+                                       Style="width:14rem" />
+                    </RadzenStack>
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.4rem">
+                        <RadzenCheckBox @bind-Value="_activo" Name="activoDev" />
+                        <RadzenLabel Text="Activo" Component="activoDev" />
+                    </RadzenStack>
+                </RadzenStack>
+
+                @if (!string.IsNullOrEmpty(_notaLft))
+                {
+                    <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">@_notaLft</RadzenText>
+                }
+
+                <RadzenTextBox @bind-Value="_direccion" MaxLength="250" Style="width:100%"
+                               Placeholder="Dirección (opcional)" />
+                <RadzenTextArea @bind-Value="_notas" Rows="2" Style="width:100%"
+                                Placeholder="Notas (opcional)" />
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                    <RadzenButton Text="Guardar" Disabled="@_ocupado" Click="@Guardar" />
+                    <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+                                  Click="@(() => _capturando = false)" />
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    }
+
+    @if (_credenciales is { } cred)
+    {
+        @* Se enseña en la propia pantalla y no en un aviso pasajero: la contraseña temporal viaja
+           UNA vez, y un toast que se va solo a los cinco segundos la perdería para siempre. *@
+        <RadzenCard Style="border-left:4px solid var(--rz-success)">
+            <RadzenStack Gap="0.5rem">
+                <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">🔑 Cuenta creada</RadzenText>
+                <RadzenText TextStyle="TextStyle.Body2" Style="margin:0">
+                    Usuario: <b>@cred.Usuario</b> · Contraseña temporal: <b>@cred.ContrasenaTemporal</b>
+                </RadzenText>
+                <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">@cred.Mensaje</RadzenText>
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                    <RadzenButton Text="Copiar contraseña" Size="ButtonSize.Small"
+                                  ButtonStyle="ButtonStyle.Light" Click="@CopiarTemporal" />
+                    <RadzenButton Text="Ya la copié" Size="ButtonSize.Small"
+                                  Click="@(() => _credenciales = null)" />
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    }
+
+    <RadzenDataGrid TItem="DesarrolladorDto" Data="@_filas" IsLoading="@_cargando"
+                    AllowSorting="true" AllowPaging="true" PageSize="25"
+                    EmptyText="No hay desarrolladores que cumplan el filtro."
+                    SelectionMode="DataGridSelectionMode.Single" @bind-Value="@_seleccion"
+                    RowDoubleClick="@(_ => AbrirEdicion())"
+                    RowRender="@PintarFila">
+        <Columns>
+            <RadzenDataGridColumn TItem="DesarrolladorDto" Property="Id" Title="ID" Width="70px"
+                                  Visible="@Ver("ID")" />
+            <RadzenDataGridColumn TItem="DesarrolladorDto" Property="Nombre" Title="Nombre" Width="220px"
+                                  Visible="@Ver("Nombre")" />
+            <RadzenDataGridColumn TItem="DesarrolladorDto" Property="Correo" Title="Correo" Width="220px"
+                                  Visible="@Ver("Correo")">
+                <Template Context="d">
+                    @if (string.IsNullOrWhiteSpace(d.Correo))
+                    {
+                        <span>—</span>
+                    }
+                    else
+                    {
+                        <a href="@($"mailto:{d.Correo}")">@d.Correo</a>
+                    }
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="DesarrolladorDto" Property="Telefono" Title="Teléfono" Width="130px"
+                                  Visible="@Ver("Teléfono")">
+                <Template Context="d">@(d.Telefono ?? "—")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="DesarrolladorDto" Property="Seniority" Title="Seniority" Width="120px"
+                                  Visible="@Ver("Seniority")">
+                <Template Context="d">@(d.Seniority ?? "—")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="DesarrolladorDto" Property="Equipo" Title="Equipo" Width="150px"
+                                  Visible="@Ver("Equipo")">
+                <Template Context="d">@(d.Equipo ?? "Sin equipo")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="DesarrolladorDto" Property="RolEquipoTexto" Title="Rol" Width="130px"
+                                  Visible="@Ver("Rol")" />
+            <RadzenDataGridColumn TItem="DesarrolladorDto" Property="FechaIngreso" Title="F. Ingreso" Width="120px"
+                                  FormatString="{0:dd/MM/yyyy}" Visible="@Ver("F. Ingreso")">
+                <Template Context="d">@(d.FechaIngreso?.ToString("dd/MM/yyyy") ?? "—")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="DesarrolladorDto" Property="SerieEquipo" Title="N.° Serie" Width="140px"
+                                  Visible="@Ver("N.° Serie")">
+                <Template Context="d">@(string.IsNullOrWhiteSpace(d.SerieEquipo) ? "—" : d.SerieEquipo)</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="DesarrolladorDto" Property="DiasVacaciones" Title="Vacaciones" Width="110px"
+                                  Visible="@Ver("Vacaciones")">
+                <Template Context="d">@d.DiasVacaciones días</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="DesarrolladorDto" Property="Asignados" Title="Asignados" Width="100px"
+                                  Visible="@Ver("Asignados")" />
+            <RadzenDataGridColumn TItem="DesarrolladorDto" Property="TieneAcceso" Title="Acceso" Width="100px"
+                                  Visible="@Ver("Acceso")">
+                <Template Context="d">@(d.TieneAcceso ? "🔓 Sí" : "—")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="DesarrolladorDto" Property="Direccion" Title="Dirección" Width="220px"
+                                  Visible="@Ver("Dirección")">
+                <Template Context="d">@(d.Direccion ?? "—")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="DesarrolladorDto" Property="Notas" Title="Notas" Width="240px"
+                                  Visible="@Ver("Notas")">
+                <Template Context="d">@(d.Notas ?? "—")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="DesarrolladorDto" Property="Activo" Title="Activo" Width="90px"
+                                  Visible="@Ver("Activo")">
+                <Template Context="d">@(d.Activo ? "✓" : "✗")</Template>
+            </RadzenDataGridColumn>
+        </Columns>
+    </RadzenDataGrid>
+</RadzenStack>
+
+@code {
+    /// <summary>Las columnas que ofrece el selector, en el orden en el que se pintan.</summary>
+    private static readonly string[] TodasLasColumnas =
+    [
+        "ID", "Nombre", "Correo", "Teléfono", "Seniority", "Equipo", "Rol", "F. Ingreso",
+        "N.° Serie", "Vacaciones", "Asignados", "Acceso", "Dirección", "Notas", "Activo"
+    ];
+
+    /// <summary>Los mismos cinco niveles del combo del escritorio, en el mismo orden.</summary>
+    private static readonly string[] Seniorities = ["Junior", "Mid", "Senior", "Lead", "Arquitecto"];
+
+    private List<DesarrolladorDto> _filas = [];
+    private HashSet<string> _ocultas = [];
+    private string _texto = "";
+    private bool _soloActivos = true;
+    private bool _cargando = true;
+    private bool _ocupado;
+
+    // Radzen entrega la selección como lista aunque el modo sea simple; _elegido la desenvuelve
+    // para que el resto de la pantalla no tenga que acordarse de eso en cada botón.
+    private IList<DesarrolladorDto>? _seleccion;
+    private DesarrolladorDto? _elegido => _seleccion?.FirstOrDefault();
+
+    private CredencialesDto? _credenciales;
+
+    // ── El formulario de captura ─────────────────────────────────────────────────
+    private bool _capturando;
+    private int? _id;
+    private string _nombreOriginal = "";
+    private string _nombre = "";
+    private string? _correo, _telefono, _seniority, _direccion, _serie, _notas;
+    private DateTime? _ingreso;
+    private int _diasVacaciones = 15;
+    private bool _activo = true;
+    private string _notaLft = "";
+
+    private bool Ver(string columna) => !_ocultas.Contains(columna);
+
+    protected override Task OnInitializedAsync() => Buscar();
+
+    private async Task Buscar()
+    {
+        _cargando = true;
+        try
+        {
+            _filas = await Api.LeerAsync<List<DesarrolladorDto>>(RutaDelFiltro()) ?? [];
+
+            // La selección se rehace por ID en vez de conservar el objeto: tras recargar, la fila
+            // que había elegido es OTRA instancia, y la rejilla dejaría de reconocerla como
+            // seleccionada justo después de guardar sobre ella.
+            var id = _elegido?.Id;
+            _seleccion = id is null ? null : [.. _filas.Where(d => d.Id == id)];
+        }
+        finally { _cargando = false; }
+    }
+
+    private string RutaDelFiltro(string sufijo = "") =>
+        $"api/catalogos/desarrolladores{sufijo}?soloActivos={_soloActivos}" +
+        $"&texto={Uri.EscapeDataString(_texto ?? "")}";
+
+    private Task Exportar() => Descargas.DesdeApiAsync(RutaDelFiltro("/excel")).AsTask();
+
+    // ── Alta y edición ───────────────────────────────────────────────────────────
+
+    private void AbrirNuevo()
+    {
+        _id = null;
+        _nombreOriginal = "";
+        _nombre = "";
+        _correo = _telefono = _direccion = _serie = _notas = null;
+        _seniority = Seniorities[0];
+        _ingreso = null;
+        _diasVacaciones = 15;
+        _activo = true;
+        _notaLft = "";
+        _capturando = true;
+    }
+
+    private void AbrirEdicion()
+    {
+        if (_elegido is not { } d) return;
+
+        _id = d.Id;
+        _nombreOriginal = d.Nombre;
+        _nombre = d.Nombre;
+        _correo = d.Correo;
+        _telefono = d.Telefono;
+        _seniority = d.Seniority;
+        _ingreso = d.FechaIngreso;
+        _direccion = d.Direccion;
+        _serie = d.SerieEquipo;
+        _diasVacaciones = d.DiasVacaciones;
+        _activo = d.Activo;
+        _notas = d.Notas;
+        _notaLft = "";
+        _capturando = true;
+    }
+
+    private async Task Guardar()
+    {
+        // Solo lo evidente se comprueba aquí; el resto lo rechaza el servidor, que es donde la regla
+        // vale de verdad. Repetirla entera en el cliente sería tener dos que un día no coincidirían.
+        if (string.IsNullOrWhiteSpace(_nombre))
+        {
+            Avisos.Aviso("El nombre es obligatorio.");
+            return;
+        }
+
+        var cuerpo = new GuardarDesarrolladorRequest(
+            _id, _nombre, _correo, _telefono, _seniority, _ingreso, _direccion, _serie,
+            _diasVacaciones, _activo, _notas);
+
+        if (await Enviar("api/catalogos/desarrolladores", cuerpo))
+            _capturando = false;
+    }
+
+    /// <summary>
+    /// El envío común de la pantalla: solo anuncia el ÉXITO. El fallo ya lo anunció el manejador de
+    /// respuestas con el mensaje concreto del servidor, y decirlo dos veces resta credibilidad a los
+    /// dos avisos.
+    /// </summary>
+    private async Task<bool> Enviar<T>(string ruta, T cuerpo)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, r) = await Api.EnviarAsync<T, ResultadoDto>(ruta, cuerpo);
+            if (ok && r is not null) Avisos.Exito(r.Mensaje);
+            if (ok) await Buscar();
+            return ok;
+        }
+        finally { _ocupado = false; }
+    }
+
+    /// <summary>
+    /// Pide al servidor los días que corresponden por ley y rellena el campo. Es una sugerencia:
+    /// queda editable, igual que en el escritorio.
+    /// </summary>
+    private async Task CalcularLft()
+    {
+        if (_ingreso is not { } ingreso) return;
+
+        _ocupado = true;
+        try
+        {
+            var sugerencia = await Api.LeerAsync<SugerenciaLftDto>(
+                $"api/catalogos/desarrolladores/lft?fechaIngreso={ingreso:yyyy-MM-dd}");
+            if (sugerencia is null) return;
+
+            _diasVacaciones = sugerencia.Dias;
+            _notaLft = sugerencia.Nota;
+        }
+        finally { _ocupado = false; }
+    }
+
+    // ── Las acciones sobre la fila elegida ───────────────────────────────────────
+
+    private async Task Desactivar()
+    {
+        if (_elegido is not { } d) return;
+        if (!await Avisos.ConfirmarAsync(
+                $"¿Desactivar a «{d.Nombre}»? Su ficha y su historial se conservan.", "Confirmar"))
+            return;
+
+        await Enviar($"api/catalogos/desarrolladores/{d.Id}/desactivar", new { });
+    }
+
+    private async Task CrearAcceso()
+    {
+        if (_elegido is not { } d) return;
+        if (!await Avisos.ConfirmarAsync(
+                $"¿Crear la cuenta de acceso (rol Desarrollador) para «{d.Nombre}»?", "Crear acceso"))
+            return;
+
+        _ocupado = true;
+        try
+        {
+            var (ok, datos) = await Api.EnviarAsync<object, CredencialesDto>(
+                $"api/catalogos/desarrolladores/{d.Id}/acceso", new { });
+
+            // El mensaje del fallo («ya tiene la cuenta X», «está inactivo») lo enseña el manejador
+            // de respuestas con el texto del servidor, así que aquí no hay nada que añadir.
+            if (!ok || datos is null) return;
+
+            _credenciales = datos;
+            await Buscar();
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task CopiarTemporal()
+    {
+        if (_credenciales is not { } cred) return;
+        var ok = await Descargas.CopiarAsync(cred.ContrasenaTemporal);
+        if (ok) Avisos.Exito("Contraseña copiada.");
+        else Avisos.Aviso("El navegador no dejó copiar. Selecciónala y cópiala a mano.");
+    }
+
+    /// <summary>
+    /// Abre el cliente de correo del sistema. El escritorio, si el SMTP estaba configurado, ofrecía
+    /// además su propia ventana de redacción; aquí no hace falta: el navegador ya sabe hacer esto y
+    /// una ventana propia obligaría a mandar el correo desde la cuenta del servidor y no desde la de
+    /// quien escribe.
+    /// </summary>
+    private async Task Escribir()
+    {
+        if (_elegido is not { } d) return;
+        if (string.IsNullOrWhiteSpace(d.Correo))
+        {
+            Avisos.Aviso($"«{d.Nombre}» no tiene correo capturado.");
+            return;
+        }
+        await Descargas.AbrirEnOtraPestanaAsync($"mailto:{d.Correo}");
+    }
+
+    /// <summary>
+    /// La ficha dada de baja se pinta apagada en lugar de esconderse, igual que en el escritorio:
+    /// al desmarcar «solo activos» tiene que verse de un vistazo quién ya no está.
+    /// </summary>
+    private void PintarFila(RowRenderEventArgs<DesarrolladorDto> args)
+    {
+        if (!args.Data.Activo) args.Attributes["style"] = "opacity:.55";
+    }
+}

@@ -1,0 +1,358 @@
+@page "/programados"
+@attribute [Authorize(Policy = "AdminUOperaciones")]
+@using AdminWeb.Shared.Dtos.Programados
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+@inject EstadoSesion Sesion
+
+@*
+    La agenda de despliegues.
+
+    Lo que cambia respecto al escritorio, y es el motivo de la pantalla:
+
+      · Allí una cita solo se disparaba si ALGUIEN TENÍA LA APLICACIÓN ABIERTA a esa hora —bastaba
+        con dejarla en la bandeja—, y la propia pantalla lo advertía en rojo. Si a las tres de la
+        mañana no había nadie, el despliegue se marcaba como Perdido y no ocurría nunca. Aquí lo
+        dispara un trabajo de fondo del servidor, así que ocurre siempre: el aviso del escritorio
+        desaparece porque dejó de ser cierto.
+      · El aviso que SÍ se conserva es el otro, y ahora es el único que importa: si el trabajo de
+        fondo está apagado —lo está por omisión mientras el escritorio siga en producción, para que
+        un programado no se ejecute dos veces— agendar no sirve de nada, y hay que decirlo antes de
+        que alguien agende.
+
+    Decisiones del escritorio que se conservan:
+
+      · La TOLERANCIA sigue existiendo y significa lo mismo: pasado ese margen la cita no se dispara.
+        No era una limitación técnica —desplegar a deshora, cuando ya nadie lo espera, es peor que no
+        desplegar.
+      · Se puede agendar a un PERFIL o a una SELECCIÓN DIRECTA de servidores, igual que al desplegar
+        en vivo. La selección se congela al agendar: se despliega a lo que se eligió, no a lo que ese
+        perfil tenga el día que se dispare.
+      · Operaciones solo puede agendar perfiles habilitados para ella. Los demás se ven apagados; el
+        servidor lo vuelve a comprobar y anota el intento en la bitácora.
+
+    Las horas se capturan y se muestran en la hora de quien mira, y viajan en UTC. En el escritorio
+    todo era local porque quien agendaba y quien ejecutaba eran la misma máquina; aquí el servidor
+    puede estar en otra zona horaria y «las 18:00» sin decir de dónde dispararía a la hora equivocada.
+*@
+
+<PageTitle>Despliegues programados</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Despliegues programados</RadzenText>
+        <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
+        <RadzenButton Text="🗓 Programar despliegue" Disabled="@_ocupado" Click="@AbrirFormulario" />
+
+        <RadzenCheckBox TValue="bool" @bind-Value="_soloPendientes" Name="soloPendientes"
+                        Change="@(_ => Cargar())" Disabled="@_ocupado" />
+        <RadzenLabel Text="Solo pendientes" Component="soloPendientes" />
+    </RadzenStack>
+
+    @if (_datos is { } d)
+    {
+        @if (!d.TrabajoDeFondoActivo)
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+                El disparador de despliegues programados está APAGADO en este servidor. Lo que se
+                agende aquí quedará esperando y se marcará como perdido al pasar su tolerancia.
+                Mientras la aplicación de escritorio siga en producción es lo correcto: son sus
+                temporizadores los que ejecutan los programados, y con los dos encendidos el
+                despliegue saldría por duplicado.
+            </RadzenAlert>
+        }
+        else
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false">
+                Los ejecuta el servidor a su hora: ya no hace falta que nadie tenga la aplicación
+                abierta. Si una cita pasa su margen de tolerancia sin dispararse, se marca como
+                perdida y no se ejecuta después.
+            </RadzenAlert>
+        }
+
+        @if (_capturando)
+        {
+            <RadzenCard>
+                <RadzenStack Gap="0.75rem">
+                    <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">Programar un despliegue</RadzenText>
+
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap"
+                                 AlignItems="AlignItems.Center">
+                        <RadzenLabel Text="Versión:" Component="version" />
+                        <RadzenDropDown TValue="int?" @bind-Value="_versionId" Name="version"
+                                        Data="@d.Versiones" TextProperty="Texto" ValueProperty="Id"
+                                        AllowFiltering="true" Placeholder="Elige la versión"
+                                        Style="min-width:24rem" />
+                    </RadzenStack>
+
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap"
+                                 AlignItems="AlignItems.Center">
+                        <RadzenLabel Text="Destino:" Component="porServidores" />
+                        <RadzenSwitch @bind-Value="_porServidores" Name="porServidores" />
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                            @(_porServidores ? "Servidores sueltos" : "Un perfil")
+                        </RadzenText>
+                    </RadzenStack>
+
+                    @if (_porServidores)
+                    {
+                        <RadzenListBox TValue="IEnumerable<int>" @bind-Value="_servidorIds"
+                                       Data="@d.Servidores" TextProperty="Nombre" ValueProperty="Id"
+                                       Multiple="true" AllowFiltering="true"
+                                       Style="width:100%;max-width:38rem;height:12rem" />
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                            La selección se congela al agendar: se desplegará exactamente a estos
+                            servidores aunque después cambien los perfiles.
+                        </RadzenText>
+                    }
+                    else
+                    {
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap"
+                                     AlignItems="AlignItems.Center">
+                            <RadzenLabel Text="Perfil:" Component="perfil" />
+                            <RadzenDropDown TValue="int?" @bind-Value="_perfilId" Name="perfil"
+                                            Data="@PerfilesElegibles" TextProperty="Nombre" ValueProperty="Id"
+                                            Placeholder="Elige el perfil" Style="min-width:24rem" />
+                        </RadzenStack>
+                        @if (PerfilesOcultos > 0)
+                        {
+                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                @PerfilesOcultos perfil(es) no están habilitados para Operaciones y no
+                                aparecen en la lista.
+                            </RadzenText>
+                        }
+                    }
+
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap"
+                                 AlignItems="AlignItems.Center">
+                        <RadzenLabel Text="Cuándo:" Component="cuando" />
+                        <RadzenDatePicker TValue="DateTime" @bind-Value="_cuandoLocal" Name="cuando"
+                                          DateFormat="dd/MM/yyyy HH:mm" ShowTime="true" ShowSeconds="false"
+                                          HoursStep="1" MinutesStep="5" Style="width:14rem" />
+
+                        <RadzenLabel Text="Tolerancia (min):" Component="tolerancia" />
+                        <RadzenNumeric TValue="int" @bind-Value="_toleranciaMinutos" Name="tolerancia"
+                                       Min="5" Max="1440" Style="width:7rem" />
+                    </RadzenStack>
+
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                        Pasada la tolerancia, la cita se marca como perdida en vez de dispararse a una
+                        hora que ya nadie esperaba.
+                    </RadzenText>
+
+                    <RadzenTextArea @bind-Value="_notas" Rows="3" MaxLength="1000" Style="width:100%"
+                                    Placeholder="Nota de la programación (opcional). Queda como evidencia del despliegue." />
+
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                        <RadzenButton Text="Programar" Disabled="@_ocupado" Click="@Programar" />
+                        <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                                      Disabled="@_ocupado" Click="@(() => _capturando = false)" />
+                    </RadzenStack>
+                </RadzenStack>
+            </RadzenCard>
+        }
+
+        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@Resumen()</RadzenText>
+
+        <RadzenDataGrid TItem="DespliegueProgramadoDto" Data="@d.Citas" IsLoading="@_ocupado"
+                        AllowSorting="true" AllowPaging="true" PageSize="15"
+                        RowRender="@ApagarLasCerradas"
+                        EmptyText="No hay despliegues programados.">
+            <Columns>
+                <RadzenDataGridColumn TItem="DespliegueProgramadoDto" Property="CuandoUtc" Title="Cuándo" Width="150px">
+                    <Template Context="c">@c.CuandoUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="DespliegueProgramadoDto" Property="Sistema" Title="Sistema" Width="160px" />
+                <RadzenDataGridColumn TItem="DespliegueProgramadoDto" Property="Version" Title="Versión" Width="120px" />
+                <RadzenDataGridColumn TItem="DespliegueProgramadoDto" Property="Perfil" Title="Destino" Width="180px" />
+                <RadzenDataGridColumn TItem="DespliegueProgramadoDto" Property="EstadoTexto" Title="Estado" Width="140px">
+                    <Template Context="c"><b>@c.EstadoTexto</b></Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="DespliegueProgramadoDto" Property="ToleranciaMinutos"
+                                      Title="Tolerancia" Width="110px" TextAlign="TextAlign.Right">
+                    <Template Context="c">@c.ToleranciaMinutos min</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="DespliegueProgramadoDto" Property="AgendadoPor" Title="Lo agendó" Width="160px" />
+                <RadzenDataGridColumn TItem="DespliegueProgramadoDto" Property="TomadoPor" Title="Lo ejecutó" Width="160px">
+                    <Template Context="c">@(c.TomadoPor ?? "—")</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="DespliegueProgramadoDto" Property="Resultado" Title="Resultado">
+                    @* Sin MarkupString: este texto lo escribe el servidor y puede llevar el mensaje de
+                       error de un servidor ajeno. Interpretarlo como HTML sería dejar que ese servidor
+                       decidiera qué se pinta en esta pantalla. *@
+                    <Template Context="c">@(c.Resultado ?? "")</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="DespliegueProgramadoDto" Title="" Width="110px" Sortable="false">
+                    <Template Context="c">
+                        @if (c.Estado == ScheduledDeploymentStatus.Programado)
+                        {
+                            <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                                          Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                          Click="@(() => CancelarCita(c))" />
+                        }
+                    </Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
+    }
+</RadzenStack>
+
+@code {
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private PantallaDeProgramadosDto? _datos;
+    private bool _ocupado;
+    private bool _soloPendientes = true;
+
+    // Captura.
+    private bool _capturando;
+    private int? _versionId;
+    private int? _perfilId;
+    private bool _porServidores;
+    private IEnumerable<int> _servidorIds = [];
+    private DateTime _cuandoLocal = DateTime.Now.AddHours(1);
+    private int _toleranciaMinutos = 60;
+    private string _notas = "";
+
+    /// <summary>
+    /// Los perfiles que esta persona puede agendar. Es comodidad: quien decide es el servidor, que
+    /// vuelve a comprobarlo y deja el intento en la bitácora si alguien llama a la API sin pasar por
+    /// aquí.
+    /// </summary>
+    private IEnumerable<PerfilProgramableDto> PerfilesElegibles =>
+        _datos is null ? [] : _datos.Perfiles.Where(p => p.PermitidoParaOperaciones || EsLider);
+
+    private int PerfilesOcultos =>
+        _datos is null ? 0 : _datos.Perfiles.Count - PerfilesElegibles.Count();
+
+    private bool EsLider => Sesion.Usuario?.Rol == UserRole.Admin;
+
+    protected override async Task OnInitializedAsync() => await Cargar();
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            _datos = await Api.LeerAsync<PantallaDeProgramadosDto>(
+                $"api/programados?soloPendientes={_soloPendientes.ToString().ToLowerInvariant()}",
+                _cancelacion.Token);
+        }
+        finally { _ocupado = false; }
+    }
+
+    private void AbrirFormulario()
+    {
+        _versionId = null;
+        _perfilId = null;
+        _porServidores = false;
+        _servidorIds = [];
+        _cuandoLocal = DateTime.Now.AddHours(1);
+        _toleranciaMinutos = 60;
+        _notas = "";
+        _capturando = true;
+    }
+
+    private async Task Programar()
+    {
+        // Solo lo evidente se comprueba aquí; la hora, la tolerancia y el permiso sobre el perfil los
+        // valida el servicio, que es donde la regla tiene que vivir.
+        if (_versionId is not int versionId)
+        {
+            Avisos.Aviso("Elige la versión que se va a desplegar.");
+            return;
+        }
+
+        var servidores = _porServidores ? _servidorIds.ToList() : [];
+        if (_porServidores && servidores.Count == 0)
+        {
+            Avisos.Aviso("Elige al menos un servidor.");
+            return;
+        }
+        if (!_porServidores && _perfilId is null)
+        {
+            Avisos.Aviso("Elige el perfil al que se va a desplegar.");
+            return;
+        }
+
+        var cuerpo = new ProgramarDespliegueRequest(
+            versionId,
+            _porServidores ? null : _perfilId,
+            servidores,
+            _cuandoLocal.ToUniversalTime(),
+            _toleranciaMinutos,
+            _notas);
+
+        if (await Enviar("api/programados/agendar", cuerpo)) _capturando = false;
+    }
+
+    private async Task CancelarCita(DespliegueProgramadoDto cita)
+    {
+        if (!await Avisos.ConfirmarAsync(
+            $"¿Cancelar el despliegue de {cita.Sistema} {cita.Version} programado para " +
+            $"{cita.CuandoUtc.ToLocalTime():dd/MM/yyyy HH:mm}?",
+            "Cancelar programación", "Sí, cancelarla"))
+            return;
+
+        await Enviar<object?>($"api/programados/{cita.Id}/cancelar", null);
+    }
+
+    /// <summary>
+    /// El envío que comparten las acciones. El mensaje del servidor se enseña TAL CUAL: dice el
+    /// motivo concreto —«la programación acaba de empezar a ejecutarse»— y cambiarlo por un «no se
+    /// pudo» genérico tiraría lo que el escritorio hacía bien.
+    /// </summary>
+    private async Task<bool> Enviar<T>(string ruta, T cuerpo)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, r) = await Api.EnviarAsync<T, ResultadoDto>(ruta, cuerpo, _cancelacion.Token);
+            if (ok && r is not null) Avisos.Exito(r.Mensaje);
+            if (ok) await Cargar();
+            return ok;
+        }
+        finally { _ocupado = false; }
+    }
+
+    private string Resumen()
+    {
+        if (_datos is not { } d) return "";
+
+        int pendientes = d.Citas.Count(c => c.Estado == ScheduledDeploymentStatus.Programado);
+        int perdidas = d.Citas.Count(c => c.Estado == ScheduledDeploymentStatus.Perdido);
+
+        var proxima = d.Citas
+            .Where(c => c.Estado == ScheduledDeploymentStatus.Programado)
+            .OrderBy(c => c.CuandoUtc)
+            .FirstOrDefault();
+
+        var texto = $"{d.Citas.Count} programación(es)  ·  🕓 {pendientes} pendiente(s)";
+        if (proxima is not null)
+            texto += $"  ·  la próxima el {proxima.CuandoUtc.ToLocalTime():dd/MM/yyyy HH:mm}";
+        if (perdidas > 0)
+            texto += $"  ·  ⚠ {perdidas} perdida(s)";
+
+        return texto;
+    }
+
+    /// <summary>
+    /// Lo cerrado se apaga en lugar de esconderse, igual que en el escritorio: sigue siendo el
+    /// historial de la agenda y tiene que verse de un vistazo qué ya pasó.
+    /// </summary>
+    private void ApagarLasCerradas(RowRenderEventArgs<DespliegueProgramadoDto> args)
+    {
+        if (args.Data.Estado is ScheduledDeploymentStatus.Completado
+                             or ScheduledDeploymentStatus.Cancelado
+                             or ScheduledDeploymentStatus.Perdido)
+            args.Attributes["style"] = "opacity:.55";
+    }
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

@@ -1,0 +1,490 @@
+@page "/sla"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Shared.Dtos.Sla
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+
+@*
+    SLA y recordatorios (clave del escritorio: «sla-admin»).
+
+    Los compromisos de atención: a quién se le exige qué, para cuándo, y cada cuánto se le recuerda
+    que deje constancia en el ticket de Azure DevOps.
+
+    LO QUE CAMBIA RESPECTO AL ESCRITORIO, Y POR QUÉ
+
+      · El escalamiento de los vencidos ya NO depende de que alguien tenga esta pantalla abierta. En
+        el escritorio lo disparaba un temporizador de la ventana principal y solo si la sesión era de
+        administración: si el líder no abría la aplicación, los SLA vencidos no se escalaban. Ahora lo
+        hace un trabajo de fondo del servidor, siempre. El botón «Revisar vencidos» se conserva
+        porque sigue sirviendo para no esperar el ciclo — y porque mientras los trabajos de fondo
+        estén apagados es la única forma de escalar.
+      · La tarjeta que antes decía «vencen hoy» ahora dice «vencen en 24 h». El «hoy» se calculaba
+        contra la fecha local de la máquina; en la web ese cálculo lo hace un servidor cuyo día no es
+        el de nadie, y el mismo compromiso entraría o no en el recuento según dónde esté hospedado.
+      · No hay botón para comentar el ticket desde aquí: el cliente de Azure DevOps todavía no está
+        portado. La columna de comentarios sigue enseñando lo que hay, y el enlace 🔗 lleva al work
+        item.
+
+    Las horas viajan en UTC y se pintan en la hora de quien mira. Al capturar se hace el camino
+    inverso: lo que se teclea es hora local y se convierte antes de enviarlo.
+*@
+
+<PageTitle>SLA y recordatorios</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">SLA y recordatorios</RadzenText>
+        <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
+    </RadzenStack>
+
+    @if (_datos is { } d)
+    {
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
+            @Tarjeta("⏱ Activos", d.Resumen.Activos.ToString(), "var(--rz-info)")
+            @Tarjeta("⚠ Vencen en 24 h", d.Resumen.VencenEn24h.ToString(), "var(--rz-warning)")
+            @Tarjeta("❌ Fuera de plazo", d.Resumen.FueraDePlazo.ToString(), "var(--rz-danger)")
+        </RadzenStack>
+
+        <RadzenCard>
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                         Gap="1rem" Wrap="FlexWrap.Wrap">
+                <RadzenLabel Text="Estado:" Component="estado" />
+                <RadzenDropDown TValue="SlaStatus?" @bind-Value="_estado" Name="estado"
+                                Data="@Estados" TextProperty="Texto" ValueProperty="Valor"
+                                AllowClear="true" Placeholder="Todos" Disabled="@_ocupado"
+                                Change="@(_ => Cargar())" Style="min-width:11rem" />
+
+                <RadzenButton Text="➕ Asignar SLA" Disabled="@_ocupado" Click="@AbrirFormulario" />
+                <RadzenButton Text="🔔 Revisar vencidos" ButtonStyle="ButtonStyle.Light"
+                              Disabled="@_ocupado" Click="@RevisarVencidos" />
+
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0" Style="margin-left:auto">
+                    @d.Mensaje
+                </RadzenText>
+            </RadzenStack>
+        </RadzenCard>
+
+        @if (_capturando)
+        {
+            <RadzenCard>
+                <RadzenStack Gap="0.75rem">
+                    <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">Nuevo compromiso</RadzenText>
+
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap"
+                                 AlignItems="AlignItems.Center">
+                        <RadzenLabel Text="Aplicar a:" Component="tipo" />
+                        <RadzenDropDown TValue="bool" @bind-Value="_esRequerimiento" Name="tipo"
+                                        Data="@Tipos" TextProperty="Texto" ValueProperty="Valor"
+                                        Change="@(_ => CambiarTipo())" Style="min-width:12rem" />
+
+                        <RadzenLabel Text="Objetivo:" Component="objetivo" />
+                        <RadzenDropDown TValue="int?" @bind-Value="_objetivoId" Name="objetivo"
+                                        Data="@Objetivos" TextProperty="Texto" ValueProperty="Id"
+                                        Placeholder="Elige el objetivo" Style="min-width:24rem"
+                                        Change="@(_ => ObjetivoElegido())" />
+                    </RadzenStack>
+
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap"
+                                 AlignItems="AlignItems.Center">
+                        <RadzenLabel Text="Responsable:" Component="dev" />
+                        <RadzenDropDown TValue="int?" @bind-Value="_desarrolladorId" Name="dev"
+                                        Data="@Desarrolladores" TextProperty="Texto" ValueProperty="Id"
+                                        Placeholder="Elige al responsable" Style="min-width:14rem" />
+
+                        <RadzenLabel Text="Vence:" Component="vence" />
+                        <RadzenDatePicker TValue="DateTime" @bind-Value="_vence" Name="vence"
+                                          DateFormat="dd/MM/yyyy HH:mm" ShowTime="true" HourFormat="24"
+                                          Style="width:14rem" />
+
+                        <RadzenLabel Text="Recordar cada:" Component="cadencia" />
+                        <RadzenDropDown TValue="int" @bind-Value="_cadaHoras" Name="cadencia"
+                                        Data="@Cadencias" TextProperty="Texto" ValueProperty="Valor"
+                                        Style="min-width:12rem" />
+                    </RadzenStack>
+
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap"
+                                 AlignItems="AlignItems.Center">
+                        <RadzenLabel Text="Ticket de DevOps:" Component="ticket" />
+                        <RadzenNumeric TValue="int?" @bind-Value="_ticket" Name="ticket" Min="1"
+                                       Style="width:9rem" Placeholder="12551" />
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                            Opcional; sin él no hay ticket que comentar.
+                        </RadzenText>
+
+                        <RadzenTextBox @bind-Value="_url" Name="url" MaxLength="500" Style="min-width:22rem"
+                                       Placeholder="URL del work item (http:// o https://)" />
+                    </RadzenStack>
+
+                    <RadzenTextArea @bind-Value="_notas" Rows="2" Style="width:100%"
+                                    Placeholder="Notas (opcional)" />
+
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                        <RadzenButton Text="Asignar SLA" Disabled="@_ocupado" Click="@Asignar" />
+                        <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                                      Disabled="@_ocupado" Click="@(() => _capturando = false)" />
+                    </RadzenStack>
+                </RadzenStack>
+            </RadzenCard>
+        }
+
+        <RadzenDataGrid TItem="SlaCompromisoDto" Data="@d.Compromisos" IsLoading="@_ocupado"
+                        AllowSorting="true" AllowPaging="true" PageSize="20"
+                        RowRender="@PintarFueraDePlazo"
+                        EmptyText="No hay compromisos con ese filtro.">
+            <Columns>
+                <RadzenDataGridColumn TItem="SlaCompromisoDto" Property="Id" Title="ID" Width="70px" />
+                <RadzenDataGridColumn TItem="SlaCompromisoDto" Property="Desarrollador"
+                                      Title="Responsable" Width="170px" />
+                <RadzenDataGridColumn TItem="SlaCompromisoDto" Property="Objetivo" Title="Objetivo" />
+                <RadzenDataGridColumn TItem="SlaCompromisoDto" Property="TicketExternalId"
+                                      Title="Ticket" Width="110px">
+                    <Template Context="s">
+                        @if (s.TicketExternalId is int t)
+                        {
+                            @if (!string.IsNullOrWhiteSpace(s.TicketUrl))
+                            {
+                                <a href="@s.TicketUrl" target="_blank" rel="noopener">#@t 🔗</a>
+                            }
+                            else
+                            {
+                                <span>#@t</span>
+                            }
+                        }
+                        else
+                        {
+                            <span>—</span>
+                        }
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="SlaCompromisoDto" Property="VenceUtc" Title="Vence" Width="150px">
+                    <Template Context="s">@s.VenceUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="SlaCompromisoDto" Property="Estado" Title="Estado" Width="140px">
+                    <Template Context="s">
+                        <b style="@($"color:{Color(s)}")">@Etiqueta(s)</b>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="SlaCompromisoDto" Property="ProximoRecordatorioUtc"
+                                      Title="Recordatorio" Width="130px">
+                    <Template Context="s">
+                        @(s.ProximoRecordatorioUtc is DateTime r
+                            ? r.ToLocalTime().ToString("dd/MM HH:mm")
+                            : "—")
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="SlaCompromisoDto" Property="Comentarios"
+                                      Title="Comentarios" Width="150px">
+                    <Template Context="s">
+                        @(s.Comentarios == 0
+                            ? "sin comentarios"
+                            : $"{s.Comentarios} · {s.UltimoComentarioUtc?.ToLocalTime():dd/MM HH:mm}")
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="SlaCompromisoDto" Title="" Width="180px" Sortable="false">
+                    <Template Context="s">
+                        @if (s.Estado is not (SlaStatus.Cumplido or SlaStatus.Cancelado))
+                        {
+                            <RadzenButton Text="✔ Cumplido" ButtonStyle="ButtonStyle.Light"
+                                          Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                          Click="@(() => MarcarCumplido(s))" />
+                        }
+                        @if (s.Estado != SlaStatus.Cancelado)
+                        {
+                            <RadzenButton Text="✖ Cancelar" ButtonStyle="ButtonStyle.Light"
+                                          Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                          Click="@(() => CancelarSla(s))" />
+                        }
+                    </Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
+
+        <RadzenCard>
+            <RadzenStack Gap="0.75rem">
+                <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                    ⚙ Plazos automáticos por prioridad
+                </RadzenText>
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                    Cuando la sincronización con Azure DevOps asigne un ticket, se le creará un SLA con
+                    el plazo de su prioridad. Lo que esté desactivado no crea nada: es el valor por
+                    omisión, para que nadie se encuentre con compromisos que no puso.
+                </RadzenText>
+
+                @foreach (var p in _politicas)
+                {
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                 Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                        @* El tipo del parámetro va explícito: Change es EventCallback<bool> y con un
+                           lambda sin tipar el compilador lo toma como EventCallback a secas. *@
+                        <RadzenCheckBox TValue="bool" Name="@($"pol_{p.Prioridad}")" Value="@p.Activa"
+                                        Change="@((bool activa) => CambiarPolitica(p, activa: activa))" />
+                        <RadzenLabel Text="@($"P{p.Prioridad} — {p.Nombre}")"
+                                     Component="@($"pol_{p.Prioridad}")" Style="min-width:9rem" />
+
+                        <RadzenLabel Text="Plazo (h):" Component="@($"h_{p.Prioridad}")" />
+                        <RadzenNumeric TValue="int" Name="@($"h_{p.Prioridad}")" Value="@p.Horas"
+                                       Min="1" Max="8760" Style="width:7rem"
+                                       Change="@((int horas) => CambiarPolitica(p, horas: horas))" />
+
+                        <RadzenLabel Text="Recordar cada (h):" Component="@($"r_{p.Prioridad}")" />
+                        <RadzenNumeric TValue="int" Name="@($"r_{p.Prioridad}")" Value="@p.RecordatorioCadaHoras"
+                                       Min="0" Max="720" Style="width:7rem"
+                                       Change="@((int rec) => CambiarPolitica(p, recordatorio: rec))" />
+                    </RadzenStack>
+                }
+
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem">
+                    <RadzenButton Text="Guardar plazos" Disabled="@_ocupado" Click="@GuardarPoliticas" />
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                        @(string.IsNullOrWhiteSpace(d.Escalamiento)
+                            ? "Los incumplimientos se escalan a los líderes activos (no hay destinatario configurado)."
+                            : $"Los incumplimientos se escalan a: {d.Escalamiento}")
+                    </RadzenText>
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    }
+</RadzenStack>
+
+@code {
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private SlaAdminDto? _datos;
+    private OpcionesDeSlaDto? _opciones;
+    private bool _ocupado;
+
+    private SlaStatus? _estado = SlaStatus.Activo;
+
+    // Alta.
+    private bool _capturando;
+    private bool _esRequerimiento = true;
+    private int? _objetivoId;
+    private int? _desarrolladorId;
+    private DateTime _vence = DateTime.Today.AddDays(1).AddHours(18);
+    private int _cadaHoras = 24;
+    private int? _ticket;
+    private string _url = "";
+    private string _notas = "";
+
+    /// <summary>
+    /// Copia editable de las políticas. Se separa de <c>_datos</c> porque una recarga trae objetos
+    /// nuevos y borraría lo que se estuviera ajustando sin haber guardado.
+    /// </summary>
+    private List<PoliticaSlaDto> _politicas = [];
+
+    private static readonly IReadOnlyList<OpcionDeEstado> Estados =
+        Enum.GetValues<SlaStatus>().Select(e => new OpcionDeEstado(e, Texto(e))).ToList();
+
+    private static readonly IReadOnlyList<OpcionDeTipo> Tipos =
+    [
+        new(true, "Requerimiento"),
+        new(false, "Actividad libre")
+    ];
+
+    /// <summary>Las mismas cadencias que ofrecía el escritorio, incluida «solo al vencer» (0).</summary>
+    private static readonly IReadOnlyList<OpcionDeCadencia> Cadencias =
+    [
+        new(4, "4 horas"), new(8, "8 horas"), new(12, "12 horas"),
+        new(24, "24 horas (diario)"), new(48, "48 horas"), new(0, "Solo al vencer")
+    ];
+
+    private record OpcionDeEstado(SlaStatus? Valor, string Texto);
+    private record OpcionDeTipo(bool Valor, string Texto);
+    private record OpcionDeCadencia(int Valor, string Texto);
+
+    private IReadOnlyList<OpcionDto> Desarrolladores => _opciones?.Desarrolladores ?? [];
+
+    private IReadOnlyList<ObjetivoDeSlaDto> Objetivos =>
+        (_esRequerimiento ? _opciones?.Requerimientos : _opciones?.Actividades) ?? [];
+
+    protected override Task OnInitializedAsync() => Cargar();
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            var ruta = "api/sla" + (_estado is { } e ? $"?estado={e}" : "");
+            _datos = await Api.LeerAsync<SlaAdminDto>(ruta, _cancelacion.Token);
+            _politicas = _datos?.Politicas.ToList() ?? [];
+        }
+        finally { _ocupado = false; }
+    }
+
+    // ── Alta ─────────────────────────────────────────────────────────────────
+
+    private async Task AbrirFormulario()
+    {
+        // Los catálogos se piden al abrir y no al cargar la pantalla: son dos listas largas que la
+        // mayoría de las visitas no necesita.
+        _opciones ??= await Api.LeerAsync<OpcionesDeSlaDto>("api/sla/opciones", _cancelacion.Token);
+        if (_opciones is null) return;
+
+        _esRequerimiento = true;
+        _objetivoId = null;
+        _desarrolladorId = null;
+        _vence = DateTime.Today.AddDays(1).AddHours(18);
+        _cadaHoras = 24;
+        _ticket = null;
+        _url = "";
+        _notas = "";
+        _capturando = true;
+    }
+
+    private void CambiarTipo()
+    {
+        _objetivoId = null;
+        _ticket = null;
+        _url = "";
+    }
+
+    /// <summary>
+    /// Al elegir el objetivo se preselecciona el responsable obvio —quien ya lo tiene asignado, o el
+    /// dueño de la actividad— y, si vino de DevOps, su ticket. Es la ayuda del escritorio y se
+    /// conserva: en la práctica el responsable del SLA es siempre esa persona.
+    /// </summary>
+    private void ObjetivoElegido()
+    {
+        if (Objetivos.FirstOrDefault(o => o.Id == _objetivoId) is not { } elegido) return;
+
+        if (elegido.DesarrolladorSugerido is int dev) _desarrolladorId = dev;
+        if (elegido.TicketExternalId is int t) _ticket = t;
+        if (!string.IsNullOrWhiteSpace(elegido.TicketUrl)) _url = elegido.TicketUrl!;
+    }
+
+    private async Task Asignar()
+    {
+        // Solo lo evidente se comprueba aquí; los topes y el «ya tiene un SLA activo» los valida el
+        // servicio, que es donde la regla tiene que vivir.
+        if (_objetivoId is not int objetivo) { Avisos.Aviso("Elige el objetivo."); return; }
+        if (_desarrolladorId is not int dev) { Avisos.Aviso("Elige al responsable."); return; }
+
+        // Lo que se teclea es hora local; el servidor solo entiende UTC. La conversión se hace aquí
+        // porque este es el único punto que sabe en qué zona está la persona.
+        var venceUtc = DateTime.SpecifyKind(_vence, DateTimeKind.Local).ToUniversalTime();
+
+        var cuerpo = new AsignarSlaRequest(
+            _esRequerimiento, objetivo, dev, venceUtc, _cadaHoras, _ticket,
+            string.IsNullOrWhiteSpace(_url) ? null : _url.Trim(),
+            string.IsNullOrWhiteSpace(_notas) ? null : _notas.Trim());
+
+        if (await Enviar("api/sla/nuevo", cuerpo)) _capturando = false;
+    }
+
+    // ── Cierre ───────────────────────────────────────────────────────────────
+
+    private async Task MarcarCumplido(SlaCompromisoDto s)
+    {
+        var nota = await Avisos.PedirTextoAsync(
+            $"Nota al cerrar «{s.Objetivo}» (opcional).", "Marcar cumplido");
+        if (nota is null) return;   // canceló; vacío sí es «acepto sin nota»
+
+        await Enviar($"api/sla/{s.Id}/cumplido", new NotaDeSlaRequest(nota));
+    }
+
+    private async Task CancelarSla(SlaCompromisoDto s)
+    {
+        if (!await Avisos.ConfirmarAsync(
+                $"¿Dejar sin efecto el SLA de «{s.Objetivo}»?\n\nNo se borra: queda como Cancelado y " +
+                "deja de contar como incumplimiento.", "Cancelar SLA"))
+            return;
+
+        await Enviar($"api/sla/{s.Id}/cancelar", new { });
+    }
+
+    private async Task RevisarVencidos() =>
+        await Enviar("api/sla/revisar-vencidos", new { });
+
+    // ── Políticas ────────────────────────────────────────────────────────────
+
+    private void CambiarPolitica(PoliticaSlaDto p, bool? activa = null, int? horas = null, int? recordatorio = null)
+    {
+        int i = _politicas.FindIndex(x => x.Prioridad == p.Prioridad);
+        if (i < 0) return;
+
+        _politicas[i] = _politicas[i] with
+        {
+            Activa = activa ?? _politicas[i].Activa,
+            Horas = horas ?? _politicas[i].Horas,
+            RecordatorioCadaHoras = recordatorio ?? _politicas[i].RecordatorioCadaHoras
+        };
+    }
+
+    private async Task GuardarPoliticas() =>
+        await Enviar("api/sla/politicas", new GuardarPoliticasSlaRequest(_politicas));
+
+    // ── Apoyos ───────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Manda y recarga. El mensaje del servicio se enseña TAL CUAL: explica el motivo en concreto
+    /// —«ese objetivo ya tiene un SLA activo»— y sustituirlo por un «no se pudo» genérico sería tirar
+    /// lo que el escritorio hacía bien.
+    /// </summary>
+    private async Task<bool> Enviar<T>(string ruta, T cuerpo)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, resultado) = await Api.EnviarAsync<T, ResultadoDto>(ruta, cuerpo, _cancelacion.Token);
+            if (!ok) return false;
+
+            if (resultado is { } r) Avisos.Resultado(r.Ok, r.Mensaje);
+        }
+        finally { _ocupado = false; }
+
+        await Cargar();
+        return true;
+    }
+
+    private void PintarFueraDePlazo(RowRenderEventArgs<SlaCompromisoDto> fila)
+    {
+        if (fila.Data.FueraDePlazo || fila.Data.Estado == SlaStatus.Vencido)
+            fila.Attributes["style"] = "background-color: rgba(220, 38, 38, 0.08)";
+        else if (fila.Data.TocaComentar)
+            fila.Attributes["style"] = "background-color: rgba(217, 119, 6, 0.10)";
+    }
+
+    private RenderFragment Tarjeta(string titulo, string valor, string color) => __builder =>
+    {
+        <RadzenCard Style="@($"min-width:180px;border-left:5px solid {color}")">
+            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-1">@titulo</RadzenText>
+            <RadzenText TextStyle="TextStyle.H6" Style="@($"margin:0;color:{color}")">@valor</RadzenText>
+        </RadzenCard>
+    };
+
+    private static string Texto(SlaStatus estado) => estado switch
+    {
+        SlaStatus.Activo => "Activos",
+        SlaStatus.Cumplido => "Cumplidos",
+        SlaStatus.Vencido => "Vencidos",
+        _ => "Cancelados"
+    };
+
+    /// <summary>
+    /// Un activo pasado de fecha se enseña como «fuera de plazo» aunque su estado siga siendo Activo:
+    /// se mide el plazo, no la etiqueta. Es la misma regla que aplica el reporte de cumplimiento.
+    /// </summary>
+    private static string Etiqueta(SlaCompromisoDto s) => s.Estado switch
+    {
+        SlaStatus.Activo => s.FueraDePlazo ? "⚠ Fuera de plazo" : "🟢 En plazo",
+        SlaStatus.Cumplido => "✅ Cumplido",
+        SlaStatus.Vencido => "❌ Vencido",
+        _ => "⚪ Cancelado"
+    };
+
+    private static string Color(SlaCompromisoDto s) => s.Estado switch
+    {
+        SlaStatus.Activo => s.FueraDePlazo ? "var(--rz-warning)" : "var(--rz-success)",
+        SlaStatus.Cumplido => "var(--rz-success)",
+        SlaStatus.Vencido => "var(--rz-danger)",
+        _ => "var(--rz-text-secondary-color)"
+    };
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

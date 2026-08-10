@@ -1,0 +1,399 @@
+@page "/programas"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Client.Componentes
+@using AdminWeb.Shared.Dtos
+@using AdminWeb.Shared.Dtos.Catalogos
+@inject ClienteApi Api
+@inject Descargas Descargas
+@inject AvisosDeInterfaz Avisos
+
+@*
+    El inventario de programas y licencias. La clave del escritorio era «software».
+
+    La CLAVE de licencia no viaja con la rejilla, y eso no cambia al poder editar: en una web un
+    dato que se manda «por si acaso» queda a un «ver código fuente» de distancia aunque la pantalla
+    no lo pinte. Para verla hay un botón que la pide DE UNA EN UNA y deja en la bitácora quién la
+    miró; al editar, dejarla en blanco la conserva —no la borra—, porque si no, cambiar la versión
+    de un programa desde un formulario que no la enseña se la llevaría por delante.
+
+    Se conserva el aviso por color del escritorio: en rojo lo vencido y en ámbar lo que vence dentro
+    de 30 días. Quién está en cada caso lo decide el servidor, contra su propio reloj: un equipo con
+    la fecha mal puesta no debe teñir de rojo licencias que están al día.
+*@
+
+<PageTitle>Programas</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenText TextStyle="TextStyle.H5" Style="margin:0">Programas</RadzenText>
+
+    <RadzenCard>
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                     Gap="1rem" Wrap="FlexWrap.Wrap">
+            <RadzenTextBox @bind-Value="_texto" Placeholder="Buscar por nombre, fabricante, notas o instalación…"
+                           Change="@(_ => Buscar())" Style="min-width:22rem" />
+
+            <RadzenDropDown TValue="SoftwareCategory?" @bind-Value="_categoria" Data="@Categorias"
+                            TextProperty="Texto" ValueProperty="Valor" AllowClear="true"
+                            Placeholder="Todas las categorías" Change="@(_ => Buscar())"
+                            Style="min-width:14rem" />
+
+            <RadzenDropDown TValue="SoftwareStatus?" @bind-Value="_estado" Data="@Estados"
+                            TextProperty="Texto" ValueProperty="Valor" AllowClear="true"
+                            Placeholder="Todos los estados" Change="@(_ => Buscar())"
+                            Style="min-width:12rem" />
+
+            <SelectorDeColumnas Clave="programas" Columnas="@TodasLasColumnas"
+                                OcultasCambiaron="@(o => _ocultas = o)" />
+
+            <RadzenText TextStyle="TextStyle.Caption" Style="margin:0 0 0 auto">
+                @_filas.Count programa(s)
+            </RadzenText>
+        </RadzenStack>
+    </RadzenCard>
+
+    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+        <RadzenButton Text="➕ Nuevo" Disabled="@_ocupado" Click="@AbrirNuevo" />
+        <RadzenButton Text="✏ Editar" ButtonStyle="ButtonStyle.Light" Disabled="@(_ocupado || _elegido is null)"
+                      Click="@AbrirEdicion" />
+        <RadzenButton Text="🔐 Ver clave" ButtonStyle="ButtonStyle.Light" Disabled="@(_ocupado || _elegido is null)"
+                      Click="@VerClave" />
+    </RadzenStack>
+
+    @if (_capturando)
+    {
+        <RadzenCard>
+            <RadzenStack Gap="0.75rem">
+                <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                    @(_id is null ? "Nuevo programa" : $"Editar «{_nombreOriginal}»")
+                </RadzenText>
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap">
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Nombre" Component="nombreProg" />
+                        <RadzenTextBox @bind-Value="_nombre" Name="nombreProg" MaxLength="150"
+                                       Style="width:18rem" />
+                    </RadzenStack>
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Categoría" Component="catProg" />
+                        <RadzenDropDown TValue="SoftwareCategory" @bind-Value="_catEdicion" Name="catProg"
+                                        Data="@CategoriasEdicion" TextProperty="Texto" ValueProperty="Valor"
+                                        Style="width:14rem" />
+                    </RadzenStack>
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Estado" Component="estProg" />
+                        <RadzenDropDown TValue="SoftwareStatus" @bind-Value="_estEdicion" Name="estProg"
+                                        Data="@EstadosEdicion" TextProperty="Texto" ValueProperty="Valor"
+                                        Style="width:12rem" />
+                    </RadzenStack>
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Tipo de licencia" Component="licProg" />
+                        <RadzenDropDown TValue="SoftwareLicenseType" @bind-Value="_licEdicion" Name="licProg"
+                                        Data="@LicenciasEdicion" TextProperty="Texto" ValueProperty="Valor"
+                                        Style="width:13rem" />
+                    </RadzenStack>
+                </RadzenStack>
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap">
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Versión" Component="verProg" />
+                        <RadzenTextBox @bind-Value="_version" Name="verProg" MaxLength="60"
+                                       Style="width:10rem" />
+                    </RadzenStack>
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Fabricante" Component="fabProg" />
+                        <RadzenTextBox @bind-Value="_fabricante" Name="fabProg" MaxLength="120"
+                                       Style="width:14rem" />
+                    </RadzenStack>
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Vence" Component="venProg" />
+                        <RadzenDatePicker @bind-Value="_vence" Name="venProg" DateFormat="dd/MM/yyyy"
+                                          AllowClear="true" Style="width:11rem" />
+                    </RadzenStack>
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Instalado en" Component="insProg" />
+                        <RadzenTextBox @bind-Value="_instaladoEn" Name="insProg" MaxLength="200"
+                                       Style="width:16rem" />
+                    </RadzenStack>
+                </RadzenStack>
+
+                <RadzenStack Gap="0.25rem">
+                    <RadzenLabel Text="Clave de licencia" Component="claveProg" />
+                    <RadzenTextBox @bind-Value="_clave" Name="claveProg" MaxLength="250"
+                                   Style="width:100%"
+                                   Placeholder="Déjala en blanco para conservar la que ya tiene" />
+                    <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
+                        En blanco no borra: conserva la clave guardada. Para quitarla, escribe un
+                        espacio y guarda.
+                    </RadzenText>
+                </RadzenStack>
+
+                <RadzenTextBox @bind-Value="_url" MaxLength="500" Style="width:100%"
+                               Placeholder="URL (opcional)" />
+                <RadzenTextArea @bind-Value="_notas" Rows="2" Style="width:100%"
+                                Placeholder="Notas (opcional)" />
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                    <RadzenButton Text="Guardar" Disabled="@_ocupado" Click="@Guardar" />
+                    <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+                                  Click="@(() => _capturando = false)" />
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    }
+
+    @if (_claveVista is { } vista)
+    {
+        <RadzenCard Style="border-left:4px solid var(--rz-warning)">
+            <RadzenStack Gap="0.5rem">
+                <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">🔐 Clave de licencia</RadzenText>
+                <RadzenText TextStyle="TextStyle.Body2" Style="margin:0"><b>@vista</b></RadzenText>
+                <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
+                    Esta consulta quedó anotada en la bitácora con tu nombre.
+                </RadzenText>
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                    <RadzenButton Text="Copiar" Size="ButtonSize.Small" ButtonStyle="ButtonStyle.Light"
+                                  Click="@CopiarClave" />
+                    <RadzenButton Text="Ocultar" Size="ButtonSize.Small"
+                                  Click="@(() => _claveVista = null)" />
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    }
+
+    <RadzenDataGrid TItem="ProgramaDto" Data="@_filas" IsLoading="@_cargando"
+                    AllowSorting="true" AllowPaging="true" PageSize="25"
+                    SelectionMode="DataGridSelectionMode.Single" @bind-Value="@_seleccion"
+                    RowDoubleClick="@(_ => AbrirEdicion())"
+                    EmptyText="No hay programas que cumplan el filtro."
+                    RowRender="@PintarFila">
+        <Columns>
+            <RadzenDataGridColumn TItem="ProgramaDto" Property="Id" Title="ID" Width="70px"
+                                  Visible="@Ver("ID")" />
+            <RadzenDataGridColumn TItem="ProgramaDto" Property="Nombre" Title="Nombre" Width="220px"
+                                  Visible="@Ver("Nombre")">
+                <Template Context="s">
+                    @if (string.IsNullOrWhiteSpace(s.Url))
+                    {
+                        <span>@s.Nombre</span>
+                    }
+                    else
+                    {
+                        <a href="@s.Url" target="_blank" rel="noopener noreferrer">@s.Nombre</a>
+                    }
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="ProgramaDto" Property="CategoriaTexto" Title="Categoría" Width="180px"
+                                  Visible="@Ver("Categoría")" />
+            <RadzenDataGridColumn TItem="ProgramaDto" Property="EstadoTexto" Title="Estado" Width="140px"
+                                  Visible="@Ver("Estado")" />
+            <RadzenDataGridColumn TItem="ProgramaDto" Property="LicenciaTexto" Title="Licencia" Width="150px"
+                                  Visible="@Ver("Licencia")" />
+            <RadzenDataGridColumn TItem="ProgramaDto" Property="Version" Title="Versión" Width="110px"
+                                  Visible="@Ver("Versión")">
+                <Template Context="s">@(s.Version ?? "—")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="ProgramaDto" Property="Fabricante" Title="Fabricante" Width="160px"
+                                  Visible="@Ver("Fabricante")">
+                <Template Context="s">@(s.Fabricante ?? "—")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="ProgramaDto" Property="Vence" Title="Vence" Width="120px"
+                                  Visible="@Ver("Vence")">
+                <Template Context="s">@(s.Vence?.ToString("dd/MM/yyyy") ?? "Sin venc.")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="ProgramaDto" Property="InstaladoEn" Title="Instalado en" Width="180px"
+                                  Visible="@Ver("Instalado en")">
+                <Template Context="s">@(s.InstaladoEn ?? "—")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="ProgramaDto" Property="Notas" Title="Notas" Width="240px"
+                                  Visible="@Ver("Notas")">
+                <Template Context="s">@(s.Notas ?? "—")</Template>
+            </RadzenDataGridColumn>
+        </Columns>
+    </RadzenDataGrid>
+</RadzenStack>
+
+@code {
+    private static readonly string[] TodasLasColumnas =
+    [
+        "ID", "Nombre", "Categoría", "Estado", "Licencia", "Versión", "Fabricante",
+        "Vence", "Instalado en", "Notas"
+    ];
+
+    /// <summary>Una opción de un desplegable de enum. El texto sale de Shared, que es donde vive el
+    /// mismo que usa la API para llenar los campos «…Texto»: así el filtro y la columna no pueden
+    /// llamar de dos maneras distintas a lo mismo.</summary>
+    private record Opcion<T>(T Valor, string Texto);
+
+    private static readonly List<Opcion<SoftwareCategory?>> Categorias =
+        Enum.GetValues<SoftwareCategory>()
+            .Select(c => new Opcion<SoftwareCategory?>(c, EtiquetasDeCatalogo.Categoria(c)))
+            .ToList();
+
+    private static readonly List<Opcion<SoftwareStatus?>> Estados =
+        Enum.GetValues<SoftwareStatus>()
+            .Select(s => new Opcion<SoftwareStatus?>(s, EtiquetasDeCatalogo.EstadoDePrograma(s)))
+            .ToList();
+
+    // Las de arriba son para los FILTROS y llevan el tipo anulable, porque «sin filtro» es un valor
+    // legítimo. Las de aquí son para el FORMULARIO, donde el campo siempre tiene un valor: si
+    // compartieran lista, el desplegable de edición tendría que aceptar el nulo que nunca va a usar.
+    private static readonly List<Opcion<SoftwareCategory>> CategoriasEdicion =
+        [.. Enum.GetValues<SoftwareCategory>()
+               .Select(c => new Opcion<SoftwareCategory>(c, EtiquetasDeCatalogo.Categoria(c)))];
+
+    private static readonly List<Opcion<SoftwareStatus>> EstadosEdicion =
+        [.. Enum.GetValues<SoftwareStatus>()
+               .Select(s => new Opcion<SoftwareStatus>(s, EtiquetasDeCatalogo.EstadoDePrograma(s)))];
+
+    private static readonly List<Opcion<SoftwareLicenseType>> LicenciasEdicion =
+        [.. Enum.GetValues<SoftwareLicenseType>()
+               .Select(l => new Opcion<SoftwareLicenseType>(l, EtiquetasDeCatalogo.Licencia(l)))];
+
+    private List<ProgramaDto> _filas = [];
+    private HashSet<string> _ocultas = [];
+    private string _texto = "";
+    private SoftwareCategory? _categoria;
+    private SoftwareStatus? _estado;
+    private bool _cargando = true;
+    private bool _ocupado;
+
+    private IList<ProgramaDto>? _seleccion;
+    private ProgramaDto? _elegido => _seleccion?.FirstOrDefault();
+
+    private string? _claveVista;
+
+    private bool _capturando;
+    private int? _id;
+    private string _nombreOriginal = "";
+    private string _nombre = "";
+    private SoftwareCategory _catEdicion;
+    private SoftwareStatus _estEdicion;
+    private SoftwareLicenseType _licEdicion;
+    private string? _version, _fabricante, _clave, _instaladoEn, _url, _notas;
+    private DateTime? _vence;
+
+    private bool Ver(string columna) => !_ocultas.Contains(columna);
+
+    protected override Task OnInitializedAsync() => Buscar();
+
+    private async Task Buscar()
+    {
+        _cargando = true;
+        try
+        {
+            var ruta = $"api/catalogos/programas?texto={Uri.EscapeDataString(_texto ?? "")}";
+            if (_categoria is { } c) ruta += $"&categoria={c}";
+            if (_estado is { } e) ruta += $"&estado={e}";
+
+            _filas = await Api.LeerAsync<List<ProgramaDto>>(ruta) ?? [];
+
+            var id = _elegido?.Id;
+            _seleccion = id is null ? null : [.. _filas.Where(s => s.Id == id)];
+        }
+        finally { _cargando = false; }
+    }
+
+    private void AbrirNuevo()
+    {
+        _id = null;
+        _nombreOriginal = "";
+        _nombre = "";
+        _catEdicion = default;
+        _estEdicion = default;
+        _licEdicion = default;
+        _version = _fabricante = _clave = _instaladoEn = _url = _notas = null;
+        _vence = null;
+        _claveVista = null;
+        _capturando = true;
+    }
+
+    private void AbrirEdicion()
+    {
+        if (_elegido is not { } s) return;
+
+        _id = s.Id;
+        _nombreOriginal = s.Nombre;
+        _nombre = s.Nombre;
+        _catEdicion = s.Categoria;
+        _estEdicion = s.Estado;
+        _licEdicion = s.Licencia;
+        _version = s.Version;
+        _fabricante = s.Fabricante;
+        _vence = s.Vence;
+        _instaladoEn = s.InstaladoEn;
+        _url = s.Url;
+        _notas = s.Notas;
+        // Se abre SIEMPRE en blanco, incluso si el programa tiene clave: el formulario no la conoce
+        // —no viaja con la rejilla— y precargarla exigiría pedirla, lo que anotaría en la bitácora
+        // una consulta que nadie hizo. En blanco significa «déjala como está».
+        _clave = null;
+        _claveVista = null;
+        _capturando = true;
+    }
+
+    private async Task Guardar()
+    {
+        if (string.IsNullOrWhiteSpace(_nombre))
+        {
+            Avisos.Aviso("El nombre es obligatorio.");
+            return;
+        }
+
+        var cuerpo = new GuardarProgramaRequest(
+            _id, _nombre, _catEdicion, _estEdicion, _licEdicion, _version, _fabricante,
+            // Nulo cuando el campo quedó vacío: el servidor lo lee como «no la toques». Con texto
+            // —aunque sea un espacio— es una decisión explícita de cambiarla o quitarla.
+            string.IsNullOrEmpty(_clave) ? null : _clave,
+            _vence, _instaladoEn, _url, _notas);
+
+        _ocupado = true;
+        try
+        {
+            var (ok, r) = await Api.EnviarAsync<GuardarProgramaRequest, ResultadoDto>(
+                "api/catalogos/programas", cuerpo);
+            if (!ok) return;
+
+            if (r is not null) Avisos.Exito(r.Mensaje);
+            _capturando = false;
+            await Buscar();
+        }
+        finally { _ocupado = false; }
+    }
+
+    /// <summary>
+    /// Pide la clave de una licencia. Deja rastro en la bitácora, así que se avisa antes: quien
+    /// pulsa por curiosidad tiene que poder echarse atrás sabiendo que va a quedar anotado.
+    /// </summary>
+    private async Task VerClave()
+    {
+        if (_elegido is not { } s) return;
+        if (!await Avisos.ConfirmarAsync(
+                $"Se va a mostrar la clave de licencia de «{s.Nombre}» y quedará anotado en la " +
+                "bitácora que tú la consultaste. ¿Seguir?", "Ver clave"))
+            return;
+
+        _ocupado = true;
+        try
+        {
+            var (ok, datos) = await Api.EnviarAsync<object, ClaveDeLicenciaDto>(
+                $"api/catalogos/programas/{s.Id}/clave", new { });
+            if (ok && datos is not null) _claveVista = datos.Clave;
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task CopiarClave()
+    {
+        if (_claveVista is null) return;
+        var ok = await Descargas.CopiarAsync(_claveVista);
+        if (ok) Avisos.Exito("Clave copiada.");
+        else Avisos.Aviso("El navegador no dejó copiar. Selecciónala y cópiala a mano.");
+    }
+
+    /// <summary>Rojo lo vencido, ámbar lo que vence en 30 días. Mismos avisos que el escritorio.</summary>
+    private void PintarFila(RowRenderEventArgs<ProgramaDto> args)
+    {
+        if (args.Data.Vencida) args.Attributes["style"] = "color:var(--rz-danger)";
+        else if (args.Data.PorVencer) args.Attributes["style"] = "color:var(--rz-warning)";
+    }
+}

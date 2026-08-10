@@ -1,0 +1,144 @@
+@page "/mis-evaluaciones"
+@attribute [Authorize(Policy = "AdminUDesarrollador")]
+@using AdminWeb.Shared.Dtos.Evaluaciones
+@implements IDisposable
+@inject ClienteApi Api
+@inject Descargas Descargas
+
+@*
+    Mis evaluaciones (clave del escritorio: «my-evaluations»), en SOLO LECTURA.
+
+    Lo que el líder registró sobre esta persona —fortalezas, debilidades, calificación— y sus hitos.
+    No se edita nada: eso es del líder, y aquí no hay ni un botón que lo insinúe.
+
+    La restricción no es de pintado. El servidor manda otro contrato (MisEvaluacionesDto) que se
+    resuelve desde la SESIÓN y no lleva ningún identificador de desarrollador; no existe una ruta con
+    la que pedir la ficha de otra persona desde esta pantalla.
+
+    Lo que cambia respecto al escritorio: el PDF ya no depende de que LibreOffice esté instalado en
+    esta máquina. Allí el desarrollador se topaba con un error que no podía arreglar —Configuración
+    era del administrador— y hubo que darle una pantalla para escribir la ruta de SU LibreOffice.
+    Aquí lo genera el servidor y ese problema desaparece con su pantalla.
+*@
+
+<PageTitle>Mis evaluaciones</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Mis evaluaciones</RadzenText>
+        <RadzenButton Text="📄 Descargar mi ficha (PDF)" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                      Disabled="@(_ocupado || _datos?.TieneFicha != true)" Click="@AbrirFicha" />
+        <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
+    </RadzenStack>
+
+    @if (_datos is { } d)
+    {
+        @if (!d.TieneFicha)
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+                Tu cuenta no está vinculada a una ficha de desarrollador, así que no hay evaluaciones
+                ni hitos que enseñarte. Contacta al líder si esto no es correcto.
+            </RadzenAlert>
+        }
+
+        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+            Tus evaluaciones e hitos, tal como los registró tu líder.
+        </RadzenText>
+
+        <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">📝 Evaluaciones</RadzenText>
+
+        @if (d.Evaluaciones.Count == 0)
+        {
+            <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                Todavía no tienes evaluaciones registradas por tu líder.
+            </RadzenText>
+        }
+        else
+        {
+            @* Cada evaluación va COMPLETA en su tarjeta, no resumida en una fila. En el escritorio el
+               resumen se truncaba en la celda y había que abrir un cuadro de diálogo por cada una
+               para leerla entera; aquí no hay motivo para esconderla: es sobre uno mismo. *@
+            foreach (var e in d.Evaluaciones)
+            {
+                <RadzenCard>
+                    <RadzenStack Gap="0.5rem">
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                     Gap="1rem" Wrap="FlexWrap.Wrap">
+                            <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">
+                                @e.Fecha.ToString("dd/MM/yyyy")
+                                @(string.IsNullOrWhiteSpace(e.Periodo) ? "" : $"  ·  {e.Periodo}")
+                            </RadzenText>
+                            <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">@e.Estrellas</RadzenText>
+                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                Evaluó: @(e.Evaluador ?? "—")
+                            </RadzenText>
+                        </RadzenStack>
+
+                        @* Texto escrito por una persona: se pinta TAL CUAL, sin interpretarlo como
+                           marcado. Los saltos de línea los respeta el estilo, no el HTML. *@
+                        @Bloque("Fortalezas", e.Fortalezas, "var(--rz-success)")
+                        @Bloque("Debilidades / áreas de mejora", e.Debilidades, "var(--rz-danger)")
+                        @Bloque("Comentarios", e.Comentarios, "var(--rz-text-secondary-color)")
+                    </RadzenStack>
+                </RadzenCard>
+            }
+        }
+
+        <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">🏆 Mis hitos</RadzenText>
+
+        <RadzenDataGrid TItem="HitoDto" Data="@d.Hitos" IsLoading="@_ocupado"
+                        AllowSorting="true" AllowPaging="true" PageSize="10"
+                        EmptyText="Sin hitos registrados.">
+            <Columns>
+                <RadzenDataGridColumn TItem="HitoDto" Property="Fecha" Title="Fecha" Width="120px">
+                    <Template Context="h">@h.Fecha.ToString("dd/MM/yyyy")</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="HitoDto" Property="TipoTexto" Title="Tipo" Width="180px" />
+                <RadzenDataGridColumn TItem="HitoDto" Property="Titulo" Title="Título" />
+                <RadzenDataGridColumn TItem="HitoDto" Property="Descripcion" Title="Descripción">
+                    <Template Context="h">@(h.Descripcion ?? "—")</Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
+    }
+</RadzenStack>
+
+@code {
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private MisEvaluacionesDto? _datos;
+    private bool _ocupado;
+
+    protected override Task OnInitializedAsync() => Cargar();
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            _datos = await Api.LeerAsync<MisEvaluacionesDto>("api/evaluaciones/mias", _cancelacion.Token);
+        }
+        finally { _ocupado = false; }
+    }
+
+    private Task AbrirFicha() => Descargas.AbrirEnOtraPestanaAsync("api/evaluaciones/mias/ficha").AsTask();
+
+    /// <summary>Un apartado de la evaluación, con su rótulo. Nada si está vacío: el hueco no dice nada.</summary>
+    private RenderFragment Bloque(string titulo, string? texto, string color) => __builder =>
+    {
+        @if (!string.IsNullOrWhiteSpace(texto))
+        {
+            <div>
+                <RadzenText TextStyle="TextStyle.Caption" Style="@($"margin:0;color:{color}")">@titulo</RadzenText>
+                <div style="white-space:pre-wrap">@texto</div>
+            </div>
+        }
+    };
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

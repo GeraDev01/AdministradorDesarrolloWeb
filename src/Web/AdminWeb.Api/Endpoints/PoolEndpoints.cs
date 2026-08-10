@@ -1,0 +1,269 @@
+using AdminWeb.Application.Services;
+using AdminWeb.Domain.Entities;
+using AdminWeb.Domain.Security;
+using AdminWeb.Shared.Dtos;
+using AdminWeb.Shared.Dtos.Pool;
+using AdminWeb.Shared.Enums;
+
+namespace AdminWeb.Api.Endpoints;
+
+/// <summary>
+/// El pool de actividades: lo que el desarrollador toma, trabaja y entrega, y lo que el líder
+/// publica, verifica y configura.
+///
+/// <b>Las rutas del desarrollador no llevan identificador suyo</b>, igual que las de la jornada.
+/// Todas actúan sobre la ficha de quien tiene la sesión, leída de la cookie. Con un <c>/{devId}</c>
+/// en la ruta habría que comprobar en cada endpoint que es el propio, y el día que a uno se le
+/// olvidara sería «entrega la actividad de otra persona». El servicio conserva además su
+/// comprobación de propiedad: dos barreras, no una.
+///
+/// Los puntos NO viajan en ninguna petición de escritura. Se leen de la matriz al publicar y quedan
+/// congelados en la actividad; aceptar los que mandara el cliente sería regalar el sistema entero.
+/// </summary>
+public static class PoolEndpoints
+{
+    /// <summary>Quien trabaja el pool: el desarrollador y el líder, que también puede tener ficha.</summary>
+    private const string PoliticaDelPool = "AdminUDesarrollador";
+
+    /// <summary>Publicar, verificar y configurar es del líder.</summary>
+    private const string PoliticaDelLider = "SoloAdmin";
+
+    public static void MapPoolEndpoints(this IEndpointRouteBuilder app)
+    {
+        var grupo = app.MapGroup("/api/pool").WithTags("Pool de actividades");
+
+        // ── Pantalla del desarrollador ───────────────────────────────────────────
+
+        grupo.MapGet("/mio", async (
+            PoolWorkType? tipo, PoolQueryService consultas, CancellationToken ct) =>
+            Results.Ok(await consultas.MiPoolAsync(tipo, ct)))
+        .RequireAuthorization(PoliticaDelPool)
+        .WithSummary("Lo libre en el pool y lo que ya está a mi nombre, de una vez");
+
+        // Con la política del pool y no con la del líder: lo consultan los dos, y son los mismos
+        // puntos que la plantilla del tipo más los enlaces que capturó el propio interesado.
+        grupo.MapGet("/{id:int}/checklist", async (
+            int id, PoolQueryService consultas, CancellationToken ct) =>
+            Results.Ok(await consultas.ChecklistAsync(id, ct)))
+        .RequireAuthorization(PoliticaDelPool)
+        .WithSummary("El checklist de una actividad, con su evidencia");
+
+        grupo.MapPost("/{id:int}/tomar", async (
+            int id, PoolActivityService pool, ICurrentUser quien, CancellationToken ct) =>
+        {
+            if (quien.DeveloperId is not int developerId) return SinFicha();
+            var (ok, mensaje) = await pool.TomarAsync(id, developerId, ct);
+            return Resultado(ok, mensaje);
+        })
+        .RequireAuthorization(PoliticaDelPool)
+        .WithSummary("Toma una actividad libre del pool y la deja a mi nombre");
+
+        grupo.MapPost("/{id:int}/devolver", async (
+            int id, MotivoRequest? cuerpo, PoolActivityService pool, ICurrentUser quien,
+            CancellationToken ct) =>
+        {
+            if (quien.DeveloperId is not int developerId) return SinFicha();
+            var (ok, mensaje) = await pool.DevolverAsync(id, developerId, cuerpo?.Motivo, ct);
+            return Resultado(ok, mensaje);
+        })
+        .RequireAuthorization(PoliticaDelPool)
+        .WithSummary("Devuelve mi actividad al pool para que la tome cualquiera");
+
+        grupo.MapPost("/{id:int}/entregar", async (
+            int id, PoolActivityService pool, ICurrentUser quien, CancellationToken ct) =>
+        {
+            if (quien.DeveloperId is not int developerId) return SinFicha();
+            var (ok, mensaje) = await pool.EntregarAsync(id, developerId, ct);
+            return Resultado(ok, mensaje);
+        })
+        .RequireAuthorization(PoliticaDelPool)
+        .WithSummary("Entrega la actividad para que el líder la verifique");
+
+        grupo.MapPost("/checklist/{itemId:int}/marcar", async (
+            int itemId, MarcarPuntoRequest cuerpo, PoolActivityService pool, ICurrentUser quien,
+            CancellationToken ct) =>
+        {
+            if (quien.DeveloperId is not int developerId) return SinFicha();
+            var (ok, mensaje) = await pool.MarcarItemAsync(itemId, developerId, cuerpo.Hecho, cuerpo.Evidencia, ct);
+            return Resultado(ok, mensaje);
+        })
+        .RequireAuthorization(PoliticaDelPool)
+        .WithSummary("Marca o desmarca un punto del checklist, con su evidencia");
+
+        // ── Pantalla del líder ───────────────────────────────────────────────────
+
+        grupo.MapGet("/lider", async (
+            PoolActivityStatus? estado, PoolWorkType? tipo, PoolQueryService consultas,
+            CancellationToken ct) =>
+            Results.Ok(await consultas.PoolDelLiderAsync(estado, tipo, ct)))
+        .RequireAuthorization(PoliticaDelLider)
+        .WithSummary("El pool completo y la cola de verificación");
+
+        grupo.MapGet("/configuracion", async (PoolQueryService consultas, CancellationToken ct) =>
+            Results.Ok(await consultas.ConfiguracionAsync(ct)))
+        .RequireAuthorization(PoliticaDelLider)
+        .WithSummary("La matriz de puntos y las plantillas de checklist");
+
+        grupo.MapPost("/publicar", async (
+            PublicarActividadRequest cuerpo, PoolActivityService pool, CancellationToken ct) =>
+        {
+            var (ok, mensaje, _) = await pool.CrearAsync(ABorrador(cuerpo), cuerpo.CriteriosExtra, ct);
+            return Resultado(ok, mensaje);
+        })
+        .RequireAuthorization(PoliticaDelLider)
+        .WithSummary("Publica una actividad en el pool con el valor que le da la matriz");
+
+        grupo.MapPost("/{id:int}/editar", async (
+            int id, PublicarActividadRequest cuerpo, PoolActivityService pool, CancellationToken ct) =>
+        {
+            var (ok, mensaje) = await pool.EditarAsync(id, ABorrador(cuerpo), cuerpo.CriteriosExtra, ct);
+            return Resultado(ok, mensaje);
+        })
+        .RequireAuthorization(PoliticaDelLider)
+        .WithSummary("Edita una actividad que sigue libre en el pool");
+
+        grupo.MapGet("/criterios-disponibles", async (
+            PoolQueryService consultas, CancellationToken ct) =>
+            Results.Ok(await consultas.CriteriosExtraDisponiblesAsync(ct)))
+        .RequireAuthorization(PoliticaDelLider)
+        .WithSummary("El catálogo de criterios que se pueden pedir como extra en una actividad");
+
+        grupo.MapGet("/{id:int}/criterios", async (
+            int id, PoolQueryService consultas, CancellationToken ct) =>
+            Results.Ok(await consultas.CriteriosExtraDeAsync(id, ct)))
+        .WithSummary("Los criterios extra de una actividad y en qué quedó cada uno");
+
+        // La ruta cuelga del criterio y no de la actividad porque el identificador del criterio ya
+        // es único: pedir los dos permitiría mandar un par que no se corresponde, y habría que
+        // comprobarlo para no evaluar el criterio de otra actividad.
+        grupo.MapPost("/criterios/{criterioId:int}/evaluar", async (
+            int criterioId, EvaluarCriterioRequest cuerpo, PoolActivityService pool,
+            CancellationToken ct) =>
+        {
+            var (ok, mensaje) = await pool.EvaluarCriterioExtraAsync(
+                criterioId, cuerpo.Cumplido, cuerpo.Comentario, ct);
+            return Resultado(ok, mensaje);
+        })
+        .RequireAuthorization(PoliticaDelLider)
+        .WithSummary("Marca si un criterio extra se cumplió; solo los cumplidos suman al aceptar");
+
+        grupo.MapPost("/{id:int}/retirar", async (
+            int id, PoolActivityService pool, CancellationToken ct) =>
+        {
+            var (ok, mensaje) = await pool.RetirarAsync(id, ct);
+            return Resultado(ok, mensaje);
+        })
+        .RequireAuthorization(PoliticaDelLider)
+        .WithSummary("Quita del pool una actividad que ya no aplica");
+
+        grupo.MapPost("/{id:int}/liberar", async (
+            int id, MotivoRequest? cuerpo, PoolActivityService pool, CancellationToken ct) =>
+        {
+            var (ok, mensaje) = await pool.LiberarAsync(id, cuerpo?.Motivo, ct);
+            return Resultado(ok, mensaje);
+        })
+        .RequireAuthorization(PoliticaDelLider)
+        .WithSummary("Devuelve al pool una actividad que alguien tomó y no avanza");
+
+        grupo.MapPost("/{id:int}/aceptar", async (
+            int id, PoolActivityService pool, CancellationToken ct) =>
+        {
+            var (ok, mensaje) = await pool.AceptarAsync(id, ct);
+            return Resultado(ok, mensaje);
+        })
+        .RequireAuthorization(PoliticaDelLider)
+        .WithSummary("Acepta la entrega y abona los puntos congelados de la actividad");
+
+        grupo.MapPost("/{id:int}/rechazar", async (
+            int id, MotivoRequest? cuerpo, PoolActivityService pool, CancellationToken ct) =>
+        {
+            // El motivo vacío llega hasta el servicio a propósito: es él quien explica por qué hace
+            // falta («es lo que la persona va a leer para corregirlo»), y ese texto es el que se ve.
+            var (ok, mensaje) = await pool.RechazarAsync(id, cuerpo?.Motivo ?? "", ct);
+            return Resultado(ok, mensaje);
+        })
+        .RequireAuthorization(PoliticaDelLider)
+        .WithSummary("Devuelve la entrega al desarrollador con un motivo");
+
+        grupo.MapPost("/matriz", async (
+            GuardarMatrizRequest cuerpo, PoolActivityService pool, CancellationToken ct) =>
+        {
+            var filas = cuerpo.Celdas
+                .Select(c => new PoolPointsMatrixEntry
+                {
+                    WorkType = c.Tipo, Complexity = c.Complejidad,
+                    Points = c.Puntos, DiasLimite = c.DiasLimite
+                })
+                .ToList();
+
+            var (ok, mensaje) = await pool.GuardarMatrizAsync(filas, ct);
+            return Resultado(ok, mensaje);
+        })
+        .RequireAuthorization(PoliticaDelLider)
+        .WithSummary("Guarda la matriz de puntos (no revalúa lo ya publicado)");
+
+        grupo.MapPost("/plantilla", async (
+            GuardarPuntoDePlantillaRequest cuerpo, PoolActivityService pool, CancellationToken ct) =>
+        {
+            var (ok, mensaje) = await pool.GuardarPlantillaItemAsync(new PoolChecklistTemplateItem
+            {
+                Id = cuerpo.Id,
+                WorkType = cuerpo.Tipo,
+                Text = cuerpo.Texto,
+                Orden = cuerpo.Orden,
+                RequiereEvidencia = cuerpo.RequiereEvidencia
+            }, ct);
+            return Resultado(ok, mensaje);
+        })
+        .RequireAuthorization(PoliticaDelLider)
+        .WithSummary("Alta o edición de un punto del checklist de un tipo");
+
+        grupo.MapPost("/plantilla/{itemId:int}/alternar", async (
+            int itemId, PoolActivityService pool, CancellationToken ct) =>
+        {
+            var (ok, mensaje) = await pool.DesactivarPlantillaItemAsync(itemId, ct);
+            return Resultado(ok, mensaje);
+        })
+        .RequireAuthorization(PoliticaDelLider)
+        .WithSummary("Desactiva o reactiva un punto de la plantilla");
+    }
+
+    /// <summary>
+    /// Un rechazo de negocio sale como 400 con su mensaje, no como excepción. El texto lo escribió el
+    /// servicio y explica el motivo en concreto —«alguien más la tomó primero»—; eso es lo que se
+    /// enseña.
+    /// </summary>
+    private static IResult Resultado(bool ok, string mensaje) =>
+        ok ? Results.Ok(new ResultadoDto(true, mensaje))
+           : Results.BadRequest(new ResultadoDto(false, mensaje));
+
+    /// <summary>
+    /// La cuenta no está ligada a ninguna ficha de desarrollador. No es un fallo de permisos —la
+    /// política ya la dejó pasar— sino de datos: los puntos se abonan a una ficha y esta cuenta no
+    /// tiene ninguna.
+    /// </summary>
+    private static IResult SinFicha() =>
+        Results.BadRequest(new ResultadoDto(false,
+            "Tu cuenta no tiene ficha de desarrollador ligada, así que no puede trabajar actividades " +
+            "del pool. Pídeselo al líder."));
+
+    /// <summary>
+    /// El borrador que espera el servicio portado. Deliberadamente sin puntos ni estado: los pone él
+    /// desde la matriz, y esa es la regla que hace comparables las actividades entre personas.
+    /// </summary>
+    /// <summary>
+    /// El borrador que se le pasa al servicio. Sigue SIN llevar puntos: los pone la matriz.
+    /// Los criterios extra van aparte y no aquí, porque no son un campo de la actividad sino filas
+    /// propias que hay que resolver contra el catálogo antes de congelarlas.
+    /// </summary>
+    private static PoolActivity ABorrador(PublicarActividadRequest c) => new()
+    {
+        Title = c.Titulo,
+        Description = c.Detalle,
+        WorkType = c.Tipo,
+        Complexity = c.Complejidad,
+        Priority = c.Prioridad,
+        DiasLimite = c.Dias,
+        ExternalUrl = c.Enlace
+    };
+}

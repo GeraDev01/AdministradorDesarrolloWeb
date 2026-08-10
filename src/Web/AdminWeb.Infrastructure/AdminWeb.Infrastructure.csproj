@@ -1,0 +1,76 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Todo lo que habla con el mundo exterior: la base de datos, las integraciones y la generación de
+    documentos. Es la capa que se sustituiría si mañana cambiara el almacenamiento; el dominio no
+    la conoce.
+
+    Las integraciones (DevOps, Freshdesk, correo, Blob, FTP) y el PdfService con QuestPDF entran
+    en sus fases; por ahora vive aquí la persistencia.
+  -->
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.*" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.*" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.*" />
+
+    <!--
+      Los documentos que antes se armaban con una plantilla .docx y se convertían con LibreOffice
+      instalado en la máquina de cada quien. QuestPDF los genera por código, sin instalar nada en el
+      servidor y sin binarios nativos que dependan del sistema operativo.
+
+      Licencia Community: gratuita mientras la empresa facture por debajo del umbral que fija la
+      propia licencia. Si algún día se superara, el cambio a PdfSharp/MigraDoc (MIT, sin condición)
+      no toca a quien genera los documentos: todos pasan por IGeneradorDePdf.
+    -->
+    <PackageReference Include="QuestPDF" Version="2024.*" />
+
+    <!--
+      Las integraciones. Mismas versiones que el escritorio: durante el corte las dos aplicaciones
+      hablan con los mismos servidores, y no hay motivo para que una use un cliente distinto.
+
+      Todas libres y sin binarios nativos, que es lo que permite publicar en App Service sin
+      contenedor: MailKit (MIT) para SMTP e IMAP, FluentFTP (MIT) para los despliegues, y el SDK de
+      Azure (MIT) para Blob. Azure DevOps y Freshdesk se hablan con HttpClient y JSON, sin SDK: sus
+      clientes oficiales arrastran media plataforma para lo poco que se usa de ellos.
+    -->
+    <PackageReference Include="MailKit" Version="4.8.0" />
+    <PackageReference Include="FluentFTP" Version="51.*" />
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.*" />
+
+    <!--
+      Avisos push: firma VAPID y cifrado del mensaje para el servicio de entrega del navegador.
+      MIT. Se usa una librería en vez de escribirlo a mano porque el cifrado del cuerpo (ECDH sobre
+      P-256 con HKDF y AES-GCM) es criptografía de la que no conviene hacer una segunda versión.
+    -->
+    <!-- Rellenar la plantilla de Word. MIT, y ya entraba transitivamente por ClosedXML en la capa
+         de aplicación; aquí se declara explícito porque este proyecto no referencia ClosedXML.
+         OJO: rellenar un .docx NO necesita LibreOffice — eso solo hacía falta para convertirlo a PDF. -->
+    <PackageReference Include="DocumentFormat.OpenXml" Version="3.0.*" />
+    <PackageReference Include="Lib.Net.Http.WebPush" Version="3.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AdminWeb.Domain\AdminWeb.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      La semilla del cifrado compartido es internal: no es algo que nadie deba usar desde fuera. Pero
+      SÍ tiene que comprobarse que coincide byte por byte con la del escritorio, porque si divergieran
+      las dos aplicaciones dejarían de leerse los secretos y el fallo aparecería semanas después, al
+      desplegar. El escritorio hace lo mismo con la suya y por el mismo motivo.
+    -->
+    <InternalsVisibleTo Include="AdminWeb.Application.Tests" />
+  </ItemGroup>
+
+
+  <!-- La plantilla de FÁBRICA, incrustada en el ensamblado.
+       Es una COPIA del archivo del escritorio y no un enlace a él: ese proyecto se retira en el
+       corte, y un enlace dejaría la web sin compilar justo ese día. Son 124 KB. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Documentos\Plantillas\Solicitud_Vacaciones_Plantilla.docx"
+                      LogicalName="AdminWeb.Plantillas.Solicitud_Vacaciones_Plantilla.docx" />
+  </ItemGroup>
+
+</Project>

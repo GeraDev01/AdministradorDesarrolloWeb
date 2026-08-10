@@ -1,0 +1,494 @@
+@page "/equipos"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Shared.Dtos.Catalogos
+@using AdminWeb.Shared.Dtos.Personas
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+@inject Descargas Descargas
+
+@*
+    El organigrama, ahora también EDITABLE (fase 3).
+
+    En fase 1 esta pantalla era solo consulta y lo decía: reorganizar equipos seguía haciéndose desde
+    el escritorio. Aquí se completa — crear y editar equipos, mover gente, asignar roles, ver el
+    historial de rotaciones y generar el PDF — conservando tal cual lo que ya se leía: el líder
+    arriba, los demás agrupados por rol, y una columna final con quien todavía no tiene equipo.
+
+    Lo que CAMBIA respecto al escritorio, y por qué no había alternativa:
+
+      · La asignación era ARRASTRAR Y SOLTAR entre columnas. En el navegador se sustituye por dos
+        listas con botones. El arrastre del escritorio dependía de un cursor con precisión de píxel;
+        en la web habría que reimplementarlo con eventos de puntero y quedaría fuera de alcance para
+        quien navegue con teclado. Lo que SÍ se conserva es lo que el arrastre hacía visible de un
+        golpe: quién no tiene equipo, que aquí es la lista de la izquierda y lleva su contador.
+      · El rol se asignaba con el clic derecho sobre la tarjeta. Aquí es un desplegable por persona
+        en el panel de asignación: un menú contextual en una página web compite con el del propio
+        navegador y hay quien nunca lo encuentra.
+
+    Lo que NO cambia: mover a alguien le quita el rol y suelta el cargo de líder del equipo que deja,
+    y cada movimiento queda registrado como rotación con los nombres copiados —para que el historial
+    sobreviva a que después se borre el equipo—. Esas tres reglas son de MoveDeveloper y siguen en el
+    servidor, no aquí.
+
+    Solo aparecen los desarrolladores activos, igual que en el escritorio: un organigrama con quien
+    ya no está deja de describir al equipo.
+*@
+
+<PageTitle>Equipos</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" Style="margin:0">Equipos</RadzenText>
+        <RadzenButton Text="➕ Nuevo equipo" Disabled="@_ocupado" Click="@AbrirEquipoNuevo" />
+        <RadzenButton Text="📄 Generar PDF" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+                      Click="@GenerarPdf" />
+        <RadzenButton Text="📜 Historial" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+                      Click="@AlternarHistorial" />
+        <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Disabled="@_ocupado" Click="@Cargar" />
+    </RadzenStack>
+
+    @if (_capturandoEquipo)
+    {
+        <RadzenCard>
+            <RadzenStack Gap="0.75rem">
+                <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                    @(_equipoEnEdicion is null ? "Nuevo equipo" : $"Editar «{_nombreOriginal}»")
+                </RadzenText>
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap"
+                             AlignItems="AlignItems.Center">
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Nombre" Component="nombreEquipo" />
+                        <RadzenTextBox @bind-Value="_nombreEquipo" Name="nombreEquipo" MaxLength="100"
+                                       Style="width:18rem" />
+                    </RadzenStack>
+
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Color (hex)" Component="colorEquipo" />
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                            <RadzenTextBox @bind-Value="_colorEquipo" Name="colorEquipo" MaxLength="9"
+                                           Placeholder="#2563EB" Style="width:8rem" />
+                            @* La muestra en vivo: el color es lo que identifica al equipo en el
+                               tablero y en el PDF, y un hex mal escrito solo se nota al verlo. *@
+                            <div style="@($"width:2rem;height:2rem;border-radius:4px;background:{Color(_colorEquipo)}")"></div>
+                        </RadzenStack>
+                    </RadzenStack>
+                </RadzenStack>
+
+                <RadzenTextArea @bind-Value="_descripcionEquipo" Rows="2" Style="width:100%"
+                                Placeholder="Descripción (opcional): a qué se dedica este equipo" />
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                    <RadzenButton Text="Guardar" Disabled="@_ocupado" Click="@GuardarEquipo" />
+                    <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                                  Disabled="@_ocupado" Click="@(() => _capturandoEquipo = false)" />
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    }
+
+    @if (_cargando)
+    {
+        <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" />
+    }
+    else if (_organizacion is null)
+    {
+        <RadzenText>No se pudo cargar la organización.</RadzenText>
+    }
+    else
+    {
+        @* ── Asignación: dos listas con botones ─────────────────────────────────
+           Sustituye al arrastrar y soltar. La lista de la izquierda es la que importa: es dónde se
+           ve, sin buscar, a quién le falta equipo. *@
+        <RadzenCard>
+            <RadzenStack Gap="0.75rem">
+                <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">Asignar personas a equipos</RadzenText>
+
+                <div style="display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-start">
+                    <div style="flex:1 1 18rem;min-width:16rem">
+                        <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">
+                            Sin equipo (@_organizacion.SinEquipo.Count)
+                        </RadzenText>
+                        <div style="max-height:16rem;overflow:auto;padding:.25rem 0">
+                            @if (_organizacion.SinEquipo.Count == 0)
+                            {
+                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                    Todo el mundo tiene equipo.
+                                </RadzenText>
+                            }
+                            @foreach (var persona in _organizacion.SinEquipo)
+                            {
+                                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                                    <RadzenCheckBox TValue="bool" Value="@_marcadosSinEquipo.Contains(persona.Id)"
+                                                    ValueChanged="@((bool m) => Marcar(_marcadosSinEquipo, persona.Id, m))"
+                                                    Disabled="@_ocupado" />
+                                    <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">@persona.Nombre</RadzenText>
+                                </RadzenStack>
+                            }
+                        </div>
+                    </div>
+
+                    <RadzenStack Gap="0.5rem" Style="flex:0 0 auto;padding-top:2rem">
+                        <RadzenButton Text="Mover al equipo →" Size="ButtonSize.Small"
+                                      Disabled="@(_ocupado || _equipoDestino is null || _marcadosSinEquipo.Count == 0)"
+                                      Click="@MoverAlEquipo" />
+                        <RadzenButton Text="← Quitar del equipo" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                      Disabled="@(_ocupado || _marcadosDelEquipo.Count == 0)"
+                                      Click="@QuitarDelEquipo" />
+                    </RadzenStack>
+
+                    <div style="flex:1 1 24rem;min-width:20rem">
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                     Gap="0.5rem" Wrap="FlexWrap.Wrap">
+                            <RadzenLabel Text="Equipo:" Component="destino" />
+                            <RadzenDropDown TValue="int?" @bind-Value="_equipoDestino" Name="destino"
+                                            Data="@_organizacion.Equipos" TextProperty="Nombre" ValueProperty="Id"
+                                            Placeholder="Elige un equipo" Style="min-width:14rem"
+                                            Change="@(_ => _marcadosDelEquipo.Clear())" Disabled="@_ocupado" />
+                        </RadzenStack>
+
+                        <div style="max-height:16rem;overflow:auto;padding:.25rem 0">
+                            @if (EquipoElegido is not { } elegido)
+                            {
+                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                    Elige un equipo para ver y cambiar a su gente.
+                                </RadzenText>
+                            }
+                            else
+                            {
+                                @foreach (var integrante in elegido.Integrantes)
+                                {
+                                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                                        <RadzenCheckBox TValue="bool" Value="@_marcadosDelEquipo.Contains(integrante.Id)"
+                                                        ValueChanged="@((bool m) => Marcar(_marcadosDelEquipo, integrante.Id, m))"
+                                                        Disabled="@_ocupado" />
+                                        <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0" Style="min-width:11rem">
+                                            @(integrante.EsLider ? "👑 " : "")@integrante.Nombre
+                                        </RadzenText>
+                                        @* El rol se cambia aquí, en un desplegable: el clic derecho del
+                                           escritorio compite en la web con el menú del navegador. *@
+                                        <RadzenDropDown TValue="TeamRole" Value="@integrante.Rol"
+                                                        Data="@Roles" TextProperty="Texto" ValueProperty="Valor"
+                                                        Style="width:11rem" Disabled="@_ocupado"
+                                                        ValueChanged="@((TeamRole rol) => AsignarRol(integrante.Id, rol))" />
+                                    </RadzenStack>
+                                }
+                                @if (elegido.Integrantes.Count == 0)
+                                {
+                                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                        Este equipo no tiene a nadie todavía.
+                                    </RadzenText>
+                                }
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                    Mover a alguien le deja «sin rol» en su nuevo equipo y suelta el cargo de líder del
+                    que deja. Cada movimiento queda registrado como rotación.
+                </RadzenText>
+            </RadzenStack>
+        </RadzenCard>
+
+        @if (_historial is not null)
+        {
+            <RadzenCard>
+                <RadzenStack Gap="0.5rem">
+                    <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">📜 Rotaciones recientes</RadzenText>
+                    <RadzenDataGrid TItem="RotacionDto" Data="@_historial" AllowSorting="false"
+                                    AllowPaging="true" PageSize="10"
+                                    EmptyText="Todavía no se ha movido a nadie de equipo.">
+                        <Columns>
+                            <RadzenDataGridColumn TItem="RotacionDto" Title="Cuándo" Width="150px" Sortable="false">
+                                <Template Context="r">@r.FechaUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="RotacionDto" Property="Desarrollador" Title="Persona" />
+                            <RadzenDataGridColumn TItem="RotacionDto" Property="DeEquipo" Title="De" Width="160px" />
+                            <RadzenDataGridColumn TItem="RotacionDto" Property="AEquipo" Title="A" Width="160px" />
+                            <RadzenDataGridColumn TItem="RotacionDto" Property="Nota" Title="Motivo">
+                                <Template Context="r">@(r.Nota ?? "")</Template>
+                            </RadzenDataGridColumn>
+                        </Columns>
+                    </RadzenDataGrid>
+                </RadzenStack>
+            </RadzenCard>
+        }
+
+        @* Columnas que se envuelven: en el escritorio el tablero se desplazaba en horizontal porque
+           la ventana era de ancho fijo; en el navegador se aprovecha el ancho que haya. *@
+        <div style="display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-start">
+            @foreach (var equipo in _organizacion.Equipos)
+            {
+                <RadzenCard Style="width:17rem;padding:0;overflow:hidden">
+                    <div style="@($"border-left:6px solid {Color(equipo.ColorHex)};padding:.75rem 1rem")">
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                     JustifyContent="JustifyContent.SpaceBetween" Gap="0.25rem">
+                            <RadzenText TextStyle="TextStyle.Subtitle1" Style="margin:0">@equipo.Nombre</RadzenText>
+                            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem">
+                                <RadzenButton Text="✏" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                              Disabled="@_ocupado" Click="@(() => AbrirEquipo(equipo))" />
+                                <RadzenButton Text="🗑" ButtonStyle="ButtonStyle.Danger" Size="ButtonSize.ExtraSmall"
+                                              Disabled="@_ocupado" Click="@(() => EliminarEquipo(equipo))" />
+                            </RadzenStack>
+                        </RadzenStack>
+                        <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
+                            @equipo.Integrantes.Count integrante(s) &nbsp;·&nbsp; 🖥 @equipo.Sistemas &nbsp; 📁 @equipo.Proyectos
+                        </RadzenText>
+                        @if (!string.IsNullOrWhiteSpace(equipo.Descripcion))
+                        {
+                            <RadzenText TextStyle="TextStyle.Caption" Style="margin:.35rem 0 0">
+                                @equipo.Descripcion
+                            </RadzenText>
+                        }
+                    </div>
+
+                    <div style="padding:.5rem .75rem 1rem">
+                        @if (equipo.Integrantes.Count == 0)
+                        {
+                            <RadzenText TextStyle="TextStyle.Caption">(sin integrantes)</RadzenText>
+                        }
+                        else
+                        {
+                            @* El líder ya viene primero y marcado desde el servidor: quién lo es
+                               depende de dos datos que pueden discrepar (el rol de la ficha y el
+                               LeadDeveloperId del equipo) y esa regla no se decide en la pantalla. *@
+                            @foreach (var grupo in equipo.Integrantes.GroupBy(i => i.RolTexto))
+                            {
+                                <RadzenText TextStyle="TextStyle.Caption"
+                                            Style="@($"margin:.6rem 0 .2rem;font-weight:600;color:{grupo.First().ColorDeRol}")">
+                                    @grupo.Key.ToUpperInvariant()
+                                </RadzenText>
+                                @foreach (var i in grupo)
+                                {
+                                    <RadzenText TextStyle="TextStyle.Body2" Style="margin:.1rem 0">
+                                        @(i.EsLider ? "👑 " : "")@i.Nombre
+                                    </RadzenText>
+                                }
+                            }
+                        }
+                    </div>
+                </RadzenCard>
+            }
+
+            @if (_organizacion.SinEquipo.Count > 0)
+            {
+                <RadzenCard Style="width:17rem;padding:0;overflow:hidden">
+                    <div style="border-left:6px solid #94A3B8;padding:.75rem 1rem">
+                        <RadzenText TextStyle="TextStyle.Subtitle1" Style="margin:0">Sin equipo</RadzenText>
+                        <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
+                            @_organizacion.SinEquipo.Count integrante(s)
+                        </RadzenText>
+                    </div>
+                    <div style="padding:.5rem .75rem 1rem">
+                        @foreach (var i in _organizacion.SinEquipo)
+                        {
+                            <RadzenText TextStyle="TextStyle.Body2" Style="margin:.1rem 0">@i.Nombre</RadzenText>
+                        }
+                    </div>
+                </RadzenCard>
+            }
+        </div>
+    }
+</RadzenStack>
+
+@code {
+    /// <summary>Los roles asignables, con el mismo texto y el mismo orden que el menú del escritorio.</summary>
+    private static readonly OpcionDeRol[] Roles =
+    [
+        new(TeamRole.Lider, "👑 Líder"),
+        new(TeamRole.Frontend, "Frontend Dev"),
+        new(TeamRole.Backend, "Backend Dev"),
+        new(TeamRole.Fullstack, "Fullstack"),
+        new(TeamRole.QA, "QA"),
+        new(TeamRole.DevOps, "DevOps"),
+        new(TeamRole.UX, "UX / Diseño"),
+        new(TeamRole.Otro, "Otro"),
+        new(TeamRole.SinRol, "Sin rol")
+    ];
+
+    private sealed record OpcionDeRol(TeamRole Valor, string Texto);
+
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private OrganizacionDto? _organizacion;
+    private IReadOnlyList<RotacionDto>? _historial;
+    private bool _cargando = true;
+    private bool _ocupado;
+
+    // Asignación: qué hay marcado a cada lado y a qué equipo se mira.
+    private readonly HashSet<int> _marcadosSinEquipo = [];
+    private readonly HashSet<int> _marcadosDelEquipo = [];
+    private int? _equipoDestino;
+
+    // Alta y edición de un equipo.
+    private bool _capturandoEquipo;
+    private int? _equipoEnEdicion;
+    private string _nombreOriginal = "";
+    private string _nombreEquipo = "";
+    private string _descripcionEquipo = "";
+    private string _colorEquipo = "";
+
+    private EquipoDto? EquipoElegido =>
+        _equipoDestino is int id ? _organizacion?.Equipos.FirstOrDefault(e => e.Id == id) : null;
+
+    protected override async Task OnInitializedAsync() => await Cargar();
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            var organizacion = await Api.LeerAsync<OrganizacionDto>("api/catalogos/equipos", _cancelacion.Token);
+            if (organizacion is not null) _organizacion = organizacion;
+
+            // Lo marcado deja de tener sentido tras recargar: quien estaba en la lista pudo cambiar
+            // de sitio, y dejar las casillas puestas invitaría a mover a quien no se quería.
+            _marcadosSinEquipo.Clear();
+            _marcadosDelEquipo.Clear();
+
+            if (_historial is not null) await CargarHistorial();
+        }
+        finally { _cargando = false; _ocupado = false; }
+    }
+
+    // ── Asignación ───────────────────────────────────────────────────────────
+
+    private static void Marcar(HashSet<int> marcados, int id, bool marcado)
+    {
+        if (marcado) marcados.Add(id); else marcados.Remove(id);
+    }
+
+    private async Task MoverAlEquipo()
+    {
+        if (_equipoDestino is not int equipoId) return;
+
+        var motivo = await Avisos.PedirTextoAsync(
+            "Motivo de la rotación (opcional, queda en el historial).", "Mover al equipo");
+        if (motivo is null) return;   // null es cancelar; vacío es aceptar sin escribir
+
+        await Enviar("api/personas/equipos/integrantes",
+            new MoverIntegrantesRequest(_marcadosSinEquipo.ToList(), equipoId, motivo));
+    }
+
+    private async Task QuitarDelEquipo()
+    {
+        var motivo = await Avisos.PedirTextoAsync(
+            "Motivo (opcional, queda en el historial). Quedarán sin equipo.", "Quitar del equipo");
+        if (motivo is null) return;
+
+        await Enviar("api/personas/equipos/integrantes",
+            new MoverIntegrantesRequest(_marcadosDelEquipo.ToList(), null, motivo));
+    }
+
+    private Task AsignarRol(int developerId, TeamRole rol) =>
+        Enviar("api/personas/equipos/rol", new AsignarRolRequest(developerId, rol));
+
+    // ── Equipos ──────────────────────────────────────────────────────────────
+
+    private void AbrirEquipoNuevo()
+    {
+        _equipoEnEdicion   = null;
+        _nombreOriginal    = "";
+        _nombreEquipo      = "";
+        _descripcionEquipo = "";
+        _colorEquipo       = "";
+        _capturandoEquipo  = true;
+    }
+
+    private void AbrirEquipo(EquipoDto equipo)
+    {
+        _equipoEnEdicion   = equipo.Id;
+        _nombreOriginal    = equipo.Nombre;
+        _nombreEquipo      = equipo.Nombre;
+        _descripcionEquipo = equipo.Descripcion ?? "";
+        _colorEquipo       = equipo.ColorHex ?? "";
+        _capturandoEquipo  = true;
+    }
+
+    private async Task GuardarEquipo()
+    {
+        // Solo lo evidente se comprueba aquí; el nombre repetido lo rechaza el servidor.
+        if (string.IsNullOrWhiteSpace(_nombreEquipo))
+        {
+            Avisos.Aviso("El equipo necesita un nombre.");
+            return;
+        }
+
+        if (await Enviar("api/personas/equipos",
+                new GuardarEquipoRequest(_equipoEnEdicion ?? 0, _nombreEquipo, _descripcionEquipo, _colorEquipo)))
+            _capturandoEquipo = false;
+    }
+
+    private async Task EliminarEquipo(EquipoDto equipo)
+    {
+        if (!await Avisos.ConfirmarAsync(
+                $"¿Eliminar el equipo «{equipo.Nombre}»? Sus {equipo.Integrantes.Count} integrante(s) " +
+                "quedarán sin equipo; sus fichas no se tocan.",
+                "Eliminar equipo", "Sí, eliminarlo"))
+            return;
+
+        if (await Enviar<object?>($"api/personas/equipos/{equipo.Id}/eliminar", null)
+            && _equipoDestino == equipo.Id)
+            _equipoDestino = null;
+    }
+
+    // ── Historial y PDF ──────────────────────────────────────────────────────
+
+    private async Task AlternarHistorial()
+    {
+        if (_historial is not null) { _historial = null; return; }
+        await CargarHistorial();
+    }
+
+    private async Task CargarHistorial() =>
+        _historial = await Api.LeerAsync<List<RotacionDto>>(
+            "api/personas/equipos/rotaciones", _cancelacion.Token) ?? [];
+
+    /// <summary>
+    /// El PDF lo arma el servidor y lo descarga el navegador. Ya no hay «guardar como» ni conversor
+    /// de escritorio que instalar: el documento se genera igual desde cualquier equipo.
+    /// </summary>
+    private async Task GenerarPdf()
+    {
+        if (_organizacion is null || (_organizacion.Equipos.Count == 0 && _organizacion.SinEquipo.Count == 0))
+        {
+            Avisos.Aviso("No hay equipos ni desarrolladores para generar el PDF.");
+            return;
+        }
+
+        await Descargas.DesdeApiAsync("api/personas/equipos/pdf");
+    }
+
+    // ── Envío ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// El envío que comparten todas las acciones. El mensaje del servidor se enseña TAL CUAL: dice el
+    /// motivo concreto —«ya hay un equipo llamado…», «nadie cambió de equipo»— y cambiarlo por un «no
+    /// se pudo» genérico tiraría lo que el escritorio hacía bien.
+    /// </summary>
+    private async Task<bool> Enviar<T>(string ruta, T cuerpo)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, r) = await Api.EnviarAsync<T, ResultadoDto>(ruta, cuerpo, _cancelacion.Token);
+            if (ok && r is not null) Avisos.Exito(r.Mensaje);
+            if (ok) await Cargar();
+            return ok;
+        }
+        finally { _ocupado = false; }
+    }
+
+    /// <summary>El color del equipo, o el azul de siempre si nadie le puso uno.</summary>
+    private static string Color(string? hex) =>
+        string.IsNullOrWhiteSpace(hex) ? "#2563EB" : hex!;
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

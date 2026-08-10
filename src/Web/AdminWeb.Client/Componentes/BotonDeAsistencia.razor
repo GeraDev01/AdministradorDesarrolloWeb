@@ -1,0 +1,103 @@
+@using AdminWeb.Shared.Dtos.Jornada
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+@inject NavigationManager Navegacion
+
+@*
+    Marcar entrada y salida desde la barra superior, sin ir a buscar la pantalla.
+
+    Está aquí y no solo dentro de «Mi jornada» porque así estaba en el escritorio, y el motivo se
+    escribió allí: «se usan de paso, sin ir a buscarlos: si cuesta marcarlo, nadie lo marca — y
+    entonces ni el tablero de estados ni el registro de asistencia dicen la verdad».
+
+    No se enseña al líder, también como en el escritorio: él no marca asistencia, la revisa, y su
+    botón sobraría en la barra todo el día.
+*@
+
+@if (_estado is { } e)
+{
+    @if (e.DentroDeJornada)
+    {
+        <RadzenButton Text="@($"🕘 Salida · {e.EntradaUtc!.Value.ToLocalTime():HH:mm}")"
+                      ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                      Click="@MarcarSalida" Disabled="@_ocupado"
+                      title="@($"Marcaste tu entrada a las {e.EntradaUtc!.Value.ToLocalTime():HH:mm}. Pulsa para marcar tu salida.")" />
+    }
+    else if (e.PuedeMarcarEntrada)
+    {
+        <RadzenButton Text="🕘 Marcar entrada" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                      Click="@MarcarEntrada" Disabled="@_ocupado"
+                      title="La hora la pone el servidor al pulsar." />
+    }
+    else
+    {
+        <RadzenBadge BadgeStyle="BadgeStyle.Light" Text="🕘 Jornada cerrada"
+                     title="Ya marcaste entrada y salida hoy. Si hay un error, pide una corrección en «Mi jornada»." />
+    }
+}
+
+@code {
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private EstadoDeMarcajeDto? _estado;
+    private bool _ocupado;
+    private Timer? _refresco;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Cargar();
+
+        // Se repinta cada pocos minutos y no solo al entrar: en el escritorio esto lo hacía el
+        // latido, y sin ello quien deja la pestaña abierta toda la mañana seguiría viendo «Marcar
+        // entrada» después de haberla marcado desde el móvil o desde otra pestaña.
+        _refresco = new Timer(async _ => await InvokeAsync(Cargar), null,
+            TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
+    }
+
+    private async Task Cargar() =>
+        _estado = await Api.LeerAsync<EstadoDeMarcajeDto>("api/jornada/estado", _cancelacion.Token);
+
+    private async Task MarcarEntrada()
+    {
+        // La entrada no pide confirmación: entrar de más se arregla saliendo.
+        await Enviar("api/jornada/entrada");
+    }
+
+    private async Task MarcarSalida()
+    {
+        // La salida sí: cierra la jornada, y a partir de ahí solo la arregla el líder.
+        if (!await Avisos.ConfirmarAsync(
+            "¿Marcar tu salida ahora? Con esto se cierra tu jornada de hoy.",
+            "Marcar salida", "Sí, marcar salida"))
+            return;
+
+        await Enviar("api/jornada/salida");
+    }
+
+    private async Task Enviar(string ruta)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, r) = await Api.EnviarAsync<MarcajeRequest, ResultadoDto>(
+                ruta, new MarcajeRequest(null), _cancelacion.Token);
+
+            // El mensaje del servidor se enseña tal cual: dice la hora exacta que quedó registrada,
+            // que es justo lo que la persona quiere leer para quedarse tranquila.
+            if (ok && r is not null) Avisos.Exito(r.Mensaje);
+            await Cargar();
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    public void Dispose()
+    {
+        _refresco?.Dispose();
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

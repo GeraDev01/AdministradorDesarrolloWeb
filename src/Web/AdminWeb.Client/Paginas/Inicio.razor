@@ -1,0 +1,32 @@
+@page "/"
+@inject EstadoSesion Sesion
+
+@*
+    La portada. Dice lo único que alguien necesita saber al entrar y que no se deduce mirando el
+    menú: que esta aplicación TODAVÍA no es la de producción.
+
+    Ese aviso se quita el día del corte (ver EL-CORTE.md). Mientras siga aquí, quien entre sabe que
+    lo que haga puede no ser lo que cuenta.
+*@
+
+<PageTitle>Inicio</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenText TextStyle="TextStyle.H5">
+        Hola@(Sesion.Usuario is { } u ? $", {u.NombreCompleto}" : "")
+    </RadzenText>
+
+    <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false"
+                 Title="Esta todavía no es la aplicación de producción">
+        La aplicación de escritorio sigue siendo la oficial hasta el corte. Lo que registres aquí
+        puede no ser lo que cuente: confírmalo con tu líder antes de usarla para tu jornada o tus
+        actividades.
+    </RadzenAlert>
+
+    <RadzenCard>
+        <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0">
+            Todas las pantallas están disponibles en el menú. Si algo no responde como esperas,
+            dilo: es justo lo que hace falta encontrar antes del cambio.
+        </RadzenText>
+    </RadzenCard>
+</RadzenStack>

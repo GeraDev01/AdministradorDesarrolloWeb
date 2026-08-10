@@ -1,0 +1,166 @@
+@using AdminWeb.Shared.Dtos.Avisos
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+@inject IJSRuntime JS
+
+@*
+    Activar o desactivar los avisos que llegan con la pestaña cerrada.
+
+    Es lo único que la web no podía hacer y el escritorio sí: allí la aplicación seguía viva
+    escondida en la bandeja del sistema y sacaba un globo cuando hacía falta.
+
+    El permiso lo pide el NAVEGADOR y solo tras un gesto de la persona; por eso esto es un botón y no
+    algo que ocurra al entrar. Y si alguien lo deniega, el navegador NO vuelve a preguntar: hay que
+    quitarlo a mano desde su configuración. Eso se dice, en lugar de ofrecer un botón que no haría
+    nada.
+*@
+
+@if (_estado is not null)
+{
+    <RadzenCard>
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                     Gap="0.75rem" Wrap="FlexWrap.Wrap">
+            <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">🔔 Avisos con la pestaña cerrada</RadzenText>
+
+            @switch (_estado)
+            {
+                case Estado.NoDisponibleEnElServidor:
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                        No están configurados en el servidor. Los avisos dentro de la aplicación
+                        funcionan igual.
+                    </RadzenText>
+                    break;
+
+                case Estado.NoSoportado:
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                        Este navegador no los admite. Los avisos dentro de la aplicación funcionan igual.
+                    </RadzenText>
+                    break;
+
+                case Estado.Denegado:
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                        Los bloqueaste en este navegador. Para volver a activarlos hay que permitirlos
+                        desde la configuración del propio navegador, en los permisos de este sitio.
+                    </RadzenText>
+                    break;
+
+                case Estado.Activo:
+                    <RadzenBadge BadgeStyle="BadgeStyle.Success" Text="Activados" />
+                    <RadzenButton Text="Desactivar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                  Click="@Desactivar" Disabled="@_ocupado" />
+                    break;
+
+                case Estado.Inactivo:
+                    <RadzenButton Text="Activar en este navegador" Icon="notifications_active"
+                                  ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                  Click="@Activar" Disabled="@_ocupado" />
+                    break;
+            }
+        </RadzenStack>
+    </RadzenCard>
+}
+
+@code {
+    private enum Estado { NoDisponibleEnElServidor, NoSoportado, Denegado, Activo, Inactivo }
+
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private Estado? _estado;
+    private string? _llavePublica;
+    private bool _ocupado;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var configuracion = await Api.LeerAsync<ConfiguracionDePushDto>(
+            "api/avisos/push/configuracion", _cancelacion.Token);
+
+        if (configuracion is null || !configuracion.Disponible || string.IsNullOrEmpty(configuracion.LlavePublica))
+        {
+            _estado = Estado.NoDisponibleEnElServidor;
+            return;
+        }
+
+        _llavePublica = configuracion.LlavePublica;
+
+        var permiso = await JS.InvokeAsync<string>("adminweb.push.permiso");
+        _estado = permiso switch
+        {
+            "no-soportado" => Estado.NoSoportado,
+            "denied" => Estado.Denegado,
+            // Que el navegador tenga el permiso concedido no basta: hay que comprobar que además
+            // exista la suscripción. El navegador la renueva o la retira por su cuenta.
+            "granted" => await HaySuscripcionAsync() ? Estado.Activo : Estado.Inactivo,
+            _ => Estado.Inactivo
+        };
+    }
+
+    private async Task<bool> HaySuscripcionAsync() =>
+        await JS.InvokeAsync<Suscripcion?>("adminweb.push.actual") is not null;
+
+    private async Task Activar()
+    {
+        _ocupado = true;
+        try
+        {
+            var suscripcion = await JS.InvokeAsync<Suscripcion?>("adminweb.push.suscribir", _llavePublica);
+
+            if (suscripcion is null || suscripcion.Endpoint is null)
+            {
+                // El navegador dijo que no, o falló. Se distingue el «denegado» porque a partir de
+                // ahí no volverá a preguntar y la persona necesita saber por qué.
+                if (suscripcion?.Error == "denied") _estado = Estado.Denegado;
+                else Avisos.Aviso("No se pudieron activar los avisos en este navegador.");
+                return;
+            }
+
+            var (ok, r) = await Api.EnviarAsync<SuscripcionPushRequest, ResultadoDto>(
+                "api/avisos/push/suscripcion",
+                new SuscripcionPushRequest(suscripcion.Endpoint, suscripcion.P256dh!,
+                                           suscripcion.Auth!, suscripcion.Descripcion),
+                _cancelacion.Token);
+
+            if (!ok) return;
+
+            _estado = Estado.Activo;
+            if (r is not null) Avisos.Exito(r.Mensaje);
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    private async Task Desactivar()
+    {
+        _ocupado = true;
+        try
+        {
+            var endpoint = await JS.InvokeAsync<string?>("adminweb.push.cancelar");
+
+            // Se avisa al servidor aunque el navegador ya no tuviera suscripción: si no, la fila se
+            // quedaría en la base y el servidor seguiría intentando entregar a una dirección muerta.
+            if (!string.IsNullOrEmpty(endpoint))
+            {
+                var (_, r) = await Api.EnviarAsync<CancelarPushRequest, ResultadoDto>(
+                    "api/avisos/push/cancelacion", new CancelarPushRequest(endpoint), _cancelacion.Token);
+                if (r is not null) Avisos.Info(r.Mensaje);
+            }
+
+            _estado = Estado.Inactivo;
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    /// <summary>Lo que devuelve el navegador. <c>Error</c> viene con el motivo cuando no hay suscripción.</summary>
+    private sealed record Suscripcion(string? Endpoint, string? P256dh, string? Auth, string? Descripcion, string? Error);
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

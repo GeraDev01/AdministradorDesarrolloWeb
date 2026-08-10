@@ -1,0 +1,145 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@using AdminWeb.Client.Navegacion
+@using AdminWeb.Shared
+@inject EstadoSesion Sesion
+@inject NavigationManager Navegacion
+@inject AuthenticationStateProvider ProveedorAuth
+@inject ConexionEnVivo EnVivo
+
+@*
+    El armazón: menú lateral por rol y barra superior.
+
+    El menú se recorta según el rol por comodidad, no por seguridad — quien quiera puede llamar a la
+    API sin pasar por aquí. La barrera está en los endpoints y en los servicios; esto solo evita
+    enseñar puertas que no se pueden abrir.
+
+    Las entradas de pantallas que aún no existen se muestran APAGADAS en lugar de ocultarse: así se
+    ve de un vistazo qué falta por portar, en vez de dar la impresión de que el menú está completo.
+*@
+
+<RadzenLayout>
+    <RadzenHeader>
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                     JustifyContent="JustifyContent.SpaceBetween" Style="width:100%;padding:0 1rem">
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                <RadzenSidebarToggle Click="@(() => _menuAbierto = !_menuAbierto)" />
+                <RadzenText TextStyle="TextStyle.H6" Style="margin:0">Administrador de Desarrollo</RadzenText>
+            </RadzenStack>
+
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.75rem">
+                @* Fuera del bloque de sesión: el tema es del navegador, no de la cuenta, así que
+                   también tiene que poder cambiarse desde la pantalla de acceso. *@
+                <InterruptorDeTema />
+
+                @if (Sesion.Usuario is { } u)
+                {
+                    @* SoloAdmin, igual que en el escritorio: la búsqueda cruza requerimientos,
+                       tickets y fichas de personas, y el endpoint también lo exige. *@
+                    @if (u.Rol == UserRole.Admin)
+                    {
+                        <BusquedaGlobal />
+                    }
+
+                    @* Marcaje y estado en la barra, como en el escritorio: se usan de paso. Si hay
+                       que ir a buscarlos a una pantalla, nadie los usa, y entonces ni el registro de
+                       asistencia ni el tablero de estados dicen la verdad. *@
+                    @if (u.Rol != UserRole.Admin)
+                    {
+                        <BotonDeAsistencia />
+                    }
+                    <BotonDeEstado />
+
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin:0">
+                        👤 @u.NombreCompleto (@Etiqueta(u.Rol))
+                    </RadzenText>
+                    <RadzenButton Text="Salir" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                  Click="@Salir" />
+                }
+            </RadzenStack>
+        </RadzenStack>
+    </RadzenHeader>
+
+    <RadzenSidebar @bind-Expanded="_menuAbierto" Style="width:250px">
+        <RadzenPanelMenu>
+            @foreach (var item in Menu.Sueltos(Sesion.Usuario?.Rol))
+            {
+                @Entrada(item)
+            }
+
+            @foreach (var grupo in Menu.Para(Sesion.Usuario?.Rol))
+            {
+                <RadzenPanelMenuItem Text="@grupo.Titulo" Expanded="false">
+                    @foreach (var item in grupo.Items)
+                    {
+                        @Entrada(item)
+                    }
+                </RadzenPanelMenuItem>
+            }
+        </RadzenPanelMenu>
+
+        @* La versión, al pie y discreta. Es lo primero que hay que poder mirar cuando alguien
+           reporta un fallo: sin ella, «a mí no me pasa» tanto puede significar que no pasa como que
+           esa persona tiene otro código delante. El número lo compone la compilación con el SHA que
+           inyecta el pipeline, así que no hay nada que acordarse de subir a mano. *@
+        @* Los paréntesis del @() NO son adorno: escrito «v@Version…», Razor ve una letra seguida de
+           arroba, cree que es una dirección de correo y lo imprime LITERAL. Compila igual y solo se
+           nota mirando la pantalla — que es exactamente como se encontró. *@
+        <div style="padding:.6rem 1rem;font-size:.72rem;opacity:.55" title="@VersionDeLaAplicacion.Completa">
+            @($"v{VersionDeLaAplicacion.Corta}")@(VersionDeLaAplicacion.Commit is { } c ? $" · {c}" : "")
+        </div>
+    </RadzenSidebar>
+
+    <RadzenBody>
+        <div style="padding:1rem">
+            @Body
+        </div>
+    </RadzenBody>
+</RadzenLayout>
+
+@code {
+    private bool _menuAbierto = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Sesion.Cambio += Repintar;
+
+        // La conexión en vivo se abre aquí y no en cada pantalla: es lo que sostiene la presencia y
+        // el latido del cronómetro, y tiene que sobrevivir a navegar. Abrirla dentro de una página
+        // significaría que el cronómetro deja de latir en cuanto alguien mira otra cosa.
+        //
+        // Va en este layout —el de dentro de la sesión— y no en App: sin sesión el hub responde 401
+        // y reintentaría en bucle contra la pantalla de acceso.
+        await EnVivo.IniciarAsync();
+    }
+
+    private RenderFragment Entrada(ItemDeMenu item) => __builder =>
+    {
+        @* El icono va en Icon y no pegado al texto: así lo pinta la fuente de Material Symbols que
+           Radzen trae empaquetada, hereda el color del tema y queda alineado en su propia columna.
+           Concatenado al texto era una cadena más, y ni se alineaba ni cambiaba de color. *@
+        <RadzenPanelMenuItem Text="@item.Texto"
+                             Icon="@item.Icono"
+                             Path="@(item.Disponible ? item.Ruta : null)"
+                             Disabled="@(!item.Disponible)"
+                             title="@(item.Disponible ? null : "Todavía no está en la web; usa la aplicación de escritorio.")" />
+    };
+
+    private void Repintar() => InvokeAsync(StateHasChanged);
+
+    private async Task Salir()
+    {
+        await Sesion.SalirAsync();
+        (ProveedorAuth as ProveedorEstadoAutenticacion)?.Notificar();
+        Navegacion.NavigateTo("acceso", replace: true);
+    }
+
+    private static string Etiqueta(UserRole rol) => rol switch
+    {
+        UserRole.Admin => "Líder",
+        UserRole.Desarrollador => "Desarrollador",
+        _ => "Operaciones"
+    };
+
+    public void Dispose() => Sesion.Cambio -= Repintar;
+}

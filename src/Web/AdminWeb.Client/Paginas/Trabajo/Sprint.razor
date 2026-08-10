@@ -1,0 +1,807 @@
+@page "/sprint"
+@attribute [Authorize(Policy = "AdminUDesarrollador")]
+@using System.Globalization
+@using AdminWeb.Shared.Dtos.Trabajo
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+@inject EstadoSesion Sesion
+
+@*
+    Seguimiento del sprint, en dos vistas:
+
+      · 🏁 Sprint actual — una línea de tiempo tipo calendario (día por día, fines de semana
+        sombreados, marcador de HOY) con dos barras comparables —el tiempo consumido y el avance
+        real— y debajo la lista de lo comprometido. La lectura es una sola: si la barra de avance va
+        detrás de la de tiempo, vamos atrasados.
+      · 📈 Histórico — cómo salió cada sprint y la VELOCIDAD del equipo (promedio de entregados por
+        sprint cerrado). Es la única base honesta para comprometer el siguiente: sin ella, el
+        compromiso es un deseo.
+
+    El DESARROLLADOR ve la misma pantalla en SOLO CONSULTA: sin botones de escritura, sin la pestaña
+    de histórico, con sus requerimientos marcados 👤 y un filtro «solo los míos». El avance se
+    calcula siempre sobre TODO el sprint aunque el filtro esconda filas: dos porcentajes distintos
+    para el mismo sprint serían dos verdades. Lo calcula el servidor, así que aquí no hay forma de
+    equivocarse.
+
+    Los botones de escritura solo EXISTEN para el líder, igual que en el escritorio: uno gris invita
+    a preguntar por qué; uno ausente, no. Y como esto corre en el navegador de cada quien, es
+    comodidad y no seguridad: la barrera de verdad son la política del endpoint y la guarda del
+    servicio.
+
+    LO QUE CAMBIA: la línea de tiempo y la gráfica eran dibujos GDI+ y aquí son SVG en línea. No
+    entra ninguna librería de gráficas por dos rectángulos y unos triángulos, que es exactamente el
+    motivo por el que el escritorio los pintaba a mano. Y como el SVG se arma con marcado de Razor
+    —no con cadenas—, no hay texto de nadie interpretándose como HTML.
+*@
+
+<PageTitle>Sprint</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Sprint</RadzenText>
+        <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
+    </RadzenStack>
+
+    <RadzenTabs>
+        <Tabs>
+            <RadzenTabsItem Text="🏁 Sprint actual">
+                <RadzenStack Gap="0.75rem">
+                    <RadzenCard>
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                     Gap="1rem" Wrap="FlexWrap.Wrap">
+                            <RadzenLabel Text="Sprint:" Component="sprint" />
+                            <RadzenDropDown TValue="int?" @bind-Value="_sprintId" Name="sprint"
+                                            Data="@_sprints" TextProperty="Texto" ValueProperty="Id"
+                                            Disabled="@_ocupado" Change="@(_ => CargarSeguimiento())"
+                                            Style="min-width:22rem" />
+
+                            @* Filtrar a lo propio es lo primero que quiere el desarrollador; el líder
+                               no lo necesita (para él son todos) y por eso solo aparece con ficha. *@
+                            @if (!EsAdmin && TieneFicha)
+                            {
+                                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.4rem">
+                                    <RadzenCheckBox TValue="bool" @bind-Value="_soloMios" Name="soloMios" />
+                                    <RadzenLabel Text="Solo los míos" Component="soloMios" />
+                                </RadzenStack>
+                            }
+
+                            @if (EsAdmin)
+                            {
+                                <RadzenButton Text="➕ Nuevo sprint" Disabled="@_ocupado" Click="@AbrirSprintNuevo" />
+                                <RadzenButton Text="✏ Fechas y nombre" ButtonStyle="ButtonStyle.Light"
+                                              Disabled="@(_ocupado || Seguimiento is null)" Click="@AbrirSprintEdicion" />
+                                <RadzenButton Text="📋 Requerimientos…" ButtonStyle="ButtonStyle.Light"
+                                              Disabled="@(_ocupado || Seguimiento is null)" Click="@AbrirPicker" />
+                                <RadzenButton Text="🗑 Eliminar" ButtonStyle="ButtonStyle.Danger"
+                                              Disabled="@(_ocupado || Seguimiento is null)" Click="@EliminarSprint" />
+                            }
+                            else
+                            {
+                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                    Solo consulta — el sprint lo arma el líder
+                                </RadzenText>
+                            }
+                        </RadzenStack>
+                    </RadzenCard>
+
+                    @if (_capturandoSprint)
+                    {
+                        <RadzenCard>
+                            <RadzenStack Gap="0.75rem">
+                                <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                                    @(_editandoSprintId is null ? "Nuevo sprint" : "Fechas y nombre del sprint")
+                                </RadzenText>
+
+                                <RadzenTextBox @bind-Value="_nombre" MaxLength="100" Style="width:100%"
+                                               Placeholder="Nombre («Sprint 14», «Agosto 1.ª quincena»…)" />
+                                <RadzenTextArea @bind-Value="_objetivo" Rows="2" Style="width:100%"
+                                                Placeholder="Objetivo (opcional): qué se quiere poder decir al terminarlo" />
+
+                                <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap"
+                                             AlignItems="AlignItems.Center">
+                                    <RadzenLabel Text="Del:" Component="inicio" />
+                                    <RadzenDatePicker TValue="DateTime" @bind-Value="_inicio" Name="inicio"
+                                                      DateFormat="dd/MM/yyyy" ShowTime="false" Style="width:11rem" />
+                                    <RadzenLabel Text="Al:" Component="fin" />
+                                    <RadzenDatePicker TValue="DateTime" @bind-Value="_fin" Name="fin"
+                                                      DateFormat="dd/MM/yyyy" ShowTime="false" Style="width:11rem" />
+                                </RadzenStack>
+
+                                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                                    <RadzenButton Text="@(_editandoSprintId is null ? "Crear" : "Guardar")"
+                                                  Disabled="@_ocupado" Click="@GuardarSprint" />
+                                    <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                                                  Disabled="@_ocupado" Click="@(() => _capturandoSprint = false)" />
+                                </RadzenStack>
+                            </RadzenStack>
+                        </RadzenCard>
+                    }
+
+                    @if (_eligiendoRequerimientos)
+                    {
+                        <RadzenCard>
+                            <RadzenStack Gap="0.75rem">
+                                <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                                    📋 Requerimientos del sprint
+                                </RadzenText>
+                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                    Marca lo que entra al sprint. Lo que desmarques vuelve al backlog. Los
+                                    requerimientos de OTROS sprints no se listan, y los cancelados tampoco.
+                                </RadzenText>
+
+                                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap"
+                                             AlignItems="AlignItems.Center">
+                                    <RadzenTextBox @bind-Value="_buscarCandidato" Style="min-width:18rem"
+                                                   Placeholder="Buscar por número, título o estado…" />
+                                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.4rem">
+                                        <RadzenCheckBox TValue="bool" @bind-Value="_soloMarcados" Name="soloMarcados" />
+                                        <RadzenLabel Text="Solo los marcados" Component="soloMarcados" />
+                                    </RadzenStack>
+                                    <RadzenButton Text="Marcar visibles" ButtonStyle="ButtonStyle.Light"
+                                                  Size="ButtonSize.Small" Click="@(() => MarcarVisibles(true))" />
+                                    <RadzenButton Text="Desmarcar visibles" ButtonStyle="ButtonStyle.Light"
+                                                  Size="ButtonSize.Small" Click="@(() => MarcarVisibles(false))" />
+                                </RadzenStack>
+
+                                <div style="max-height:20rem; overflow:auto">
+                                    <RadzenStack Gap="0.25rem">
+                                        @foreach (var c in CandidatosVisibles)
+                                        {
+                                            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.4rem">
+                                                <RadzenCheckBox TValue="bool" Name="@($"cand_{c.Id}")"
+                                                                Value="@_marcados.Contains(c.Id)"
+                                                                Change="@((bool marcado) => MarcarCandidato(c.Id, marcado))" />
+                                                <RadzenLabel Component="@($"cand_{c.Id}")"
+                                                             Text="@($"#{c.Id}  {c.Titulo}  ·  {c.EstadoTexto}{(c.Compromiso is { } f ? $"  ·  {f:dd/MM/yyyy}" : "")}")" />
+                                            </RadzenStack>
+                                        }
+                                    </RadzenStack>
+                                </div>
+
+                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                    @_marcados.Count marcado(s) de @_candidatos.Count candidato(s).
+                                    @if (CandidatosVisibles.Count != _candidatos.Count)
+                                    {
+                                        <span>Mostrando @CandidatosVisibles.Count.</span>
+                                    }
+                                </RadzenText>
+
+                                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                                    <RadzenButton Text="Guardar" Disabled="@_ocupado" Click="@FijarRequerimientos" />
+                                    <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                                                  Disabled="@_ocupado" Click="@(() => _eligiendoRequerimientos = false)" />
+                                </RadzenStack>
+                            </RadzenStack>
+                        </RadzenCard>
+                    }
+
+                    @if (Seguimiento is not { } seg)
+                    {
+                        <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                            @(_sprints.Count == 0
+                                ? (EsAdmin
+                                    ? "No hay sprints todavía. Crea el primero con ➕ y cuélgale requerimientos."
+                                    : "No hay sprints todavía. Los arma el líder.")
+                                : "Selecciona un sprint.")
+                        </RadzenText>
+                    }
+                    else
+                    {
+                        @if (!string.IsNullOrWhiteSpace(seg.Sprint.Objetivo))
+                        {
+                            <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">🎯 @seg.Sprint.Objetivo</RadzenText>
+                        }
+
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                            <RadzenCard Style="min-width:12rem">
+                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">Estado del sprint</RadzenText>
+                                <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0"
+                                            Style="@($"color:{EtiquetasDeTrabajo.ColorDeVeredicto(seg.Avance.Veredicto)}")">
+                                    @seg.Avance.Veredicto
+                                </RadzenText>
+                            </RadzenCard>
+                            <RadzenCard Style="min-width:9rem">
+                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">Avance real</RadzenText>
+                                <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">@(seg.Avance.AvanceRealPct)%</RadzenText>
+                            </RadzenCard>
+                            <RadzenCard Style="min-width:10rem">
+                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">Tiempo consumido</RadzenText>
+                                <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">@(seg.Avance.TiempoPct)%</RadzenText>
+                            </RadzenCard>
+                            <RadzenCard Style="min-width:9rem">
+                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">Entregados</RadzenText>
+                                <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">
+                                    @seg.Avance.Entregados / @seg.Avance.TotalRequerimientos
+                                </RadzenText>
+                            </RadzenCard>
+                            <RadzenCard Style="min-width:9rem">
+                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">Días restantes</RadzenText>
+                                <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">@seg.Avance.DiasRestantes</RadzenText>
+                            </RadzenCard>
+                        </RadzenStack>
+
+                        <RadzenCard>
+                            @* ── La línea de tiempo ──────────────────────────────────────────
+                               Era un dibujo GDI+ y aquí es SVG en línea. Las coordenadas son las
+                               mismas del escritorio (franja de calendario arriba, dos barras
+                               comparables debajo, HOY cruzándolo todo), en un lienzo de 1000×125
+                               que se estira al ancho disponible. Los umbrales para enseñar el
+                               número del día o el mes también son los de allá: por debajo de esos
+                               tamaños el texto se pisa y deja de leerse. *@
+                            <svg viewBox="0 0 1000 125" style="width:100%; height:auto"
+                                 role="img" aria-label="@AriaDeLaLinea(seg)">
+                                @{
+                                    int dias = seg.Avance.DiasTotales;
+                                    double celda = dias > 0 ? 972.0 / dias : 972.0;
+                                }
+
+                                @* Franja día por día: fin de semana sombreado y separador si cabe. *@
+                                @for (int d = 0; d < dias; d++)
+                                {
+                                    var fecha = seg.Sprint.Inicio.Date.AddDays(d);
+                                    double x = 14 + d * celda;
+
+                                    if (fecha.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
+                                    {
+                                        <rect x="@N(x)" y="8" width="@N(celda)" height="40" fill="#F1F5F9" />
+                                    }
+                                    if (celda >= 8)
+                                    {
+                                        <line x1="@N(x)" y1="8" x2="@N(x)" y2="48" stroke="#E2E8F0" stroke-width="1" />
+                                    }
+                                    @* Los <text> del SVG van envueltos en un <g> cuando salen de dentro
+                                       de un bloque de código: ahí Razor toma «text» por su etiqueta de
+                                       escape y no compila si lleva atributos. El <g> devuelve el
+                                       contexto a marcado y agrupa, que es para lo que existe. *@
+                                    if (celda >= 17)
+                                    {
+                                        <g>
+                                            <text x="@N(x + celda / 2)" y="42" font-size="10" fill="#64748B"
+                                                  text-anchor="middle">@fecha.Day</text>
+                                        </g>
+                                    }
+                                    if ((d == 0 || fecha.Day == 1) && celda * 3 >= 30)
+                                    {
+                                        <g>
+                                            <text x="@N(x + 2)" y="20" font-size="10" fill="#0F172A">@fecha.ToString("MMM")</text>
+                                        </g>
+                                    }
+                                }
+                                <rect x="14" y="8" width="972" height="40" fill="none" stroke="#E2E8F0" stroke-width="1" />
+
+                                @* Marcas de entregas (▲ lleno) y compromisos (△ hueco) sobre su día. *@
+                                @foreach (var marca in Marcas(seg))
+                                {
+                                    <polygon points="@marca.Puntos"
+                                             fill="@(marca.Entregado ? "#15803D" : "none")"
+                                             stroke="@(marca.Entregado ? "none" : "#B45309")" stroke-width="1.6" />
+                                }
+
+                                @* Barras comparables: si la de abajo (avance) va detrás de la de
+                                   arriba (tiempo), vamos atrasados. *@
+                                <rect x="14" y="62" width="972" height="14" fill="#F1F5F9" />
+                                <rect x="14" y="62" width="@N(972.0 * Math.Clamp(seg.Avance.TiempoPct, 0, 100) / 100)"
+                                      height="14" fill="#93C5FD" />
+                                <rect x="14" y="62" width="972" height="14" fill="none" stroke="#E2E8F0" stroke-width="1" />
+                                <text x="18" y="73" font-size="10" fill="#0F172A">Tiempo @(seg.Avance.TiempoPct)%</text>
+
+                                <rect x="14" y="88" width="972" height="14" fill="#F1F5F9" />
+                                <rect x="14" y="88" width="@N(972.0 * Math.Clamp(seg.Avance.AvanceRealPct, 0, 100) / 100)"
+                                      height="14" fill="@EtiquetasDeTrabajo.ColorDeVeredicto(seg.Avance.Veredicto)" />
+                                <rect x="14" y="88" width="972" height="14" fill="none" stroke="#E2E8F0" stroke-width="1" />
+                                <text x="18" y="99" font-size="10" fill="#0F172A">Avance @(seg.Avance.AvanceRealPct)%</text>
+
+                                @* HOY solo mientras el sprint corre: en uno ya terminado, «hoy» no
+                                   está en esta línea de tiempo. *@
+                                @if (HayLineaDeHoy(seg))
+                                {
+                                    double xHoy = 14 + seg.Avance.DiasTranscurridos * celda;
+                                    <line x1="@N(xHoy)" y1="4" x2="@N(xHoy)" y2="106" stroke="#DC2626" stroke-width="2" />
+                                    <g>
+                                        <text x="@N(xHoy)" y="118" font-size="10" fill="#DC2626" text-anchor="middle">HOY</text>
+                                    </g>
+                                }
+                            </svg>
+                        </RadzenCard>
+
+                        <RadzenDataGrid TItem="RequerimientoDeSprintDto" Data="@Comprometidos" IsLoading="@_ocupado"
+                                        AllowSorting="false" AllowPaging="true" PageSize="20"
+                                        RowRender="@ResaltarLosMios"
+                                        EmptyText="Este sprint todavía no tiene requerimientos.">
+                            <Columns>
+                                <RadzenDataGridColumn TItem="RequerimientoDeSprintDto" Title="" Width="45px">
+                                    <Template Context="r">@(r.Mio ? "👤" : "")</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="RequerimientoDeSprintDto" Property="EstadoTexto"
+                                                      Title="Estado" Width="130px">
+                                    <Template Context="r">
+                                        <b style="@($"color:{EtiquetasDeTrabajo.ColorDeEstado(r.Estado)}")">@r.EstadoTexto</b>
+                                    </Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="RequerimientoDeSprintDto" Property="Titulo" Title="Requerimiento" />
+                                <RadzenDataGridColumn TItem="RequerimientoDeSprintDto" Property="AvancePct"
+                                                      Title="%" Width="80px" TextAlign="TextAlign.Right">
+                                    <Template Context="r">@(r.AvancePct)%</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="RequerimientoDeSprintDto" Property="Compromiso"
+                                                      Title="Compromiso" Width="120px">
+                                    @* El compromiso vencido va en rojo: es lo que el líder vino a ver. *@
+                                    <Template Context="r">
+                                        <span style="@(r.CompromisoVencido ? "color:#DC2626; font-weight:600" : "")">
+                                            @(r.Compromiso?.ToString("dd/MM") ?? "—")
+                                        </span>
+                                    </Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="RequerimientoDeSprintDto" Property="Entregado"
+                                                      Title="Entregado" Width="120px">
+                                    <Template Context="r">@(r.Entregado?.ToString("dd/MM") ?? "—")</Template>
+                                </RadzenDataGridColumn>
+                            </Columns>
+                        </RadzenDataGrid>
+
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@Pie(seg)</RadzenText>
+                    }
+                </RadzenStack>
+            </RadzenTabsItem>
+
+            @* El histórico es del líder (el endpoint exige ese rol): construirlo para el
+               desarrollador sería una pestaña que solo sabe decir «sin permiso». *@
+            @if (EsAdmin)
+            {
+                <RadzenTabsItem Text="📈 Histórico">
+                    <RadzenStack Gap="0.75rem">
+                        @if (_historico is { } h)
+                        {
+                            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                                <RadzenCard Style="min-width:15rem">
+                                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                        Velocidad (entregados/sprint)
+                                    </RadzenText>
+                                    <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">
+                                        @(h.SprintsContados == 0 ? "—" : h.Velocidad.ToString("0.#"))
+                                    </RadzenText>
+                                </RadzenCard>
+                                <RadzenCard Style="min-width:10rem">
+                                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">Sprints cerrados</RadzenText>
+                                    <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">@h.SprintsContados</RadzenText>
+                                </RadzenCard>
+                                <RadzenCard Style="min-width:13rem">
+                                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">Cumplimiento promedio</RadzenText>
+                                    <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">
+                                        @(h.CumplimientoPromedio is int p ? $"{p}%" : "—")
+                                    </RadzenText>
+                                </RadzenCard>
+                            </RadzenStack>
+
+                            <RadzenCard>
+                                @* Barras de comprometido (claro) y entregado (oscuro) por sprint, en
+                                   orden cronológico. La diferencia visible ES el dato: lo que se
+                                   prometió y no salió. Mismo motivo que la línea de tiempo para
+                                   dibujarlo a mano: son dos rectángulos por sprint. *@
+                                @if (h.Sprints.Count == 0)
+                                {
+                                    <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">Sin sprints todavía</RadzenText>
+                                }
+                                else
+                                {
+                                    <svg viewBox="0 0 1000 190" style="width:100%; height:auto"
+                                         role="img" aria-label="Entregados contra comprometidos por sprint">
+                                        @{
+                                            int tope = Math.Max(1, h.Sprints.Max(s => Math.Max(s.Total, s.Entregados)));
+                                            double paso = 952.0 / h.Sprints.Count;
+                                            double anchoBarra = Math.Max(3, Math.Min(46, paso * 0.62));
+                                        }
+
+                                        <line x1="34" y1="160" x2="986" y2="160" stroke="#E2E8F0" stroke-width="1" />
+                                        <text x="30" y="164" font-size="10" fill="#64748B" text-anchor="end">0</text>
+                                        <text x="30" y="18" font-size="10" fill="#64748B" text-anchor="end">@tope</text>
+
+                                        @for (int i = 0; i < h.Sprints.Count; i++)
+                                        {
+                                            var s = h.Sprints[i];
+                                            double cx = 34 + paso * (i + 0.5);
+                                            double altoComp = 146.0 * s.Total / tope;
+                                            double altoEnt = 146.0 * s.Entregados / tope;
+
+                                            <rect x="@N(cx - anchoBarra / 2)" y="@N(160 - altoComp)"
+                                                  width="@N(anchoBarra)" height="@N(altoComp)" fill="#CBD5E1" />
+                                            <rect x="@N(cx - anchoBarra / 2)" y="@N(160 - altoEnt)"
+                                                  width="@N(anchoBarra)" height="@N(altoEnt)" fill="#15803D" />
+
+                                            @if (paso >= 26)
+                                            {
+                                                <g>
+                                                    <text x="@N(cx)" y="174" font-size="10" text-anchor="middle"
+                                                          fill="@(s.Cerrado ? "#64748B" : "#2563EB")">@Abreviar(s.Nombre, paso)</text>
+                                                </g>
+                                            }
+                                        }
+
+                                        @* La línea de velocidad: contra ella se lee si un sprint salió
+                                           del promedio. Con menos de dos cerrados no hay promedio que
+                                           enseñar, solo un dato disfrazado de tendencia. *@
+                                        @if (h.SprintsContados >= 2)
+                                        {
+                                            double y = 160 - 146.0 * h.Velocidad / tope;
+                                            <line x1="34" y1="@N(y)" x2="986" y2="@N(y)" stroke="#2563EB"
+                                                  stroke-width="2" stroke-dasharray="6 4" />
+                                            <g>
+                                                <text x="38" y="@N(y - 4)" font-size="10" fill="#2563EB">
+                                                    velocidad @h.Velocidad.ToString("0.#")
+                                                </text>
+                                            </g>
+                                        }
+                                    </svg>
+                                }
+                            </RadzenCard>
+
+                            @* El más reciente arriba en la tabla (se lee de arriba abajo), aunque la
+                               gráfica va al revés: ahí el tiempo tiene que correr de izquierda a derecha. *@
+                            <RadzenDataGrid TItem="SprintResumenDto" Data="@Enumerable.Reverse(h.Sprints)"
+                                            IsLoading="@_ocupado" AllowSorting="false" AllowPaging="true" PageSize="15"
+                                            EmptyText="Todavía no hay sprints.">
+                                <Columns>
+                                    <RadzenDataGridColumn TItem="SprintResumenDto" Property="Nombre" Title="Sprint" />
+                                    <RadzenDataGridColumn TItem="SprintResumenDto" Title="Periodo" Width="180px">
+                                        <Template Context="s">@s.Inicio.ToString("dd/MM/yy") – @s.Fin.ToString("dd/MM/yy")</Template>
+                                    </RadzenDataGridColumn>
+                                    <RadzenDataGridColumn TItem="SprintResumenDto" Property="DiasTotales" Title="Días"
+                                                          Width="80px" TextAlign="TextAlign.Right" />
+                                    <RadzenDataGridColumn TItem="SprintResumenDto" Property="Total" Title="Comprometidos"
+                                                          Width="140px" TextAlign="TextAlign.Right">
+                                        <Template Context="s">
+                                            @s.Total@(s.Cancelados > 0 ? $" (+{s.Cancelados} canc.)" : "")
+                                        </Template>
+                                    </RadzenDataGridColumn>
+                                    <RadzenDataGridColumn TItem="SprintResumenDto" Property="Entregados" Title="Entregados"
+                                                          Width="110px" TextAlign="TextAlign.Right" />
+                                    <RadzenDataGridColumn TItem="SprintResumenDto" Property="CompletadoPct" Title="Cumplido"
+                                                          Width="110px" TextAlign="TextAlign.Right">
+                                        <Template Context="s">
+                                            <b style="@($"color:{(s.Cerrado ? EtiquetasDeTrabajo.ColorDeCumplimiento(s.CompletadoPct) : "#2563EB")}")">
+                                                @(s.Total == 0 ? "—" : $"{s.CompletadoPct}%")
+                                            </b>
+                                        </Template>
+                                    </RadzenDataGridColumn>
+                                    <RadzenDataGridColumn TItem="SprintResumenDto" Property="Cerrado" Title="Estado" Width="110px">
+                                        <Template Context="s">@(s.Cerrado ? "Cerrado" : "En curso")</Template>
+                                    </RadzenDataGridColumn>
+                                </Columns>
+                            </RadzenDataGrid>
+
+                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@PieDelHistorico(h)</RadzenText>
+                        }
+                    </RadzenStack>
+                </RadzenTabsItem>
+            }
+        </Tabs>
+    </RadzenTabs>
+</RadzenStack>
+
+@code {
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private List<SprintEnLista> _sprints = [];
+    private int? _sprintId;
+    private SeguimientoDeSprintDto? _seguimiento;
+    private HistoricoDeSprintsDto? _historico;
+    private bool _ocupado;
+    private bool _soloMios;
+
+    // Alta y edición del sprint.
+    private bool _capturandoSprint;
+    private int? _editandoSprintId;
+    private string _nombre = "";
+    private string _objetivo = "";
+    private DateTime _inicio = DateTime.Today;
+    private DateTime _fin = DateTime.Today.AddDays(13);
+
+    // Elección de requerimientos.
+    private bool _eligiendoRequerimientos;
+    private List<CandidatoDeSprintDto> _candidatos = [];
+    private string _buscarCandidato = "";
+    private bool _soloMarcados;
+
+    /// <summary>
+    /// Lo marcado NO vive en las casillas pintadas sino aquí, exactamente como en el escritorio: si
+    /// dependiera de la lista visible, escribir en el buscador borraría en silencio todo lo que se
+    /// hubiera marcado antes.
+    /// </summary>
+    private readonly HashSet<int> _marcados = [];
+
+    private bool EsAdmin => Sesion.Usuario?.Rol == UserRole.Admin;
+    private bool TieneFicha => Sesion.Usuario?.DeveloperId != null;
+
+    private SeguimientoDeSprintDto? Seguimiento => _seguimiento;
+
+    /// <summary>Lo que la rejilla enseña. El filtro esconde filas; NUNCA toca el avance.</summary>
+    private IEnumerable<RequerimientoDeSprintDto> Comprometidos =>
+        _seguimiento is null ? []
+        : _soloMios ? _seguimiento.Requerimientos.Where(r => r.Mio)
+        : _seguimiento.Requerimientos;
+
+    private IReadOnlyList<CandidatoDeSprintDto> CandidatosVisibles
+    {
+        get
+        {
+            IEnumerable<CandidatoDeSprintDto> q = _candidatos;
+            if (_soloMarcados) q = q.Where(c => _marcados.Contains(c.Id));
+
+            var texto = _buscarCandidato.Trim();
+            if (texto.Length > 0)
+                q = q.Where(c => c.Id.ToString().Contains(texto)
+                              || c.Titulo.Contains(texto, StringComparison.OrdinalIgnoreCase)
+                              || c.EstadoTexto.Contains(texto, StringComparison.OrdinalIgnoreCase));
+
+            return q.ToList();
+        }
+    }
+
+    /// <summary>Un sprint en el desplegable, con el texto ya armado.</summary>
+    private record SprintEnLista(int Id, string Texto, bool EnCurso);
+
+    protected override async Task OnInitializedAsync() => await Cargar();
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            var sprints = await Api.LeerAsync<List<SprintDto>>("api/trabajo/sprints", _cancelacion.Token) ?? [];
+            _sprints = sprints
+                .Select(s => new SprintEnLista(
+                    s.Id, $"{s.Nombre}   ({s.Inicio:dd/MM} – {s.Fin:dd/MM/yyyy})", s.EnCurso))
+                .ToList();
+
+            // Por omisión, el sprint que corre HOY; si no hay ninguno en curso, el más reciente.
+            if (_sprintId is null || _sprints.All(s => s.Id != _sprintId))
+                _sprintId = _sprints.FirstOrDefault(s => s.EnCurso)?.Id ?? _sprints.FirstOrDefault()?.Id;
+
+            if (EsAdmin)
+                _historico = await Api.LeerAsync<HistoricoDeSprintsDto>(
+                    "api/trabajo/sprints/historico", _cancelacion.Token);
+        }
+        finally { _ocupado = false; }
+
+        await CargarSeguimiento();
+    }
+
+    private async Task CargarSeguimiento()
+    {
+        if (_sprintId is not int id) { _seguimiento = null; return; }
+
+        _ocupado = true;
+        try
+        {
+            _seguimiento = await Api.LeerAsync<SeguimientoDeSprintDto>(
+                $"api/trabajo/sprints/{id}", _cancelacion.Token);
+        }
+        finally { _ocupado = false; }
+    }
+
+    // ── Alta y edición del sprint ────────────────────────────────────────────
+
+    private void AbrirSprintNuevo()
+    {
+        _editandoSprintId = null;
+        _nombre = "";
+        _objetivo = "";
+        _inicio = DateTime.Today;
+        _fin = DateTime.Today.AddDays(13);   // dos semanas contando ambos extremos
+        _capturandoSprint = true;
+    }
+
+    private void AbrirSprintEdicion()
+    {
+        if (_seguimiento is not { } seg) return;
+        _editandoSprintId = seg.Sprint.Id;
+        _nombre = seg.Sprint.Nombre;
+        _objetivo = seg.Sprint.Objetivo ?? "";
+        _inicio = seg.Sprint.Inicio;
+        _fin = seg.Sprint.Fin;
+        _capturandoSprint = true;
+    }
+
+    private async Task GuardarSprint()
+    {
+        var cuerpo = new GuardarSprintRequest(_nombre, _objetivo, _inicio, _fin);
+        var ruta = _editandoSprintId is int id
+            ? $"api/trabajo/sprints/{id}/editar"
+            : "api/trabajo/sprints/nuevo";
+
+        if (await Enviar(ruta, cuerpo)) _capturandoSprint = false;
+    }
+
+    private async Task EliminarSprint()
+    {
+        if (_seguimiento is not { } seg) return;
+
+        if (!await Avisos.ConfirmarAsync(
+            $"¿Eliminar el sprint «{seg.Sprint.Nombre}»?\n\nSus requerimientos NO se borran: vuelven al backlog.",
+            "Eliminar sprint", "Sí, eliminarlo"))
+            return;
+
+        // Sin sprint elegido después de borrarlo: Cargar vuelve a escoger el que corre hoy.
+        if (await Enviar<object?>($"api/trabajo/sprints/{seg.Sprint.Id}/eliminar", null))
+            _sprintId = null;
+    }
+
+    // ── Requerimientos del sprint ────────────────────────────────────────────
+
+    private async Task AbrirPicker()
+    {
+        if (_sprintId is not int id) return;
+
+        _candidatos = await Api.LeerAsync<List<CandidatoDeSprintDto>>(
+            $"api/trabajo/sprints/{id}/candidatos", _cancelacion.Token) ?? [];
+
+        _marcados.Clear();
+        foreach (var c in _candidatos.Where(c => c.EnElSprint)) _marcados.Add(c.Id);
+
+        _buscarCandidato = "";
+        _soloMarcados = false;
+        _eligiendoRequerimientos = true;
+    }
+
+    private void MarcarCandidato(int id, bool marcado)
+    {
+        if (marcado) _marcados.Add(id); else _marcados.Remove(id);
+    }
+
+    private void MarcarVisibles(bool marcado)
+    {
+        foreach (var c in CandidatosVisibles)
+            if (marcado) _marcados.Add(c.Id); else _marcados.Remove(c.Id);
+    }
+
+    private async Task FijarRequerimientos()
+    {
+        if (_sprintId is not int id) return;
+        if (await Enviar($"api/trabajo/sprints/{id}/requerimientos",
+                new FijarRequerimientosRequest(_marcados.ToList())))
+            _eligiendoRequerimientos = false;
+    }
+
+    // ── Envío ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// El envío que comparten todas las acciones. El mensaje del servidor se enseña TAL CUAL: dice
+    /// cuántos requerimientos volvieron al backlog o por qué se rechazó el sprint, y cambiarlo por un
+    /// «no se pudo» genérico tiraría lo que el escritorio hacía bien.
+    /// </summary>
+    private async Task<bool> Enviar<T>(string ruta, T cuerpo)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, r) = await Api.EnviarAsync<T, ResultadoDto>(ruta, cuerpo, _cancelacion.Token);
+            if (ok && r is not null) Avisos.Exito(r.Mensaje);
+            if (ok) await Cargar();
+            return ok;
+        }
+        finally { _ocupado = false; }
+    }
+
+    // ── La línea de tiempo ───────────────────────────────────────────────────
+
+    /// <summary>Un triángulo de la línea de tiempo: entrega (lleno) o compromiso (hueco).</summary>
+    private record Marca(string Puntos, bool Entregado);
+
+    /// <summary>
+    /// Las marcas de la línea de tiempo, con la misma regla del escritorio: si el requerimiento se
+    /// entregó, se marca su ENTREGA; si no, su compromiso — y solo si cae dentro del sprint y sigue
+    /// vivo. Un compromiso ya entregado no se marca dos veces.
+    /// </summary>
+    private static IEnumerable<Marca> Marcas(SeguimientoDeSprintDto seg)
+    {
+        var inicio = seg.Sprint.Inicio.Date;
+        var fin = seg.Sprint.Fin.Date;
+        double celda = seg.Avance.DiasTotales > 0 ? 972.0 / seg.Avance.DiasTotales : 972.0;
+
+        foreach (var r in seg.Requerimientos)
+        {
+            DateTime? fecha = null;
+            bool entregado = false;
+
+            if (r.Entregado is { } ent && ent.Date >= inicio && ent.Date <= fin)
+            {
+                fecha = ent; entregado = true;
+            }
+            else if (r.Compromiso is { } comp && comp.Date >= inicio && comp.Date <= fin
+                     && r.Estado != RequirementStatus.Entregado && r.Estado != RequirementStatus.Cancelado)
+            {
+                fecha = comp;
+            }
+
+            if (fecha is not { } f) continue;
+
+            double x = 14 + ((f.Date - inicio).Days + 0.5) * celda;
+            yield return new Marca(
+                $"{N(x)},50 {N(x - 5)},58 {N(x + 5)},58", entregado);
+        }
+    }
+
+    /// <summary>
+    /// HOY solo se dibuja mientras el sprint corre. En uno ya terminado la línea se quedaría pegada
+    /// al borde derecho fingiendo que hoy es su último día.
+    /// </summary>
+    private static bool HayLineaDeHoy(SeguimientoDeSprintDto seg) =>
+        seg.Avance.DiasTranscurridos > 0
+        && seg.Avance.DiasTranscurridos <= seg.Avance.DiasTotales
+        && DateTime.Today <= seg.Sprint.Fin.Date;
+
+    /// <summary>
+    /// Lo que la línea de tiempo dice, para quien no la ve. Un dibujo sin texto alternativo es una
+    /// pantalla que se pierde entera con un lector de pantalla.
+    /// </summary>
+    private static string AriaDeLaLinea(SeguimientoDeSprintDto seg) =>
+        $"Línea de tiempo del sprint: {seg.Avance.DiasTranscurridos} de {seg.Avance.DiasTotales} días " +
+        $"({seg.Avance.TiempoPct}% del tiempo), {seg.Avance.AvanceRealPct}% de avance real. " +
+        $"{seg.Avance.Veredicto}.";
+
+    /// <summary>
+    /// Los números en el SVG van SIEMPRE con punto decimal. Con la cultura española —que es la de
+    /// esta aplicación— «14,5» rompería el atributo entero y el dibujo desaparecería sin error.
+    /// </summary>
+    private static string N(double valor) => valor.ToString("0.##", CultureInfo.InvariantCulture);
+
+    private static string Abreviar(string nombre, double ancho) =>
+        nombre.Length <= 10 || ancho >= 70 ? nombre : nombre[..9] + "…";
+
+    // ── Textos y pintado ─────────────────────────────────────────────────────
+
+    private string Pie(SeguimientoDeSprintDto seg)
+    {
+        if (seg.Requerimientos.Count == 0)
+            return EsAdmin
+                ? "Este sprint no tiene requerimientos: 📋 Requerimientos… para colgarle trabajo."
+                : "Este sprint todavía no tiene requerimientos.";
+
+        var a = seg.Avance;
+        var partes = new List<string>
+        {
+            $"{a.TotalRequerimientos} requerimiento(s)" +
+            (a.Cancelados > 0 ? $" (+{a.Cancelados} cancelado(s), fuera del cálculo)" : "") +
+            $"  ·  {a.EnCurso} en curso  ·  {a.SinEmpezar} sin empezar."
+        };
+
+        if (_soloMios)
+            partes.Add($"Mostrando solo los míos ({seg.Mios}); " +
+                       $"{seg.Requerimientos.Count - seg.Mios} oculto(s).");
+        // Sin ficha ligada no hay «lo mío» que resaltar: decirlo evita que la persona crea que el
+        // sprint no trae trabajo suyo.
+        else if (!EsAdmin && !TieneFicha)
+            partes.Add("Tu cuenta no está ligada a una ficha de desarrollador: no se resalta nada como tuyo.");
+        else if (!EsAdmin)
+            partes.Add($"👤 = asignado a ti ({seg.Mios}).");
+
+        partes.Add("En la línea de tiempo: ▲ entregado, △ compromiso, sombreado = fin de semana.");
+        return string.Join("  ", partes);
+    }
+
+    private static string PieDelHistorico(HistoricoDeSprintsDto h) =>
+        h.Sprints.Count == 0
+            ? "Todavía no hay sprints. El histórico se llena solo conforme cierres sprints."
+            : h.SprintsContados == 0
+                ? $"{h.Sprints.Count} sprint(s), ninguno cerrado aún: la velocidad aparece cuando cierre el primero."
+                : $"{h.Sprints.Count} sprint(s), {h.SprintsContados} cerrado(s).  La velocidad es el promedio de " +
+                  "entregados por sprint CERRADO — úsala para comprometer el siguiente.";
+
+    /// <summary>
+    /// Lo mío, resaltado por FONDO —no por color de texto—: el texto ya lleva el color del estado y
+    /// el rojo del compromiso vencido, y pisarlos borraría la señal importante. Es la misma decisión
+    /// del escritorio.
+    /// </summary>
+    private void ResaltarLosMios(RowRenderEventArgs<RequerimientoDeSprintDto> args)
+    {
+        if (args.Data.Mio) args.Attributes["style"] = "background-color:#FEF9C5";
+    }
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

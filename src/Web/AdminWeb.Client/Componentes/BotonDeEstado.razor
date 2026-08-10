@@ -1,0 +1,116 @@
+@using AdminWeb.Shared.Dtos.Jornada
+@inject ConexionEnVivo EnVivo
+@inject AvisosDeInterfaz Avisos
+@inject ClienteApi Api
+
+@*
+    El estado propio de presencia: disponible, ocupado, comiendo…
+
+    Va por la conexión en vivo y no por HTTP porque el tablero de quien lo esté mirando tiene que
+    enterarse en el momento; un cambio de estado que tarda un minuto en verse no sirve para nada.
+
+    El estado NO se historiza. Es una decisión de producto que viene del escritorio y se conserva:
+    un registro minutado de las pausas de alguien es vigilancia, no asistencia. Solo existe el
+    estado actual.
+*@
+
+<RadzenProfileMenu>
+    <Template>
+        @* La nota se ve JUNTO al estado, no escondida en el menú: quien escribió «vuelvo 15:30»
+           tiene que poder comprobar de un vistazo que sigue puesta. *@
+        <span style="white-space:nowrap">
+            @Icono(_estado) @Etiqueta(_estado)@(string.IsNullOrWhiteSpace(_nota) ? "" : $" · {_nota}")
+        </span>
+    </Template>
+    <ChildContent>
+        @foreach (var e in Estados)
+        {
+            <RadzenProfileMenuItem Text="@($"{Icono(e)} {Etiqueta(e)}")" Click="@(() => Cambiar(e))" />
+        }
+        @* El escritorio tenía esta misma entrada aparte. Es lo que llenaba la columna «Nota» del
+           tablero del líder, que sin ella llevaba tiempo vacía. *@
+        <RadzenProfileMenuItem Text="✏ Estado con nota…" Click="@ConNota" />
+    </ChildContent>
+</RadzenProfileMenu>
+
+@code {
+    /// <summary>
+    /// «Ausente» no está, y no es un olvido: en el escritorio tampoco se podía elegir a mano. Lo pone
+    /// el servidor cuando alguien deja de dar señales. Poder declararse ausente convertiría un dato
+    /// observado en una afirmación, y entonces dejaría de significar nada.
+    /// </summary>
+    private static readonly PresenceState[] Estados =
+    [
+        PresenceState.Disponible,
+        PresenceState.Ocupado,
+        PresenceState.EnReunion,
+        PresenceState.Comiendo,
+        PresenceState.Descanso
+    ];
+
+    private PresenceState _estado = PresenceState.Disponible;
+    private string? _nota;
+
+    /// <summary>
+    /// Se pregunta al SERVIDOR cuál es el estado, en vez de dar por hecho «Disponible».
+    ///
+    /// Antes el botón arrancaba de esta variable local, así que después de recargar decía
+    /// «Disponible» aunque en el tablero del líder pusiera «En reunión» — y la nota desaparecía de
+    /// la vista de quien la había escrito, aunque siguiera guardada.
+    /// </summary>
+    protected override async Task OnInitializedAsync()
+    {
+        var mio = await Api.LeerAsync<MiPresenciaDto>("api/jornada/presencia");
+        if (mio is null) return;
+
+        _estado = mio.Estado;
+        _nota = mio.Nota;
+    }
+
+    private Task Cambiar(PresenceState nuevo) => Aplicar(nuevo, null);
+
+    /// <summary>Cambiar el estado dejando dicho por qué o hasta cuándo.</summary>
+    private async Task ConNota()
+    {
+        var nota = await Avisos.PedirTextoAsync(
+            "¿Qué se anota junto a tu estado? (p. ej. «vuelvo 15:30»)", "Estado con nota");
+
+        // Cancelar deja todo como estaba. Una nota en blanco sí es una decisión —quitar la que
+        // hubiera—, pero para eso está volver a elegir el estado a secas.
+        if (nota is null) return;
+
+        await Aplicar(_estado, string.IsNullOrWhiteSpace(nota) ? null : nota.Trim());
+    }
+
+    private async Task Aplicar(PresenceState nuevo, string? nota)
+    {
+        if (!EnVivo.Conectado)
+        {
+            Avisos.Aviso("Sin conexión en vivo no se puede cambiar el estado. Se reintenta solo.");
+            return;
+        }
+
+        await EnVivo.CambiarEstadoAsync(nuevo, nota);
+        _estado = nuevo;
+        _nota = nota;
+    }
+
+    private static string Etiqueta(PresenceState e) => e switch
+    {
+        PresenceState.Disponible => "Disponible",
+        PresenceState.Ocupado    => "Ocupado",
+        PresenceState.EnReunion  => "En reunión",
+        PresenceState.Comiendo   => "Comiendo",
+        PresenceState.Descanso   => "Descanso",
+        _                        => "Ausente"
+    };
+
+    private static string Icono(PresenceState e) => e switch
+    {
+        PresenceState.Disponible => "🟢",
+        PresenceState.Ocupado    => "🔴",
+        PresenceState.EnReunion  => "🟣",
+        PresenceState.Comiendo   => "🍽",
+        _                        => "⚪"
+    };
+}

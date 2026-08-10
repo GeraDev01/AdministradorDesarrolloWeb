@@ -1,0 +1,240 @@
+@page "/perfiles"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Shared.Dtos.Personas
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+
+@*
+    Perfil y desarrollo. Réplica de DeveloperProfilesControl.
+
+    ES LA PANTALLA CONFIDENCIAL DEL VERTICAL: aquí está el SALARIO.
+
+    Cómo se sostiene esa confidencialidad, y por qué así:
+
+      · La lista de la izquierda NO trae salario. Viene de otra ruta y de otro DTO
+        (PersonaConFichaDto), que no tiene ni el campo. Esconderlo en el navegador no sería
+        esconderlo: este código se ejecuta en la máquina de quien lo mira y es manipulable. Lo que no
+        sale del servidor es lo único que de verdad no se ve.
+      · La ficha completa se pide de UNA persona cada vez, por su propia ruta, que es SoloAdmin en el
+        endpoint y lo vuelve a comprobar en el servicio.
+      · El importe NUNCA llega a la bitácora. Queda constancia de que la ficha cambió —quién y
+        cuándo—, pero no de cuánto. Lo garantiza DeveloperProfileService, que es el único que escribe
+        aquí, y hay una prueba que lo fija.
+
+    Del escritorio se conserva el 0 como «sin registrar»: guardar un cero como importe haría creer
+    que a alguien se le paga cero.
+
+    Solo aparecen los desarrolladores ACTIVOS, igual que en el escritorio: la ficha de quien ya no
+    está no se borra, pero tampoco estorba en la lista del día a día.
+*@
+
+<PageTitle>Perfil y desarrollo</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Perfil y desarrollo</RadzenText>
+        <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@CargarPersonas" Disabled="@_ocupado" />
+    </RadzenStack>
+
+    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+        🔒 Información confidencial · visible solo para el líder.
+    </RadzenText>
+
+    <div style="display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-start">
+        <RadzenCard Style="flex:1 1 20rem;max-width:26rem">
+            <RadzenText TextStyle="TextStyle.Subtitle2">Desarrolladores</RadzenText>
+            <RadzenDataGrid TItem="PersonaConFichaDto" Data="@_personas" IsLoading="@_ocupado"
+                            AllowSorting="false" AllowPaging="true" PageSize="15"
+                            SelectionMode="DataGridSelectionMode.Single"
+                            Value="@_seleccion" ValueChanged="@Seleccionar"
+                            EmptyText="No hay desarrolladores activos.">
+                <Columns>
+                    <RadzenDataGridColumn TItem="PersonaConFichaDto" Property="Nombre" Title="Desarrollador" />
+                    <RadzenDataGridColumn TItem="PersonaConFichaDto" Title="Ficha" Width="80px" Sortable="false">
+                        <Template Context="p">@(p.TieneFicha ? "✓" : "—")</Template>
+                    </RadzenDataGridColumn>
+                </Columns>
+            </RadzenDataGrid>
+        </RadzenCard>
+
+        <RadzenCard Style="flex:2 1 32rem">
+            @if (_ficha is not { } ficha)
+            {
+                <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                    Selecciona un desarrollador.
+                </RadzenText>
+            }
+            else
+            {
+                <RadzenStack Gap="0.75rem">
+                    <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">@ficha.Nombre</RadzenText>
+
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Fortalezas" Component="fortalezas" />
+                        <RadzenTextArea @bind-Value="_fortalezas" Name="fortalezas" Rows="3" Style="width:100%" />
+                    </RadzenStack>
+
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Debilidades / áreas de mejora" Component="debilidades" />
+                        <RadzenTextArea @bind-Value="_debilidades" Name="debilidades" Rows="3" Style="width:100%" />
+                    </RadzenStack>
+
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Stack técnico (lenguajes, frameworks, herramientas)" Component="stack" />
+                        <RadzenTextArea @bind-Value="_stack" Name="stack" Rows="2" Style="width:100%" />
+                    </RadzenStack>
+
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Salario" Component="salario" />
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                     Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                            <RadzenNumeric TValue="decimal" @bind-Value="_salario" Name="salario"
+                                           Min="0" Max="100000000" Step="500" Format="n2" Style="width:12rem" />
+                            @* Texto libre y no una lista cerrada, igual que el combo editable del
+                               escritorio: la moneda de una contratación puntual no tiene por qué
+                               estar prevista de antemano. *@
+                            <RadzenTextBox @bind-Value="_moneda" MaxLength="10" Style="width:7rem"
+                                           Placeholder="MXN" />
+                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                0 = sin registrar.  Moneda: MXN, USD, EUR…
+                            </RadzenText>
+                        </RadzenStack>
+                    </RadzenStack>
+
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Expectativas de crecimiento" Component="crecimiento" />
+                        <RadzenTextArea @bind-Value="_crecimiento" Name="crecimiento" Rows="3" Style="width:100%" />
+                    </RadzenStack>
+
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Notas generales" Component="notas" />
+                        <RadzenTextArea @bind-Value="_notas" Name="notas" Rows="3" Style="width:100%" />
+                    </RadzenStack>
+
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                 Gap="1rem" Wrap="FlexWrap.Wrap">
+                        <RadzenButton Text="💾 Guardar ficha" Disabled="@_ocupado" Click="@Guardar" />
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                            @(ficha.ActualizadaUtc is DateTime cuando
+                                ? $"Última actualización: {cuando.ToLocalTime():dd/MM/yyyy HH:mm}"
+                                : "Sin ficha todavía.")
+                        </RadzenText>
+                    </RadzenStack>
+                </RadzenStack>
+            }
+        </RadzenCard>
+    </div>
+</RadzenStack>
+
+@code {
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private IReadOnlyList<PersonaConFichaDto> _personas = [];
+    private IList<PersonaConFichaDto>? _seleccion;
+    private FichaDeDesarrolloDto? _ficha;
+    private bool _ocupado;
+
+    // Los campos en edición, separados del DTO cargado: así «Guardar» manda lo que hay escrito y la
+    // etiqueta de «última actualización» sigue enseñando lo que hay guardado.
+    private string _fortalezas = "";
+    private string _debilidades = "";
+    private string _stack = "";
+    private decimal _salario;
+    private string _moneda = "MXN";
+    private string _crecimiento = "";
+    private string _notas = "";
+
+    protected override async Task OnInitializedAsync() => await CargarPersonas();
+
+    private async Task CargarPersonas()
+    {
+        _ocupado = true;
+        try
+        {
+            var personas = await Api.LeerAsync<List<PersonaConFichaDto>>(
+                "api/personas/perfiles", _cancelacion.Token);
+            if (personas is null) return;
+
+            _personas = personas;
+
+            // Si la persona abierta sigue en la lista se conserva abierta: recargar tras guardar no
+            // debe devolver al líder a «selecciona un desarrollador».
+            if (_ficha is { } abierta && personas.Any(p => p.DeveloperId == abierta.DeveloperId))
+                _seleccion = [personas.First(p => p.DeveloperId == abierta.DeveloperId)];
+            else
+            {
+                _seleccion = null;
+                _ficha = null;
+            }
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task Seleccionar(IList<PersonaConFichaDto>? seleccion)
+    {
+        _seleccion = seleccion;
+        var persona = seleccion?.FirstOrDefault();
+        if (persona is null) { _ficha = null; return; }
+
+        await CargarFicha(persona.DeveloperId);
+    }
+
+    /// <summary>
+    /// Trae la ficha completa de UNA persona. Es la única petición del vertical que devuelve salario,
+    /// y por eso se hace aquí y no al cargar la lista.
+    /// </summary>
+    private async Task CargarFicha(int developerId)
+    {
+        _ocupado = true;
+        try
+        {
+            var ficha = await Api.LeerAsync<FichaDeDesarrolloDto>(
+                $"api/personas/perfiles/{developerId}", _cancelacion.Token);
+            if (ficha is null) return;
+
+            _ficha        = ficha;
+            _fortalezas   = ficha.Fortalezas ?? "";
+            _debilidades  = ficha.Debilidades ?? "";
+            _stack        = ficha.Stack ?? "";
+            _salario      = ficha.Salario ?? 0m;
+            _moneda       = string.IsNullOrWhiteSpace(ficha.Moneda) ? "MXN" : ficha.Moneda!;
+            _crecimiento  = ficha.Crecimiento ?? "";
+            _notas        = ficha.Notas ?? "";
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task Guardar()
+    {
+        if (_ficha is not { } ficha) return;
+
+        _ocupado = true;
+        try
+        {
+            var (ok, r) = await Api.EnviarAsync<GuardarFichaRequest, ResultadoDto>(
+                "api/personas/perfiles",
+                new GuardarFichaRequest(
+                    ficha.DeveloperId, _fortalezas, _debilidades, _stack,
+                    // 0 = sin registrar, igual que el escritorio. El servidor vuelve a aplicarlo: si
+                    // esta regla viviera solo aquí, otra pantalla podría guardar un cero como importe.
+                    _salario > 0 ? _salario : null,
+                    _moneda, _crecimiento, _notas),
+                _cancelacion.Token);
+
+            if (!ok) return;
+            if (r is not null) Avisos.Exito(r.Mensaje);
+
+            await CargarFicha(ficha.DeveloperId);
+            await CargarPersonas();
+        }
+        finally { _ocupado = false; }
+    }
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

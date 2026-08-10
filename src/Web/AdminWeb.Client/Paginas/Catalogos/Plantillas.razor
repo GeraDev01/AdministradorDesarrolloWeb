@@ -1,0 +1,249 @@
+@page "/plantillas"
+@attribute [Authorize(Policy = "AdminUDesarrollador")]
+@using AdminWeb.Shared.Dtos
+@using AdminWeb.Shared.Dtos.Plantillas
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+@inject Descargas Descargas
+@inject EstadoSesion Sesion
+
+@*
+    La biblioteca de plantillas. Es LA MISMA pantalla para dos roles, tal como en el escritorio: la
+    ve el líder y la ve el desarrollador.
+
+    Lo que NO se hace aquí es decidir qué ve cada uno. Eso vive en TemplateService.Legibles() y
+    llega ya filtrado: la lista, los contadores y hasta los tipos del desplegable los arma el
+    servidor según la sesión. Filtrarlo en la pantalla sería inútil — el cliente corre en la máquina
+    de quien lo usa — y además dejaría dos sitios donde corregir la regla el día que cambie.
+
+    El trabajo diario son dos botones, los mismos de siempre: 📋 Copiar (pregunta lo que haya que
+    rellenar y deja el texto en el portapapeles) y 💾 Guardar como… (lo baja como archivo con la
+    extensión que le toca).
+
+    La aplicación NO ejecuta los scripts: los entrega. Quién los corre, contra qué servidor y con
+    qué credenciales se decide fuera, con los ojos puestos en lo que se va a ejecutar.
+
+    Fase 1: solo consulta para todos. Crear, editar, duplicar, archivar y eliminar son de fase 3.
+*@
+
+<PageTitle>Plantillas</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" Style="margin:0">Plantillas</RadzenText>
+        <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
+            Solo consulta — la biblioteca se administra todavía desde la aplicación de escritorio.
+        </RadzenText>
+    </RadzenStack>
+
+    <RadzenCard>
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                     Gap="1rem" Wrap="FlexWrap.Wrap">
+            <RadzenTextBox @bind-Value="_texto" Placeholder="Buscar en título, etiquetas y contenido…"
+                           Change="@(_ => Buscar())" Style="min-width:22rem" />
+
+            <RadzenDropDown TValue="int?" @bind-Value="_tipo" Data="@_tipos"
+                            TextProperty="Texto" ValueProperty="Id" AllowClear="true"
+                            Placeholder="Todos los tipos" Change="@(_ => Buscar())"
+                            Style="min-width:18rem" />
+
+            @* «Ver archivadas» solo para el líder: el servicio se la ignora al desarrollador, y una
+               casilla que no hace nada es peor que ninguna. *@
+            @if (EsAdmin)
+            {
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.4rem">
+                    <RadzenCheckBox @bind-Value="_archivadas" Name="archivadas" Change="@((bool _) => Buscar())" />
+                    <RadzenLabel Text="Ver archivadas" Component="archivadas" />
+                </RadzenStack>
+            }
+
+            <RadzenText TextStyle="TextStyle.Caption" Style="margin:0 0 0 auto">
+                @_filas.Count plantilla(s)
+            </RadzenText>
+        </RadzenStack>
+    </RadzenCard>
+
+    <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:flex-start">
+        <div style="flex:1 1 32rem;min-width:24rem">
+            <RadzenDataGrid TItem="PlantillaListaDto" Data="@_filas" IsLoading="@_cargando"
+                            AllowSorting="true" AllowPaging="true" PageSize="15"
+                            EmptyText="No hay plantillas que cumplan el filtro."
+                            SelectionMode="DataGridSelectionMode.Single"
+                            Value="@_seleccion" ValueChanged="@Seleccionar">
+                <Columns>
+                    <RadzenDataGridColumn TItem="PlantillaListaDto" Property="TipoTexto" Title="Tipo" Width="200px">
+                        <Template Context="p">@p.Icono @p.TipoTexto</Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="PlantillaListaDto" Property="Titulo" Title="Título">
+                        <Template Context="p">
+                            @p.Titulo
+                            @if (p.TieneArchivo) { <span title="Trae un archivo adjunto"> 📎</span> }
+                            @if (p.Archivada) { <span title="Archivada"> 🗄</span> }
+                        </Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="PlantillaListaDto" Property="Etiquetas" Title="Etiquetas" Width="180px">
+                        <Template Context="p">@(p.Etiquetas ?? "—")</Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="PlantillaListaDto" Property="Usos" Title="Usos" Width="80px"
+                                          TextAlign="TextAlign.Right" />
+                    <RadzenDataGridColumn TItem="PlantillaListaDto" Property="Actualizada" Title="Actualizada" Width="130px">
+                        <Template Context="p">@(p.Actualizada?.ToLocalTime().ToString("dd/MM/yyyy") ?? "—")</Template>
+                    </RadzenDataGridColumn>
+                </Columns>
+            </RadzenDataGrid>
+        </div>
+
+        <RadzenCard Style="flex:1 1 26rem;min-width:22rem">
+            @if (_detalle is null)
+            {
+                <RadzenText TextStyle="TextStyle.Body2">
+                    Elige una plantilla de la lista para ver su contenido.
+                </RadzenText>
+            }
+            else
+            {
+                <RadzenStack Gap="0.75rem">
+                    <RadzenText TextStyle="TextStyle.Subtitle1" Style="margin:0">
+                        @_detalle.Icono @_detalle.Titulo
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
+                        @_detalle.TipoTexto · @_detalle.Usos uso(s)
+                        @if (_detalle.UltimoUso is { } u) { <text> · último: @u.ToLocalTime().ToString("dd/MM/yyyy")</text> }
+                    </RadzenText>
+
+                    @if (!string.IsNullOrWhiteSpace(_detalle.Descripcion))
+                    {
+                        <RadzenText TextStyle="TextStyle.Body2" Style="margin:0">@_detalle.Descripcion</RadzenText>
+                    }
+
+                    @if (_detalle.EsScript)
+                    {
+                        @* El aviso es del escritorio y se conserva: lo que aquí se guarda puede
+                           llevar nombres de servidores y rutas internas, y la aplicación nunca lo
+                           ejecuta — lo entrega. *@
+                        <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+                            Es un script. La aplicación no lo ejecuta: revísalo antes de correrlo y
+                            decide tú dónde y con qué credenciales.
+                        </RadzenAlert>
+                    }
+
+                    @if (_detalle.Marcadores.Count > 0)
+                    {
+                        <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false">
+                            Tiene huecos por rellenar: @string.Join(", ", _detalle.Marcadores).
+                            Al copiar se te van a preguntar.
+                        </RadzenAlert>
+                    }
+
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+                        <RadzenButton Text="📋 Copiar" Disabled="@_ocupado" Click="@Copiar" />
+                        <RadzenButton Text="💾 Guardar como…" ButtonStyle="ButtonStyle.Light"
+                                      Click="@(() => Descargas.DesdeApiAsync($"api/plantillas/{_detalle.Id}/archivo"))" />
+                        @if (_detalle.TieneArchivo)
+                        {
+                            <RadzenText TextStyle="TextStyle.Caption" Style="margin:auto 0">
+                                📎 @_detalle.NombreArchivo
+                            </RadzenText>
+                        }
+                    </RadzenStack>
+
+                    <pre style="white-space:pre-wrap;word-break:break-word;max-height:26rem;overflow:auto;
+                                background:var(--rz-base-200);padding:.75rem;border-radius:.25rem;margin:0">@_detalle.Cuerpo</pre>
+                </RadzenStack>
+            }
+        </RadzenCard>
+    </div>
+</RadzenStack>
+
+@code {
+    private List<PlantillaListaDto> _filas = [];
+    private IList<PlantillaListaDto>? _seleccion;
+    private PlantillaDetalleDto? _detalle;
+    private List<OpcionDto> _tipos = [];
+
+    private string _texto = "";
+    private int? _tipo;
+    private bool _archivadas;
+    private bool _cargando = true;
+    private bool _ocupado;
+
+    /// <summary>Solo para decidir si se pinta la casilla de archivadas. No es una barrera: la de
+    /// verdad está en el servicio, que ni siquiera le devuelve archivadas al desarrollador.</summary>
+    private bool EsAdmin => Sesion.Usuario?.Rol == UserRole.Admin;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Los tipos los decide el servidor: al desarrollador no se le ofrecen filtros de tipos que
+        // la consulta jamás le va a devolver, porque elegir uno y ver la lista vacía se lee como un
+        // error de la aplicación.
+        _tipos = await Api.LeerAsync<List<OpcionDto>>("api/plantillas/tipos") ?? [];
+        await Buscar();
+    }
+
+    private async Task Buscar()
+    {
+        _cargando = true;
+        try
+        {
+            var ruta = $"api/plantillas?archivadas={_archivadas}&texto={Uri.EscapeDataString(_texto ?? "")}";
+            if (_tipo is { } t) ruta += $"&tipo={t}";
+
+            _filas = await Api.LeerAsync<List<PlantillaListaDto>>(ruta) ?? [];
+
+            // La plantilla abierta pudo quedar fuera del nuevo filtro: dejar su vista previa
+            // colgando haría creer que sigue en la lista.
+            if (_detalle != null && _filas.All(f => f.Id != _detalle.Id))
+            {
+                _detalle = null;
+                _seleccion = null;
+            }
+        }
+        finally { _cargando = false; }
+    }
+
+    private async Task Seleccionar(IList<PlantillaListaDto>? seleccion)
+    {
+        _seleccion = seleccion;
+        var fila = seleccion?.FirstOrDefault();
+        if (fila == null) { _detalle = null; return; }
+
+        // El cuerpo se pide solo al abrir: la lista no lo trae, porque puede pesar 100 000
+        // caracteres por plantilla y la rejilla no lo muestra.
+        _detalle = await Api.LeerAsync<PlantillaDetalleDto>($"api/plantillas/{fila.Id}");
+    }
+
+    /// <summary>
+    /// Pregunta lo que haya que rellenar, pide al servidor el texto ya sustituido y lo deja en el
+    /// portapapeles. La sustitución la hace el servidor a propósito: las reglas (marcadores
+    /// integrados, mayúsculas indiferentes, hueco sin valor que se deja a la vista) ya existen ahí.
+    /// </summary>
+    private async Task Copiar()
+    {
+        if (_detalle is null || _ocupado) return;
+        _ocupado = true;
+        try
+        {
+            var valores = new Dictionary<string, string>();
+            foreach (var marcador in _detalle.Marcadores)
+            {
+                var valor = await Avisos.PedirTextoAsync($"Valor para «{marcador}»:", _detalle.Titulo);
+                // Cancelar cancela la copia entera: seguir con la mitad de los huecos rellenos
+                // manda un texto a medias que nadie pidió.
+                if (valor is null) return;
+                valores[marcador] = valor;
+            }
+
+            var (ok, texto) = await Api.EnviarAsync<RellenoDePlantillaDto, TextoDePlantillaDto>(
+                $"api/plantillas/{_detalle.Id}/rellenar", new RellenoDePlantillaDto(valores));
+            if (!ok || texto is null) return;   // el error ya se mostró
+
+            // El navegador puede negarse a copiar (exige HTTPS y, en algunos, un gesto reciente):
+            // se dice, en vez de fingir que funcionó.
+            if (await Descargas.CopiarAsync(texto.Texto))
+                Avisos.Exito("Plantilla copiada al portapapeles.");
+            else
+                Avisos.Aviso("El navegador no dejó copiar. Selecciona el texto de la vista previa y cópialo a mano.");
+        }
+        finally { _ocupado = false; }
+    }
+}

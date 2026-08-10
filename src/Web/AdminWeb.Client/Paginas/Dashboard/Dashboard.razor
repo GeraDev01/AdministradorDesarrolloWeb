@@ -1,0 +1,191 @@
+@page "/dashboard"
+@using AdminWeb.Shared.Dtos.Dashboard
+@* Roles y no política: el cliente registra AddAuthorizationCore sin ninguna política declarada, así
+   que nombrar aquí «AdminUDesarrollador» reventaría al renderizar. La política de verdad —la que
+   cuenta— está declarada en el endpoint; esto solo evita pintar una pantalla que llegaría vacía. *@
+@attribute [Authorize(Roles = "Admin,Desarrollador")]
+@inject ClienteApi Api
+
+@*
+    Dashboard. Réplica de DashboardControl: no tiene un solo botón que cambie nada, solo enseña.
+
+    Los tres paneles de datos de equipo (carga, recordatorios y podio) se pintan si vienen en la
+    respuesta, y vienen o no según el rol de quien pregunta. La pantalla NO decide eso: cuando no le
+    corresponden, los campos llegan en null porque el servidor no los consultó. Es a propósito —
+    esconderlos aquí no escondería nada, porque este código corre en la máquina del usuario.
+*@
+
+<PageTitle>Dashboard</PageTitle>
+
+@if (_datos is null)
+{
+    <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" />
+}
+else
+{
+    <RadzenStack Gap="1rem">
+
+        @* ── Tarjetas ───────────────────────────────────────────────────────── *@
+        <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.75rem">
+            @Tarjeta("Por estimar",   _datos.Tarjetas.PorEstimar,   Gris)
+            @Tarjeta("En desarrollo", _datos.Tarjetas.EnDesarrollo, Ambar)
+            @Tarjeta("Por entregar",  _datos.Tarjetas.PorEntregar,  Naranja)
+            @Tarjeta("Entregados",    _datos.Tarjetas.Entregados,   Verde)
+            @Tarjeta("Cancelados",    _datos.Tarjetas.Cancelados,   Rojo)
+            @Tarjeta("Pendientes",    _datos.Tarjetas.Pendientes,   Morado)
+        </RadzenStack>
+
+        <RadzenRow Gap="1rem">
+
+            @* ── Próximas entregas: la ve todo el mundo ─────────────────────── *@
+            @* Sin los paneles de equipo ocupa el ancho completo, igual que en el escritorio. *@
+            <RadzenColumn Size="12" SizeMD="@(HayDatosDeEquipo ? 6 : 12)">
+                <RadzenCard>
+                    <RadzenText TextStyle="TextStyle.H6">⏰ Próximas entregas (7 días)</RadzenText>
+                    <RadzenDataGrid TItem="EntregaProximaDto" Data="@_datos.ProximasEntregas"
+                                    AllowSorting="false" RowRender="@PintarEntrega"
+                                    EmptyText="Nada comprometido para esta semana."
+                                    Style="min-height:220px">
+                        <Columns>
+                            <RadzenDataGridColumn TItem="EntregaProximaDto" Property="Titulo" Title="Requerimiento" Width="52%" />
+                            <RadzenDataGridColumn TItem="EntregaProximaDto" Property="EstadoTexto" Title="Estado" Width="26%" />
+                            <RadzenDataGridColumn TItem="EntregaProximaDto" Title="Fecha" Width="22%">
+                                <Template Context="fila">@Fecha(fila.FechaCompromiso)</Template>
+                            </RadzenDataGridColumn>
+                        </Columns>
+                    </RadzenDataGrid>
+                </RadzenCard>
+            </RadzenColumn>
+
+            @* ── Datos del equipo: solo si el servidor los mandó ────────────── *@
+            @if (_datos.CargaPorDesarrollador is { } carga)
+            {
+                <RadzenColumn Size="12" SizeMD="6">
+                    <RadzenCard>
+                        <RadzenText TextStyle="TextStyle.H6">👤 Carga por desarrollador</RadzenText>
+                        <RadzenDataGrid TItem="CargaDesarrolladorDto" Data="@carga" AllowSorting="false"
+                                        EmptyText="No hay desarrolladores activos."
+                                        Style="min-height:220px">
+                            <Columns>
+                                <RadzenDataGridColumn TItem="CargaDesarrolladorDto" Property="Nombre" Title="Desarrollador" Width="55%" />
+                                <RadzenDataGridColumn TItem="CargaDesarrolladorDto" Property="Activos" Title="Activos" Width="22%" />
+                                <RadzenDataGridColumn TItem="CargaDesarrolladorDto" Property="PorEntregar" Title="Por entregar" Width="23%" />
+                            </Columns>
+                        </RadzenDataGrid>
+                    </RadzenCard>
+                </RadzenColumn>
+            }
+
+            @if (_datos.RecordatoriosPendientes is { } recordatorios)
+            {
+                <RadzenColumn Size="12" SizeMD="6">
+                    <RadzenCard>
+                        <RadzenText TextStyle="TextStyle.H6">📌 Recordatorios pendientes</RadzenText>
+                        <RadzenDataGrid TItem="RecordatorioDto" Data="@recordatorios" AllowSorting="false"
+                                        RowRender="@PintarRecordatorio"
+                                        EmptyText="No hay recordatorios pendientes."
+                                        Style="min-height:220px">
+                            <Columns>
+                                <RadzenDataGridColumn TItem="RecordatorioDto" Property="Titulo" Title="Nota / Pendiente" Width="52%" />
+                                <RadzenDataGridColumn TItem="RecordatorioDto" Title="Prioridad" Width="18%">
+                                    <Template Context="fila">@EtiquetaPrioridad(fila.Prioridad)</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="RecordatorioDto" Title="Recordatorio" Width="30%">
+                                    <Template Context="fila">@Fecha(fila.FechaRecordatorio, "Sin fecha")</Template>
+                                </RadzenDataGridColumn>
+                            </Columns>
+                        </RadzenDataGrid>
+                    </RadzenCard>
+                </RadzenColumn>
+            }
+
+            @if (_datos.TopRanking is { } podio)
+            {
+                <RadzenColumn Size="12" SizeMD="6">
+                    <RadzenCard>
+                        <RadzenText TextStyle="TextStyle.H6">🏆 Top ranking — @_datos.PeriodoRanking</RadzenText>
+                        <RadzenDataGrid TItem="PuestoRankingDto" Data="@podio" AllowSorting="false"
+                                        EmptyText="Sin datos este mes."
+                                        Style="min-height:220px">
+                            <Columns>
+                                <RadzenDataGridColumn TItem="PuestoRankingDto" Title="Pos." Width="12%">
+                                    <Template Context="fila">@Medalla(fila.Posicion)</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="PuestoRankingDto" Property="Nombre" Title="Dev" Width="55%" />
+                                <RadzenDataGridColumn TItem="PuestoRankingDto" Title="Pts" Width="18%">
+                                    <Template Context="fila">
+                                        <span style="@($"color:{(fila.Puntos >= 0 ? Verde : Rojo)};font-weight:600")">
+                                            @(fila.Puntos > 0 ? $"+{fila.Puntos}" : fila.Puntos.ToString())
+                                        </span>
+                                    </Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="PuestoRankingDto" Property="Entradas" Title="Entradas" Width="15%" />
+                            </Columns>
+                        </RadzenDataGrid>
+                    </RadzenCard>
+                </RadzenColumn>
+            }
+
+        </RadzenRow>
+    </RadzenStack>
+}
+
+@code {
+    // Los mismos colores del escritorio (AppTheme), para que las dos aplicaciones se lean igual
+    // mientras convivan: gris «por estimar», ámbar «en desarrollo», naranja «por entregar»,
+    // verde «entregado», rojo «cancelado» y morado los pendientes, que no son requerimientos.
+    private const string Gris    = "#64748b";
+    private const string Ambar   = "#f59e0b";
+    private const string Naranja = "#fb923c";
+    private const string Verde   = "#22c55e";
+    private const string Rojo    = "#ef4444";
+    private const string Morado  = "#8b5cf6";
+
+    private DashboardDto? _datos;
+
+    /// <summary>
+    /// Si la respuesta trajo los paneles de equipo. Se mira uno de los tres campos y no el rol de la
+    /// sesión: lo que manda es lo que el servidor decidió enviar, no lo que el navegador cree ser.
+    /// </summary>
+    private bool HayDatosDeEquipo => _datos?.CargaPorDesarrollador is not null;
+
+    protected override async Task OnInitializedAsync() =>
+        _datos = await Api.LeerAsync<DashboardDto>("api/dashboard");
+
+    private RenderFragment Tarjeta(string rotulo, int valor, string color) => __builder =>
+    {
+        <RadzenCard Style="@($"border-left:5px solid {color};flex:1 1 150px;min-width:150px;padding:0.75rem 1rem")">
+            <RadzenText TextStyle="TextStyle.H4" Style="@($"color:{color};margin:0")">@valor</RadzenText>
+            <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">@rotulo</RadzenText>
+        </RadzenCard>
+    };
+
+    // Atrasado = rojo y en negritas, tal cual el escritorio. El «atrasado» lo calculó el servidor con
+    // su propio reloj: un equipo con la fecha mal puesta no puede pintar de rojo lo que va en tiempo.
+    private void PintarEntrega(RowRenderEventArgs<EntregaProximaDto> args)
+    {
+        if (args.Data.Atrasado) args.Attributes["style"] = $"color:{Rojo};font-weight:600";
+    }
+
+    private void PintarRecordatorio(RowRenderEventArgs<RecordatorioDto> args)
+    {
+        if (args.Data.Atrasado) args.Attributes["style"] = $"color:{Rojo}";
+    }
+
+    private static string Fecha(DateTime? f, string siNoHay = "—") => f?.ToString("dd/MM/yyyy") ?? siNoHay;
+
+    private static string EtiquetaPrioridad(NotePriority p) => p switch
+    {
+        NotePriority.Alta  => "🔴 Alta",
+        NotePriority.Media => "🟡 Media",
+        _                  => "🔵 Baja"
+    };
+
+    private static string Medalla(int posicion) => posicion switch
+    {
+        1 => "🥇",
+        2 => "🥈",
+        3 => "🥉",
+        _ => $"#{posicion}"
+    };
+}

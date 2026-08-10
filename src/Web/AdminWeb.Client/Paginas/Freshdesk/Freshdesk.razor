@@ -1,0 +1,389 @@
+@page "/freshdesk"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Shared.Dtos.Freshdesk
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+
+@*
+    Los tickets de Freshdesk traídos a esta base: cuántos hay de cada estado, cuáles son y con qué
+    criterio se sincronizan.
+
+    Decisiones del escritorio que se conservan:
+
+      · SINCRONIZAR NO BORRA LO QUE NO VINO. La API de Freshdesk solo devuelve los tickets de los
+        últimos ~30 días, así que un ticket que no aparece en la respuesta no es un ticket borrado:
+        es uno que quedó fuera de la ventana. Solo se retira lo que SÍ vino y se confirmó que ya no
+        cumple el filtro, y nunca si tiene un vínculo con DevOps. Lo decide el servidor; aquí se
+        enseña cuántos se quitaron y por qué.
+      · El FILTRO de sincronización (asignados a mí / grupo) se guarda ANTES de sincronizar, igual
+        que hacía el botón del escritorio: es lo que decide qué se va a traer, y sincronizar con algo
+        distinto de lo que se está viendo en pantalla sería una trampa.
+      · El grupo se escribe por NOMBRE o por ID numérico. Cuando la clave de API es de agente,
+        Freshdesk no deja listar los grupos (responde 403) y el nombre no se puede resolver: escribir
+        el ID es la única salida, y por eso sigue admitiéndose.
+      · Las seis tarjetas de arriba cuentan SIEMPRE sobre todos los tickets, no sobre lo buscado: son
+        el estado de la cola, y una cifra que se moviera con cada búsqueda no serviría de referencia.
+
+    Lo que cambia respecto al escritorio, y por qué:
+
+      · La BÚSQUEDA se resuelve en el servidor. El escritorio filtraba en memoria porque tenía la
+        tabla entera cargada; aquí esa tabla tendría que viajar al navegador para poder filtrarla, y
+        eso es justo lo que no se puede permitir. Cuesta un viaje de red por búsqueda.
+      · Desaparece el selector de campo («ID», «Asunto», «Agente»…): la búsqueda mira todos esos
+        campos a la vez, así que el desplegable solo añadía un paso para restringir lo que ya
+        funcionaba. Los dos filtros que sí cambian el resultado —estado y prioridad— siguen.
+      · El detalle se abre en un panel de esta misma pantalla en vez de en una ventana aparte, y el
+        menú del botón derecho no se porta: el navegador ya tiene el suyo y superponerle otro es
+        pelearse con la herramienta.
+      · No está la exportación a CSV. Cuelga del servicio de descargas, que no es de esta vertical;
+        el enlace 🔗 a Freshdesk sí está, porque para eso basta con la URL que el ticket ya trae.
+
+    EL ASUNTO Y LA DESCRIPCIÓN LOS ESCRIBE GENTE DE FUERA DEL EQUIPO —quien abre el ticket— y se
+    pintan siempre como TEXTO. Nada de MarkupString aquí: sería convertir cada ticket entrante en la
+    vía de entrada de un XSS, y es el caso más claro que hay en esta aplicación.
+*@
+
+<PageTitle>Freshdesk</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Freshdesk</RadzenText>
+        <RadzenButton Text="@(_sincronizando ? "Sincronizando…" : "⟳ Sincronizar")"
+                      Disabled="@(_ocupado || _sincronizando || _datos?.Habilitada != true)"
+                      Click="@Sincronizar" />
+        <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@(() => Cargar())" Disabled="@_ocupado" />
+        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0" Style="margin-left:auto">
+            @UltimaSincronizacion()
+        </RadzenText>
+    </RadzenStack>
+
+    @if (_datos is null)
+    {
+        <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" />
+    }
+    else
+    {
+        @* El motivo lo escribió el servidor y dice qué falta configurar. Se enseña tal cual: un «no
+           disponible» a secas obligaría a adivinar. *@
+        @if (!_datos.Habilitada && _datos.MotivoDeNoDisponible is { } motivo)
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+                @motivo
+            </RadzenAlert>
+        }
+
+        <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.75rem">
+            @Tarjeta("Total", _datos.Resumen.Total, Gris)
+            @Tarjeta("Abiertos", _datos.Resumen.Abiertos, Azul)
+            @Tarjeta("Pendientes", _datos.Resumen.Pendientes, Ambar)
+            @Tarjeta("Resueltos", _datos.Resumen.Resueltos, Verde)
+            @Tarjeta("Cerrados", _datos.Resumen.Cerrados, Gris)
+            @Tarjeta("Urgentes", _datos.Resumen.Urgentes, Rojo)
+        </RadzenStack>
+
+        <RadzenCard>
+            <RadzenStack Gap="0.75rem">
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                             Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">Sincronizar filtrando por:</RadzenText>
+
+                    @* El tipo del parámetro va explícito: Change es EventCallback<bool> y con un
+                       lambda sin tipar el compilador lo toma como EventCallback a secas. *@
+                    <RadzenCheckBox TValue="bool" Name="soloMios" Value="@_porAgente"
+                                    Change="@((bool marcado) => _porAgente = marcado)" Disabled="@_ocupado" />
+                    <RadzenLabel Text="Solo asignados a mí" Component="soloMios" />
+
+                    <RadzenLabel Text="Grupo/depto:" Component="grupo" />
+                    <RadzenTextBox @bind-Value="_grupo" Name="grupo" MaxLength="100"
+                                   Placeholder="nombre o ID" Style="width:12rem" Disabled="@_ocupado" />
+
+                    <RadzenButton Text="Guardar filtro" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                  Disabled="@_ocupado" Click="@(() => GuardarFiltro())" />
+
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                        Vacío = sin grupo. Sin ningún criterio se traen todos los tickets de la cuenta.
+                    </RadzenText>
+                </RadzenStack>
+
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                             Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                    <RadzenTextBox @bind-Value="_buscar" Placeholder="Buscar: asunto, número, agente, solicitante…"
+                                   Change="@(_ => Cargar())" Style="min-width:20rem" Disabled="@_ocupado" />
+
+                    <RadzenLabel Text="Estado:" Component="estado" />
+                    <RadzenDropDown TValue="int?" @bind-Value="_estado" Name="estado"
+                                    Data="@Estados" TextProperty="Texto" ValueProperty="Valor"
+                                    AllowClear="true" Placeholder="Todos" Disabled="@_ocupado"
+                                    Change="@(_ => Cargar())" Style="min-width:11rem" />
+
+                    <RadzenLabel Text="Prioridad:" Component="prioridad" />
+                    <RadzenDropDown TValue="int?" @bind-Value="_prioridad" Name="prioridad"
+                                    Data="@Prioridades" TextProperty="Texto" ValueProperty="Valor"
+                                    AllowClear="true" Placeholder="Todas" Disabled="@_ocupado"
+                                    Change="@(_ => Cargar())" Style="min-width:11rem" />
+
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0" Style="margin-left:auto">
+                        @Resumen()
+                    </RadzenText>
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+
+        <RadzenDataGrid TItem="TicketDeFreshdeskDto" Data="@_datos.Tickets" IsLoading="@_ocupado"
+                        AllowSorting="true" AllowPaging="true" PageSize="20"
+                        SelectionMode="DataGridSelectionMode.Single"
+                        Value="@_seleccion" ValueChanged="@Seleccionar"
+                        EmptyText="No hay tickets que cumplan la búsqueda. Sincroniza para traerlos.">
+            <Columns>
+                <RadzenDataGridColumn TItem="TicketDeFreshdeskDto" Property="Numero" Title="#" Width="90px" />
+                <RadzenDataGridColumn TItem="TicketDeFreshdeskDto" Property="Asunto" Title="Asunto" />
+                <RadzenDataGridColumn TItem="TicketDeFreshdeskDto" Property="EstadoTexto" Title="Estado" Width="110px">
+                    <Template Context="t">
+                        <b style="@($"color:{ColorDeEstado(t.Estado)}")">@t.EstadoTexto</b>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="TicketDeFreshdeskDto" Property="PrioridadTexto" Title="Prioridad" Width="110px">
+                    <Template Context="t">
+                        <span style="@($"color:{ColorDePrioridad(t.Prioridad)}")">@t.PrioridadTexto</span>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="TicketDeFreshdeskDto" Property="Tipo" Title="Tipo" Width="110px">
+                    <Template Context="t">@(string.IsNullOrWhiteSpace(t.Tipo) ? "—" : t.Tipo)</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="TicketDeFreshdeskDto" Property="Agente" Title="Agente" Width="150px">
+                    @* Vacío cuando la clave de API no puede listar agentes (403): es «no disponible»,
+                       no un ticket sin asignar. El servidor sí guardó el id de quien lo tiene. *@
+                    <Template Context="t">@(string.IsNullOrWhiteSpace(t.Agente) ? "—" : t.Agente)</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="TicketDeFreshdeskDto" Property="Solicitante" Title="Solicitante" Width="160px" />
+                <RadzenDataGridColumn TItem="TicketDeFreshdeskDto" Property="FuenteTexto" Title="Fuente" Width="100px" />
+                <RadzenDataGridColumn TItem="TicketDeFreshdeskDto" Property="ActualizadoUtc" Title="Actualizado" Width="130px">
+                    <Template Context="t">@Fecha(t.ActualizadoUtc)</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="TicketDeFreshdeskDto" Property="Vinculos" Title="🔗" Width="70px"
+                                      TextAlign="TextAlign.Right">
+                    <Template Context="t">@(t.Vinculos > 0 ? t.Vinculos.ToString() : "")</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="TicketDeFreshdeskDto" Title="" Width="60px" Sortable="false">
+                    <Template Context="t">
+                        @if (!string.IsNullOrWhiteSpace(t.Url))
+                        {
+                            <a href="@t.Url" target="_blank" rel="noopener" title="Abrir en Freshdesk">🔗</a>
+                        }
+                    </Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
+
+        @if (Abierto is { } ticket)
+        {
+            <RadzenCard>
+                <RadzenStack Gap="0.5rem">
+                    @* Todo el detalle es TEXTO. El asunto y la descripción vienen de quien abrió el
+                       ticket, que es cualquiera con un correo. *@
+                    <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                        #@ticket.Numero — @ticket.Asunto
+                    </RadzenText>
+
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                        @ticket.EstadoTexto · @ticket.PrioridadTexto · @(ticket.Tipo ?? "sin tipo") ·
+                        @ticket.FuenteTexto · Agente: @(Vacio(ticket.Agente)) · Grupo: @(Vacio(ticket.Grupo))
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                        Solicitante: @(Vacio(ticket.Solicitante)) &lt;@(Vacio(ticket.CorreoDelSolicitante))&gt; ·
+                        Creado: @Fecha(ticket.CreadoUtc) · Actualizado: @Fecha(ticket.ActualizadoUtc)
+                        @if (!string.IsNullOrWhiteSpace(ticket.Etiquetas))
+                        {
+                            <text> · Etiquetas: @ticket.Etiquetas</text>
+                        }
+                    </RadzenText>
+
+                    <div style="white-space:pre-wrap;max-height:18rem;overflow:auto;border:1px solid var(--rz-border);padding:0.75rem;border-radius:4px">@(string.IsNullOrWhiteSpace(ticket.Descripcion) ? "(sin descripción)" : ticket.Descripcion.Trim())</div>
+
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+                        @if (!string.IsNullOrWhiteSpace(ticket.Url))
+                        {
+                            <a href="@ticket.Url" target="_blank" rel="noopener">🔗 Abrir en Freshdesk</a>
+                        }
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                            @(ticket.Vinculos == 0
+                                ? "Sin work items de DevOps vinculados."
+                                : $"{ticket.Vinculos} work item(s) de DevOps vinculados (se administran en «Vínculos tickets»).")
+                        </RadzenText>
+                        <RadzenButton Text="Cerrar detalle" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                      Click="@(() => Seleccionar(null))" />
+                    </RadzenStack>
+                </RadzenStack>
+            </RadzenCard>
+        }
+    }
+</RadzenStack>
+
+@code {
+    private const string Gris = "#6b7280";
+    private const string Azul = "#2563eb";
+    private const string Ambar = "#f59e0b";
+    private const string Verde = "#22c55e";
+    private const string Rojo = "#ef4444";
+
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private PantallaDeFreshdeskDto? _datos;
+    private bool _ocupado;
+    private bool _sincronizando;
+
+    // Búsqueda (la resuelve el servidor).
+    private string _buscar = "";
+    private int? _estado;
+    private int? _prioridad;
+
+    // Filtro de sincronización (se guarda en la configuración compartida).
+    private bool _porAgente;
+    private string _grupo = "";
+
+    private IList<TicketDeFreshdeskDto>? _seleccion;
+    private int? _abiertoId;
+
+    /// <summary>Los números de estado y prioridad son los de Freshdesk; las etiquetas, las que usa el
+    /// servidor. Van juntos para que elegir «Abierto» filtre por el 2 sin que la pantalla traduzca.</summary>
+    private record Opcion(int? Valor, string Texto);
+
+    private static readonly IReadOnlyList<Opcion> Estados =
+    [
+        new(2, "Abierto"), new(3, "Pendiente"), new(4, "Resuelto"), new(5, "Cerrado")
+    ];
+
+    private static readonly IReadOnlyList<Opcion> Prioridades =
+    [
+        new(1, "Baja"), new(2, "Media"), new(3, "Alta"), new(4, "Urgente")
+    ];
+
+    /// <summary>El ticket cuyo detalle está abierto, resuelto contra la última carga: cada recarga
+    /// trae objetos nuevos, y guardar la referencia dejaría el panel enseñando datos viejos.</summary>
+    private TicketDeFreshdeskDto? Abierto =>
+        _abiertoId is int id ? _datos?.Tickets.FirstOrDefault(t => t.Id == id) : null;
+
+    protected override async Task OnInitializedAsync() => await Cargar(primeraVez: true);
+
+    private async Task Cargar(bool primeraVez = false)
+    {
+        _ocupado = true;
+        try
+        {
+            var partes = new List<string>();
+            if (!string.IsNullOrWhiteSpace(_buscar)) partes.Add($"buscar={Uri.EscapeDataString(_buscar.Trim())}");
+            if (_estado is int e) partes.Add($"estado={e}");
+            if (_prioridad is int p) partes.Add($"prioridad={p}");
+            var ruta = "api/freshdesk" + (partes.Count > 0 ? "?" + string.Join("&", partes) : "");
+
+            _datos = await Api.LeerAsync<PantallaDeFreshdeskDto>(ruta, _cancelacion.Token);
+
+            // El filtro de sincronización se copia a los campos SOLO la primera vez. Refrescarlo en
+            // cada carga borraría lo que se acabara de teclear con solo buscar algo.
+            if (primeraVez && _datos is not null)
+            {
+                _porAgente = _datos.Filtro.PorAgente;
+                _grupo = _datos.Filtro.Grupo;
+            }
+
+            // El ticket abierto pudo salir de la búsqueda: dejar su detalle a la vista haría creer
+            // que sigue en la lista.
+            var abierto = Abierto;
+            _seleccion = abierto is null ? null : [abierto];
+            if (abierto is null) _abiertoId = null;
+        }
+        finally { _ocupado = false; }
+    }
+
+    private void Seleccionar(IList<TicketDeFreshdeskDto>? seleccion)
+    {
+        _seleccion = seleccion;
+        _abiertoId = seleccion?.FirstOrDefault()?.Id;
+    }
+
+    private async Task Sincronizar()
+    {
+        _sincronizando = true;
+        try
+        {
+            // Primero se guarda el filtro y solo después se sincroniza, igual que en el escritorio:
+            // es lo que decide qué se va a traer, y traer con un criterio distinto del que se está
+            // viendo en pantalla sería mentir sobre lo que acaba de pasar.
+            if (!await GuardarFiltro(silencioso: true)) return;
+
+            var (ok, resultado) = await Api.EnviarAsync<object, ResultadoDeSincronizacionDto>(
+                "api/freshdesk/sincronizar", new { }, _cancelacion.Token);
+
+            // Cuando falla, el mensaje del servidor ya se mostró: dice si la clave no vale, si falta
+            // el dominio o si no se pudo llegar a la cuenta.
+            if (!ok || resultado is null) return;
+
+            Avisos.Exito(resultado.Mensaje);
+            if (!string.IsNullOrWhiteSpace(resultado.Aviso)) Avisos.Aviso(resultado.Aviso);
+            await Cargar();
+        }
+        finally { _sincronizando = false; }
+    }
+
+    private async Task<bool> GuardarFiltro(bool silencioso = false)
+    {
+        var (ok, resultado) = await Api.EnviarAsync<GuardarFiltroRequest, ResultadoDto>(
+            "api/freshdesk/filtro", new GuardarFiltroRequest(_porAgente, _grupo), _cancelacion.Token);
+
+        if (ok && !silencioso && resultado is not null) Avisos.Exito(resultado.Mensaje);
+        return ok;
+    }
+
+    // ── Textos ───────────────────────────────────────────────────────────────
+
+    private string Resumen()
+    {
+        if (_datos is null) return "";
+        var mostrados = _datos.Tickets.Count;
+        var texto = $"{mostrados} de {_datos.Coincidencias} ticket(s)";
+        return _datos.Truncada
+            ? $"{texto} · se muestran los más recientes, afina la búsqueda para ver el resto"
+            : texto;
+    }
+
+    private string UltimaSincronizacion() =>
+        _datos?.UltimaSincronizacionUtc is { } fecha
+            ? $"Última sincronización: {fecha.ToLocalTime():dd/MM/yyyy HH:mm}"
+            : "Nunca se ha sincronizado.";
+
+    private static string Fecha(DateTime? f) => f?.ToLocalTime().ToString("dd/MM/yyyy HH:mm") ?? "—";
+
+    private static string Vacio(string? valor) => string.IsNullOrWhiteSpace(valor) ? "—" : valor;
+
+    private static string ColorDeEstado(int estado) => estado switch
+    {
+        2 => Azul,
+        3 => Ambar,
+        4 => Verde,
+        _ => Gris
+    };
+
+    private static string ColorDePrioridad(int prioridad) => prioridad switch
+    {
+        4 => Rojo,
+        3 => Ambar,
+        2 => Azul,
+        _ => Gris
+    };
+
+    private RenderFragment Tarjeta(string rotulo, int valor, string color) => __builder =>
+    {
+        <RadzenCard Style="@($"border-left:5px solid {color};flex:1 1 140px;min-width:140px;padding:0.75rem 1rem")">
+            <RadzenText TextStyle="TextStyle.H4" Style="@($"color:{color};margin:0")">@valor</RadzenText>
+            <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">@rotulo</RadzenText>
+        </RadzenCard>
+    };
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

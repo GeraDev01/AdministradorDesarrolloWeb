@@ -1,0 +1,343 @@
+@page "/mis-sla"
+@attribute [Authorize(Policy = "AdminUDesarrollador")]
+@using AdminWeb.Shared.Dtos.Sla
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+
+@*
+    Mis SLA (clave del escritorio: «my-sla»).
+
+    Qué tengo comprometido, para cuándo, y cuánto falta.
+
+    LOS DOS BOTONES NO SON LO MISMO, y esa es la regla que la pantalla tiene que dejar clara:
+
+      · «Registrar avance» publica un comentario en el work item de Azure DevOps y SOLO si DevOps lo
+        acepta cuenta como constancia y se reprograma el recordatorio. Es el botón del escritorio, y
+        su valor está justo ahí: si el comentario no quedó en el ticket, el compromiso sigue
+        reclamando. Se firma con el token propio, así que en DevOps queda a nombre de quien lo hizo.
+      · «Posponer» solo aplaza el aviso, con los mismos límites de siempre: entre 1 y 72 horas y
+        nunca más allá del vencimiento. Sirve para decir «estoy en ello», no para dar por atendido.
+
+    LO QUE CAMBIA RESPECTO AL ESCRITORIO
+
+      · El recordatorio ya no depende de tener la aplicación abierta. Antes, quien cerraba el
+        programa no se enteraba de nada; ahora el servidor deja el aviso en «Avisos» y ahí sigue
+        cuando se entre, aunque el compromiso se haya vencido un domingo.
+      · El comentario se captura en un panel dentro de la propia pantalla y no en una ventana modal
+        aparte, como el resto de la aplicación.
+
+    Las horas viajan en UTC y se pintan en la hora de quien mira. Ningún texto que venga de un ticket
+    se pinta como marcado.
+*@
+
+<PageTitle>Mis SLA</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Mis SLA</RadzenText>
+        <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
+    </RadzenStack>
+
+    @if (_datos is { } d)
+    {
+        @if (!d.TieneFicha)
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+                @d.Mensaje
+            </RadzenAlert>
+        }
+        else
+        {
+            <RadzenCard>
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                             Gap="1rem" Wrap="FlexWrap.Wrap">
+                    @* El tipo del parámetro va explícito: Change es EventCallback<bool> y con un
+                       lambda sin tipar el compilador lo toma como EventCallback a secas. *@
+                    <RadzenCheckBox TValue="bool" Name="cerrados" Value="@_verCerrados"
+                                    Change="@((bool ver) => VerCerrados(ver))" />
+                    <RadzenLabel Text="Ver también los cerrados" Component="cerrados" />
+
+                    <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0"
+                                Style="@($"margin-left:auto;font-weight:600;color:{(d.Urgentes > 0 ? "var(--rz-danger)" : "var(--rz-text-secondary-color)")}")">
+                        @(d.Urgentes > 0 ? $"⚠ {d.Mensaje}" : d.Mensaje)
+                    </RadzenText>
+                </RadzenStack>
+            </RadzenCard>
+
+            @if (Registrando is { } avance)
+            {
+                <RadzenCard>
+                    <RadzenStack Gap="0.75rem">
+                        <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                            💬 Registrar avance en el ticket #@avance.TicketExternalId
+                        </RadzenText>
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                            @avance.Objetivo — se publica con TU token, así que en DevOps queda a tu
+                            nombre. El avance solo cuenta si el comentario llega al ticket.
+                        </RadzenText>
+
+                        <RadzenTextArea @bind-Value="_comentario" Rows="4" Style="width:100%"
+                                        Placeholder="Qué se avanzó, qué falta y para cuándo…" />
+                        <PegarImagen @bind-Imagenes="_evidencias" Maximo="5" />
+
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                            <RadzenButton Text="Publicar en DevOps" Disabled="@_ocupado"
+                                          Click="@RegistrarAvance" />
+                            <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                                          Disabled="@_ocupado" Click="@(() => _registrandoId = null)" />
+                        </RadzenStack>
+                    </RadzenStack>
+                </RadzenCard>
+            }
+
+            <RadzenDataGrid TItem="SlaCompromisoDto" Data="@d.Compromisos" IsLoading="@_ocupado"
+                            AllowSorting="true" AllowPaging="true" PageSize="20"
+                            RowRender="@PintarUrgentes"
+                            EmptyText="No tienes compromisos pendientes.">
+                <Columns>
+                    <RadzenDataGridColumn TItem="SlaCompromisoDto" Property="Id" Title="ID" Width="70px" />
+                    <RadzenDataGridColumn TItem="SlaCompromisoDto" Property="Objetivo" Title="Objetivo" />
+                    <RadzenDataGridColumn TItem="SlaCompromisoDto" Property="TicketExternalId"
+                                          Title="Ticket" Width="110px">
+                        <Template Context="s">
+                            @if (s.TicketExternalId is int t)
+                            {
+                                @if (!string.IsNullOrWhiteSpace(s.TicketUrl))
+                                {
+                                    @* target/rel explícitos: el enlace lo capturó el líder y abre un
+                                       sitio externo; sin noopener la pestaña nueva puede manipular esta. *@
+                                    <a href="@s.TicketUrl" target="_blank" rel="noopener">#@t 🔗</a>
+                                }
+                                else
+                                {
+                                    <span>#@t</span>
+                                }
+                            }
+                            else
+                            {
+                                <span>—</span>
+                            }
+                        </Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="SlaCompromisoDto" Property="VenceUtc" Title="Vence" Width="150px">
+                        <Template Context="s">@s.VenceUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="SlaCompromisoDto" Property="VenceUtc" Title="Falta" Width="110px">
+                        <Template Context="s">
+                            @(s.Estado == SlaStatus.Activo ? Restante(s.VenceUtc) : "—")
+                        </Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="SlaCompromisoDto" Property="Estado" Title="Estado" Width="150px">
+                        <Template Context="s">
+                            <b style="@($"color:{Color(s)}")">@Etiqueta(s)</b>
+                        </Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="SlaCompromisoDto" Property="Comentarios"
+                                          Title="Comentarios" Width="140px">
+                        <Template Context="s">
+                            @(s.Comentarios == 0
+                                ? "ninguno"
+                                : $"{s.Comentarios} · {s.UltimoComentarioUtc?.ToLocalTime():dd/MM HH:mm}")
+                        </Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="SlaCompromisoDto" Property="Notas" Title="Notas" Width="200px">
+                        <Template Context="s">@(string.IsNullOrWhiteSpace(s.Notas) ? "—" : s.Notas)</Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="SlaCompromisoDto" Title="" Width="230px" Sortable="false">
+                        <Template Context="s">
+                            @if (s.Estado == SlaStatus.Activo)
+                            {
+                                @* Sin ticket ligado no hay dónde dejar constancia: el botón no se
+                                   ofrece en vez de ofrecerlo y rechazarlo al pulsarlo. *@
+                                @if (s.TicketExternalId is not null)
+                                {
+                                    <RadzenButton Text="💬 Registrar avance"
+                                                  Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                  title="Comenta el ticket en Azure DevOps. Solo si el comentario queda allá cuenta como avance."
+                                                  Click="@(() => AbrirAvance(s))" />
+                                }
+                                <RadzenButton Text="⏰ Posponer" ButtonStyle="ButtonStyle.Light"
+                                              Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                              title="Aplaza el recordatorio 4 horas. No mueve la fecha límite."
+                                              Click="@(() => Posponer(s))" />
+                            }
+                        </Template>
+                    </RadzenDataGridColumn>
+                </Columns>
+            </RadzenDataGrid>
+        }
+    }
+</RadzenStack>
+
+@code {
+    /// <summary>
+    /// Cuánto aplaza el botón. Cuatro horas, como en el escritorio: lo bastante para terminar lo que
+    /// se está haciendo y lo bastante poco para que el compromiso no se olvide.
+    /// </summary>
+    private const int HorasDePosposicion = 4;
+
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private MisSlaDto? _datos;
+    private bool _ocupado;
+
+    /// <summary>La casilla del escritorio, con el mismo valor por omisión: solo lo vigente.</summary>
+    private bool _verCerrados;
+
+    // Registro de avance.
+    private int? _registrandoId;
+    private string _comentario = "";
+    private List<ImagenAdjunta> _evidencias = [];
+
+    /// <summary>
+    /// El compromiso cuyo avance se está escribiendo, resuelto contra la última carga: cada recarga
+    /// trae objetos nuevos, y guardar la referencia dejaría el panel titulado con datos viejos.
+    /// </summary>
+    private SlaCompromisoDto? Registrando =>
+        _registrandoId is int id ? _datos?.Compromisos.FirstOrDefault(s => s.Id == id) : null;
+
+    protected override Task OnInitializedAsync() => Cargar();
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            _datos = await Api.LeerAsync<MisSlaDto>(
+                $"api/sla/mios?incluirCerrados={_verCerrados.ToString().ToLowerInvariant()}", _cancelacion.Token);
+
+            // El compromiso que se estaba comentando pudo cerrarse solo —su ticket se cerró en
+            // DevOps— o salir del filtro: dejar el panel abierto sobre algo que ya no está en la
+            // lista publicaría contra un compromiso que nadie ve.
+            if (Registrando is null) _registrandoId = null;
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task VerCerrados(bool ver)
+    {
+        _verCerrados = ver;
+        await Cargar();
+    }
+
+    // ── Registrar avance ─────────────────────────────────────────────────────
+
+    private void AbrirAvance(SlaCompromisoDto s)
+    {
+        _registrandoId = s.Id;
+        _comentario = "";
+        _evidencias = [];
+    }
+
+    /// <summary>
+    /// Publica el comentario en el ticket. Solo si DevOps lo acepta cuenta el avance, y de eso se
+    /// encarga el servidor: aquí no se toca nada del compromiso ni se cierra el panel a la ligera.
+    /// </summary>
+    private async Task RegistrarAvance()
+    {
+        if (Registrando is not { } s) return;
+
+        // Lo evidente se atrapa aquí para no gastar un viaje; el resto —tamaños, tipos, de quién es
+        // el ticket— lo decide el servidor, que es donde la regla tiene que vivir.
+        if (string.IsNullOrWhiteSpace(_comentario) && _evidencias.Count == 0)
+        {
+            Avisos.Aviso("Escribe qué avanzaste o adjunta una evidencia antes de publicar.");
+            return;
+        }
+
+        // Multipart aunque no lleve capturas: es una sola forma de mandar la operación, y ClienteApi
+        // le pone el testigo antifalsificación sin que esta pantalla tenga que acordarse.
+        var formulario = new MultipartFormDataContent
+        {
+            { new StringContent(_comentario ?? ""), "texto" }
+        };
+        foreach (var imagen in _evidencias)
+            formulario.Add(new ByteArrayContent(imagen.Contenido), "imagenes", imagen.Nombre);
+
+        _ocupado = true;
+        try
+        {
+            var (ok, resultado) = await Api.SubirAsync<ResultadoDto>(
+                $"api/sla/{s.Id}/avance", formulario, _cancelacion.Token);
+
+            // Si no quedó en el ticket, el panel se queda abierto con lo escrito: el motivo ya se
+            // enseñó y volver a teclearlo todo sería castigar a quien no falló.
+            if (!ok || resultado is null) return;
+
+            Avisos.Exito(resultado.Mensaje);
+            _registrandoId = null;
+        }
+        finally { _ocupado = false; }
+
+        await Cargar();
+    }
+
+    private async Task Posponer(SlaCompromisoDto s)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, resultado) = await Api.EnviarAsync<PosponerSlaRequest, ResultadoDto>(
+                $"api/sla/{s.Id}/posponer", new PosponerSlaRequest(HorasDePosposicion), _cancelacion.Token);
+            if (!ok) return;
+
+            // El mensaje del servicio se enseña tal cual: dice cuánto se pospuso de verdad, que no
+            // siempre son las horas pedidas —nunca pasa del vencimiento—.
+            if (resultado is { } r) Avisos.Resultado(r.Ok, r.Mensaje);
+        }
+        finally { _ocupado = false; }
+
+        await Cargar();
+    }
+
+    /// <summary>
+    /// Cuánto falta, en la unidad que se entiende de un vistazo. Se calcula en el navegador contra su
+    /// propio reloj: es un dato que cambia cada minuto y pedirlo al servidor lo dejaría envejecido en
+    /// pantalla.
+    /// </summary>
+    private static string Restante(DateTime venceUtc)
+    {
+        var falta = venceUtc.ToLocalTime() - DateTime.Now;
+        if (falta.TotalSeconds <= 0) return "vencido";
+        if (falta.TotalDays >= 1) return $"{(int)falta.TotalDays}d {falta.Hours}h";
+        return falta.TotalHours >= 1 ? $"{(int)falta.TotalHours}h {falta.Minutes}m" : $"{falta.Minutes}m";
+    }
+
+    private void PintarUrgentes(RowRenderEventArgs<SlaCompromisoDto> fila)
+    {
+        if (fila.Data.FueraDePlazo || fila.Data.Estado == SlaStatus.Vencido)
+            fila.Attributes["style"] = "background-color: rgba(220, 38, 38, 0.08)";
+        else if (fila.Data.TocaComentar)
+            fila.Attributes["style"] = "background-color: rgba(217, 119, 6, 0.10)";
+    }
+
+    /// <summary>
+    /// «Toca comentar» es el estado que el escritorio pintaba en ámbar: el recordatorio ya venció, y
+    /// mientras no quede constancia en el ticket seguirá insistiendo.
+    /// </summary>
+    private static string Etiqueta(SlaCompromisoDto s) => s.Estado switch
+    {
+        SlaStatus.Activo => s.FueraDePlazo ? "⚠ Fuera de plazo"
+                          : s.TocaComentar ? "🔔 Toca comentar" : "🟢 En plazo",
+        SlaStatus.Cumplido => "✅ Cumplido",
+        SlaStatus.Vencido => "❌ Vencido",
+        _ => "⚪ Cancelado"
+    };
+
+    private static string Color(SlaCompromisoDto s) => s.Estado switch
+    {
+        SlaStatus.Activo => s.FueraDePlazo ? "var(--rz-danger)"
+                          : s.TocaComentar ? "var(--rz-warning)" : "var(--rz-success)",
+        SlaStatus.Cumplido => "var(--rz-success)",
+        SlaStatus.Vencido => "var(--rz-danger)",
+        _ => "var(--rz-text-secondary-color)"
+    };
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

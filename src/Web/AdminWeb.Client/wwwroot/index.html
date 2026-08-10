@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Administrador de Desarrollo</title>
+    <base href="/" />
+    <!-- Declarado a mano para que el navegador no pida /favicon.ico, que no existe y acaba
+         respondiendo 401 por la política de respaldo de la API. -->
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link rel="stylesheet" href="_content/Radzen.Blazor/css/material-base.css" />
+    <!-- El orden importa: tema.css redefine las variables de Radzen, así que va DESPUÉS. -->
+    <link rel="stylesheet" href="css/tema.css" />
+    <link rel="stylesheet" href="css/app.css" />
+    <script>
+        // El tema se aplica ANTES de pintar nada, y a propósito fuera de Blazor: si esperara a que
+        // arranque el WebAssembly, quien tiene el modo oscuro puesto vería un destello blanco de
+        // varios segundos en cada recarga. Son cuatro líneas aquí a cambio de eso.
+        (function () {
+            try {
+                var t = localStorage.getItem('adminweb-tema');
+                if (t === 'claro' || t === 'oscuro') document.documentElement.dataset.tema = t;
+                // Sin nada guardado no se pone el atributo: así manda prefers-color-scheme.
+            } catch (e) { /* modo privado sin almacenamiento: se queda con el del sistema */ }
+        })();
+    </script>
+</head>
+<body>
+    <div id="app">
+        <div class="cargando">Cargando…</div>
+    </div>
+
+    <div id="blazor-error-ui">
+        Ocurrió un error. Recarga la página.
+        <a href="" class="reload">Recargar</a>
+    </div>
+
+    <script src="_content/Radzen.Blazor/Radzen.Blazor.js"></script>
+    <script src="js/adminweb.js"></script>
+    <script src="_framework/blazor.webassembly.js"></script>
+</body>
+</html>

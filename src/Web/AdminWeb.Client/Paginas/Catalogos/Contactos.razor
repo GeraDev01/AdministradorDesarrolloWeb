@@ -1,0 +1,281 @@
+@page "/contactos"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Client.Componentes
+@using AdminWeb.Shared.Dtos
+@using AdminWeb.Shared.Dtos.Catalogos
+@inject ClienteApi Api
+@inject Descargas Descargas
+@inject AvisosDeInterfaz Avisos
+
+@*
+    Los contactos de la empresa: alta, edición, baja y Excel.
+
+    Los dos atajos del día a día se conservan del escritorio: escribir un correo y abrir la
+    conversación de Teams. Allí eran botones que lanzaban un proceso (mailto:, el enlace de Teams);
+    aquí son enlaces, que es lo que un navegador hace mejor y sin dejar archivos temporales.
+
+    Es el ÚNICO catálogo donde borrar de verdad es correcto: un contacto no está referenciado por
+    asignaciones, evaluaciones ni bitácora de trabajo, así que su baja no deja historial huérfano.
+    En desarrolladores, en cambio, la baja desactiva.
+*@
+
+<PageTitle>Contactos</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenText TextStyle="TextStyle.H5" Style="margin:0">Contactos</RadzenText>
+
+    <RadzenCard>
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                     Gap="1rem" Wrap="FlexWrap.Wrap">
+            <RadzenTextBox @bind-Value="_texto" Placeholder="Buscar por nombre, puesto, empresa o correo…"
+                           Change="@(_ => Buscar())" Style="min-width:22rem" />
+
+            <SelectorDeColumnas Clave="contactos" Columnas="@TodasLasColumnas"
+                                OcultasCambiaron="@(o => _ocultas = o)" />
+
+            <RadzenText TextStyle="TextStyle.Caption" Style="margin:0 0 0 auto">
+                @_filas.Count contacto(s)
+            </RadzenText>
+        </RadzenStack>
+    </RadzenCard>
+
+    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+        <RadzenButton Text="➕ Nuevo" Disabled="@_ocupado" Click="@AbrirNuevo" />
+        <RadzenButton Text="✏ Editar" ButtonStyle="ButtonStyle.Light" Disabled="@(_ocupado || _elegido is null)"
+                      Click="@AbrirEdicion" />
+        <RadzenButton Text="✉ Escribir" ButtonStyle="ButtonStyle.Light" Disabled="@(_ocupado || _elegido is null)"
+                      Click="@Escribir" />
+        <RadzenButton Text="🗑 Eliminar" ButtonStyle="ButtonStyle.Light" Disabled="@(_ocupado || _elegido is null)"
+                      Click="@Eliminar" />
+        <RadzenButton Text="📊 Excel" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+                      Style="margin-left:auto" Click="@Exportar" />
+    </RadzenStack>
+
+    @if (_capturando)
+    {
+        <RadzenCard>
+            <RadzenStack Gap="0.75rem">
+                <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                    @(_id is null ? "Nuevo contacto" : $"Editar «{_nombreOriginal}»")
+                </RadzenText>
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap">
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Nombre" Component="nombreCon" />
+                        <RadzenTextBox @bind-Value="_nombre" Name="nombreCon" MaxLength="150"
+                                       Style="width:18rem" />
+                    </RadzenStack>
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Puesto" Component="puestoCon" />
+                        <RadzenTextBox @bind-Value="_puesto" Name="puestoCon" MaxLength="120"
+                                       Style="width:15rem" />
+                    </RadzenStack>
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Empresa/Área" Component="empresaCon" />
+                        <RadzenTextBox @bind-Value="_empresa" Name="empresaCon" MaxLength="120"
+                                       Style="width:15rem" />
+                    </RadzenStack>
+                </RadzenStack>
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap">
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Correo" Component="correoCon" />
+                        <RadzenTextBox @bind-Value="_correo" Name="correoCon" MaxLength="150"
+                                       Style="width:18rem" />
+                    </RadzenStack>
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Teléfono" Component="telCon" />
+                        <RadzenTextBox @bind-Value="_telefono" Name="telCon" MaxLength="40"
+                                       Style="width:11rem" />
+                    </RadzenStack>
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Enlace de Teams" Component="teamsCon" />
+                        <RadzenTextBox @bind-Value="_teams" Name="teamsCon" MaxLength="500"
+                                       Style="width:22rem" />
+                    </RadzenStack>
+                </RadzenStack>
+
+                <RadzenTextArea @bind-Value="_notas" Rows="2" Style="width:100%"
+                                Placeholder="Notas (opcional)" />
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                    <RadzenButton Text="Guardar" Disabled="@_ocupado" Click="@Guardar" />
+                    <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+                                  Click="@(() => _capturando = false)" />
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    }
+
+    <RadzenDataGrid TItem="ContactoDto" Data="@_filas" IsLoading="@_cargando"
+                    AllowSorting="true" AllowPaging="true" PageSize="25"
+                    SelectionMode="DataGridSelectionMode.Single" @bind-Value="@_seleccion"
+                    RowDoubleClick="@(_ => AbrirEdicion())"
+                    EmptyText="No hay contactos que cumplan el filtro.">
+        <Columns>
+            <RadzenDataGridColumn TItem="ContactoDto" Property="Nombre" Title="Nombre" Width="200px"
+                                  Visible="@Ver("Nombre")" />
+            <RadzenDataGridColumn TItem="ContactoDto" Property="Puesto" Title="Puesto" Width="180px"
+                                  Visible="@Ver("Puesto")">
+                <Template Context="c">@(c.Puesto ?? "—")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="ContactoDto" Property="Empresa" Title="Empresa/Área" Width="170px"
+                                  Visible="@Ver("Empresa/Área")">
+                <Template Context="c">@(c.Empresa ?? "—")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="ContactoDto" Property="Correo" Title="Correo" Width="220px"
+                                  Visible="@Ver("Correo")">
+                <Template Context="c">
+                    @if (string.IsNullOrWhiteSpace(c.Correo))
+                    {
+                        <span>—</span>
+                    }
+                    else
+                    {
+                        <a href="@($"mailto:{c.Correo}")">@c.Correo</a>
+                    }
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="ContactoDto" Property="Telefono" Title="Teléfono" Width="130px"
+                                  Visible="@Ver("Teléfono")">
+                <Template Context="c">@(c.Telefono ?? "—")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="ContactoDto" Property="EnlaceTeams" Title="Teams" Width="90px"
+                                  Sortable="false" Visible="@Ver("Teams")">
+                <Template Context="c">
+                    @if (string.IsNullOrWhiteSpace(c.EnlaceTeams))
+                    {
+                        <span></span>
+                    }
+                    else
+                    {
+                        <RadzenButton Text="💬" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                      title="Abrir la conversación de Teams"
+                                      Click="@(() => Descargas.AbrirEnOtraPestanaAsync(c.EnlaceTeams!))" />
+                    }
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="ContactoDto" Property="Notas" Title="Notas" Width="240px"
+                                  Visible="@Ver("Notas")">
+                <Template Context="c">@(c.Notas ?? "—")</Template>
+            </RadzenDataGridColumn>
+        </Columns>
+    </RadzenDataGrid>
+</RadzenStack>
+
+@code {
+    private static readonly string[] TodasLasColumnas =
+        ["Nombre", "Puesto", "Empresa/Área", "Correo", "Teléfono", "Teams", "Notas"];
+
+    private List<ContactoDto> _filas = [];
+    private HashSet<string> _ocultas = [];
+    private string _texto = "";
+    private bool _cargando = true;
+    private bool _ocupado;
+
+    private IList<ContactoDto>? _seleccion;
+    private ContactoDto? _elegido => _seleccion?.FirstOrDefault();
+
+    private bool _capturando;
+    private int? _id;
+    private string _nombreOriginal = "";
+    private string _nombre = "";
+    private string? _puesto, _empresa, _correo, _telefono, _teams, _notas;
+
+    private bool Ver(string columna) => !_ocultas.Contains(columna);
+
+    protected override Task OnInitializedAsync() => Buscar();
+
+    private async Task Buscar()
+    {
+        _cargando = true;
+        try
+        {
+            _filas = await Api.LeerAsync<List<ContactoDto>>(RutaDelFiltro()) ?? [];
+
+            // La selección se rehace por ID: tras recargar, la fila elegida es otra instancia y la
+            // rejilla dejaría de reconocerla justo después de guardar sobre ella.
+            var id = _elegido?.Id;
+            _seleccion = id is null ? null : [.. _filas.Where(c => c.Id == id)];
+        }
+        finally { _cargando = false; }
+    }
+
+    private string RutaDelFiltro(string sufijo = "") =>
+        $"api/catalogos/contactos{sufijo}?texto={Uri.EscapeDataString(_texto ?? "")}";
+
+    private Task Exportar() => Descargas.DesdeApiAsync(RutaDelFiltro("/excel")).AsTask();
+
+    private void AbrirNuevo()
+    {
+        _id = null;
+        _nombreOriginal = "";
+        _nombre = "";
+        _puesto = _empresa = _correo = _telefono = _teams = _notas = null;
+        _capturando = true;
+    }
+
+    private void AbrirEdicion()
+    {
+        if (_elegido is not { } c) return;
+
+        _id = c.Id;
+        _nombreOriginal = c.Nombre;
+        _nombre = c.Nombre;
+        _puesto = c.Puesto;
+        _empresa = c.Empresa;
+        _correo = c.Correo;
+        _telefono = c.Telefono;
+        _teams = c.EnlaceTeams;
+        _notas = c.Notas;
+        _capturando = true;
+    }
+
+    private async Task Guardar()
+    {
+        if (string.IsNullOrWhiteSpace(_nombre))
+        {
+            Avisos.Aviso("El nombre es obligatorio.");
+            return;
+        }
+
+        var cuerpo = new GuardarContactoRequest(
+            _id, _nombre, _puesto, _empresa, _correo, _telefono, _teams, _notas);
+
+        if (await Enviar("api/catalogos/contactos", cuerpo))
+            _capturando = false;
+    }
+
+    private async Task Eliminar()
+    {
+        if (_elegido is not { } c) return;
+        if (!await Avisos.ConfirmarAsync($"¿Eliminar el contacto «{c.Nombre}»?", "Confirmar")) return;
+
+        await Enviar($"api/catalogos/contactos/{c.Id}/eliminar", new { });
+    }
+
+    private async Task Escribir()
+    {
+        if (_elegido is not { } c) return;
+        if (string.IsNullOrWhiteSpace(c.Correo))
+        {
+            Avisos.Aviso($"«{c.Nombre}» no tiene correo capturado.");
+            return;
+        }
+        await Descargas.AbrirEnOtraPestanaAsync($"mailto:{c.Correo}");
+    }
+
+    /// <summary>Solo anuncia el ÉXITO: el fallo ya lo dijo el manejador de respuestas.</summary>
+    private async Task<bool> Enviar<T>(string ruta, T cuerpo)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, r) = await Api.EnviarAsync<T, ResultadoDto>(ruta, cuerpo);
+            if (ok && r is not null) Avisos.Exito(r.Mensaje);
+            if (ok) await Buscar();
+            return ok;
+        }
+        finally { _ocupado = false; }
+    }
+}

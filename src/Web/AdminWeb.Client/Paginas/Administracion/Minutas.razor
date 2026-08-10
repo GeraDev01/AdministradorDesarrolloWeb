@@ -1,0 +1,326 @@
+@page "/minutas"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Shared.Dtos.Administracion
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+@inject Descargas Descargas
+
+@*
+    Las minutas del equipo y los compromisos que salen de ellas.
+
+    Lo que hace útil esta pantalla, y viene del escritorio: la columna de PENDIENTES. Una minuta sin
+    compromisos abiertos es un archivo; una con tres es trabajo que alguien tiene que cerrar, y por
+    eso se marca en la lista en lugar de esconderse dentro del detalle.
+
+    LO QUE CAMBIA respecto al escritorio:
+
+      · El detalle se edita en un panel dentro de la misma pantalla, no en una ventana modal. Es la
+        misma decisión que en el pool: en el navegador una ventana encima de otra se pierde detrás
+        del propio navegador con demasiada facilidad.
+      · El contenido es una caja de texto normal. En el escritorio era un RichTextBox, pero lo que se
+        guardaba era su .Text —texto plano—, así que no se pierde nada. Y el contenido se pinta como
+        TEXTO en todos lados: lo escribe una persona y nunca se interpreta como HTML.
+      · La exportación a Excel baja LO QUE EL FILTRO ESTÁ ENSEÑANDO. El escritorio bajaba siempre la
+        tabla entera aunque la barra tuviera un mes acotado, y eso sorprendía a quien acababa de
+        filtrar.
+*@
+
+<PageTitle>Minutas</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Minutas</RadzenText>
+        <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
+    </RadzenStack>
+
+    <RadzenCard>
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem"
+                     AlignItems="AlignItems.Center" Wrap="FlexWrap.Wrap">
+            <RadzenLabel Text="Tipo:" Component="tipo" />
+            <RadzenDropDown TValue="MinuteType?" @bind-Value="_tipo" Name="tipo"
+                            Data="@Tipos" TextProperty="Texto" ValueProperty="Valor"
+                            AllowClear="true" Placeholder="Todos" Disabled="@_ocupado"
+                            Change="@(_ => Cargar())" Style="min-width:10rem" />
+
+            <RadzenLabel Text="Desde:" Component="desde" />
+            <RadzenDatePicker TValue="DateTime" @bind-Value="_desde" Name="desde"
+                              DateFormat="dd/MM/yyyy" ShowTime="false" Disabled="@_ocupado"
+                              Change="@(_ => Cargar())" Style="width:9rem" />
+
+            <RadzenLabel Text="Hasta:" Component="hasta" />
+            <RadzenDatePicker TValue="DateTime" @bind-Value="_hasta" Name="hasta"
+                              DateFormat="dd/MM/yyyy" ShowTime="false" Disabled="@_ocupado"
+                              Change="@(_ => Cargar())" Style="width:9rem" />
+
+            <RadzenButton Text="➕ Nueva" Click="@Nueva" Disabled="@_ocupado" Style="margin-left:auto" />
+            <RadzenButton Text="📊 Excel" ButtonStyle="ButtonStyle.Light"
+                          Click="@(() => Descargas.DesdeApiAsync(Ruta("/excel")))" Disabled="@_ocupado" />
+        </RadzenStack>
+    </RadzenCard>
+
+    @if (_editando)
+    {
+        <RadzenCard>
+            <RadzenStack Gap="0.75rem">
+                <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                    @(_id == 0 ? "Nueva minuta" : "Editar minuta")
+                </RadzenText>
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem"
+                             AlignItems="AlignItems.Center" Wrap="FlexWrap.Wrap">
+                    <RadzenLabel Text="Tipo:" Component="tipoMinuta" />
+                    <RadzenDropDown TValue="MinuteType" @bind-Value="_tipoCapturado" Name="tipoMinuta"
+                                    Data="@Tipos" TextProperty="Texto" ValueProperty="Valor"
+                                    Style="min-width:10rem" />
+
+                    <RadzenLabel Text="Fecha:" Component="fechaMinuta" />
+                    <RadzenDatePicker TValue="DateTime" @bind-Value="_fecha" Name="fechaMinuta"
+                                      DateFormat="dd/MM/yyyy" ShowTime="false" Style="width:9rem" />
+                </RadzenStack>
+
+                <RadzenTextBox @bind-Value="_titulo" MaxLength="200" Style="width:100%"
+                               Placeholder="Título (obligatorio)" aria-label="Título" />
+
+                <RadzenTextArea @bind-Value="_contenido" Rows="6" Style="width:100%"
+                                Placeholder="Contenido: lo que se habló" aria-label="Contenido" />
+
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.75rem">
+                    <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">
+                        Compromisos / items de acción
+                    </RadzenText>
+                    <RadzenButton Text="➕ Agregar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                  Click="@(() => _compromisos.Add(new CompromisoEditable()))" />
+                </RadzenStack>
+
+                @if (_compromisos.Count == 0)
+                {
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                        Sin compromisos. Una minuta puede no tenerlos; los que se dejen sin descripción
+                        no se guardan.
+                    </RadzenText>
+                }
+
+                @foreach (var compromiso in _compromisos)
+                {
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem"
+                                 AlignItems="AlignItems.Center" Wrap="FlexWrap.Wrap">
+                        <RadzenTextBox @bind-Value="compromiso.Descripcion" MaxLength="500"
+                                       Placeholder="¿Qué se acordó?" Style="flex:1 1 22rem"
+                                       aria-label="Descripción del compromiso" />
+
+                        <RadzenDropDown TValue="int?" @bind-Value="compromiso.ResponsableId"
+                                        Data="@Responsables" TextProperty="Texto" ValueProperty="Id"
+                                        AllowClear="true" Placeholder="(Nadie)" Style="flex:0 1 14rem" />
+
+                        <RadzenDatePicker TValue="DateTime?" @bind-Value="compromiso.Limite"
+                                          DateFormat="dd/MM/yyyy" ShowTime="false" AllowClear="true"
+                                          Placeholder="Fecha límite" Style="flex:0 1 10rem" />
+
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.35rem" AlignItems="AlignItems.Center">
+                            <RadzenCheckBox @bind-Value="compromiso.Cumplido"
+                                            Name="@($"cumplido{_compromisos.IndexOf(compromiso)}")" />
+                            <RadzenLabel Text="Cumplido" Component="@($"cumplido{_compromisos.IndexOf(compromiso)}")" />
+                        </RadzenStack>
+
+                        <RadzenButton Text="🗑" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                      Click="@(() => _compromisos.Remove(compromiso))"
+                                      title="Quitar este compromiso" />
+                    </RadzenStack>
+                }
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                    <RadzenButton Text="Guardar" Click="@Guardar" Disabled="@_ocupado" />
+                    <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+                                  Click="@(() => _editando = false)" />
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    }
+
+    <RadzenDataGrid TItem="MinutaEnListaDto" Data="@Lista" IsLoading="@_ocupado"
+                    AllowSorting="true" AllowPaging="true" PageSize="15"
+                    EmptyText="No hay minutas en ese período.">
+        <Columns>
+            <RadzenDataGridColumn TItem="MinutaEnListaDto" Property="Id" Title="ID" Width="70px" />
+            <RadzenDataGridColumn TItem="MinutaEnListaDto" Property="TipoTexto" Title="Tipo" Width="110px" />
+            <RadzenDataGridColumn TItem="MinutaEnListaDto" Property="Fecha" Title="Fecha" Width="120px">
+                @* Sin ToLocalTime: la fecha de una minuta es un día del calendario, no un instante. *@
+                <Template Context="m">@m.Fecha.ToString("dd/MM/yyyy")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="MinutaEnListaDto" Property="Titulo" Title="Título" />
+            <RadzenDataGridColumn TItem="MinutaEnListaDto" Property="Compromisos" Title="Items"
+                                  Width="90px" TextAlign="TextAlign.Right" />
+            <RadzenDataGridColumn TItem="MinutaEnListaDto" Property="Pendientes" Title="Pendientes" Width="120px">
+                <Template Context="m">
+                    @if (m.Pendientes > 0)
+                    {
+                        <span style="color:var(--rz-warning)">⚠ @m.Pendientes</span>
+                    }
+                    else
+                    {
+                        <span>—</span>
+                    }
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="MinutaEnListaDto" Title="" Width="190px" Sortable="false">
+                <Template Context="m">
+                    <RadzenButton Text="Abrir" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                  Disabled="@_ocupado" Click="@(() => Abrir(m))" />
+                    <RadzenButton Text="Eliminar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                  Disabled="@_ocupado" Click="@(() => Eliminar(m))" />
+                </Template>
+            </RadzenDataGridColumn>
+        </Columns>
+    </RadzenDataGrid>
+</RadzenStack>
+
+@code {
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    /// <summary>Un compromiso mientras se captura. Es mutable a propósito: la fila se edita en sitio.</summary>
+    private sealed class CompromisoEditable
+    {
+        public int Id { get; set; }
+        public string Descripcion { get; set; } = "";
+        public int? ResponsableId { get; set; }
+        public DateTime? Limite { get; set; }
+        public bool Cumplido { get; set; }
+    }
+
+    private MinutasDto? _datos;
+    private bool _ocupado;
+
+    // Últimos tres meses, igual que el escritorio.
+    private MinuteType? _tipo;
+    private DateTime _desde = DateTime.Today.AddMonths(-3);
+    private DateTime _hasta = DateTime.Today;
+
+    // Captura.
+    private bool _editando;
+    private int _id;
+    private MinuteType _tipoCapturado = MinuteType.Daily;
+    private DateTime _fecha = DateTime.Today;
+    private string _titulo = "";
+    private string _contenido = "";
+    private readonly List<CompromisoEditable> _compromisos = [];
+
+    /// <summary>No se llama «Minutas»: ese es el nombre de la propia pantalla y C# no admite un
+    /// miembro que se llame igual que su tipo.</summary>
+    private IReadOnlyList<MinutaEnListaDto> Lista => _datos?.Minutas ?? [];
+    private IReadOnlyList<TipoDeMinutaDto> Tipos => _datos?.Tipos ?? [];
+    private IReadOnlyList<OpcionDto> Responsables => _datos?.Responsables ?? [];
+
+    protected override async Task OnInitializedAsync() => await Cargar();
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try { _datos = await Api.LeerAsync<MinutasDto>(Ruta(""), _cancelacion.Token); }
+        finally { _ocupado = false; }
+    }
+
+    /// <summary>La dirección de la lista con sus filtros; el sufijo la convierte en la exportación.</summary>
+    private string Ruta(string sufijo)
+    {
+        var ruta = $"api/administracion/minutas{sufijo}?desde={_desde:yyyy-MM-dd}&hasta={_hasta:yyyy-MM-dd}";
+        if (_tipo is { } t) ruta += $"&tipo={t}";
+        return ruta;
+    }
+
+    private void Nueva()
+    {
+        _id = 0;
+        _tipoCapturado = MinuteType.Daily;
+        _fecha = DateTime.Today;
+        _titulo = "";
+        _contenido = "";
+        _compromisos.Clear();
+        _editando = true;
+    }
+
+    private async Task Abrir(MinutaEnListaDto fila)
+    {
+        // El contenido y los compromisos se piden al abrir: la lista no los trae porque el contenido
+        // puede ser largo y la rejilla no lo enseña.
+        var minuta = await Api.LeerAsync<MinutaDto>(
+            $"api/administracion/minutas/{fila.Id}", _cancelacion.Token);
+        if (minuta is null) return;   // el error ya se mostró
+
+        _id = minuta.Id;
+        _tipoCapturado = minuta.Tipo;
+        _fecha = minuta.Fecha.Date;
+        _titulo = minuta.Titulo;
+        _contenido = minuta.Contenido ?? "";
+
+        _compromisos.Clear();
+        foreach (var c in minuta.Compromisos)
+            _compromisos.Add(new CompromisoEditable
+            {
+                Id = c.Id,
+                Descripcion = c.Descripcion,
+                ResponsableId = c.ResponsableId,
+                Limite = c.Limite?.Date,
+                Cumplido = c.Cumplido
+            });
+
+        _editando = true;
+    }
+
+    private async Task Guardar()
+    {
+        // Solo lo evidente se comprueba aquí; el servicio vuelve a validarlo, que es donde la regla
+        // tiene que vivir.
+        if (string.IsNullOrWhiteSpace(_titulo))
+        {
+            Avisos.Aviso("El título es obligatorio.");
+            return;
+        }
+
+        var peticion = new GuardarMinutaRequest(
+            _id, _tipoCapturado, _fecha.Date, _titulo, _contenido,
+            _compromisos
+                .Where(c => !string.IsNullOrWhiteSpace(c.Descripcion))
+                .Select(c => new CompromisoRequest(c.Id, c.Descripcion, c.ResponsableId, c.Limite, c.Cumplido))
+                .ToList());
+
+        if (await Enviar("api/administracion/minutas", peticion)) _editando = false;
+    }
+
+    private async Task Eliminar(MinutaEnListaDto fila)
+    {
+        var aviso = fila.Pendientes > 0
+            ? $"«{fila.Titulo}» tiene {fila.Pendientes} compromiso(s) pendiente(s), que se van con ella. ¿Eliminarla?"
+            : $"¿Eliminar la minuta «{fila.Titulo}»?";
+
+        if (!await Avisos.ConfirmarAsync(aviso, "Eliminar minuta", "Sí, eliminarla")) return;
+
+        if (await Enviar<object?>($"api/administracion/minutas/{fila.Id}/eliminar", null) && _id == fila.Id)
+            _editando = false;   // estaba abierta en el panel: dejarla ahí invitaría a guardarla otra vez
+    }
+
+    /// <summary>
+    /// El envío que comparten las acciones. El mensaje del servidor se enseña TAL CUAL: dice cuántos
+    /// compromisos quedaron pendientes o por qué se rechazó, y cambiarlo por un «listo» genérico
+    /// tiraría lo que el servicio se molestó en explicar.
+    /// </summary>
+    private async Task<bool> Enviar<T>(string ruta, T cuerpo)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, respuesta) = await Api.EnviarAsync<T, ResultadoDto>(ruta, cuerpo, _cancelacion.Token);
+            if (ok && respuesta is not null) Avisos.Exito(respuesta.Mensaje);
+            if (ok) await Cargar();
+            return ok;
+        }
+        finally { _ocupado = false; }
+    }
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

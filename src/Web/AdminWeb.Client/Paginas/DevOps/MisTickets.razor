@@ -1,0 +1,684 @@
+@page "/mis-tickets"
+@attribute [Authorize(Policy = "AdminUDesarrollador")]
+@using AdminWeb.Shared.Dtos.DevOps
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+
+@*
+    «Mis tickets DevOps»: los work items asignados a quien tiene la sesión.
+
+    EL CAMBIO QUE DEFINE ESTA PANTALLA
+
+    En el escritorio el token de DevOps era personal por MÁQUINA: se guardaba cifrado con DPAPI en la
+    computadora de cada quien y se perdía al cambiar de equipo. Aquí el token sigue siendo personal,
+    pero vive cifrado del lado del SERVIDOR y sigue a la persona. Esta pantalla nunca lo ve: solo
+    pregunta si hay uno configurado y permite reemplazarlo. Comentar, estimar y sincronizar los hace
+    la API en su nombre.
+
+    LO QUE SE CONSERVA
+
+      · SINCRONIZA POR SU CUENTA, sin esperar al líder: pide a DevOps lo asignado a la cuenta de SU
+        token (la macro @@Me), así que funciona aunque el correo de su ficha no coincida con el de su
+        cuenta de DevOps. Antes solo veía lo que el administrador hubiera traído, y un ticket recién
+        asignado no aparecía hasta que a otra persona le diera por sincronizar.
+      · La ventana por omisión es un trimestre. Sin ella la pantalla enseñaba años de work items
+        cerrados encima de los tres que la persona tiene abiertos hoy.
+      · Lo pendiente de ESTIMAR se avisa pero no bloquea: si una sincronización trae doscientos
+        tickets viejos, dejar a alguien sin poder trabajar hasta estimarlos todos sería peor que el
+        problema que resuelve.
+      · «Sin cerrar» se cuenta sobre TODO lo suyo, no sobre lo filtrado: es el trabajo pendiente real
+        y no debe cambiar porque se acote la vista.
+
+    LO QUE CAMBIA
+
+      · «Pegar captura» ya no lee el portapapeles de Windows: una página solo puede recibir lo que se
+        pega DENTRO de ella. El componente de imágenes lo explica en su propio recuadro.
+      · El menú contextual con botón derecho se sustituye por botones en la fila: en el navegador el
+        botón derecho es del navegador, y secuestrarlo sorprende más de lo que ayuda.
+*@
+
+<PageTitle>Mis tickets DevOps</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.75rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Mis tickets DevOps</RadzenText>
+        <RadzenButton Text="⟳ Sincronizar mis tickets" Disabled="@(_ocupado || !PuedoSincronizar)"
+                      Click="@Sincronizar"
+                      title="@(PuedoSincronizar
+                                ? "Trae de Azure DevOps los work items asignados a ti, con tu token personal."
+                                : "Captura tu token en «Mi token de DevOps» para poder sincronizar por tu cuenta.")" />
+        <RadzenButton Text="🔄 Actualizar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                      Disabled="@_ocupado" Click="@Cargar" />
+        <RadzenButton Text="🔑 Mi token de DevOps" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                      Disabled="@_ocupado" Click="@(() => Alternar(Panel.Token))" />
+    </RadzenStack>
+
+    @if (!PuedoSincronizar && _datos is not null)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+            Para traer tus tickets por tu cuenta necesitas TU token de Azure DevOps: la consulta se
+            resuelve contra la cuenta del token, no contra el correo de tu ficha. Captúralo en
+            «Mi token de DevOps».
+        </RadzenAlert>
+    }
+
+    @* ── Mi token ────────────────────────────────────────────────────────────── *@
+    @if (_panel == Panel.Token)
+    {
+        <RadzenCard>
+            <RadzenStack Gap="0.75rem">
+                <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">🔑 Mi token de Azure DevOps</RadzenText>
+
+                <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                    Los comentarios y los cambios que la aplicación haga en los tickets quedarán
+                    firmados en DevOps con TU cuenta; por eso el token es personal y no se comparte.
+                </RadzenText>
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                    Cómo obtenerlo: en Azure DevOps → tu foto (arriba a la derecha) → Personal access
+                    tokens → New Token, con permiso «Work Items → Read &amp; write».
+                </RadzenText>
+
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                            Style="@(TengoToken ? "color:var(--rz-success)" : "")">
+                    @(TengoToken
+                        ? "✓ Ya tienes un token guardado. Escribe uno nuevo solo si lo vas a reemplazar."
+                        : "Sin token configurado.")
+                </RadzenText>
+
+                <RadzenPassword @bind-Value="_token" Placeholder="pega aquí tu token"
+                                Disabled="@_ocupado" Style="max-width:34rem" />
+
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                    Se guarda cifrado en el servidor y no vuelve a mostrarse: ni a ti ni a nadie. A
+                    diferencia del escritorio, no se pierde al cambiar de computadora.
+                </RadzenText>
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+                    <RadzenButton Text="Guardar" Disabled="@_ocupado" Click="@GuardarToken" />
+                    <RadzenButton Text="🔍 Probar conexión" ButtonStyle="ButtonStyle.Light"
+                                  Disabled="@_ocupado" Click="@ProbarToken" />
+                    @if (TengoToken)
+                    {
+                        <RadzenButton Text="🗑 Quitar mi token" ButtonStyle="ButtonStyle.Light"
+                                      Disabled="@_ocupado" Click="@QuitarToken" />
+                    }
+                    <RadzenButton Text="Cerrar" ButtonStyle="ButtonStyle.Light"
+                                  Disabled="@_ocupado" Click="@Cerrar" />
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    }
+
+    @* ── Filtros ─────────────────────────────────────────────────────────────── *@
+    <RadzenCard>
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                     Gap="0.75rem" Wrap="FlexWrap.Wrap">
+            <RadzenTextBox @bind-Value="_texto" Placeholder="Buscar por título, ID, estado…"
+                           Change="@(_ => Cargar())" Style="min-width:16rem" />
+
+            <RadzenDropDown TValue="int?" @bind-Value="_dias" Data="@Ventanas"
+                            TextProperty="Texto" ValueProperty="Dias" AllowClear="true"
+                            Placeholder="Todo el historial" Disabled="@_ocupado"
+                            Change="@(_ => Cargar())" Style="min-width:12rem" />
+
+            <RadzenDropDown TValue="string" @bind-Value="_estado" Data="@Estados" AllowClear="true"
+                            Placeholder="Todos los estados" Disabled="@_ocupado"
+                            Change="@(_ => Cargar())" Style="min-width:11rem" />
+
+            <RadzenDropDown TValue="string" @bind-Value="_tipo" Data="@Tipos" AllowClear="true"
+                            Placeholder="Todos los tipos" Disabled="@_ocupado"
+                            Change="@(_ => Cargar())" Style="min-width:11rem" />
+
+            <RadzenDropDown TValue="string" @bind-Value="_iteracion" Data="@Iteraciones" AllowClear="true"
+                            Placeholder="Todas las iteraciones" Disabled="@_ocupado"
+                            Change="@(_ => Cargar())" Style="min-width:13rem" />
+
+            <RadzenCheckBox TValue="bool" @bind-Value="_soloAbiertos" Name="abiertos"
+                            Change="@(_ => Cargar())" Disabled="@_ocupado" />
+            <RadzenLabel Text="Solo sin cerrar" Component="abiertos" />
+
+            <RadzenCheckBox TValue="bool" @bind-Value="_soloSinEstimar" Name="sinEstimar"
+                            Change="@(_ => Cargar())" Disabled="@_ocupado" />
+            <RadzenLabel Text="@EtiquetaSinEstimar()" Component="sinEstimar"
+                         Style="@(SinEstimar > 0 ? "color:var(--rz-warning);font-weight:600" : "")" />
+
+            <RadzenButton Text="Limpiar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                          Disabled="@_ocupado" Click="@LimpiarFiltros" />
+        </RadzenStack>
+    </RadzenCard>
+
+    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@(_datos?.Resumen ?? "")</RadzenText>
+
+    @if (_datos is { Aviso: { Length: > 0 } aviso })
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false">
+            <span style="white-space:pre-wrap">@aviso</span>
+        </RadzenAlert>
+    }
+
+    @* ── Panel del ticket seleccionado ───────────────────────────────────────── *@
+    @if (_ticket is { } ticket && _panel != Panel.Token && _panel != Panel.Ninguno)
+    {
+        <RadzenCard>
+            <RadzenStack Gap="0.75rem">
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                             Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                    <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                        #@ticket.Numero — @ticket.Titulo
+                    </RadzenText>
+                    <a href="@ticket.Url" target="_blank" rel="noopener">🔗 Abrir en Azure DevOps</a>
+                    <RadzenButton Text="Cerrar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                  Disabled="@_ocupado" Click="@Cerrar" Style="margin-left:auto" />
+                </RadzenStack>
+
+                @switch (_panel)
+                {
+                    case Panel.Estimar:
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                            Se guarda aquí y en el campo Effort del work item, para que valga fuera de
+                            esta aplicación. Se puede volver a estimar: una estimación equivocada que
+                            no se corrige deja de servir para planear.
+                        </RadzenText>
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem"
+                                     AlignItems="AlignItems.Center" Wrap="FlexWrap.Wrap">
+                            <RadzenLabel Text="Horas:" Component="horas" />
+                            @* Los topes van con sufijo decimal: el control los espera así y un literal
+                               de punto flotante no se convierte solo. *@
+                            <RadzenNumeric TValue="double" @bind-Value="_horas" Name="horas"
+                                           Min="0.25m" Max="1000m" Step="0.25" Style="width:9rem" />
+                            <RadzenButton Text="Guardar estimación" Disabled="@_ocupado" Click="@Estimar" />
+                        </RadzenStack>
+                        break;
+
+                    case Panel.Prioridad:
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                            @(ticket.SinPrioridadDefinida
+                                ? "Nadie la ha definido todavía: DevOps le pone 2 por omisión a todo lo que se crea."
+                                : $"Prioridad actual en DevOps: {ticket.Prioridad}.")
+                        </RadzenText>
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem"
+                                     AlignItems="AlignItems.Center" Wrap="FlexWrap.Wrap">
+                            <RadzenDropDown TValue="int" @bind-Value="_prioridad" Data="@Prioridades"
+                                            TextProperty="Texto" ValueProperty="Valor" Style="min-width:14rem" />
+                            <RadzenButton Text="Cambiar prioridad" Disabled="@_ocupado" Click="@CambiarPrioridad" />
+                        </RadzenStack>
+                        break;
+
+                    case Panel.Comentarios:
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                            Se publica con TU token, así que en DevOps queda a tu nombre.
+                        </RadzenText>
+
+                        @if (_comentarios is { } hilo)
+                        {
+                            @if (hilo.Comentarios.Count == 0)
+                            {
+                                <RadzenText TextStyle="TextStyle.Body2">Sin comentarios todavía.</RadzenText>
+                            }
+                            else
+                            {
+                                <RadzenStack Gap="0.5rem">
+                                    @foreach (var c in hilo.Comentarios)
+                                    {
+                                        <RadzenCard Style="background:var(--rz-base-200)">
+                                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                                🧑 @c.Autor · @c.CreadoUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                                            </RadzenText>
+                                            @* Texto plano y nunca MarkupString: los comentarios los escribe
+                                               gente de fuera del equipo y llegan en HTML. *@
+                                            <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0"
+                                                        Style="white-space:pre-wrap">@c.Texto</RadzenText>
+                                        </RadzenCard>
+                                    }
+                                </RadzenStack>
+                            }
+                        }
+
+                        <RadzenTextArea @bind-Value="_comentario" Rows="3" Style="width:100%"
+                                        Placeholder="Escribe tu comentario…" />
+                        <PegarImagen @bind-Imagenes="_evidencias" Maximo="5" />
+                        <RadzenButton Text="Enviar 💬" Disabled="@_ocupado" Click="@Comentar" />
+                        break;
+
+                    case Panel.Ficha:
+                        @if (_ficha is { } ficha)
+                        {
+                            <RadzenStack Orientation="Orientation.Horizontal" Gap="1.5rem" Wrap="FlexWrap.Wrap">
+                                <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                                    <b>@ficha.Regresiones</b> regresión(es), <b>@ficha.RegresionesAbiertas</b> sin cerrar
+                                </RadzenText>
+                                <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                                    Pasó por <b>@ficha.Manos</b> mano(s)
+                                </RadzenText>
+                                <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                                    Te lo devolvieron <b>@ficha.Devoluciones</b> vez(ces)
+                                </RadzenText>
+                            </RadzenStack>
+
+                            <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">Regresiones (bugs hijos)</RadzenText>
+                            @if (ficha.Regresiones.Count == 0)
+                            {
+                                <RadzenText TextStyle="TextStyle.Body2">Ninguna. Nada se rompió por su culpa.</RadzenText>
+                            }
+                            else
+                            {
+                                <RadzenStack Gap="0.2rem">
+                                    @foreach (var bug in ficha.Regresiones)
+                                    {
+                                        <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                                            @(bug.Cerrado ? "✓" : "●")
+                                            <a href="@bug.Url" target="_blank" rel="noopener">#@bug.Id</a>
+                                            — @bug.Titulo (@bug.Estado)
+                                        </RadzenText>
+                                    }
+                                </RadzenStack>
+                            }
+
+                            <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">Historial de asignación</RadzenText>
+                            @if (ficha.Asignaciones.Count == 0)
+                            {
+                                <RadzenText TextStyle="TextStyle.Body2">No ha cambiado de dueño.</RadzenText>
+                            }
+                            else
+                            {
+                                <RadzenStack Gap="0.2rem">
+                                    @foreach (var cambio in ficha.Asignaciones)
+                                    {
+                                        <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                                            @cambio.FechaUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                                            — @TextoOGuion(cambio.De) → @TextoOGuion(cambio.A)
+                                        </RadzenText>
+                                    }
+                                </RadzenStack>
+                            }
+                        }
+                        break;
+                }
+            </RadzenStack>
+        </RadzenCard>
+    }
+
+    @* ── La lista ────────────────────────────────────────────────────────────── *@
+    <RadzenDataGrid TItem="TicketDevOpsDto" Data="@Filas" IsLoading="@_ocupado"
+                    AllowSorting="true" AllowPaging="true" PageSize="25"
+                    AllowFiltering="true" FilterMode="FilterMode.Advanced"
+                    FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive"
+                    AllowColumnPicking="true" AllowColumnResize="true"
+                    EmptyText="No hay tickets que cumplan el filtro.">
+        <Columns>
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Numero" Title="ID" Width="80px">
+                <Template Context="t">
+                    <a href="@t.Url" target="_blank" rel="noopener">@t.Numero</a>
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Tipo" Title="Tipo" Width="115px" />
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Titulo" Title="Título" />
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Estado" Title="Estado" Width="115px">
+                <Template Context="t">
+                    <b style="@($"color:{ColorDeEstado(t.Estado)}")">@t.Estado</b>
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Prioridad" Title="Prio" Width="80px">
+                <Template Context="t">@TextoOGuion(t.Prioridad)</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Iteracion" Title="Iteración" Width="150px" />
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Puntos" Title="Pts"
+                                  Width="70px" TextAlign="TextAlign.Right">
+                <Template Context="t">@(t.Puntos?.ToString("0.#") ?? "—")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="HorasEstimadas" Title="⏱ Est."
+                                  Width="85px" TextAlign="TextAlign.Right">
+                <Template Context="t">
+                    <span style="@(t.SinEstimar && !t.Cerrado ? "color:var(--rz-warning)" : "")">
+                        @(t.HorasEstimadas?.ToString("0.##") ?? "—")
+                    </span>
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Comentarios" Title="💬"
+                                  Width="70px" TextAlign="TextAlign.Right">
+                <Template Context="t">@(t.Comentarios == 0 ? "" : t.Comentarios.ToString())</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="ActualizadoUtc" Title="Actualizado" Width="120px">
+                <Template Context="t">@(t.ActualizadoUtc?.ToLocalTime().ToString("dd/MM/yyyy") ?? "—")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Title="" Width="250px"
+                                  Sortable="false" Filterable="false" Pickable="false">
+                <Template Context="t">
+                    <RadzenButton Text="@(t.SinEstimar ? "⏱ Estimar" : "⏱")" ButtonStyle="ButtonStyle.Light"
+                                  Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                  Click="@(() => AbrirEstimar(t))"
+                                  title="@(t.SinEstimar ? "Pendiente de estimar" : "Cambiar mi estimación")" />
+                    <RadzenButton Text="💬" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                  Disabled="@_ocupado" Click="@(() => AbrirComentarios(t))"
+                                  title="Ver y agregar comentarios" />
+                    <RadzenButton Text="🔧" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                  Disabled="@_ocupado" Click="@(() => AbrirPrioridad(t))"
+                                  title="Cambiar prioridad" />
+                    <RadzenButton Text="🔍" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                  Disabled="@_ocupado" Click="@(() => AbrirFicha(t))"
+                                  title="Regresiones y devoluciones" />
+                    <RadzenButton Text="@(t.Vigilado ? "🔕" : "🔔")" ButtonStyle="ButtonStyle.Light"
+                                  Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                  Click="@(() => Vigilar(t))"
+                                  title="@(t.Vigilado ? "Dejar de vigilar" : "Vigilar este ticket")" />
+                </Template>
+            </RadzenDataGridColumn>
+        </Columns>
+    </RadzenDataGrid>
+</RadzenStack>
+
+@code {
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private MisTicketsDevOpsDto? _datos;
+    private bool _ocupado;
+
+    // Filtros. El servidor los aplica: la ventana de días y el «solo sin estimar» son reglas
+    // portadas y probadas, y repetirlas aquí dejaría una segunda copia que se desincroniza.
+    private string _texto = "";
+    private int? _dias = 90;
+    private string? _estado;
+    private string? _tipo;
+    private string? _iteracion;
+    private bool _soloAbiertos = true;
+    private bool _soloSinEstimar;
+
+    private enum Panel { Ninguno, Token, Estimar, Prioridad, Comentarios, Ficha }
+
+    private Panel _panel = Panel.Ninguno;
+    private TicketDevOpsDto? _ticket;
+
+    private string _token = "";
+    private double _horas = 1;
+    private int _prioridad = 2;
+
+    private ComentariosDevOpsDto? _comentarios;
+    private string _comentario = "";
+    private List<ImagenAdjunta> _evidencias = [];
+
+    private FichaDeTicketDto? _ficha;
+
+    private IReadOnlyList<TicketDevOpsDto> Filas => _datos?.Filas ?? [];
+    private IReadOnlyList<string> Estados => _datos?.Estados ?? [];
+    private IReadOnlyList<string> Tipos => _datos?.Tipos ?? [];
+    private IReadOnlyList<string> Iteraciones => _datos?.Iteraciones ?? [];
+    private bool PuedoSincronizar => _datos?.PuedoSincronizar ?? false;
+    private bool TengoToken => _datos?.TengoPatPropio ?? false;
+    private int SinEstimar => _datos?.SinEstimar ?? 0;
+
+    /// <summary>
+    /// Las ventanas de tiempo, con el trimestre por omisión. «Todo el historial» se ofrece dejando el
+    /// desplegable vacío: al sincronizar, el servidor lo acota a un año de todos modos para no
+    /// arrastrar años de work items cerrados por una sola pulsación.
+    /// </summary>
+    private static readonly IReadOnlyList<VentanaDeTiempo> Ventanas =
+    [
+        new(30, "Últimos 30 días"),
+        new(90, "Últimos 90 días"),
+        new(365, "Último año"),
+    ];
+
+    private static readonly IReadOnlyList<OpcionDePrioridad> Prioridades =
+    [
+        new(1, "1 — Muy alta"), new(2, "2 — Alta"), new(3, "3 — Media"), new(4, "4 — Baja")
+    ];
+
+    private record VentanaDeTiempo(int? Dias, string Texto);
+
+    private record OpcionDePrioridad(int Valor, string Texto);
+
+    protected override async Task OnInitializedAsync() => await Cargar();
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            var filtros = new List<string>
+            {
+                $"soloAbiertos={_soloAbiertos.ToString().ToLowerInvariant()}",
+                $"soloSinEstimar={_soloSinEstimar.ToString().ToLowerInvariant()}"
+            };
+            if (_dias is int dias) filtros.Add($"dias={dias}");
+            if (!string.IsNullOrWhiteSpace(_texto)) filtros.Add($"texto={Uri.EscapeDataString(_texto.Trim())}");
+            if (!string.IsNullOrWhiteSpace(_estado)) filtros.Add($"estado={Uri.EscapeDataString(_estado)}");
+            if (!string.IsNullOrWhiteSpace(_tipo)) filtros.Add($"tipo={Uri.EscapeDataString(_tipo)}");
+            if (!string.IsNullOrWhiteSpace(_iteracion)) filtros.Add($"iteracion={Uri.EscapeDataString(_iteracion)}");
+
+            _datos = await Api.LeerAsync<MisTicketsDevOpsDto>(
+                "api/devops/mis-tickets?" + string.Join("&", filtros), _cancelacion.Token);
+
+            // El ticket del panel abierto pudo salir del filtro: dejar el panel sobre algo que ya no
+            // está en la lista haría operar contra datos viejos sin que nadie lo note.
+            if (_ticket is { } abierto)
+                _ticket = Filas.FirstOrDefault(t => t.Numero == abierto.Numero);
+            if (_ticket is null && _panel != Panel.Token) _panel = Panel.Ninguno;
+        }
+        finally { _ocupado = false; }
+    }
+
+    private void LimpiarFiltros()
+    {
+        _texto = "";
+        _dias = 90;
+        _estado = null;
+        _tipo = null;
+        _iteracion = null;
+        _soloAbiertos = true;
+        _soloSinEstimar = false;
+        _ = Cargar();
+    }
+
+    // ── Sincronización ───────────────────────────────────────────────────────
+
+    private async Task Sincronizar()
+    {
+        _ocupado = true;
+        try
+        {
+            // Se pide la MISMA ventana que se está viendo; sin ventana, el servidor la acota a un año.
+            var (ok, resultado) = await Api.EnviarAsync<SincronizarMisTicketsRequest, ResultadoDeSincronizacionDto>(
+                "api/devops/mis-tickets/sincronizar",
+                new SincronizarMisTicketsRequest(_dias ?? 0), _cancelacion.Token);
+
+            if (ok && resultado is not null) Avisos.Exito(resultado.Mensaje);
+        }
+        finally { _ocupado = false; }
+
+        await Cargar();
+    }
+
+    // ── Mi token ─────────────────────────────────────────────────────────────
+
+    private async Task GuardarToken()
+    {
+        if (string.IsNullOrWhiteSpace(_token))
+        {
+            Avisos.Aviso("Pega tu token antes de guardar.");
+            return;
+        }
+
+        if (await Enviar("api/devops/mi-token", new GuardarMiPatRequest(_token.Trim())))
+            _token = "";   // no se conserva ni en memoria del navegador
+    }
+
+    private async Task ProbarToken()
+    {
+        _ocupado = true;
+        try
+        {
+            // Lo escrito se prueba SIN guardarlo, igual que el diálogo del escritorio: así se sabe si
+            // sirve antes de reemplazar el que ya funciona. Vacío prueba el que esté configurado.
+            var (ok, resultado) = await Api.EnviarAsync<ProbarPatRequest, ResultadoDto>(
+                "api/devops/mi-token/probar", new ProbarPatRequest(_token), _cancelacion.Token);
+
+            if (ok && resultado is not null) Avisos.Exito(resultado.Mensaje);
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task QuitarToken()
+    {
+        if (!await Avisos.ConfirmarAsync(
+            "¿Quitar tu token de Azure DevOps?\n\nDejarás de poder sincronizar por tu cuenta, y lo que " +
+            "la aplicación publique dejará de quedar a tu nombre.",
+            "Quitar mi token", "Sí, quitarlo"))
+            return;
+
+        if (await Enviar("api/devops/mi-token/eliminar", new { })) _token = "";
+    }
+
+    // ── Acciones sobre un ticket ─────────────────────────────────────────────
+
+    private void AbrirEstimar(TicketDevOpsDto t)
+    {
+        _ticket = t;
+        _panel = Panel.Estimar;
+        _horas = t.HorasEstimadas ?? 1;
+    }
+
+    private async Task Estimar()
+    {
+        if (_ticket is not { } t) return;
+        if (await Enviar($"api/devops/{t.Numero}/estimar", new EstimarTicketRequest(_horas))) Cerrar();
+    }
+
+    private void AbrirPrioridad(TicketDevOpsDto t)
+    {
+        _ticket = t;
+        _panel = Panel.Prioridad;
+        _prioridad = int.TryParse(t.Prioridad, out var actual) && actual is >= 1 and <= 4 ? actual : 2;
+    }
+
+    private async Task CambiarPrioridad()
+    {
+        if (_ticket is not { } t) return;
+        if (await Enviar($"api/devops/{t.Numero}/prioridad", new CambiarPrioridadRequest(_prioridad)))
+            Cerrar();
+    }
+
+    private async Task AbrirComentarios(TicketDevOpsDto t)
+    {
+        _ticket = t;
+        _panel = Panel.Comentarios;
+        _comentario = "";
+        _evidencias = [];
+        _comentarios = null;
+
+        _ocupado = true;
+        try
+        {
+            _comentarios = await Api.LeerAsync<ComentariosDevOpsDto>(
+                $"api/devops/{t.Numero}/comentarios", _cancelacion.Token);
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task Comentar()
+    {
+        if (_ticket is not { } t) return;
+
+        if (string.IsNullOrWhiteSpace(_comentario) && _evidencias.Count == 0)
+        {
+            Avisos.Aviso("Escribe algo o adjunta una evidencia antes de enviar.");
+            return;
+        }
+
+        // Multipart aunque no lleve imágenes: es una sola forma de mandar la operación, y ClienteApi
+        // le pone el testigo antifalsificación sin que esta pantalla tenga que acordarse.
+        var formulario = new MultipartFormDataContent
+        {
+            { new StringContent(_comentario ?? ""), "texto" }
+        };
+        foreach (var imagen in _evidencias)
+            formulario.Add(new ByteArrayContent(imagen.Contenido), "imagenes", imagen.Nombre);
+
+        _ocupado = true;
+        try
+        {
+            var (ok, resultado) = await Api.SubirAsync<ResultadoDto>(
+                $"api/devops/{t.Numero}/comentarios", formulario, _cancelacion.Token);
+
+            if (!ok || resultado is null) return;
+
+            Avisos.Exito(resultado.Mensaje);
+            _comentario = "";
+            _evidencias = [];
+        }
+        finally { _ocupado = false; }
+
+        await AbrirComentarios(t);
+        await Cargar();
+    }
+
+    private async Task AbrirFicha(TicketDevOpsDto t)
+    {
+        _ticket = t;
+        _panel = Panel.Ficha;
+        _ficha = null;
+
+        _ocupado = true;
+        try
+        {
+            _ficha = await Api.LeerAsync<FichaDeTicketDto>($"api/devops/{t.Numero}/ficha", _cancelacion.Token);
+        }
+        finally { _ocupado = false; }
+    }
+
+    private Task Vigilar(TicketDevOpsDto t) => Enviar($"api/devops/{t.Numero}/vigilar", new { });
+
+    // ── Envío ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// El envío que comparten todas las acciones. El mensaje del servidor se enseña TAL CUAL: dice el
+    /// motivo concreto —«tu token expiró», «solo quedó guardado aquí porque DevOps no acepta el campo
+    /// Effort»— y resumirlo perdería justo lo que hace falta para resolverlo.
+    /// </summary>
+    private async Task<bool> Enviar<T>(string ruta, T cuerpo)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, resultado) = await Api.EnviarAsync<T, ResultadoDto>(ruta, cuerpo, _cancelacion.Token);
+            if (ok && resultado is not null) Avisos.Exito(resultado.Mensaje);
+            if (ok) await Cargar();
+            return ok;
+        }
+        finally { _ocupado = false; }
+    }
+
+    // ── Presentación ─────────────────────────────────────────────────────────
+
+    private void Alternar(Panel panel)
+    {
+        _panel = _panel == panel ? Panel.Ninguno : panel;
+        if (_panel is Panel.Ninguno or Panel.Token) _ticket = null;
+    }
+
+    private void Cerrar()
+    {
+        _panel = Panel.Ninguno;
+        _ticket = null;
+    }
+
+    private string EtiquetaSinEstimar() =>
+        SinEstimar > 0 ? $"Solo sin estimar ({SinEstimar})" : "Solo sin estimar";
+
+    private static string TextoOGuion(string? valor) => string.IsNullOrWhiteSpace(valor) ? "—" : valor;
+
+    private static string ColorDeEstado(string? estado) => (estado ?? "").ToLowerInvariant() switch
+    {
+        "active" or "in progress" or "doing" or "in development" => "#2563EB",
+        "resolved" or "done" or "completed" => "#059669",
+        "closed" => "#6B7280",
+        "new" or "to do" => "#64748B",
+        _ => "inherit"
+    };
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

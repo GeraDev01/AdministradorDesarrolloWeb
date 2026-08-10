@@ -1,0 +1,40 @@
+@*
+    Raíz de la aplicación.
+
+    La redirección a la pantalla de acceso se hace aquí, en un solo sitio: repetir la comprobación
+    en cada página es cómo se acaba con una que se olvidó de hacerla.
+*@
+<CascadingAuthenticationState>
+    <Router AppAssembly="@typeof(App).Assembly">
+        <Found Context="routeData">
+            <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(Layout.MainLayout)">
+                <NotAuthorized>
+                    @if (context.User.Identity?.IsAuthenticated != true)
+                    {
+                        <RedirectToLogin />
+                    }
+                    else
+                    {
+                        @* Autenticado pero sin permiso: no es un error del usuario, es que esa
+                           pantalla no es suya. El servidor responde 403 igualmente. *@
+                        <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+                            Esta sección no corresponde a tu rol.
+                        </RadzenAlert>
+                    }
+                </NotAuthorized>
+                <Authorizing>
+                    <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" />
+                </Authorizing>
+            </AuthorizeRouteView>
+        </Found>
+        <NotFound>
+            <LayoutView Layout="@typeof(Layout.MainLayout)">
+                <RadzenAlert AlertStyle="AlertStyle.Info" AllowClose="false">
+                    Esa dirección no existe.
+                </RadzenAlert>
+            </LayoutView>
+        </NotFound>
+    </Router>
+</CascadingAuthenticationState>
+
+<RadzenComponents />

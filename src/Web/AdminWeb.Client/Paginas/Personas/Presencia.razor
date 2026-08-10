@@ -1,0 +1,546 @@
+@page "/presencia"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Shared.Dtos.Personas
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+@inject ConexionEnVivo EnVivo
+@inject Descargas Descargas
+
+@*
+    Quién está, la asistencia oficial y el registro automático de jornadas. Réplica de
+    PresenceControl.
+
+    Las tres pestañas miden cosas distintas y por eso siguen separadas:
+
+      · «Quién está» es el AHORA: quién tiene la aplicación abierta y en qué anda.
+      · «Asistencia» es lo que cada quien DECLARA marcando entrada y salida. Es el registro oficial,
+        el que se consulta a diario, y por eso va antes que el automático — igual que en el escritorio.
+      · «Registro de jornadas» es lo que la aplicación puede ver SOLA. Es el contraste, se mira
+        cuando algo no cuadra.
+
+    Ninguna se deduce de la otra: es justamente la diferencia entre ambas lo que delata un olvido.
+
+    LOS ESTADOS NO SE HISTORIZAN, y esta pantalla no ofrece ninguna forma de consultarlos hacia
+    atrás porque no existe tal cosa. Es una decisión ética heredada del escritorio: un registro
+    minutado de las pausas de alguien es vigilancia, no asistencia. Lo que sí queda es la jornada: a
+    qué hora entró y a qué hora salió.
+
+    «Ausente» tampoco se elige aquí ni en ningún sitio: lo pone el servidor cuando alguien deja de
+    dar señales durante más de la tolerancia.
+
+    Lo que cambia respecto al escritorio: corregir un registro y dar de alta un día olvidado se hacen
+    en un panel dentro de la misma pantalla y no en una ventana modal aparte. Son el mismo formulario
+    y las mismas reglas —el servidor sigue validando—, pero en el navegador una ventana modal encima
+    de otra pantalla se pierde detrás del propio navegador con demasiada facilidad.
+*@
+
+<PageTitle>Quién está</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Quién está</RadzenText>
+        <RadzenButton Text="Actualizar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@CargarTodo" Disabled="@_ocupado" />
+    </RadzenStack>
+
+    <RadzenTabs>
+        <Tabs>
+            <RadzenTabsItem Text="🟢 Quién está">
+                <RadzenStack Gap="0.75rem">
+                    <RadzenDataGrid TItem="PresenteDto" Data="@Presentes" IsLoading="@_ocupado"
+                                    AllowSorting="false" RowRender="@ApagarDesconectados"
+                                    EmptyText="No hay cuentas activas.">
+                        <Columns>
+                            <RadzenDataGridColumn TItem="PresenteDto" Title="" Width="52px" Sortable="false">
+                                @* El icono va aparte del texto: el emoji se dibuja con su propia
+                                   paleta e ignora el color, así que el color va en «Estado». *@
+                                <Template Context="p">@p.Icono</Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="PresenteDto" Property="Nombre" Title="Persona">
+                                <Template Context="p">
+                                    <span style="@(p.Conectado ? "font-weight:600" : "")">@p.Nombre</span>
+                                </Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="PresenteDto" Property="EstadoTexto" Title="Estado" Width="180px">
+                                <Template Context="p">
+                                    <span style="@EstiloDeEstado(p)">@p.EstadoTexto</span>
+                                </Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="PresenteDto" Property="Nota" Title="Nota">
+                                <Template Context="p">@(p.Nota ?? "")</Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="PresenteDto" Title="Desde" Width="220px" Sortable="false">
+                                <Template Context="p">@Desde(p)</Template>
+                            </RadzenDataGridColumn>
+                        </Columns>
+                    </RadzenDataGrid>
+
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@ResumenDePresencia()</RadzenText>
+                </RadzenStack>
+            </RadzenTabsItem>
+
+            <RadzenTabsItem Text="🕘 Asistencia (oficial)">
+                <RadzenStack Gap="0.75rem">
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                 Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                        <RadzenLabel Text="Día:" Component="diaAsistencia" />
+                        <RadzenDatePicker TValue="DateTime" @bind-Value="_diaAsistencia" Name="diaAsistencia"
+                                          DateFormat="dd/MM/yyyy" ShowTime="false" Style="width:9rem"
+                                          Change="@(_ => CargarAsistencia())" Disabled="@_ocupado" />
+                        <RadzenButton Text="Hoy" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                      Disabled="@_ocupado" Click="@(() => IrAlDia(DateTime.Today))" />
+                        <RadzenButton Text="➕ Día olvidado…" ButtonStyle="ButtonStyle.Light"
+                                      Size="ButtonSize.Small" Disabled="@_ocupado" Click="@AbrirAlta" />
+                        @* Baja el día que se está viendo, con las mismas diez columnas del
+                           escritorio. Incluye las filas sin marcar: esa ausencia es el dato por el
+                           que se suele exportar. *@
+                        <RadzenButton Text="📊 Excel" ButtonStyle="ButtonStyle.Light"
+                                      Size="ButtonSize.Small" Disabled="@_ocupado"
+                                      Style="margin-left:auto" Click="@ExportarAsistencia" />
+                    </RadzenStack>
+
+                    @if (_capturando)
+                    {
+                        <RadzenCard>
+                            <RadzenStack Gap="0.75rem">
+                                <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                                    @(_corrigiendoId is null
+                                        ? "Dar de alta un día que no se marcó"
+                                        : $"Corregir la asistencia de {_personaCapturada}")
+                                </RadzenText>
+
+                                @if (_corrigiendoId is null)
+                                {
+                                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                                 Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                                        <RadzenLabel Text="Persona:" Component="personaAlta" />
+                                        <RadzenDropDown TValue="int?" @bind-Value="_userIdCapturado" Name="personaAlta"
+                                                        Data="@Asistencias" TextProperty="Nombre" ValueProperty="UserId"
+                                                        Placeholder="Elige a quién" Style="min-width:16rem" />
+                                    </RadzenStack>
+                                }
+
+                                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                             Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                                    <RadzenLabel Text="Entrada:" Component="entrada" />
+                                    <RadzenDatePicker TValue="DateTime" @bind-Value="_entradaCapturada" Name="entrada"
+                                                      DateFormat="dd/MM/yyyy HH:mm" ShowTime="true" Style="width:13rem" />
+
+                                    <RadzenLabel Text="Salida:" Component="salida" />
+                                    @* Vacía = jornada abierta, igual que en el escritorio: quien no marcó
+                                       su salida no tiene una hora que inventar. *@
+                                    <RadzenDatePicker TValue="DateTime?" @bind-Value="_salidaCapturada" Name="salida"
+                                                      DateFormat="dd/MM/yyyy HH:mm" ShowTime="true"
+                                                      AllowClear="true" Style="width:13rem" />
+                                </RadzenStack>
+
+                                <RadzenTextArea @bind-Value="_motivoCapturado" Rows="2" Style="width:100%"
+                                                MaxLength="500"
+                                                Placeholder="Motivo (obligatorio): por qué se toca este registro" />
+
+                                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                                    <RadzenButton Text="Guardar" Disabled="@_ocupado" Click="@GuardarAsistencia" />
+                                    <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                                                  Disabled="@_ocupado" Click="@(() => _capturando = false)" />
+                                </RadzenStack>
+                            </RadzenStack>
+                        </RadzenCard>
+                    }
+
+                    <RadzenDataGrid TItem="AsistenciaDelDiaDto" Data="@Asistencias" IsLoading="@_ocupado"
+                                    AllowSorting="false" RowRender="@ApagarSinRegistro"
+                                    EmptyText="No hay cuentas activas que mostrar.">
+                        <Columns>
+                            <RadzenDataGridColumn TItem="AsistenciaDelDiaDto" Property="Nombre" Title="Persona" />
+                            <RadzenDataGridColumn TItem="AsistenciaDelDiaDto" Title="Entrada" Width="100px" Sortable="false">
+                                <Template Context="f">@Hora(f.EntradaUtc)</Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="AsistenciaDelDiaDto" Title="Salida" Width="110px" Sortable="false">
+                                <Template Context="f">
+                                    @(f.SalidaUtc is not null
+                                        ? Hora(f.SalidaUtc)
+                                        : f.RegistroId != null ? "— abierta" : "")
+                                </Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="AsistenciaDelDiaDto" Property="Horas" Title="Horas" Width="110px" />
+                            <RadzenDataGridColumn TItem="AsistenciaDelDiaDto" Title="Δ entrada" Width="110px" Sortable="false">
+                                <Template Context="f">
+                                    <span style="@(f.Discrepancia ? Ambar : "")">@Delta(f.DeltaEntradaMinutos)</span>
+                                </Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="AsistenciaDelDiaDto" Title="Δ salida" Width="110px" Sortable="false">
+                                <Template Context="f">
+                                    <span style="@(f.Discrepancia ? Ambar : "")">@Delta(f.DeltaSalidaMinutos)</span>
+                                </Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="AsistenciaDelDiaDto" Title="1ª señal app" Width="120px" Sortable="false">
+                                <Template Context="f">@Hora(f.PrimeraSenalUtc)</Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="AsistenciaDelDiaDto" Title="Últ. señal app" Width="130px" Sortable="false">
+                                <Template Context="f">@Hora(f.UltimaSenalUtc)</Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="AsistenciaDelDiaDto" Property="EstadoTexto" Title="Estado" Width="220px">
+                                <Template Context="f">
+                                    <span style="@(f.Olvido || f.CorreccionSolicitada || f.SinMarcar ? Ambar : "")">
+                                        @f.EstadoTexto
+                                    </span>
+                                </Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="AsistenciaDelDiaDto" Title="" Width="110px" Sortable="false">
+                                <Template Context="f">
+                                    @if (f.RegistroId is not null)
+                                    {
+                                        <RadzenButton Text="Corregir" ButtonStyle="ButtonStyle.Light"
+                                                      Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                      Click="@(() => AbrirCorreccion(f))" />
+                                    }
+                                </Template>
+                            </RadzenDataGridColumn>
+                        </Columns>
+                    </RadzenDataGrid>
+
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@ResumenDeAsistencia()</RadzenText>
+
+                    @if (_asistencia?.Filas.FirstOrDefault(f => f.CorreccionSolicitada) is { } pide)
+                    {
+                        @* La nota de quien pide corrección se enseña completa: es lo que hay que leer
+                           antes de decidir qué corregir, y en la columna «Estado» no cabe. *@
+                        <RadzenCard>
+                            <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                                🙋 <b>@pide.Nombre</b> pidió corrección: @(pide.NotaCorreccion ?? "(sin nota)")
+                            </RadzenText>
+                        </RadzenCard>
+                    }
+                </RadzenStack>
+            </RadzenTabsItem>
+
+            <RadzenTabsItem Text="📋 Registro de jornadas">
+                <RadzenStack Gap="0.75rem">
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                 Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                        <RadzenLabel Text="Día:" Component="diaJornadas" />
+                        <RadzenDatePicker TValue="DateTime" @bind-Value="_diaJornadas" Name="diaJornadas"
+                                          DateFormat="dd/MM/yyyy" ShowTime="false" Style="width:9rem"
+                                          Change="@(_ => CargarJornadas())" Disabled="@_ocupado" />
+                        <RadzenButton Text="Hoy" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                      Disabled="@_ocupado"
+                                      Click="@(() => { _diaJornadas = DateTime.Today; return CargarJornadas(); })" />
+                    </RadzenStack>
+
+                    <RadzenDataGrid TItem="JornadaDelDiaDto" Data="@Jornadas" IsLoading="@_ocupado"
+                                    AllowSorting="false" EmptyText="Nadie abrió la aplicación ese día.">
+                        <Columns>
+                            <RadzenDataGridColumn TItem="JornadaDelDiaDto" Property="Persona" Title="Persona" />
+                            <RadzenDataGridColumn TItem="JornadaDelDiaDto" Title="Entrada" Width="110px" Sortable="false">
+                                <Template Context="j">@j.InicioUtc.ToLocalTime().ToString("HH:mm")</Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="JornadaDelDiaDto" Title="Salida" Width="120px" Sortable="false">
+                                <Template Context="j">
+                                    @if (j.Abierta)
+                                    {
+                                        <span style="color:var(--rz-success)">— en curso</span>
+                                    }
+                                    else
+                                    {
+                                        @j.FinUtc!.Value.ToLocalTime().ToString("HH:mm")
+                                    }
+                                </Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="JornadaDelDiaDto" Property="Duracion" Title="Duración" Width="130px" />
+                            <RadzenDataGridColumn TItem="JornadaDelDiaDto" Property="CierreTexto" Title="Cierre" Width="150px">
+                                <Template Context="j">
+                                    <span style="@(j.SinSenales ? Ambar : "")">@j.CierreTexto</span>
+                                </Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="JornadaDelDiaDto" Property="Equipo" Title="Equipo">
+                                <Template Context="j">@(j.Equipo ?? "")</Template>
+                            </RadzenDataGridColumn>
+                        </Columns>
+                    </RadzenDataGrid>
+
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@ResumenDeJornadas()</RadzenText>
+                </RadzenStack>
+            </RadzenTabsItem>
+        </Tabs>
+    </RadzenTabs>
+</RadzenStack>
+
+@code {
+    /// <summary>El ámbar de aviso del escritorio (AppTheme.Warning), para lo que hay que mirar.</summary>
+    private const string Ambar = "color:var(--rz-warning);font-weight:600";
+
+    /// <summary>
+    /// Cada cuánto se repinta el tablero por su cuenta.
+    ///
+    /// Convive con el evento en vivo y no lo sustituye: el hub avisa cuando alguien CAMBIA de estado,
+    /// pero conectarse y desconectarse no dispara ningún evento, y el «desde» envejece solo. Sin este
+    /// tic, el tablero se quedaría congelado diciendo «conectado» de quien cerró el navegador. Son
+    /// los mismos 30 s del escritorio.
+    /// </summary>
+    private static readonly TimeSpan Refresco = TimeSpan.FromSeconds(30);
+
+    private readonly CancellationTokenSource _cancelacion = new();
+    private Timer? _tic;
+    private bool _ocupado;
+
+    private TableroDePresenciaDto? _tablero;
+    private RegistroDeJornadasDto? _jornadas;
+    private AsistenciaDelDiaResumenDto? _asistencia;
+
+    private DateTime _diaJornadas = DateTime.Today;
+    private DateTime _diaAsistencia = DateTime.Today;
+
+    // Corrección y alta manual.
+    private bool _capturando;
+    private int? _corrigiendoId;
+    private string _personaCapturada = "";
+    private int? _userIdCapturado;
+    private DateTime _entradaCapturada = DateTime.Today.AddHours(9);
+    private DateTime? _salidaCapturada;
+    private string _motivoCapturado = "";
+
+    private IReadOnlyList<PresenteDto> Presentes => _tablero?.Personas ?? [];
+    private IReadOnlyList<JornadaDelDiaDto> Jornadas => _jornadas?.Jornadas ?? [];
+    private IReadOnlyList<AsistenciaDelDiaDto> Asistencias => _asistencia?.Filas ?? [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        EnVivo.PresenciaCambiada += AlCambiarLaPresencia;
+        await CargarTodo();
+        _tic = new Timer(_ => InvokeAsync(Envejecer), null, Refresco, Refresco);
+    }
+
+    private async Task CargarTodo()
+    {
+        await CargarTablero();
+        await CargarAsistencia();
+        await CargarJornadas();
+    }
+
+    private async Task CargarTablero()
+    {
+        _ocupado = true;
+        try
+        {
+            // null es «falló y ya se avisó»: se deja lo que había en pantalla en vez de vaciarla, que
+            // se leería como «no hay nadie conectado» y sería mentira.
+            var tablero = await Api.LeerAsync<TableroDePresenciaDto>("api/personas/presencia", _cancelacion.Token);
+            if (tablero is not null) _tablero = tablero;
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task CargarJornadas()
+    {
+        _ocupado = true;
+        try
+        {
+            var registro = await Api.LeerAsync<RegistroDeJornadasDto>(
+                $"api/personas/presencia/jornadas?dia={_diaJornadas:yyyy-MM-dd}", _cancelacion.Token);
+            if (registro is not null) _jornadas = registro;
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task CargarAsistencia()
+    {
+        _ocupado = true;
+        try
+        {
+            var resumen = await Api.LeerAsync<AsistenciaDelDiaResumenDto>(
+                $"api/personas/presencia/asistencia?dia={_diaAsistencia:yyyy-MM-dd}", _cancelacion.Token);
+            if (resumen is not null) _asistencia = resumen;
+        }
+        finally { _ocupado = false; }
+    }
+
+    /// <summary>Baja el día que se está viendo. El nombre del archivo lo pone el servidor.</summary>
+    private Task ExportarAsistencia() =>
+        Descargas.DesdeApiAsync(
+            $"api/personas/presencia/asistencia/excel?dia={_diaAsistencia:yyyy-MM-dd}").AsTask();
+
+    private Task IrAlDia(DateTime dia)
+    {
+        _diaAsistencia = dia;
+        return CargarAsistencia();
+    }
+
+    /// <summary>
+    /// El tic de fondo. Solo refresca lo que envejece solo: el tablero siempre, y los dos días
+    /// solo si son HOY. Los días pasados no cambian por sí mismos y pedirlos otra vez sería una
+    /// consulta cada 30 s a cambio de nada.
+    /// </summary>
+    private async Task Envejecer()
+    {
+        await CargarTablero();
+        if (_diaAsistencia.Date == DateTime.Today) await CargarAsistencia();
+        if (_diaJornadas.Date == DateTime.Today) await CargarJornadas();
+        StateHasChanged();
+    }
+
+    /// <summary>Alguien cambió su estado: el tablero quedó viejo al instante.</summary>
+    private void AlCambiarLaPresencia() => InvokeAsync(async () =>
+    {
+        await CargarTablero();
+        StateHasChanged();
+    });
+
+    // ── Corrección y alta manual ─────────────────────────────────────────────
+
+    private void AbrirCorreccion(AsistenciaDelDiaDto fila)
+    {
+        _corrigiendoId    = fila.RegistroId;
+        _personaCapturada = fila.Nombre;
+        _userIdCapturado  = fila.UserId;
+        _entradaCapturada = (fila.EntradaUtc ?? DateTime.UtcNow).ToLocalTime();
+        _salidaCapturada  = fila.SalidaUtc?.ToLocalTime();
+        _motivoCapturado  = "";
+        _capturando       = true;
+    }
+
+    private void AbrirAlta()
+    {
+        _corrigiendoId    = null;
+        _personaCapturada = "";
+        _userIdCapturado  = null;
+        // El día que se está mirando, a una hora de entrada verosímil: es el caso real («se le pasó
+        // marcar el martes»), y así no hay que teclear la fecha entera.
+        _entradaCapturada = _diaAsistencia.Date.AddHours(9);
+        _salidaCapturada  = null;
+        _motivoCapturado  = "";
+        _capturando       = true;
+    }
+
+    private async Task GuardarAsistencia()
+    {
+        // Solo lo evidente se comprueba aquí; el horario, el solape y el futuro los valida el
+        // servicio, que es donde esas reglas tienen que vivir.
+        if (string.IsNullOrWhiteSpace(_motivoCapturado))
+        {
+            Avisos.Aviso("Escribe el motivo: una corrección sin explicación es indistinguible de una manipulación.");
+            return;
+        }
+
+        bool ok;
+        if (_corrigiendoId is int registroId)
+        {
+            ok = await Enviar($"api/personas/presencia/asistencia/{registroId}/corregir",
+                new CorregirAsistenciaRequest(_entradaCapturada, _salidaCapturada, _motivoCapturado));
+        }
+        else
+        {
+            if (_userIdCapturado is not int userId)
+            {
+                Avisos.Aviso("Elige a quién le corresponde el día.");
+                return;
+            }
+            ok = await Enviar("api/personas/presencia/asistencia",
+                new AltaDeAsistenciaRequest(userId, _entradaCapturada, _salidaCapturada, _motivoCapturado));
+        }
+
+        if (ok) _capturando = false;
+    }
+
+    /// <summary>
+    /// El envío que comparten las dos acciones. El mensaje del servidor se enseña TAL CUAL: dice el
+    /// motivo concreto —«ese horario se encima con otro registro de la misma persona»— y cambiarlo
+    /// por un «no se pudo» genérico tiraría lo que el escritorio hacía bien.
+    /// </summary>
+    private async Task<bool> Enviar<T>(string ruta, T cuerpo)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, r) = await Api.EnviarAsync<T, ResultadoDto>(ruta, cuerpo, _cancelacion.Token);
+            if (ok && r is not null) Avisos.Exito(r.Mensaje);
+            if (ok) await CargarAsistencia();
+            return ok;
+        }
+        finally { _ocupado = false; }
+    }
+
+    // ── Textos y pintado ─────────────────────────────────────────────────────
+
+    private static string Hora(DateTime? utc) => utc is DateTime d ? d.ToLocalTime().ToString("HH:mm") : "";
+
+    /// <summary>El delta con signo: «+12 min» = marcó después de lo que vio la aplicación.</summary>
+    private static string Delta(int? minutos) => minutos switch
+    {
+        null => "",
+        0    => "0",
+        > 0  => $"+{minutos} min",
+        _    => $"{minutos} min"
+    };
+
+    private string Desde(PresenteDto p)
+    {
+        if (p.Conectado && p.DesdeUtc is DateTime d)
+        {
+            var t = DateTime.UtcNow - d;
+            return $"{d.ToLocalTime():HH:mm}  ({(t < TimeSpan.Zero ? "un momento" : $"{(int)t.TotalHours} h {t.Minutes:00} min")})";
+        }
+        return p.UltimoLatidoUtc is DateTime visto
+            ? $"visto {visto.ToLocalTime():dd/MM HH:mm}"
+            : "nunca ha entrado";
+    }
+
+    /// <summary>
+    /// El color del estado. Va en el texto y no en el icono a propósito: el emoji se dibuja con su
+    /// propia paleta e ignoraría el color, que es lo mismo que ya pasaba en el escritorio.
+    /// </summary>
+    private static string EstiloDeEstado(PresenteDto p) => p.Conectado
+        ? p.Estado switch
+        {
+            PresenceState.Disponible => "color:var(--rz-success);font-weight:600",
+            PresenceState.Ocupado    => "color:var(--rz-danger);font-weight:600",
+            _                        => "color:var(--rz-warning);font-weight:600"
+        }
+        : "opacity:.7";
+
+    private string ResumenDePresencia() => _tablero is not { } t
+        ? ""
+        : $"{t.Conectados} de {t.Total} conectado(s).  " +
+          $"Se da por desconectado a quien lleve {t.ToleranciaMinutos} min sin dar señales.";
+
+    private string ResumenDeJornadas() => _jornadas is not { } j
+        ? ""
+        : j.Jornadas.Count == 0
+            ? "Nadie abrió la aplicación ese día."
+            : $"{j.Jornadas.Count} jornada(s) de {j.Personas} persona(s)  ·  {j.DuracionTotal} en total.  " +
+              "«⚠ Sin señales» = la aplicación dejó de responder; la salida es su última señal, no una " +
+              "hora real de salida.";
+
+    private string ResumenDeAsistencia()
+    {
+        if (_asistencia is not { } a) return "";
+        return $"{a.Marcaron} de {a.Filas.Count} marcaron su asistencia." +
+               (a.SinMarcar > 0 ? $"  ⚠ {a.SinMarcar} usó la aplicación sin marcar." : "") +
+               (a.Olvidos > 0 ? $"  ⚠ {a.Olvidos} sin salida marcada (la hora es una estimación, corrígela)." : "") +
+               (a.Solicitudes > 0 ? $"  🙋 {a.Solicitudes} pidió corrección." : "") +
+               $"  Se resalta a partir de {a.ToleranciaMinutos} min de diferencia con lo que vio la aplicación.";
+    }
+
+    private static void ApagarDesconectados(RowRenderEventArgs<PresenteDto> args)
+    {
+        if (!args.Data.Conectado) args.Attributes["style"] = "opacity:.6";
+    }
+
+    /// <summary>
+    /// Quien no marcó nada se apaga si tampoco abrió la aplicación, y se deja legible si sí la abrió:
+    /// ese segundo caso es el que hay que mirar, igual que en el escritorio.
+    /// </summary>
+    private static void ApagarSinRegistro(RowRenderEventArgs<AsistenciaDelDiaDto> args)
+    {
+        if (args.Data.RegistroId == null && !args.Data.SinMarcar)
+            args.Attributes["style"] = "opacity:.6";
+    }
+
+    public void Dispose()
+    {
+        EnVivo.PresenciaCambiada -= AlCambiarLaPresencia;
+        _tic?.Dispose();
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

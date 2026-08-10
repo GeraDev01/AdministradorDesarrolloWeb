@@ -1,0 +1,73 @@
+# La aplicación completa contra SQL Server, en Linux.
+#
+# ── PARA QUÉ SIRVE ESTO ─────────────────────────────────────────────────────────
+#
+# No es para desarrollar: para eso está `dotnet run`, que es más rápido. Sirve para probar dos cosas
+# que hasta ahora NUNCA se habían ejecutado, y que son justo las que fallan el día del corte:
+#
+#   1. La rama de SQL SERVER del migrador. Todo se ha probado contra SQLite, que tiene otro dialecto
+#      y otro juego de tipos. Los ~104 parches idempotentes de la rama de SQL Server no los había
+#      corrido nadie.
+#   2. LINUX. El destino es App Service sobre Linux y se ha desarrollado en Windows. Ya apareció un
+#      defecto de esta familia —`Path.GetFileName` no corta «C:\ruta\foto.png» en Linux— y no será
+#      el último.
+#
+# ── LO QUE NO ES ────────────────────────────────────────────────────────────────
+#
+# La base de aquí es un contenedor VACÍO y desechable que se crea al levantar y se tira al bajar.
+# **Nada de esto toca la base de producción ni la de ensayo.** El día del corte, la migración se
+# aplica arrancando la aplicación contra la base real, no desde aquí.
+#
+#   docker compose -f src/Web/docker-compose.yml up --build     (desde la raíz del repositorio)
+#   docker compose -f src/Web/docker-compose.yml down -v        (borra también la base)
+
+name: adminweb
+
+services:
+  # ── SQL Server ────────────────────────────────────────────────────────────────
+  sql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      # Contraseña de un contenedor desechable que solo escucha en la red interna de Docker. No es
+      # un secreto: es un valor fijo para que la prueba sea reproducible. Que esté aquí en claro es
+      # deliberado y solo vale para esto — el de verdad vive en Key Vault.
+      MSSQL_SA_PASSWORD: "Pruebas_Local_2026!"
+      MSSQL_PID: Developer
+    # SIN puertos publicados hacia el anfitrión a propósito: no hace falta para probar la aplicación
+    # y evita que este SQL Server choque con uno instalado en la máquina, o quede expuesto en la red.
+    # Para inspeccionarlo a mano: docker compose exec sql /opt/mssql-tools18/bin/sqlcmd ...
+    healthcheck:
+      # «El proceso vive» no basta: SQL Server acepta conexiones bastante después de arrancar, y la
+      # aplicación intentaría migrar contra una base que todavía no responde.
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$${MSSQL_SA_PASSWORD}\" -Q 'SELECT 1' -b -o /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  # ── La aplicación ─────────────────────────────────────────────────────────────
+  api:
+    build:
+      # La raíz del repositorio: hace falta el nuget.config de arriba (ver el Dockerfile).
+      context: ../..
+      dockerfile: src/Web/Dockerfile
+    depends_on:
+      sql:
+        # Se espera a que la base esté SANA, no solo arrancada. Sin esto, el migrador falla en el
+        # primer intento y el contenedor se reinicia hasta que acierta — funciona, pero esconde los
+        # fallos de verdad entre reintentos.
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      # La base se crea al vuelo: el migrador la deja lista al arrancar, que es exactamente lo que
+      # se quiere ejercitar.
+      ConnectionStrings__Default: "Server=sql,1433;Database=AdminWebPruebas;User Id=sa;Password=Pruebas_Local_2026!;TrustServerCertificate=True;Encrypt=True"
+      # SQL Server, no SQLite: es el motivo de existir de este archivo.
+      AdminWeb__ProveedorDeBase: ""
+      # APAGADOS, igual que en producción hasta el corte. Encenderlos aquí llenaría la consola de
+      # barridos y escalamientos sobre una base vacía y taparía lo que se quiere ver.
+      AdminWeb__TrabajosDeFondoActivos: "false"
+    ports:
+      - "8080:8080"
+    restart: "no"   # que un fallo de arranque se vea, en vez de reintentarse en bucle

@@ -1,0 +1,206 @@
+@using Microsoft.AspNetCore.Components.Forms
+@implements IAsyncDisposable
+@inject AvisosDeInterfaz Avisos
+@inject IJSRuntime JS
+
+@*
+    Adjuntar imágenes: eligiéndolas o pegándolas con Ctrl+V.
+
+    Pegar es lo que más se usa —se recorta la pantalla y se pega— y en el escritorio estaba repetido
+    en ocho pantallas. Aquí se resuelve una vez.
+
+    El cómo cambia respecto al escritorio, y no hay alternativa: allí se leía el portapapeles de
+    Windows con Clipboard.GetImage(); una página no puede hacer eso, solo puede escuchar el evento
+    «paste» que el navegador le entrega cuando el usuario pega DENTRO de ella. De ahí que haga falta
+    pulsar en el recuadro primero, y que el texto de ayuda lo diga: sin ese aviso, quien copie una
+    captura y pulse Ctrl+V con el foco en otro sitio pensará que el componente no funciona.
+*@
+
+<div class="pegar-imagen" tabindex="0" @ref="_recuadro"
+     style="border:1px dashed var(--rz-border); border-radius:6px; padding:.75rem">
+    <RadzenStack Gap="0.5rem">
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.75rem">
+            @* El label dispara el InputFile sin JavaScript: es lo que hace el navegador de serie. *@
+            <label for="@_idCampo" class="rz-button rz-button-sm rz-secondary"
+                   style="cursor:pointer; display:inline-flex; align-items:center; gap:.35rem">
+                <span>📎</span><span>Elegir imagen@(Maximo > 1 ? "es" : "")</span>
+            </label>
+            <InputFile id="@_idCampo" OnChange="AlElegir" accept="image/png,image/jpeg,image/gif,image/bmp"
+                       multiple="@(Maximo > 1)" style="position:absolute; width:0; height:0; opacity:0" />
+
+            @if (Imagenes.Count > 0)
+            {
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                    @Imagenes.Count de @Maximo
+                </RadzenText>
+            }
+        </RadzenStack>
+
+        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+            O pulsa dentro de este recuadro y pega la captura con <b>Ctrl+V</b>.
+            Se admiten PNG, JPG, GIF y BMP de hasta @(MaxBytes / (1024 * 1024)) MB.
+        </RadzenText>
+
+        @if (Imagenes.Count > 0)
+        {
+            <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.5rem">
+                @foreach (var img in Imagenes)
+                {
+                    <div style="position:relative; border:1px solid var(--rz-border); border-radius:4px; padding:.25rem">
+                        <img src="@img.ComoDatosEnLinea()" alt="@img.Nombre"
+                             style="max-width:160px; max-height:120px; display:block" />
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                                    style="max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">
+                            @img.Nombre
+                        </RadzenText>
+                        <RadzenButton Icon="close" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                      Click="@(() => Quitar(img))" title="Quitar esta imagen"
+                                      style="position:absolute; top:2px; right:2px" />
+                    </div>
+                }
+            </RadzenStack>
+        }
+    </RadzenStack>
+</div>
+
+@code {
+    /// <summary>Las imágenes ya listas. El formulario que contiene al componente es quien las sube.</summary>
+    [Parameter] public List<ImagenAdjunta> Imagenes { get; set; } = [];
+    [Parameter] public EventCallback<List<ImagenAdjunta>> ImagenesChanged { get; set; }
+
+    /// <summary>Cuántas caben. El foro admite varias; una evidencia suelta, una.</summary>
+    [Parameter] public int Maximo { get; set; } = 1;
+
+    /// <summary>
+    /// Tope por imagen. El que cuenta lo aplica el servidor; este solo evita subir 20 MB para que
+    /// los rechacen — y, sobre todo, evita meter 20 MB en la memoria del navegador.
+    /// </summary>
+    [Parameter] public long MaxBytes { get; set; } = 15 * 1024 * 1024;
+
+    private readonly string _idCampo = $"img_{Guid.NewGuid():N}";
+    private ElementReference _recuadro;
+    private DotNetObjectReference<PegarImagen>? _referencia;
+    private bool _escuchando;
+
+    protected override async Task OnAfterRenderAsync(bool primeraVez)
+    {
+        if (!primeraVez) return;
+        _referencia = DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("adminweb.escucharPegado", _recuadro, _referencia);
+        _escuchando = true;
+    }
+
+    /// <summary>
+    /// La llama el JavaScript con cada imagen que venía en el portapapeles. Llega en base64 porque es
+    /// lo único que cruza esa frontera sin copiar el buffer entero dos veces.
+    /// </summary>
+    [JSInvokable]
+    public async Task RecibirPegado(string nombre, string tipo, string base64)
+    {
+        try
+        {
+            await Agregar(await ConMiniatura(nombre, Convert.FromBase64String(base64), tipo, base64));
+        }
+        catch (Exception ex)
+        {
+            Avisos.Error($"No se pudo leer la imagen pegada: {ex.Message}");
+        }
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Le pide al navegador la versión pequeña. Es lo que después se pinta en las listas, así que sin
+    /// ella cada refresco se traería los originales enteros desde la base.
+    ///
+    /// Si el navegador no sabe decodificar la imagen, se sigue sin miniatura: el servidor guardará el
+    /// original en su lugar, que es lo que hacía antes. Peor, pero no roto, y desde luego no motivo
+    /// para rechazar la imagen.
+    /// </summary>
+    private async Task<ImagenAdjunta> ConMiniatura(string nombre, byte[] bytes, string tipo, string? base64 = null)
+    {
+        try
+        {
+            var pequena = await JS.InvokeAsync<Miniatura?>(
+                "adminweb.miniatura", base64 ?? Convert.ToBase64String(bytes), tipo, LadoDeMiniatura);
+
+            return new ImagenAdjunta(nombre, bytes, tipo,
+                pequena is null ? [] : Convert.FromBase64String(pequena.Base64));
+        }
+        catch
+        {
+            return new ImagenAdjunta(nombre, bytes, tipo, []);
+        }
+    }
+
+    /// <summary>Lado mayor de la miniatura. Suficiente para verla en una lista sin abrirla.</summary>
+    private const int LadoDeMiniatura = 400;
+
+    private sealed record Miniatura(string Base64, int Ancho, int Alto);
+
+    private async Task AlElegir(InputFileChangeEventArgs e)
+    {
+        // GetMultipleFiles exige un tope explícito, y sin él lanza en cuanto se eligen dos.
+        var archivos = Maximo > 1 ? e.GetMultipleFiles(Maximo) : [e.File];
+
+        foreach (var archivo in archivos)
+        {
+            if (Imagenes.Count >= Maximo) { AvisarLleno(); break; }
+            if (archivo.Size > MaxBytes)
+            {
+                Avisos.Aviso($"«{archivo.Name}» pasa de {MaxBytes / (1024 * 1024)} MB.");
+                continue;
+            }
+
+            try
+            {
+                using var origen = archivo.OpenReadStream(MaxBytes);
+                using var memoria = new MemoryStream();
+                await origen.CopyToAsync(memoria);
+                await Agregar(await ConMiniatura(archivo.Name, memoria.ToArray(), archivo.ContentType));
+            }
+            catch (Exception ex)
+            {
+                Avisos.Error($"No se pudo leer «{archivo.Name}»: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task Agregar(ImagenAdjunta imagen)
+    {
+        if (Imagenes.Count >= Maximo) { AvisarLleno(); return; }
+        if (imagen.Contenido.LongLength > MaxBytes)
+        {
+            Avisos.Aviso($"«{imagen.Nombre}» pasa de {MaxBytes / (1024 * 1024)} MB.");
+            return;
+        }
+
+        // Lista nueva y no Add sobre la existente: si quien nos usa guarda la referencia en su propio
+        // estado, mutarla por debajo le cambiaría los datos sin que Blazor se entere de repintar.
+        Imagenes = [.. Imagenes, imagen];
+        await ImagenesChanged.InvokeAsync(Imagenes);
+    }
+
+    private async Task Quitar(ImagenAdjunta imagen)
+    {
+        Imagenes = [.. Imagenes.Where(i => i != imagen)];
+        await ImagenesChanged.InvokeAsync(Imagenes);
+    }
+
+    private void AvisarLleno() =>
+        Avisos.Aviso(Maximo == 1
+            ? "Solo cabe una imagen. Quita la actual para poner otra."
+            : $"No caben más de {Maximo} imágenes.");
+
+    public async ValueTask DisposeAsync()
+    {
+        // Sin quitar el escuchador, el navegador conserva viva la referencia a este componente y con
+        // ella todas las imágenes que tuviera cargadas.
+        if (_escuchando)
+        {
+            try { await JS.InvokeVoidAsync("adminweb.dejarDeEscucharPegado", _recuadro); }
+            catch (JSDisconnectedException) { /* la página ya se fue; no hay nada que soltar */ }
+            catch (ObjectDisposedException) { }
+        }
+        _referencia?.Dispose();
+    }
+}

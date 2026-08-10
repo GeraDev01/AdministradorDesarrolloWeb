@@ -1,0 +1,970 @@
+@page "/devops"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using System.Text.Json
+@using AdminWeb.Shared.Dtos.DevOps
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+@inject Descargas Descargas
+
+@*
+    El tablero de Azure DevOps del líder: los work items sincronizados, con qué se hace con ellos y
+    qué falta por decidir.
+
+    LO QUE NO CAMBIA RESPECTO AL ESCRITORIO
+
+      · El TOKEN NO BAJA AL NAVEGADOR. Esta pantalla no lo pide, no lo enseña y no lo tiene: las
+        llamadas a DevOps las hace la API con el token que guarda cifrada del lado del servidor. Aquí
+        solo se sabe si hay uno configurado. En el escritorio el token vivía en la máquina de cada
+        quien cifrado con DPAPI —y se perdía al cambiar de equipo—; esa comodidad no se puede repetir
+        en un navegador sin dejarlo al alcance de cualquier XSS.
+      · El filtro por columna estilo Excel: aquí lo trae la rejilla de serie, en vez de las ~200
+        líneas de ventana emergente con lista de valores que había que mantener a mano.
+      · Los filtros guardados siguen empatándose por NOMBRE: volver a guardar «Bugs abiertos»
+        actualiza el que ya existe en vez de dejar dos iguales.
+      · Las estadísticas reflejan SIEMPRE lo filtrado, y el conteo de «sin prioridad» refleja
+        SIEMPRE el total: es trabajo pendiente del líder y no debe cambiar porque se acote la vista.
+      · Vigilar un ticket es personal, y lo que cambió de lo vigilado se dice al sincronizar.
+
+    LO QUE CAMBIA, Y POR QUÉ
+
+      · Los avisos del área de notificación de Windows no existen en una página. Lo que cambió de lo
+        vigilado se enseña como aviso dentro de la pantalla al terminar de sincronizar, que es el
+        único momento en que se puede saber.
+      · La auto-sincronización cada N minutos era un temporizador del escritorio que solo corría si
+        alguien tenía la aplicación abierta. En la web eso le toca a un trabajo de fondo del
+        servidor, no a una pestaña; por eso aquí no hay desplegable de intervalo.
+      · Las ventanas modales se sustituyen por paneles dentro de la misma pantalla: en el navegador
+        una modal encima de otra pantalla se pierde detrás del propio navegador con demasiada
+        facilidad.
+      · La exportación va a hoja de cálculo y trae TODO, no lo que se esté viendo: el filtro por
+        columna lo aplica el navegador y el servidor no lo conoce.
+*@
+
+<PageTitle>Azure DevOps</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.75rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Azure DevOps</RadzenText>
+        <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
+        <RadzenButton Text="⟳ Sincronizar" Disabled="@_ocupado" Click="@(() => Sincronizar(null))" />
+        <RadzenButton Text="⚙ Selectiva…" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+                      Click="@(() => Alternar(Panel.Selectiva))" />
+        <RadzenButton Text="⬇ Exportar" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+                      Click="@(() => Descargas.DesdeApiAsync("api/devops/exportar"))" />
+        <RadzenButton Text="📥 Importar a requerimientos" ButtonStyle="ButtonStyle.Light"
+                      Disabled="@_ocupado" Click="@Importar" />
+        <RadzenButton Text="⚙ Reglas" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+                      Click="@(() => Alternar(Panel.Reglas))" />
+    </RadzenStack>
+
+    @if (Integracion is { } integracion && !integracion.SePuedeUsar)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+            @integracion.Explicacion
+        </RadzenAlert>
+    }
+
+    @if (_cambiosVigilados.Count > 0)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Info" Title="Cambios en tickets que vigilas"
+                     Close="@(() => _cambiosVigilados.Clear())">
+            <RadzenStack Gap="0.15rem">
+                @foreach (var cambio in _cambiosVigilados)
+                {
+                    <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">🔔 @cambio</RadzenText>
+                }
+            </RadzenStack>
+        </RadzenAlert>
+    }
+
+    @* ── Filtros propios de la pantalla y vistas guardadas ───────────────────── *@
+    <RadzenCard>
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                     Gap="0.75rem" Wrap="FlexWrap.Wrap">
+            <RadzenTextBox @bind-Value="_buscar" Placeholder="Buscar en todo…"
+                           Change="@(_ => RecalcularFilas())" Style="min-width:16rem" />
+            <RadzenTextBox @bind-Value="_titulo" Placeholder="Título contiene…"
+                           Change="@(_ => RecalcularFilas())" Style="min-width:14rem" />
+            <RadzenButton Text="🧹 Limpiar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                          Disabled="@_ocupado" Click="@LimpiarFiltros" />
+
+            <RadzenLabel Text="Vista:" Component="vista" />
+            <RadzenDropDown TValue="int?" @bind-Value="_filtroAplicado" Name="vista"
+                            Data="@FiltrosGuardados" TextProperty="Nombre" ValueProperty="Id"
+                            AllowClear="true" Placeholder="(sin vista guardada)" Disabled="@_ocupado"
+                            Change="@(_ => AplicarVista())" Style="min-width:13rem" />
+            <RadzenButton Text="💾 Guardar vista" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                          Disabled="@_ocupado" Click="@GuardarVista" />
+            <RadzenButton Text="🗑" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                          Disabled="@(_ocupado || _filtroAplicado is null)" Click="@EliminarVista"
+                          title="Eliminar la vista guardada" />
+        </RadzenStack>
+    </RadzenCard>
+
+    @* ── Indicadores: reflejan SIEMPRE lo filtrado ───────────────────────────── *@
+    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+        @foreach (var (etiqueta, valor, color) in Indicadores())
+        {
+            <RadzenCard Style="@($"min-width:8.5rem;border-left:4px solid {color}")">
+                <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0" Style="@($"color:{color}")">@valor</RadzenText>
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@etiqueta</RadzenText>
+            </RadzenCard>
+        }
+    </RadzenStack>
+
+    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                Style="@(SinPrioridad > 0 ? "color:var(--rz-warning)" : "")">
+        @Resumen()
+    </RadzenText>
+
+    @* ── Paneles ─────────────────────────────────────────────────────────────── *@
+    @if (_panel == Panel.Selectiva)
+    {
+        <RadzenCard>
+            <RadzenStack Gap="0.75rem">
+                <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">⚙ Sincronización selectiva</RadzenText>
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                    Marca solo lo que necesitas para que la sincronización sea rápida. Si no marcas
+                    nada, se traen todos (menos los removidos). Los filtros se combinan: tipos Y
+                    estados Y personas.
+                </RadzenText>
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap">
+                    <RadzenDropDown TValue="IEnumerable<string>" @bind-Value="_tiposElegidos" Multiple="true"
+                                    Data="@TiposConocidos" AllowClear="true" Chips="true"
+                                    Placeholder="Tipos de work item" Style="min-width:15rem" />
+                    <RadzenDropDown TValue="IEnumerable<string>" @bind-Value="_estadosElegidos" Multiple="true"
+                                    Data="@EstadosConocidos" AllowClear="true" Chips="true"
+                                    Placeholder="Estados (columna)" Style="min-width:15rem" />
+                    <RadzenDropDown TValue="IEnumerable<int>" @bind-Value="_personasElegidas" Multiple="true"
+                                    Data="@ConCorreo" TextProperty="Texto" ValueProperty="Id"
+                                    AllowClear="true" Chips="true"
+                                    Placeholder="Personas (por correo)" Style="min-width:15rem" />
+
+                    <RadzenLabel Text="Cambiados en los últimos (días):" Component="dias" />
+                    <RadzenNumeric TValue="int?" @bind-Value="_diasSelectiva" Name="dias" Min="1" Max="3650"
+                                   Placeholder="todos" Style="width:8rem" />
+                </RadzenStack>
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                    <RadzenButton Text="Sincronizar" Disabled="@_ocupado" Click="@SincronizarSelectiva" />
+                    <RadzenButton Text="Cerrar" ButtonStyle="ButtonStyle.Light"
+                                  Disabled="@_ocupado" Click="@Cerrar" />
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    }
+
+    @if (_panel == Panel.Reglas)
+    {
+        <RadzenCard>
+            <RadzenStack Gap="0.75rem">
+                <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                    ⚙ Reglas de auto-asignación
+                </RadzenText>
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                    Al importar work items como requerimientos se evalúan por orden y gana la primera
+                    que coincide. Si ninguna coincide, se intenta empatar al asignado del ticket con
+                    la ficha del desarrollador por correo o por nombre.
+                </RadzenText>
+
+                <RadzenDataGrid TItem="ReglaDeAsignacionDto" Data="@Reglas" AllowPaging="false"
+                                EmptyText="Sin reglas: el reparto se hace solo por identidad.">
+                    <Columns>
+                        <RadzenDataGridColumn TItem="ReglaDeAsignacionDto" Property="Orden" Title="Orden" Width="80px" />
+                        <RadzenDataGridColumn TItem="ReglaDeAsignacionDto" Property="CondicionTexto" Title="Condición" Width="170px" />
+                        <RadzenDataGridColumn TItem="ReglaDeAsignacionDto" Property="Valor" Title="Valor" />
+                        <RadzenDataGridColumn TItem="ReglaDeAsignacionDto" Property="Desarrollador" Title="Asignar a" Width="190px" />
+                        <RadzenDataGridColumn TItem="ReglaDeAsignacionDto" Property="Activa" Title="Activa" Width="90px">
+                            <Template Context="r">@(r.Activa ? "✓" : "✗")</Template>
+                        </RadzenDataGridColumn>
+                        <RadzenDataGridColumn TItem="ReglaDeAsignacionDto" Title="" Width="150px" Sortable="false">
+                            <Template Context="r">
+                                <RadzenButton Text="Editar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                              Disabled="@_ocupado" Click="@(() => EditarRegla(r))" />
+                                <RadzenButton Text="Eliminar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                              Disabled="@_ocupado" Click="@(() => EliminarRegla(r))" />
+                            </Template>
+                        </RadzenDataGridColumn>
+                    </Columns>
+                </RadzenDataGrid>
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap"
+                             AlignItems="AlignItems.Center">
+                    <RadzenDropDown TValue="DevOpsRuleMatch" @bind-Value="_reglaCondicion"
+                                    Data="@Condiciones" TextProperty="Texto" ValueProperty="Valor"
+                                    Style="min-width:12rem" />
+                    <RadzenTextBox @bind-Value="_reglaValor" Placeholder="Valor a buscar" Style="min-width:14rem" />
+                    <RadzenDropDown TValue="int" @bind-Value="_reglaDesarrolladorId"
+                                    Data="@Desarrolladores" TextProperty="Texto" ValueProperty="Id"
+                                    Placeholder="Asignar a" Style="min-width:13rem" />
+                    <RadzenLabel Text="Orden:" Component="orden" />
+                    <RadzenNumeric TValue="int" @bind-Value="_reglaOrden" Name="orden" Min="0" Max="999"
+                                   Style="width:6rem" />
+                    <RadzenCheckBox TValue="bool" @bind-Value="_reglaActiva" Name="activa" />
+                    <RadzenLabel Text="Activa" Component="activa" />
+                    <RadzenButton Text="@(_reglaId > 0 ? "Guardar regla" : "Añadir regla")"
+                                  Disabled="@_ocupado" Click="@GuardarRegla" />
+                    @if (_reglaId > 0)
+                    {
+                        <RadzenButton Text="Cancelar edición" ButtonStyle="ButtonStyle.Light"
+                                      Disabled="@_ocupado" Click="@LimpiarRegla" />
+                    }
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    }
+
+    @if (_ticket is { } ticket)
+    {
+        <RadzenCard>
+            <RadzenStack Gap="0.75rem">
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                             Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                    <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                        #@ticket.Numero — @ticket.Titulo
+                    </RadzenText>
+                    <a href="@ticket.Url" target="_blank" rel="noopener">🔗 Abrir en Azure DevOps</a>
+                    <RadzenButton Text="Cerrar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                  Disabled="@_ocupado" Click="@Cerrar" Style="margin-left:auto" />
+                </RadzenStack>
+
+                @switch (_panel)
+                {
+                    case Panel.Comentarios:
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                            Se publica con TU token, así que en DevOps queda a tu nombre.
+                        </RadzenText>
+
+                        @if (_comentarios is { } hilo)
+                        {
+                            @if (hilo.Comentarios.Count == 0)
+                            {
+                                <RadzenText TextStyle="TextStyle.Body2">Sin comentarios todavía.</RadzenText>
+                            }
+                            else
+                            {
+                                <RadzenStack Gap="0.5rem">
+                                    @foreach (var c in hilo.Comentarios)
+                                    {
+                                        <RadzenCard Style="background:var(--rz-base-200)">
+                                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                                🧑 @c.Autor · @c.CreadoUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                                            </RadzenText>
+                                            @* Texto plano y nunca MarkupString: los comentarios los escribe
+                                               gente de fuera del equipo y llegan en HTML. *@
+                                            <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0"
+                                                        Style="white-space:pre-wrap">@c.Texto</RadzenText>
+                                        </RadzenCard>
+                                    }
+                                </RadzenStack>
+                            }
+                        }
+
+                        <RadzenTextArea @bind-Value="_comentario" Rows="3" Style="width:100%"
+                                        Placeholder="Escribe tu comentario…" />
+                        <PegarImagen @bind-Imagenes="_evidencias" Maximo="5" />
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                            <RadzenButton Text="Enviar 💬" Disabled="@_ocupado" Click="@Comentar" />
+                        </RadzenStack>
+                        break;
+
+                    case Panel.Ficha:
+                        @if (_ficha is { } ficha)
+                        {
+                            <RadzenStack Orientation="Orientation.Horizontal" Gap="1.5rem" Wrap="FlexWrap.Wrap">
+                                <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                                    <b>@ficha.Regresiones</b> regresión(es), <b>@ficha.RegresionesAbiertas</b> sin cerrar
+                                </RadzenText>
+                                <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                                    Pasó por <b>@ficha.Manos</b> mano(s)
+                                </RadzenText>
+                                <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                                    Se lo devolvieron <b>@ficha.Devoluciones</b> vez(ces) a @TextoOGuion(ficha.AsignadoA)
+                                </RadzenText>
+                            </RadzenStack>
+
+                            <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">Regresiones (bugs hijos)</RadzenText>
+                            @if (ficha.Regresiones.Count == 0)
+                            {
+                                <RadzenText TextStyle="TextStyle.Body2">Ninguna. Nada se rompió por su culpa.</RadzenText>
+                            }
+                            else
+                            {
+                                <RadzenStack Gap="0.2rem">
+                                    @foreach (var bug in ficha.Regresiones)
+                                    {
+                                        <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                                            @(bug.Cerrado ? "✓" : "●") <a href="@bug.Url" target="_blank" rel="noopener">#@bug.Id</a>
+                                            — @bug.Titulo (@bug.Estado)
+                                        </RadzenText>
+                                    }
+                                </RadzenStack>
+                            }
+
+                            <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">Historial de asignación</RadzenText>
+                            @if (ficha.Asignaciones.Count == 0)
+                            {
+                                <RadzenText TextStyle="TextStyle.Body2">No ha cambiado de dueño.</RadzenText>
+                            }
+                            else
+                            {
+                                <RadzenStack Gap="0.2rem">
+                                    @foreach (var cambio in ficha.Asignaciones)
+                                    {
+                                        <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                                            @cambio.FechaUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                                            — @TextoOGuion(cambio.De) → @TextoOGuion(cambio.A)
+                                        </RadzenText>
+                                    }
+                                </RadzenStack>
+                            }
+                        }
+                        break;
+
+                    case Panel.Reasignar:
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                            Ahora es de: @TextoOGuion(ticket.AsignadoA). Sin elegir a nadie, el ticket queda sin asignar.
+                        </RadzenText>
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap"
+                                     AlignItems="AlignItems.Center">
+                            <RadzenDropDown TValue="int?" @bind-Value="_reasignarA" Data="@ConCorreo"
+                                            TextProperty="Texto" ValueProperty="Id" AllowClear="true"
+                                            Placeholder="(dejar sin asignar)" Style="min-width:16rem" />
+                            <RadzenButton Text="Reasignar" Disabled="@_ocupado" Click="@Reasignar" />
+                        </RadzenStack>
+                        break;
+
+                    case Panel.Estado:
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                            Está en «@ticket.Estado». DevOps valida la transición según la plantilla de proceso.
+                        </RadzenText>
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap"
+                                     AlignItems="AlignItems.Center">
+                            <RadzenDropDown TValue="string" @bind-Value="_nuevoEstado"
+                                            Data="@EstadosConocidos" Placeholder="Mover a…"
+                                            Style="min-width:12rem" />
+                            <RadzenButton Text="Mover" Disabled="@_ocupado" Click="@CambiarEstado" />
+                        </RadzenStack>
+                        break;
+
+                    case Panel.Prioridad:
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                            @(ticket.SinPrioridadDefinida
+                                ? "Nadie la ha definido todavía: DevOps le pone 2 por omisión a todo lo que se crea."
+                                : $"Prioridad actual en DevOps: {ticket.Prioridad}.")
+                        </RadzenText>
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap"
+                                     AlignItems="AlignItems.Center">
+                            <RadzenDropDown TValue="int" @bind-Value="_nuevaPrioridad" Data="@Prioridades"
+                                            TextProperty="Texto" ValueProperty="Valor" Style="min-width:14rem" />
+                            <RadzenButton Text="Cambiar prioridad" Disabled="@_ocupado" Click="@CambiarPrioridad" />
+                        </RadzenStack>
+                        break;
+                }
+            </RadzenStack>
+        </RadzenCard>
+    }
+
+    @* ── La rejilla grande ───────────────────────────────────────────────────── *@
+    <RadzenDataGrid @ref="_rejilla" TItem="TicketDevOpsDto" Data="@_filas" IsLoading="@_ocupado"
+                    AllowSorting="true" AllowPaging="true" PageSize="25"
+                    AllowFiltering="true" FilterMode="FilterMode.Advanced"
+                    FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive"
+                    AllowColumnPicking="true" AllowColumnResize="true"
+                    @bind-Settings="_ajustes"
+                    EmptyText="No hay tickets sincronizados que cumplan el filtro.">
+        <Columns>
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Title="" Width="46px"
+                                  Sortable="false" Filterable="false" Pickable="false">
+                <Template Context="t">@(t.Vigilado ? "🔔" : "")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Numero" Title="ID" Width="80px">
+                <Template Context="t">
+                    <a href="@t.Url" target="_blank" rel="noopener">@t.Numero</a>
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Tipo" Title="Tipo" Width="120px" />
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Titulo" Title="Título" />
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Estado" Title="Estado" Width="115px">
+                <Template Context="t">
+                    <b style="@($"color:{ColorDeEstado(t.Estado)}")">@t.Estado</b>
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Prioridad" Title="Prio" Width="90px">
+                <Template Context="t">
+                    <span style="@(t.SinPrioridadDefinida && !t.Cerrado ? "color:var(--rz-warning)" : "")">
+                        @(string.IsNullOrWhiteSpace(t.Prioridad) ? "—" : t.Prioridad)@(t.SinPrioridadDefinida && !t.Cerrado ? " ⚠" : "")
+                    </span>
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="AsignadoA" Title="Asignado a" Width="160px">
+                <Template Context="t">@TextoOGuion(t.AsignadoA)</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Iteracion" Title="Iteración" Width="150px" Visible="false" />
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Area" Title="Área" Width="150px" Visible="false" />
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Etiquetas" Title="Etiquetas" Width="140px" />
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Puntos" Title="Pts" Width="70px" TextAlign="TextAlign.Right">
+                <Template Context="t">@(t.Puntos?.ToString("0.#") ?? "—")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="HorasEstimadas" Title="⏱ Est." Width="80px" TextAlign="TextAlign.Right">
+                <Template Context="t">@(t.HorasEstimadas?.ToString("0.##") ?? "—")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Comentarios" Title="💬" Width="70px" TextAlign="TextAlign.Right">
+                <Template Context="t">@(t.Comentarios == 0 ? "" : t.Comentarios.ToString())</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="ActualizadoUtc" Title="Actualizado" Width="120px">
+                <Template Context="t">@(t.ActualizadoUtc?.ToLocalTime().ToString("dd/MM/yyyy") ?? "—")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Title="" Width="330px"
+                                  Sortable="false" Filterable="false" Pickable="false">
+                <Template Context="t">
+                    <RadzenButton Text="💬" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                  Disabled="@_ocupado" Click="@(() => AbrirComentarios(t))" title="Ver y agregar comentarios" />
+                    <RadzenButton Text="👤" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                  Disabled="@_ocupado" Click="@(() => AbrirReasignar(t))" title="Reasignar" />
+                    <RadzenButton Text="↔" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                  Disabled="@_ocupado" Click="@(() => AbrirEstado(t))" title="Mover a estado" />
+                    <RadzenButton Text="🔧" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                  Disabled="@_ocupado" Click="@(() => AbrirPrioridad(t))" title="Cambiar prioridad" />
+                    <RadzenButton Text="🔍" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                  Disabled="@_ocupado" Click="@(() => AbrirFicha(t))" title="Regresiones y devoluciones" />
+                    <RadzenButton Text="@(t.Vigilado ? "🔕" : "🔔")" ButtonStyle="ButtonStyle.Light"
+                                  Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                  Click="@(() => Vigilar(t))"
+                                  title="@(t.Vigilado ? "Dejar de vigilar" : "Vigilar este ticket")" />
+                </Template>
+            </RadzenDataGridColumn>
+        </Columns>
+    </RadzenDataGrid>
+</RadzenStack>
+
+@code {
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private TableroDevOpsDto? _datos;
+    private bool _ocupado;
+
+    private RadzenDataGrid<TicketDevOpsDto>? _rejilla;
+
+    /// <summary>
+    /// El estado de la rejilla: filtros por columna, orden, anchos y columnas visibles. Es lo que se
+    /// guarda en una vista con nombre, y lo trae la rejilla de serie.
+    /// </summary>
+    private DataGridSettings? _ajustes;
+
+    // Filtros propios de la pantalla, los mismos dos del escritorio.
+    private string _buscar = "";
+    private string _titulo = "";
+    private int? _filtroAplicado;
+
+    private List<string> _cambiosVigilados = [];
+
+    // Sincronización selectiva.
+    private IEnumerable<string> _tiposElegidos = [];
+    private IEnumerable<string> _estadosElegidos = [];
+    private IEnumerable<int> _personasElegidas = [];
+    private int? _diasSelectiva;
+
+    // Panel abierto y ticket sobre el que actúa.
+    private enum Panel { Ninguno, Selectiva, Reglas, Comentarios, Ficha, Reasignar, Estado, Prioridad }
+
+    private Panel _panel = Panel.Ninguno;
+    private TicketDevOpsDto? _ticket;
+
+    private ComentariosDevOpsDto? _comentarios;
+    private string _comentario = "";
+    private List<ImagenAdjunta> _evidencias = [];
+
+    private FichaDeTicketDto? _ficha;
+
+    private int? _reasignarA;
+    private string? _nuevoEstado;
+    private int _nuevaPrioridad = 2;
+
+    // Regla en edición.
+    private int _reglaId;
+    private DevOpsRuleMatch _reglaCondicion = DevOpsRuleMatch.AreaPathContiene;
+    private string _reglaValor = "";
+    private int _reglaDesarrolladorId;
+    private int _reglaOrden;
+    private bool _reglaActiva = true;
+
+    private EstadoDevOpsDto? Integracion => _datos?.Integracion;
+    private IReadOnlyList<FiltroGuardadoDto> FiltrosGuardados => _datos?.FiltrosGuardados ?? [];
+    private IReadOnlyList<ReglaDeAsignacionDto> Reglas => _datos?.Reglas ?? [];
+    private IReadOnlyList<DesarrolladorDevOpsDto> Desarrolladores => _datos?.Desarrolladores ?? [];
+    private IReadOnlyList<string> EstadosConocidos => _datos?.EstadosConocidos ?? [];
+    private IReadOnlyList<string> TiposConocidos => _datos?.TiposConocidos ?? [];
+    private int SinPrioridad => _datos?.SinPrioridad ?? 0;
+
+    /// <summary>
+    /// Solo los desarrolladores CON correo: es lo que empata la API de DevOps al reasignar y lo que
+    /// entiende la consulta de la sincronización selectiva. Ofrecer a quien no lo tiene sería ofrecer
+    /// una acción que siempre falla.
+    /// </summary>
+    private IReadOnlyList<DesarrolladorDevOpsDto> ConCorreo =>
+        Desarrolladores.Where(d => !string.IsNullOrWhiteSpace(d.Correo)).ToList();
+
+    private static readonly IReadOnlyList<OpcionDePrioridad> Prioridades =
+    [
+        new(1, "1 — Muy alta"), new(2, "2 — Alta"), new(3, "3 — Media"), new(4, "4 — Baja")
+    ];
+
+    private static readonly IReadOnlyList<OpcionDeCondicion> Condiciones =
+        Enum.GetValues<DevOpsRuleMatch>().Select(c => new OpcionDeCondicion(c, Etiqueta(c))).ToList();
+
+    private record OpcionDePrioridad(int Valor, string Texto);
+
+    private record OpcionDeCondicion(DevOpsRuleMatch Valor, string Texto);
+
+    /// <summary>
+    /// Lo que recibe la rejilla: los dos filtros de la pantalla aplicados ANTES que ella. El filtro
+    /// por columna lo hace la rejilla con lo que le llegue, así que los dos se combinan con Y, igual
+    /// que en el escritorio.
+    ///
+    /// Se guarda en un campo y se recalcula a mano en vez de ser una propiedad. No es un capricho: la
+    /// rejilla considera que le cambiaron los datos cuando recibe otra LISTA, y una propiedad que
+    /// devuelve una lista nueva en cada repintado le borraría los filtros por columna y la página en
+    /// la que estuviera cada vez que algo de la pantalla cambia.
+    /// </summary>
+    private IReadOnlyList<TicketDevOpsDto> _filas = [];
+
+    private void RecalcularFilas()
+    {
+        IEnumerable<TicketDevOpsDto> filas = _datos?.Filas ?? [];
+
+        var buscar = _buscar.Trim();
+        if (buscar.Length > 0)
+            filas = filas.Where(t =>
+                t.Numero.ToString().Contains(buscar)
+                || Contiene(t.Titulo, buscar) || Contiene(t.Estado, buscar)
+                || Contiene(t.Tipo, buscar) || Contiene(t.AsignadoA, buscar)
+                || Contiene(t.Iteracion, buscar) || Contiene(t.Etiquetas, buscar)
+                || Contiene(t.Area, buscar) || Contiene(t.Prioridad, buscar));
+
+        var titulo = _titulo.Trim();
+        if (titulo.Length > 0)
+            filas = filas.Where(t => Contiene(t.Titulo, titulo));
+
+        _filas = filas.ToList();
+    }
+
+    protected override async Task OnInitializedAsync() => await Cargar();
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            _datos = await Api.LeerAsync<TableroDevOpsDto>("api/devops/tablero", _cancelacion.Token);
+
+            // El ticket del panel abierto pudo salir de la lista o dejar de existir: mantener el panel
+            // sobre algo que ya no está haría operar contra datos viejos sin que nadie lo note.
+            if (_ticket is { } abierto)
+                _ticket = _datos?.Filas.FirstOrDefault(t => t.Numero == abierto.Numero);
+            if (_ticket is null && EsPanelDeTicket(_panel)) _panel = Panel.Ninguno;
+
+            RecalcularFilas();
+        }
+        finally { _ocupado = false; }
+    }
+
+    // ── Sincronización ───────────────────────────────────────────────────────
+
+    private async Task Sincronizar(SincronizarDevOpsRequest? filtro)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, resultado) = await Api.EnviarAsync<SincronizarDevOpsRequest?, ResultadoDeSincronizacionDto>(
+                "api/devops/sincronizar", filtro, _cancelacion.Token);
+
+            if (!ok || resultado is null) return;   // el mensaje ya se mostró
+
+            Avisos.Exito(resultado.Mensaje);
+            _cambiosVigilados = resultado.CambiosVigilados.ToList();
+        }
+        finally { _ocupado = false; }
+
+        await Cargar();
+    }
+
+    private async Task SincronizarSelectiva()
+    {
+        var correos = ConCorreo
+            .Where(d => _personasElegidas.Contains(d.Id))
+            .Select(d => d.Correo!)
+            .ToList();
+
+        await Sincronizar(new SincronizarDevOpsRequest(
+            _tiposElegidos.ToList(), _estadosElegidos.ToList(), correos, _diasSelectiva));
+
+        _panel = Panel.Ninguno;
+    }
+
+    private async Task Importar()
+    {
+        if (!await Avisos.ConfirmarAsync(
+            "Se darán de alta como requerimientos los work items asignados y abiertos que todavía no " +
+            "existan aquí, repartiéndolos según las reglas.\n\nNada que ya esté cerrado se da de alta.",
+            "Importar de Azure DevOps", "Sí, importar"))
+            return;
+
+        _ocupado = true;
+        try
+        {
+            var (ok, resultado) = await Api.EnviarAsync<object?, ResultadoDeImportacionDto>(
+                "api/devops/importar", null, _cancelacion.Token);
+
+            if (ok && resultado is not null) Avisos.Exito(resultado.Mensaje);
+        }
+        finally { _ocupado = false; }
+    }
+
+    // ── Vistas guardadas ─────────────────────────────────────────────────────
+
+    private void AplicarVista()
+    {
+        var vista = FiltrosGuardados.FirstOrDefault(f => f.Id == _filtroAplicado);
+        if (vista is null) return;
+
+        _buscar = vista.Busqueda ?? "";
+        _titulo = vista.TituloContiene ?? "";
+        RecalcularFilas();
+
+        // Una vista guardada con otras columnas —o de antes de que existiera alguna— no debe tumbar
+        // la pantalla: si no se puede leer, se aplican los dos filtros de texto y ya.
+        try
+        {
+            _ajustes = string.IsNullOrWhiteSpace(vista.AjustesDeRejilla)
+                ? null
+                : JsonSerializer.Deserialize<DataGridSettings>(vista.AjustesDeRejilla);
+        }
+        catch
+        {
+            Avisos.Aviso("Esa vista se guardó con una versión anterior de la tabla: se aplicó solo su búsqueda.");
+        }
+    }
+
+    private async Task GuardarVista()
+    {
+        var nombre = await Avisos.PedirTextoAsync("Nombre de la vista:", "Guardar vista");
+        if (string.IsNullOrWhiteSpace(nombre)) return;
+
+        var ajustes = _rejilla?.Settings is { } actuales ? JsonSerializer.Serialize(actuales) : null;
+
+        await Enviar("api/devops/filtros",
+            new GuardarFiltroRequest(nombre.Trim(), SinBlancos(_buscar), SinBlancos(_titulo), ajustes));
+    }
+
+    private async Task EliminarVista()
+    {
+        if (_filtroAplicado is not int id) return;
+
+        var vista = FiltrosGuardados.FirstOrDefault(f => f.Id == id);
+        if (vista is null) return;
+
+        if (!await Avisos.ConfirmarAsync($"¿Eliminar la vista «{vista.Nombre}»?", "Eliminar vista"))
+            return;
+
+        if (await Enviar($"api/devops/filtros/{id}/eliminar", new { })) _filtroAplicado = null;
+    }
+
+    private void LimpiarFiltros()
+    {
+        _buscar = "";
+        _titulo = "";
+        _filtroAplicado = null;
+        _ajustes = null;
+        RecalcularFilas();
+        _rejilla?.Reset(true, false);
+    }
+
+    // ── Acciones sobre un ticket ─────────────────────────────────────────────
+
+    private async Task AbrirComentarios(TicketDevOpsDto t)
+    {
+        _ticket = t;
+        _panel = Panel.Comentarios;
+        _comentario = "";
+        _evidencias = [];
+        _comentarios = null;
+
+        _ocupado = true;
+        try
+        {
+            _comentarios = await Api.LeerAsync<ComentariosDevOpsDto>(
+                $"api/devops/{t.Numero}/comentarios", _cancelacion.Token);
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task Comentar()
+    {
+        if (_ticket is not { } t) return;
+
+        if (string.IsNullOrWhiteSpace(_comentario) && _evidencias.Count == 0)
+        {
+            Avisos.Aviso("Escribe algo o adjunta una evidencia antes de enviar.");
+            return;
+        }
+
+        // Multipart aunque no lleve imágenes: es una sola forma de mandar la operación, y ClienteApi
+        // le pone el testigo antifalsificación sin que esta pantalla tenga que acordarse.
+        var formulario = new MultipartFormDataContent
+        {
+            { new StringContent(_comentario ?? ""), "texto" }
+        };
+        foreach (var imagen in _evidencias)
+            formulario.Add(new ByteArrayContent(imagen.Contenido), "imagenes", imagen.Nombre);
+
+        _ocupado = true;
+        try
+        {
+            var (ok, resultado) = await Api.SubirAsync<ResultadoDto>(
+                $"api/devops/{t.Numero}/comentarios", formulario, _cancelacion.Token);
+
+            if (!ok || resultado is null) return;
+
+            Avisos.Exito(resultado.Mensaje);
+            _comentario = "";
+            _evidencias = [];
+        }
+        finally { _ocupado = false; }
+
+        await AbrirComentarios(t);
+        await Cargar();
+    }
+
+    private async Task AbrirFicha(TicketDevOpsDto t)
+    {
+        _ticket = t;
+        _panel = Panel.Ficha;
+        _ficha = null;
+
+        _ocupado = true;
+        try
+        {
+            _ficha = await Api.LeerAsync<FichaDeTicketDto>(
+                $"api/devops/{t.Numero}/ficha", _cancelacion.Token);
+        }
+        finally { _ocupado = false; }
+    }
+
+    private void AbrirReasignar(TicketDevOpsDto t)
+    {
+        _ticket = t;
+        _panel = Panel.Reasignar;
+        _reasignarA = null;
+    }
+
+    private async Task Reasignar()
+    {
+        if (_ticket is not { } t) return;
+
+        var correo = ConCorreo.FirstOrDefault(d => d.Id == _reasignarA)?.Correo;
+        if (await Enviar($"api/devops/{t.Numero}/reasignar", new ReasignarTicketRequest(correo)))
+            Cerrar();
+    }
+
+    private void AbrirEstado(TicketDevOpsDto t)
+    {
+        _ticket = t;
+        _panel = Panel.Estado;
+        _nuevoEstado = null;
+    }
+
+    private async Task CambiarEstado()
+    {
+        if (_ticket is not { } t) return;
+
+        if (string.IsNullOrWhiteSpace(_nuevoEstado))
+        {
+            Avisos.Aviso("Elige a qué estado se mueve.");
+            return;
+        }
+
+        if (await Enviar($"api/devops/{t.Numero}/estado", new CambiarEstadoRequest(_nuevoEstado!)))
+            Cerrar();
+    }
+
+    private void AbrirPrioridad(TicketDevOpsDto t)
+    {
+        _ticket = t;
+        _panel = Panel.Prioridad;
+        _nuevaPrioridad = int.TryParse(t.Prioridad, out var actual) && actual is >= 1 and <= 4 ? actual : 2;
+    }
+
+    private async Task CambiarPrioridad()
+    {
+        if (_ticket is not { } t) return;
+        if (await Enviar($"api/devops/{t.Numero}/prioridad", new CambiarPrioridadRequest(_nuevaPrioridad)))
+            Cerrar();
+    }
+
+    private Task Vigilar(TicketDevOpsDto t) => Enviar($"api/devops/{t.Numero}/vigilar", new { });
+
+    // ── Reglas ───────────────────────────────────────────────────────────────
+
+    private void EditarRegla(ReglaDeAsignacionDto r)
+    {
+        _reglaId = r.Id;
+        _reglaCondicion = r.Condicion;
+        _reglaValor = r.Valor;
+        _reglaDesarrolladorId = r.DesarrolladorId;
+        _reglaOrden = r.Orden;
+        _reglaActiva = r.Activa;
+    }
+
+    private void LimpiarRegla()
+    {
+        _reglaId = 0;
+        _reglaValor = "";
+        _reglaOrden = 0;
+        _reglaActiva = true;
+    }
+
+    private async Task GuardarRegla()
+    {
+        if (_reglaDesarrolladorId == 0)
+        {
+            Avisos.Aviso("Elige a quién se le asigna cuando la regla coincida.");
+            return;
+        }
+
+        if (await Enviar("api/devops/reglas", new GuardarReglaRequest(
+                _reglaId, _reglaCondicion, _reglaValor, _reglaDesarrolladorId, _reglaOrden, _reglaActiva)))
+            LimpiarRegla();
+    }
+
+    private async Task EliminarRegla(ReglaDeAsignacionDto r)
+    {
+        if (!await Avisos.ConfirmarAsync(
+            $"¿Eliminar la regla «{r.CondicionTexto} {r.Valor}» → {r.Desarrollador}?", "Eliminar regla"))
+            return;
+
+        await Enviar($"api/devops/reglas/{r.Id}/eliminar", new { });
+    }
+
+    // ── Envío ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// El envío que comparten todas las acciones. El mensaje del servidor se enseña TAL CUAL: dice el
+    /// motivo concreto —«tu token expiró», «DevOps rechazó la transición»— y cambiarlo por un «no se
+    /// pudo» genérico tiraría por la borda lo que más ayuda a resolverlo.
+    /// </summary>
+    private async Task<bool> Enviar<T>(string ruta, T cuerpo)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, resultado) = await Api.EnviarAsync<T, ResultadoDto>(ruta, cuerpo, _cancelacion.Token);
+            if (ok && resultado is not null) Avisos.Exito(resultado.Mensaje);
+            if (ok) await Cargar();
+            return ok;
+        }
+        finally { _ocupado = false; }
+    }
+
+    // ── Presentación ─────────────────────────────────────────────────────────
+
+    private void Alternar(Panel panel)
+    {
+        _panel = _panel == panel ? Panel.Ninguno : panel;
+        if (!EsPanelDeTicket(_panel)) _ticket = null;
+    }
+
+    private void Cerrar()
+    {
+        _panel = Panel.Ninguno;
+        _ticket = null;
+    }
+
+    private static bool EsPanelDeTicket(Panel panel) =>
+        panel is Panel.Comentarios or Panel.Ficha or Panel.Reasignar or Panel.Estado or Panel.Prioridad;
+
+    /// <summary>
+    /// Los indicadores se calculan sobre lo que la rejilla está ENSEÑANDO, igual que en el escritorio:
+    /// filtrar por «Bug» y que el contador de bugs siguiera diciendo el total no serviría de nada.
+    /// </summary>
+    private IReadOnlyList<(string, string, string)> Indicadores()
+    {
+        // View es lo que la rejilla dejó tras aplicar sus filtros de columna; antes del primer
+        // pintado todavía no existe, y entonces lo que se está enseñando es la lista entera.
+        var vista = _rejilla?.View is { } filtradas ? filtradas.ToList() : _filas.ToList();
+
+        var maximoPorPersona = vista
+            .Where(t => !string.IsNullOrWhiteSpace(t.AsignadoA))
+            .GroupBy(t => t.AsignadoA)
+            .Select(g => g.Count())
+            .DefaultIfEmpty(0)
+            .Max();
+
+        return
+        [
+            ("Mostrados", vista.Count.ToString(), "#2563EB"),
+            ("Sin cerrar", vista.Count(t => !t.Cerrado).ToString(), "#D97706"),
+            ("Cerrados", vista.Count(t => t.Cerrado).ToString(), "#059669"),
+            ("Bugs", vista.Count(t => EsTipo(t, "Bug")).ToString(), "#DC2626"),
+            ("User Stories", vista.Count(t => EsTipo(t, "User Story")).ToString(), "#8B5CF6"),
+            ("Tareas", vista.Count(t => EsTipo(t, "Task")).ToString(), "#64748B"),
+            ("Story points", vista.Sum(t => t.Puntos ?? 0).ToString("0.#"), "#14B8A6"),
+            ("Sin asignar", vista.Count(t => string.IsNullOrWhiteSpace(t.AsignadoA)).ToString(), "#EA580C"),
+            ("Máx. por persona", maximoPorPersona.ToString(), "#2563EB"),
+        ];
+    }
+
+    private string Resumen()
+    {
+        int total = _datos?.Filas.Count ?? 0;
+        var sincronizacion = _datos?.UltimaSincronizacionUtc is DateTime s
+            ? s.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+            : "nunca";
+
+        var pendiente = SinPrioridad > 0 ? $"  ·  ⚠ {SinPrioridad} sin prioridad definida" : "";
+
+        return $"{_filas.Count} de {total} ticket(s)  ·  última sincronización: {sincronizacion}" +
+               $"  ·  vigilados: {_datos?.Vigilados ?? 0}{pendiente}";
+    }
+
+    private static bool EsTipo(TicketDevOpsDto t, string tipo) =>
+        string.Equals(t.Tipo?.Trim(), tipo, StringComparison.OrdinalIgnoreCase);
+
+    private static bool Contiene(string? valor, string texto) =>
+        valor != null && valor.Contains(texto, StringComparison.CurrentCultureIgnoreCase);
+
+    /// <summary>Lo que no tiene valor se pinta como raya, no como hueco.</summary>
+    private static string TextoOGuion(string? valor) => string.IsNullOrWhiteSpace(valor) ? "—" : valor;
+
+    /// <summary>Un filtro en blanco es «sin filtro», no un filtro por cadena vacía.</summary>
+    private static string? SinBlancos(string? valor) =>
+        string.IsNullOrWhiteSpace(valor) ? null : valor.Trim();
+
+    private static string ColorDeEstado(string? estado) => (estado ?? "").ToLowerInvariant() switch
+    {
+        "active" or "in progress" or "doing" or "in development" => "#2563EB",
+        "resolved" or "done" or "completed" => "#059669",
+        "closed" => "#6B7280",
+        "new" or "to do" => "#64748B",
+        _ => "inherit"
+    };
+
+    private static string Etiqueta(DevOpsRuleMatch condicion) => condicion switch
+    {
+        DevOpsRuleMatch.AreaPathContiene => "Área contiene",
+        DevOpsRuleMatch.TipoEsIgual => "Tipo es igual a",
+        DevOpsRuleMatch.TituloContiene => "Título contiene",
+        DevOpsRuleMatch.TagContiene => "Etiqueta contiene",
+        DevOpsRuleMatch.AsignadoAContiene => "Asignado a contiene",
+        _ => condicion.ToString()
+    };
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

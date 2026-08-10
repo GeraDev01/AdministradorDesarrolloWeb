@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Contratos que cruzan la frontera cliente↔servidor: DTOs por endpoint, enums compartidos y los
+    nombres de los eventos de SignalR.
+
+    CERO dependencias, y no es un descuido: este es el único proyecto que el cliente Blazor
+    referencia. Si algún día apareciera aquí una referencia a EF Core, el navegador acabaría
+    descargando el modelo de datos completo — que es justo lo que la frontera existe para impedir.
+  -->
+
+</Project>

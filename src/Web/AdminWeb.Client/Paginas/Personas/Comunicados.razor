@@ -1,0 +1,189 @@
+@page "/comunicados"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Shared.Dtos.Personas
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+
+@*
+    Comunicados al equipo. Réplica de AnnouncementsControl.
+
+    Cada comunicado se entrega como un AVISO en la bandeja de cada destinatario, que es lo mismo que
+    hacía el escritorio: no es correo ni un tablón, es la bandeja que ya se mira.
+
+    Decisiones del escritorio que se conservan:
+
+      · Se listan TODOS los desarrolladores activos, incluidos los que NO tienen cuenta, marcados
+        como «no recibe». Esconderlos sería más limpio y sería peor: el líder tiene que ver al equipo
+        completo y enterarse de quién se queda fuera, que es información sobre las altas pendientes.
+      · «Todos» marca y desmarca de golpe, y refleja si están todos marcados.
+      · La confirmación dice a cuántos va a llegar de verdad y cuántos se quedan fuera. Es el dato que
+        hace que alguien se lo piense antes de mandar.
+
+    El cuerpo del comunicado se muestra como TEXTO, nunca interpretado: lo escribe una persona y
+    dejar que traiga marcado sería abrirle la puerta a inyectar contenido en la bandeja de todo el
+    equipo.
+*@
+
+<PageTitle>Comunicados</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Enviar comunicado al equipo</RadzenText>
+    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+        Aparece como un aviso en la bandeja de cada desarrollador.
+    </RadzenText>
+
+    <div style="display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-start">
+        <RadzenCard Style="flex:2 1 32rem">
+            <RadzenStack Gap="0.75rem">
+                <RadzenStack Gap="0.25rem">
+                    <RadzenLabel Text="Título" Component="titulo" />
+                    <RadzenTextBox @bind-Value="_titulo" Name="titulo" MaxLength="200" Style="width:100%" />
+                </RadzenStack>
+
+                <RadzenStack Gap="0.25rem">
+                    <RadzenLabel Text="Mensaje" Component="cuerpo" />
+                    <RadzenTextArea @bind-Value="_cuerpo" Name="cuerpo" Rows="12" Style="width:100%" />
+                </RadzenStack>
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                    <RadzenButton Text="📨 Enviar comunicado" Disabled="@_ocupado" Click="@Enviar" />
+                    <RadzenButton Text="Recargar destinatarios" ButtonStyle="ButtonStyle.Light"
+                                  Disabled="@_ocupado" Click="@Cargar" />
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+
+        <RadzenCard Style="flex:1 1 20rem;max-width:26rem">
+            <RadzenStack Gap="0.5rem">
+                <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">Destinatarios</RadzenText>
+
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                    <RadzenCheckBox TValue="bool" Value="@TodosMarcados" Name="todos"
+                                    ValueChanged="@((bool marcado) => MarcarTodos(marcado))" Disabled="@_ocupado" />
+                    <RadzenLabel Text="Todos" Component="todos" />
+                </RadzenStack>
+
+                @foreach (var destinatario in _destinatarios)
+                {
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                        <RadzenCheckBox TValue="bool" Value="@_marcados.Contains(destinatario.DeveloperId)"
+                                        ValueChanged="@((bool marcado) => Marcar(destinatario.DeveloperId, marcado))"
+                                        Disabled="@_ocupado" />
+                        <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0"
+                                    Style="@(destinatario.TieneCuenta ? "" : "opacity:.6")">
+                            @destinatario.Nombre@(destinatario.TieneCuenta ? "" : "  —  (sin cuenta, no recibe)")
+                        </RadzenText>
+                    </RadzenStack>
+                }
+
+                @if (_destinatarios.Count == 0)
+                {
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                        No hay desarrolladores activos.
+                    </RadzenText>
+                }
+            </RadzenStack>
+        </RadzenCard>
+    </div>
+</RadzenStack>
+
+@code {
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private IReadOnlyList<DestinatarioDeComunicadoDto> _destinatarios = [];
+    private readonly HashSet<int> _marcados = [];
+    private string _titulo = "";
+    private string _cuerpo = "";
+    private bool _ocupado;
+
+    /// <summary>«Todos» solo se ve marcado si de verdad lo están todos, igual que en el escritorio.</summary>
+    private bool TodosMarcados =>
+        _destinatarios.Count > 0 && _destinatarios.All(d => _marcados.Contains(d.DeveloperId));
+
+    protected override async Task OnInitializedAsync() => await Cargar();
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            var destinatarios = await Api.LeerAsync<List<DestinatarioDeComunicadoDto>>(
+                "api/personas/comunicados/destinatarios", _cancelacion.Token);
+            if (destinatarios is null) return;
+
+            _destinatarios = destinatarios;
+
+            // De salida vienen marcados los que SÍ pueden recibirlo. Los que no tienen cuenta se
+            // quedan desmarcados a propósito: marcarlos solo serviría para inflar el número de la
+            // confirmación con gente a la que no le va a llegar nada.
+            _marcados.Clear();
+            foreach (var d in destinatarios.Where(d => d.TieneCuenta)) _marcados.Add(d.DeveloperId);
+        }
+        finally { _ocupado = false; }
+    }
+
+    private void Marcar(int developerId, bool marcado)
+    {
+        if (marcado) _marcados.Add(developerId);
+        else _marcados.Remove(developerId);
+    }
+
+    private void MarcarTodos(bool marcado)
+    {
+        _marcados.Clear();
+        if (marcado)
+            foreach (var d in _destinatarios) _marcados.Add(d.DeveloperId);
+    }
+
+    private async Task Enviar()
+    {
+        // Solo lo evidente se comprueba aquí; el título y el cuerpo vacíos los rechaza el servicio,
+        // que es donde esa regla tiene que vivir.
+        var elegidos = _destinatarios.Where(d => _marcados.Contains(d.DeveloperId)).ToList();
+        if (elegidos.Count == 0)
+        {
+            Avisos.Aviso("Selecciona al menos un desarrollador.");
+            return;
+        }
+
+        int conCuenta = elegidos.Count(d => d.TieneCuenta);
+        if (conCuenta == 0)
+        {
+            Avisos.Aviso("Ninguno de los seleccionados tiene cuenta de usuario activa, así que nadie " +
+                         "recibiría el aviso.");
+            return;
+        }
+
+        var nota = conCuenta < elegidos.Count
+            ? $"  ({elegidos.Count - conCuenta} sin cuenta no lo recibirán)"
+            : "";
+        if (!await Avisos.ConfirmarAsync(
+                $"¿Enviar el comunicado a {conCuenta} desarrollador(es){nota}?",
+                "Confirmar envío", "Sí, enviarlo"))
+            return;
+
+        _ocupado = true;
+        try
+        {
+            var (ok, r) = await Api.EnviarAsync<EnviarComunicadoRequest, ResultadoDto>(
+                "api/personas/comunicados",
+                new EnviarComunicadoRequest(_titulo, _cuerpo, elegidos.Select(d => d.DeveloperId).ToList()),
+                _cancelacion.Token);
+
+            if (!ok) return;
+
+            // El mensaje del servidor se enseña TAL CUAL: dice a cuántos llegó de verdad.
+            if (r is not null) Avisos.Exito(r.Mensaje);
+            _titulo = "";
+            _cuerpo = "";
+        }
+        finally { _ocupado = false; }
+    }
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

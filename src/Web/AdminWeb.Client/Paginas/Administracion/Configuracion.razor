@@ -1,0 +1,339 @@
+@page "/configuracion"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Shared.Dtos.Administracion
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+
+@*
+    La configuración compartida: las claves que el líder ajusta sin recompilar y los secretos de las
+    integraciones.
+
+    LA DIFERENCIA DE FONDO CON EL ESCRITORIO, y es una que no se puede deshacer: allí las
+    contraseñas y las cadenas de conexión se veían en su caja (con puntitos, pero el valor estaba
+    ahí y bastaba con leerlo desde el propio proceso). Aquí NO se pueden leer. La API nunca manda el
+    valor de un secreto: de esta pantalla se sabe si está puesto y se puede reemplazar, nada más.
+    Esconderlo solo en la pantalla no habría servido de nada, porque quien abra la consola del
+    navegador lee la respuesta entera.
+
+    Consecuencia práctica que conviene tener presente: para cambiar un secreto hay que volver a
+    escribirlo completo — no se puede corregir la última letra de una connection string.
+
+    Lo demás se conserva del escritorio: los mismos apartados en el mismo orden, los mismos textos
+    de ayuda, y el guardado en una sola pasada al final. Cambia que ahora se guardan solo las claves
+    que se tocaron y que cada una informa por separado de cómo le fue, en vez de un único
+    «Configuración guardada correctamente» que en el escritorio se emitía aunque a mitad hubiera
+    saltado un error.
+
+    PROBAR CONEXIÓN, y la diferencia que no se negocia: se prueba lo que está GUARDADO. En el
+    escritorio se podía teclear una cadena y probarla antes de guardarla, para no descubrir después
+    que era la equivocada; aquí ese atajo convertiría la ruta en un probador de credenciales ajenas
+    —de Azure, de SQL o de un buzón— al alcance de cualquiera con una sesión de líder. Por eso el
+    botón avisa cuando hay cambios sin guardar en su apartado: lo que va a comprobar es lo anterior.
+
+    El resultado se pinta DENTRO del apartado y no como aviso pasajero: estos mensajes son largos a
+    propósito —«el contenedor todavía no existe», «esa carpeta IMAP no existe»— y hay que poder
+    leerlos con calma, junto a las cajas que hay que corregir.
+
+    Lo que NO está aquí y sí en el escritorio: probar LibreOffice —la web ya no lo usa: los documentos
+    los maqueta el servidor— y la migración SQLite → Azure SQL.
+*@
+
+<PageTitle>Configuración</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Configuración</RadzenText>
+        <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
+        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+            @(_editado.Count == 0 ? "Sin cambios pendientes." : $"{_editado.Count} clave(s) por guardar.")
+        </RadzenText>
+        <RadzenButton Text="💾 Guardar" Click="@Guardar"
+                      Disabled="@(_ocupado || _editado.Count == 0)" Style="margin-left:auto" />
+    </RadzenStack>
+
+    <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false">
+        Los secretos (contraseñas, tokens y cadenas de conexión) no se pueden leer desde aquí: solo
+        se sabe si están puestos y se pueden reemplazar por otro valor.
+    </RadzenAlert>
+
+    @if (_resultados.Count > 0)
+    {
+        <RadzenCard>
+            <RadzenStack Gap="0.25rem">
+                @foreach (var r in _resultados)
+                {
+                    <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0"
+                                Style="@(r.Ok ? "" : "color:var(--rz-danger)")">
+                        @(r.Ok ? "✓" : "✗") @r.Mensaje
+                    </RadzenText>
+                }
+            </RadzenStack>
+        </RadzenCard>
+    }
+
+    @if (_datos is { } datos)
+    {
+        @foreach (var grupo in datos.Grupos)
+        {
+            <RadzenCard>
+                <RadzenStack Gap="0.75rem">
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                 Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                        <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">@grupo.Titulo</RadzenText>
+
+                        @if (grupo.Prueba is { } prueba)
+                        {
+                            <RadzenButton Text="🔌 Probar conexión" ButtonStyle="ButtonStyle.Light"
+                                          Size="ButtonSize.Small" Disabled="@_ocupado"
+                                          Click="@(() => Probar(grupo, prueba))" Style="margin-left:auto" />
+                        }
+                    </RadzenStack>
+
+                    @if (!string.IsNullOrWhiteSpace(grupo.Nota))
+                    {
+                        <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+                            @grupo.Nota
+                        </RadzenAlert>
+                    }
+
+                    @if (grupo.Prueba is not null && TieneCambiosSinGuardar(grupo))
+                    {
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                                    Style="color:var(--rz-warning)">
+                            ⚠ Este apartado tiene cambios sin guardar. La prueba comprueba lo que está
+                            GUARDADO, no lo que acabas de escribir: guarda primero.
+                        </RadzenText>
+                    }
+
+                    @if (_pruebas.TryGetValue(grupo.Titulo, out var resultado))
+                    {
+                        @* El texto lo escribió el servicio y se enseña TAL CUAL: dice si el contenedor
+                           existe, si las credenciales no se aceptaron o qué carpeta del buzón falta. *@
+                        <RadzenAlert AllowClose="true" Close="@(() => _pruebas.Remove(grupo.Titulo))"
+                                     AlertStyle="@(resultado.Ok ? AlertStyle.Success : AlertStyle.Danger)"
+                                     Shade="Shade.Lighter">
+                            @resultado.Mensaje
+                        </RadzenAlert>
+                    }
+
+                    @foreach (var clave in grupo.Claves)
+                    {
+                        <div style="display:flex;flex-direction:column;gap:.25rem">
+                            <RadzenLabel Text="@clave.Etiqueta" />
+
+                            @switch (clave.Tipo)
+                            {
+                                case TipoDeCampoDeConfiguracion.Secreto:
+                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem"
+                                                 AlignItems="AlignItems.Center" Wrap="FlexWrap.Wrap">
+                                        <RadzenPassword Value="@ValorDe(clave)"
+                                                        ValueChanged="@(v => AnotarSecreto(clave.Clave, v))"
+                                                        Placeholder="Escribe el valor nuevo para reemplazarlo"
+                                                        Disabled="@_ocupado" Style="flex:1 1 22rem" />
+                                        @if (SeVaAQuitar(clave))
+                                        {
+                                            <RadzenBadge BadgeStyle="BadgeStyle.Danger" Text="Se quitará al guardar" />
+                                            <RadzenButton Text="Deshacer" ButtonStyle="ButtonStyle.Light"
+                                                          Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                          Click="@(() => _editado.Remove(clave.Clave))" />
+                                        }
+                                        else if (clave.Configurado)
+                                        {
+                                            <RadzenButton Text="🗑 Quitar" ButtonStyle="ButtonStyle.Light"
+                                                          Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                          Click="@(() => _editado[clave.Clave] = "")" />
+                                        }
+                                    </RadzenStack>
+
+                                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                                                Style="@EstiloDelEstado(clave)">
+                                        @EstadoDelSecreto(clave)
+                                    </RadzenText>
+                                    break;
+
+                                case TipoDeCampoDeConfiguracion.Interruptor:
+                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem"
+                                                 AlignItems="AlignItems.Center">
+                                        <RadzenSwitch Value="@Encendido(clave)"
+                                                      ValueChanged="@(v => Anotar(clave.Clave, v ? "true" : "false"))"
+                                                      Disabled="@_ocupado" />
+                                        <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                                            @(Encendido(clave) ? "Habilitado" : "Deshabilitado")
+                                        </RadzenText>
+                                    </RadzenStack>
+                                    break;
+
+                                case TipoDeCampoDeConfiguracion.Numero:
+                                    <RadzenNumeric TValue="int?" Value="@Numero(clave)"
+                                                   ValueChanged="@(v => Anotar(clave.Clave, v?.ToString() ?? ""))"
+                                                   Disabled="@_ocupado" Style="width:10rem" />
+                                    break;
+
+                                case TipoDeCampoDeConfiguracion.TextoLargo:
+                                    <RadzenTextArea Value="@ValorDe(clave)"
+                                                    ValueChanged="@(v => Anotar(clave.Clave, v))"
+                                                    Rows="3" Disabled="@_ocupado" Style="width:100%" />
+                                    break;
+
+                                default:
+                                    <RadzenTextBox Value="@ValorDe(clave)"
+                                                   ValueChanged="@(v => Anotar(clave.Clave, v))"
+                                                   Disabled="@_ocupado" Style="width:100%" />
+                                    break;
+                            }
+
+                            @if (!string.IsNullOrWhiteSpace(clave.Ayuda))
+                            {
+                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@clave.Ayuda</RadzenText>
+                            }
+                        </div>
+                    }
+                </RadzenStack>
+            </RadzenCard>
+        }
+    }
+</RadzenStack>
+
+@code {
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private ConfiguracionDto? _datos;
+    private bool _ocupado;
+
+    /// <summary>
+    /// Solo lo que se ha tocado. Es la pieza que evita el accidente: la caja de un secreto empieza
+    /// siempre vacía —no hay valor que enseñar—, y mandar todas las claves en cada guardado borraría
+    /// cada contraseña que no se hubiera vuelto a escribir.
+    /// </summary>
+    private readonly Dictionary<string, string?> _editado = [];
+
+    private List<ResultadoDeClaveDto> _resultados = [];
+
+    /// <summary>
+    /// El resultado de la última prueba de cada apartado, por su título.
+    ///
+    /// Se guardan por apartado y no en una sola variable para que probar el correo no borre de la
+    /// pantalla lo que acaba de decir la prueba de Blob: quien está configurando desde cero las
+    /// prueba las tres seguidas y necesita ver las tres respuestas a la vez.
+    /// </summary>
+    private readonly Dictionary<string, ResultadoDto> _pruebas = [];
+
+    protected override async Task OnInitializedAsync() => await Cargar();
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            _datos = await Api.LeerAsync<ConfiguracionDto>("api/administracion/configuracion", _cancelacion.Token);
+            _editado.Clear();
+        }
+        finally { _ocupado = false; }
+    }
+
+    // ── Probar conexión ──────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Comprueba el apartado contra el servicio real.
+    ///
+    /// <para>La petición dice QUÉ probar, nunca CON QUÉ: los valores los toma el servidor de lo que
+    /// tiene guardado. Mandar desde aquí la cadena que se está escribiendo habría sido más cómodo y
+    /// habría convertido la ruta en un probador de credenciales ajenas.</para>
+    /// </summary>
+    private async Task Probar(GrupoDeConfiguracionDto grupo, PruebaDeConexion prueba)
+    {
+        _ocupado = true;
+        try
+        {
+            // Un «no conecta» llega como 200 con ok=false: es una respuesta, no un fallo de la
+            // petición. Por eso se lee del cuerpo en vez de esperar a que el cliente pinte un error.
+            var (ok, respuesta) = await Api.EnviarAsync<ProbarConexionRequest, ResultadoDto>(
+                "api/administracion/configuracion/probar", new ProbarConexionRequest(prueba),
+                _cancelacion.Token);
+
+            if (!ok || respuesta is null) return;   // el error ya se mostró
+
+            _pruebas[grupo.Titulo] = respuesta;
+        }
+        finally { _ocupado = false; }
+    }
+
+    /// <summary>
+    /// ¿Queda algo por guardar en este apartado? Decide el aviso de que la prueba mira lo guardado.
+    /// </summary>
+    private bool TieneCambiosSinGuardar(GrupoDeConfiguracionDto grupo) =>
+        grupo.Claves.Any(c => _editado.ContainsKey(c.Clave));
+
+    private async Task Guardar()
+    {
+        if (_editado.Count == 0) return;
+
+        _ocupado = true;
+        try
+        {
+            var cambios = _editado.Select(e => new CambioDeConfiguracionDto(e.Key, e.Value)).ToList();
+
+            var (ok, respuesta) = await Api.EnviarAsync<GuardarConfiguracionRequest, ResultadoDeConfiguracionDto>(
+                "api/administracion/configuracion", new GuardarConfiguracionRequest(cambios), _cancelacion.Token);
+
+            if (!ok || respuesta is null) return;   // el error ya se mostró
+
+            // Los mensajes del servicio se enseñan tal cual, uno por clave: son los que dicen si una
+            // quedó guardada, borrada o rechazada, y resumirlos perdería justo esa distinción.
+            _resultados = respuesta.Resultados.ToList();
+
+            int fallidas = _resultados.Count(r => !r.Ok);
+            if (fallidas == 0) Avisos.Exito($"{_resultados.Count} clave(s) guardada(s).");
+            else Avisos.Aviso($"{_resultados.Count - fallidas} guardada(s), {fallidas} sin guardar. Revisa el detalle.");
+        }
+        finally { _ocupado = false; }
+
+        // Se recarga siempre: es lo que actualiza el «configurado / sin configurar» de los secretos,
+        // que es lo único que se puede saber de ellos.
+        await Cargar();
+    }
+
+    // ── Lectura de lo que se está capturando ─────────────────────────────────
+
+    private string ValorDe(ClaveDeConfiguracionDto c) =>
+        _editado.TryGetValue(c.Clave, out var v) ? v ?? "" : c.Valor ?? "";
+
+    private bool Encendido(ClaveDeConfiguracionDto c) =>
+        string.Equals(ValorDe(c), "true", StringComparison.OrdinalIgnoreCase);
+
+    private int? Numero(ClaveDeConfiguracionDto c) =>
+        int.TryParse(ValorDe(c), out var n) ? n : null;
+
+    private bool SeVaAQuitar(ClaveDeConfiguracionDto c) =>
+        _editado.TryGetValue(c.Clave, out var v) && string.IsNullOrEmpty(v);
+
+    private void Anotar(string clave, string? valor) => _editado[clave] = valor;
+
+    /// <summary>
+    /// Un secreto en blanco es «no lo toques», no «bórralo». Borrarlo es un botón aparte: dejar que
+    /// vaciar la caja borrara la contraseña convertiría un arrepentimiento en una pérdida.
+    /// </summary>
+    private void AnotarSecreto(string clave, string? valor)
+    {
+        if (string.IsNullOrEmpty(valor)) _editado.Remove(clave);
+        else _editado[clave] = valor;
+    }
+
+    private static string EstadoDelSecreto(ClaveDeConfiguracionDto c) =>
+        c.RequiereRecaptura
+            ? "⚠ Está guardado con el cifrado antiguo de Windows y el servidor no puede leerlo: hay que capturarlo otra vez."
+            : c.Configurado
+                ? "✓ Configurado. Escribe un valor nuevo solo si lo vas a reemplazar."
+                : "Sin configurar.";
+
+    private static string EstiloDelEstado(ClaveDeConfiguracionDto c) =>
+        c.RequiereRecaptura ? "color:var(--rz-warning)" : "";
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

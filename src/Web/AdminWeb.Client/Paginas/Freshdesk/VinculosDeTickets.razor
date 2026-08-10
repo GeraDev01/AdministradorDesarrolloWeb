@@ -1,0 +1,498 @@
+@page "/vinculos"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Shared.Dtos.Freshdesk
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+
+@*
+    Vínculos de tickets: atar un work item de Azure DevOps con el ticket de Freshdesk que lo originó.
+
+    Por qué existe esta pantalla: nadie puede deducir de forma fiable que el ticket «no puedo
+    timbrar» es el work item «corregir el redondeo del timbrado». Lo sabe una persona, y aquí es
+    donde lo dice. Por eso el vínculo lleva quién lo hizo y cuándo, y por eso ni la sincronización de
+    Freshdesk borra un ticket que tenga uno.
+
+    Decisiones del escritorio que se conservan:
+
+      · Por omisión se ven TODOS los tickets de los dos lados, no solo los que están sin vincular: un
+        work item puede tener varios tickets detrás, y esconder lo ya vinculado impediría añadirle el
+        segundo. Quien quiera solo lo pendiente marca la casilla.
+      · Los filtros de DevOps (estado, tipo, asignado) se arman con lo que REALMENTE hay en los
+        datos, porque dependen de la plantilla de proceso del proyecto. Los de Freshdesk son un
+        dominio cerrado y usan las mismas etiquetas que la pantalla de Freshdesk, para no tener que
+        traducir mentalmente al saltar de una a otra.
+      · El pie de cada lista dice siempre cuántos quedan SIN VINCULAR, aunque el filtro de turno no
+        los esté mostrando: es el trabajo pendiente real de esta pantalla.
+      · Las notas del vínculo son opcionales y es el único sitio donde explicar por qué se ataron.
+
+    Lo que cambia respecto al escritorio, y por qué:
+
+      · Los filtros los aplica el SERVIDOR. El escritorio filtraba en memoria porque tenía las dos
+        tablas cargadas; aquí tendrían que viajar enteras al navegador para poder filtrarlas allí.
+        Cuando la lista se recorta por tamaño, la pantalla lo dice —y el pie sigue contando la
+        verdad—; recortar en silencio escondería justo lo que se venía a buscar.
+      · La pestaña de estadísticas del escritorio se resume en las tarjetas de arriba: eran los
+        mismos números repartidos en dos sitios, y el desglose por estado y por tipo ya está en las
+        pantallas de DevOps y de Freshdesk, cada una con su filtro.
+      · Las notas se capturan en la propia pantalla en vez de en una ventana emergente: en el
+        navegador una ventana modal encima de otra pantalla se pierde con demasiada facilidad.
+
+    Los títulos y los asuntos vienen de dos sistemas externos y se pintan como TEXTO. Nada de
+    MarkupString: el asunto de un ticket lo escribe quien lo abre, que es cualquiera con un correo.
+*@
+
+<PageTitle>Vínculos de tickets</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Vínculos de tickets</RadzenText>
+        <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@(() => Cargar())" Disabled="@_ocupado" />
+    </RadzenStack>
+
+    @if (_datos is null)
+    {
+        <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" />
+    }
+    else
+    {
+        <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.75rem">
+            @Tarjeta("Work items", $"{_datos.Resumen.WorkItems}", Azul)
+            @Tarjeta("Tickets", $"{_datos.Resumen.Tickets}", Turquesa)
+            @Tarjeta("Vínculos", $"{_datos.Resumen.Vinculos}", Morado)
+            @Tarjeta("WI vinculados", Porcentaje(_datos.Resumen.WorkItemsVinculados, _datos.Resumen.WorkItems), Verde)
+            @Tarjeta("Tickets vinculados", Porcentaje(_datos.Resumen.TicketsVinculados, _datos.Resumen.Tickets), Verde)
+            @Tarjeta("Sin vincular", $"{SinVincular()}", Ambar)
+        </RadzenStack>
+
+        <RadzenTabs>
+            <Tabs>
+                <RadzenTabsItem Text="🔗 Vínculos">
+                    <RadzenStack Gap="0.75rem">
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                     Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                            <RadzenTextBox @bind-Value="_buscar" Placeholder="Buscar en vínculos: título, asunto, número o notas…"
+                                           Change="@(_ => Cargar())" Style="min-width:22rem" Disabled="@_ocupado" />
+                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                @_datos.Vinculos.Count de @_datos.Resumen.Vinculos vínculo(s)
+                            </RadzenText>
+                        </RadzenStack>
+
+                        <RadzenDataGrid TItem="VinculoDto" Data="@_datos.Vinculos" IsLoading="@_ocupado"
+                                        AllowSorting="true" AllowPaging="true" PageSize="15"
+                                        EmptyText="Todavía no hay vínculos. Créalos en la otra pestaña.">
+                            <Columns>
+                                <RadzenDataGridColumn TItem="VinculoDto" Property="NumeroDevOps" Title="# DevOps" Width="100px">
+                                    <Template Context="v">
+                                        @if (v.UrlDevOps is { } url)
+                                        {
+                                            <a href="@url" target="_blank" rel="noopener">@v.NumeroDevOps</a>
+                                        }
+                                        else
+                                        {
+                                            @v.NumeroDevOps
+                                        }
+                                    </Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="VinculoDto" Property="TipoDevOps" Title="Tipo" Width="100px" />
+                                <RadzenDataGridColumn TItem="VinculoDto" Property="TituloDevOps" Title="Work item" />
+                                <RadzenDataGridColumn TItem="VinculoDto" Property="EstadoDevOps" Title="Estado" Width="100px" />
+                                <RadzenDataGridColumn TItem="VinculoDto" Property="NumeroFreshdesk" Title="# FD" Width="90px">
+                                    <Template Context="v">
+                                        @if (v.UrlFreshdesk is { } url)
+                                        {
+                                            <a href="@url" target="_blank" rel="noopener">@v.NumeroFreshdesk</a>
+                                        }
+                                        else
+                                        {
+                                            @v.NumeroFreshdesk
+                                        }
+                                    </Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="VinculoDto" Property="AsuntoFreshdesk" Title="Ticket" />
+                                <RadzenDataGridColumn TItem="VinculoDto" Property="EstadoFreshdesk" Title="Estado FD" Width="110px" />
+                                <RadzenDataGridColumn TItem="VinculoDto" Property="AgenteFreshdesk" Title="Agente" Width="140px">
+                                    <Template Context="v">@(string.IsNullOrWhiteSpace(v.AgenteFreshdesk) ? "—" : v.AgenteFreshdesk)</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="VinculoDto" Property="VinculadoUtc" Title="Vinculado" Width="130px">
+                                    <Template Context="v">@v.VinculadoUtc.ToLocalTime().ToString("dd/MM/yyyy")</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="VinculoDto" Property="Por" Title="Por" Width="130px">
+                                    <Template Context="v">@(v.Por ?? "—")</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="VinculoDto" Property="Notas" Title="Notas" Width="180px">
+                                    <Template Context="v">@(v.Notas ?? "")</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="VinculoDto" Title="" Width="110px" Sortable="false">
+                                    <Template Context="v">
+                                        <RadzenButton Text="Quitar" ButtonStyle="ButtonStyle.Light"
+                                                      Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                      Click="@(() => Quitar(v))" />
+                                    </Template>
+                                </RadzenDataGridColumn>
+                            </Columns>
+                        </RadzenDataGrid>
+                    </RadzenStack>
+                </RadzenTabsItem>
+
+                <RadzenTabsItem Text="➕ Vincular tickets">
+                    <RadzenStack Gap="0.75rem">
+                        <RadzenRow Gap="1rem">
+                            @* ── Azure DevOps ──────────────────────────────────────────── *@
+                            <RadzenColumn Size="12" SizeMD="6">
+                                <RadzenCard>
+                                    <RadzenStack Gap="0.5rem">
+                                        <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">
+                                            🔷 Work item de Azure DevOps
+                                        </RadzenText>
+
+                                        <RadzenTextBox @bind-Value="_doTexto" Placeholder="Buscar work item…"
+                                                       Change="@(_ => Cargar())" Style="width:100%" Disabled="@_ocupado" />
+
+                                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem"
+                                                     Wrap="FlexWrap.Wrap" AlignItems="AlignItems.Center">
+                                            <RadzenDropDown TValue="string" @bind-Value="_doEstado"
+                                                            Data="@_datos.DevOps.Estados" AllowClear="true"
+                                                            Placeholder="Todos los estados" Disabled="@_ocupado"
+                                                            Change="@(_ => Cargar())" Style="min-width:10rem" />
+                                            <RadzenDropDown TValue="string" @bind-Value="_doTipo"
+                                                            Data="@_datos.DevOps.Tipos" AllowClear="true"
+                                                            Placeholder="Todos los tipos" Disabled="@_ocupado"
+                                                            Change="@(_ => Cargar())" Style="min-width:10rem" />
+                                            <RadzenDropDown TValue="string" @bind-Value="_doAsignado"
+                                                            Data="@_datos.DevOps.Asignados" AllowClear="true"
+                                                            Placeholder="Todos los asignados" Disabled="@_ocupado"
+                                                            Change="@(_ => Cargar())" Style="min-width:11rem" />
+
+                                            <RadzenCheckBox TValue="bool" Name="doSinVincular" Value="@_doSinVincular"
+                                                            Change="@((bool m) => AlternarDevOps(m))" Disabled="@_ocupado" />
+                                            <RadzenLabel Text="Solo sin vincular" Component="doSinVincular" />
+
+                                            <RadzenButton Text="Limpiar" ButtonStyle="ButtonStyle.Light"
+                                                          Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                          Click="@LimpiarDevOps" />
+                                        </RadzenStack>
+
+                                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                            @_datos.DevOps.Resumen @(_datos.DevOps.Truncada ? " · lista recortada, afina el filtro" : "")
+                                        </RadzenText>
+
+                                        <RadzenDataGrid TItem="WorkItemParaVincularDto" Data="@_datos.DevOps.Filas"
+                                                        IsLoading="@_ocupado" AllowSorting="true" AllowPaging="true" PageSize="10"
+                                                        SelectionMode="DataGridSelectionMode.Single"
+                                                        Value="@_seleccionDevOps" ValueChanged="@SeleccionarWorkItem"
+                                                        EmptyText="Ningún work item cumple el filtro.">
+                                            <Columns>
+                                                <RadzenDataGridColumn TItem="WorkItemParaVincularDto" Property="Numero" Title="#" Width="80px" />
+                                                <RadzenDataGridColumn TItem="WorkItemParaVincularDto" Property="Tipo" Title="Tipo" Width="100px" />
+                                                <RadzenDataGridColumn TItem="WorkItemParaVincularDto" Property="Titulo" Title="Título" />
+                                                <RadzenDataGridColumn TItem="WorkItemParaVincularDto" Property="Estado" Title="Estado" Width="100px" />
+                                                <RadzenDataGridColumn TItem="WorkItemParaVincularDto" Property="Asignado" Title="Asignado" Width="140px">
+                                                    <Template Context="w">@(string.IsNullOrWhiteSpace(w.Asignado) ? "—" : w.Asignado)</Template>
+                                                </RadzenDataGridColumn>
+                                                <RadzenDataGridColumn TItem="WorkItemParaVincularDto" Property="Vinculado" Title="🔗" Width="60px">
+                                                    <Template Context="w">@(w.Vinculado ? "🔗" : "")</Template>
+                                                </RadzenDataGridColumn>
+                                            </Columns>
+                                        </RadzenDataGrid>
+                                    </RadzenStack>
+                                </RadzenCard>
+                            </RadzenColumn>
+
+                            @* ── Freshdesk ─────────────────────────────────────────────── *@
+                            <RadzenColumn Size="12" SizeMD="6">
+                                <RadzenCard>
+                                    <RadzenStack Gap="0.5rem">
+                                        <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">
+                                            🎫 Ticket de Freshdesk
+                                        </RadzenText>
+
+                                        <RadzenTextBox @bind-Value="_fdTexto" Placeholder="Buscar ticket…"
+                                                       Change="@(_ => Cargar())" Style="width:100%" Disabled="@_ocupado" />
+
+                                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem"
+                                                     Wrap="FlexWrap.Wrap" AlignItems="AlignItems.Center">
+                                            <RadzenDropDown TValue="string" @bind-Value="_fdEstado"
+                                                            Data="@_datos.Freshdesk.Estados" AllowClear="true"
+                                                            Placeholder="Todos los estados" Disabled="@_ocupado"
+                                                            Change="@(_ => Cargar())" Style="min-width:10rem" />
+                                            <RadzenDropDown TValue="string" @bind-Value="_fdPrioridad"
+                                                            Data="@_datos.Freshdesk.Prioridades" AllowClear="true"
+                                                            Placeholder="Todas las prioridades" Disabled="@_ocupado"
+                                                            Change="@(_ => Cargar())" Style="min-width:11rem" />
+                                            <RadzenDropDown TValue="string" @bind-Value="_fdAgente"
+                                                            Data="@_datos.Freshdesk.Agentes" AllowClear="true"
+                                                            Placeholder="Todos los agentes" Disabled="@_ocupado"
+                                                            Change="@(_ => Cargar())" Style="min-width:11rem" />
+
+                                            <RadzenCheckBox TValue="bool" Name="fdSinVincular" Value="@_fdSinVincular"
+                                                            Change="@((bool m) => AlternarFreshdesk(m))" Disabled="@_ocupado" />
+                                            <RadzenLabel Text="Solo sin vincular" Component="fdSinVincular" />
+
+                                            <RadzenButton Text="Limpiar" ButtonStyle="ButtonStyle.Light"
+                                                          Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                          Click="@LimpiarFreshdesk" />
+                                        </RadzenStack>
+
+                                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                            @_datos.Freshdesk.Resumen @(_datos.Freshdesk.Truncada ? " · lista recortada, afina el filtro" : "")
+                                        </RadzenText>
+
+                                        <RadzenDataGrid TItem="TicketParaVincularDto" Data="@_datos.Freshdesk.Filas"
+                                                        IsLoading="@_ocupado" AllowSorting="true" AllowPaging="true" PageSize="10"
+                                                        SelectionMode="DataGridSelectionMode.Single"
+                                                        Value="@_seleccionFreshdesk" ValueChanged="@SeleccionarTicket"
+                                                        EmptyText="Ningún ticket cumple el filtro.">
+                                            <Columns>
+                                                <RadzenDataGridColumn TItem="TicketParaVincularDto" Property="Numero" Title="#" Width="90px" />
+                                                <RadzenDataGridColumn TItem="TicketParaVincularDto" Property="Asunto" Title="Asunto" />
+                                                <RadzenDataGridColumn TItem="TicketParaVincularDto" Property="Estado" Title="Estado" Width="100px" />
+                                                <RadzenDataGridColumn TItem="TicketParaVincularDto" Property="Prioridad" Title="Prioridad" Width="100px" />
+                                                <RadzenDataGridColumn TItem="TicketParaVincularDto" Property="Agente" Title="Agente" Width="140px">
+                                                    <Template Context="t">@(string.IsNullOrWhiteSpace(t.Agente) ? "—" : t.Agente)</Template>
+                                                </RadzenDataGridColumn>
+                                                <RadzenDataGridColumn TItem="TicketParaVincularDto" Property="Vinculado" Title="🔗" Width="60px">
+                                                    <Template Context="t">@(t.Vinculado ? "🔗" : "")</Template>
+                                                </RadzenDataGridColumn>
+                                            </Columns>
+                                        </RadzenDataGrid>
+                                    </RadzenStack>
+                                </RadzenCard>
+                            </RadzenColumn>
+                        </RadzenRow>
+
+                        <RadzenCard>
+                            <RadzenStack Gap="0.5rem">
+                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@QueFalta()</RadzenText>
+                                <RadzenTextArea @bind-Value="_notas" Rows="2" MaxLength="500" Style="width:100%"
+                                                Placeholder="Notas del vínculo (opcional): por qué son el mismo trabajo" />
+                                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                                    <RadzenButton Text="🔗 Vincular selección" Disabled="@(_ocupado || !HaySeleccion)"
+                                                  Click="@Vincular" />
+                                    <RadzenButton Text="Limpiar selección" ButtonStyle="ButtonStyle.Light"
+                                                  Disabled="@(_ocupado || !HaySeleccion)" Click="@LimpiarSeleccion" />
+                                </RadzenStack>
+                            </RadzenStack>
+                        </RadzenCard>
+                    </RadzenStack>
+                </RadzenTabsItem>
+            </Tabs>
+        </RadzenTabs>
+    }
+</RadzenStack>
+
+@code {
+    private const string Azul = "#2563eb";
+    private const string Turquesa = "#14b8a6";
+    private const string Morado = "#8b5cf6";
+    private const string Verde = "#22c55e";
+    private const string Ambar = "#f59e0b";
+
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private PantallaDeVinculosDto? _datos;
+    private bool _ocupado;
+
+    // Búsqueda sobre los vínculos ya hechos.
+    private string _buscar = "";
+
+    // Filtros del panel de DevOps.
+    private string _doTexto = "";
+    private string? _doEstado;
+    private string? _doTipo;
+    private string? _doAsignado;
+    private bool _doSinVincular;
+
+    // Filtros del panel de Freshdesk.
+    private string _fdTexto = "";
+    private string? _fdEstado;
+    private string? _fdPrioridad;
+    private string? _fdAgente;
+    private bool _fdSinVincular;
+
+    // Selección. Se guardan los IDENTIFICADORES y no los objetos: cada recarga trae objetos nuevos y
+    // una referencia vieja dejaría vinculando algo que ya no está en la lista.
+    private int? _workItemId;
+    private int? _ticketId;
+    private IList<WorkItemParaVincularDto>? _seleccionDevOps;
+    private IList<TicketParaVincularDto>? _seleccionFreshdesk;
+
+    private string _notas = "";
+
+    private WorkItemParaVincularDto? WorkItemElegido =>
+        _workItemId is int id ? _datos?.DevOps.Filas.FirstOrDefault(w => w.Id == id) : null;
+
+    private TicketParaVincularDto? TicketElegido =>
+        _ticketId is int id ? _datos?.Freshdesk.Filas.FirstOrDefault(t => t.Id == id) : null;
+
+    private bool HaySeleccion => WorkItemElegido is not null && TicketElegido is not null;
+
+    protected override async Task OnInitializedAsync() => await Cargar();
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            var partes = new List<string>();
+            Agregar(partes, "buscar", _buscar);
+            Agregar(partes, "doTexto", _doTexto);
+            Agregar(partes, "doEstado", _doEstado);
+            Agregar(partes, "doTipo", _doTipo);
+            Agregar(partes, "doAsignado", _doAsignado);
+            if (_doSinVincular) partes.Add("doSinVincular=true");
+            Agregar(partes, "fdTexto", _fdTexto);
+            Agregar(partes, "fdEstado", _fdEstado);
+            Agregar(partes, "fdPrioridad", _fdPrioridad);
+            Agregar(partes, "fdAgente", _fdAgente);
+            if (_fdSinVincular) partes.Add("fdSinVincular=true");
+
+            var ruta = "api/vinculos" + (partes.Count > 0 ? "?" + string.Join("&", partes) : "");
+            _datos = await Api.LeerAsync<PantallaDeVinculosDto>(ruta, _cancelacion.Token);
+
+            // Lo elegido pudo salir del filtro o dejar de existir: mantener la selección apuntando a
+            // algo que ya no está en la lista sería vincular a ciegas.
+            _seleccionDevOps = WorkItemElegido is { } w ? [w] : null;
+            if (WorkItemElegido is null) _workItemId = null;
+            _seleccionFreshdesk = TicketElegido is { } t ? [t] : null;
+            if (TicketElegido is null) _ticketId = null;
+        }
+        finally { _ocupado = false; }
+    }
+
+    private static void Agregar(List<string> partes, string nombre, string? valor)
+    {
+        if (!string.IsNullOrWhiteSpace(valor)) partes.Add($"{nombre}={Uri.EscapeDataString(valor.Trim())}");
+    }
+
+    // ── Selección ────────────────────────────────────────────────────────────
+
+    private void SeleccionarWorkItem(IList<WorkItemParaVincularDto>? seleccion)
+    {
+        _seleccionDevOps = seleccion;
+        _workItemId = seleccion?.FirstOrDefault()?.Id;
+    }
+
+    private void SeleccionarTicket(IList<TicketParaVincularDto>? seleccion)
+    {
+        _seleccionFreshdesk = seleccion;
+        _ticketId = seleccion?.FirstOrDefault()?.Id;
+    }
+
+    private void LimpiarSeleccion()
+    {
+        SeleccionarWorkItem(null);
+        SeleccionarTicket(null);
+    }
+
+    // ── Filtros ──────────────────────────────────────────────────────────────
+
+    private async Task AlternarDevOps(bool marcado)
+    {
+        _doSinVincular = marcado;
+        await Cargar();
+    }
+
+    private async Task AlternarFreshdesk(bool marcado)
+    {
+        _fdSinVincular = marcado;
+        await Cargar();
+    }
+
+    private async Task LimpiarDevOps()
+    {
+        _doTexto = "";
+        _doEstado = _doTipo = _doAsignado = null;
+        _doSinVincular = false;
+        await Cargar();
+    }
+
+    private async Task LimpiarFreshdesk()
+    {
+        _fdTexto = "";
+        _fdEstado = _fdPrioridad = _fdAgente = null;
+        _fdSinVincular = false;
+        await Cargar();
+    }
+
+    // ── Acciones ─────────────────────────────────────────────────────────────
+
+    private async Task Vincular()
+    {
+        if (WorkItemElegido is not { } workItem || TicketElegido is not { } ticket)
+        {
+            Avisos.Aviso("Selecciona un work item y un ticket antes de vincular.");
+            return;
+        }
+
+        // El resto —que existan, que no estuvieran ya vinculados— lo comprueba el servicio, que es
+        // donde la regla tiene que vivir y donde el mensaje explica qué pasó.
+        if (await Enviar("api/vinculos/nuevo", new CrearVinculoRequest(workItem.Id, ticket.Id, _notas)))
+        {
+            _notas = "";
+            LimpiarSeleccion();
+        }
+    }
+
+    private async Task Quitar(VinculoDto vinculo)
+    {
+        if (!await Avisos.ConfirmarAsync(
+            $"¿Quitar el vínculo entre DevOps #{vinculo.NumeroDevOps} y Freshdesk #{vinculo.NumeroFreshdesk}?\n\n" +
+            "No se borra ninguno de los dos tickets: solo se deshace la relación entre ellos.",
+            "Quitar vínculo", "Sí, quitarlo"))
+            return;
+
+        await Enviar($"api/vinculos/{vinculo.Id}/quitar", new { });
+    }
+
+    /// <summary>
+    /// El envío que comparten las dos acciones. El mensaje del servidor se enseña TAL CUAL: dice el
+    /// motivo concreto —«ya estaban vinculados», «ese ticket ya no está en la lista»— y cambiarlo por
+    /// un «no se pudo» genérico tiraría lo que el escritorio hacía bien.
+    /// </summary>
+    private async Task<bool> Enviar<T>(string ruta, T cuerpo)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, resultado) = await Api.EnviarAsync<T, ResultadoDto>(ruta, cuerpo, _cancelacion.Token);
+            if (ok && resultado is not null) Avisos.Exito(resultado.Mensaje);
+            if (ok) await Cargar();
+            return ok;
+        }
+        finally { _ocupado = false; }
+    }
+
+    // ── Textos ───────────────────────────────────────────────────────────────
+
+    private string QueFalta() => (WorkItemElegido, TicketElegido) switch
+    {
+        (null, null) => "Selecciona un work item a la izquierda y un ticket a la derecha.",
+        (null, _) => "Falta elegir el work item de DevOps.",
+        (_, null) => "Falta elegir el ticket de Freshdesk.",
+        var (w, t) => $"Se vincularán: DevOps #{w!.Numero} «{w.Titulo}»  ↔  Freshdesk #{t!.Numero} «{t.Asunto}»."
+    };
+
+    private int SinVincular() =>
+        _datos is null ? 0
+            : _datos.Resumen.WorkItems - _datos.Resumen.WorkItemsVinculados
+              + _datos.Resumen.Tickets - _datos.Resumen.TicketsVinculados;
+
+    private static string Porcentaje(int parte, int total) =>
+        total == 0 ? "0" : $"{parte} ({Math.Round(100.0 * parte / total)}%)";
+
+    private RenderFragment Tarjeta(string rotulo, string valor, string color) => __builder =>
+    {
+        <RadzenCard Style="@($"border-left:5px solid {color};flex:1 1 150px;min-width:150px;padding:0.75rem 1rem")">
+            <RadzenText TextStyle="TextStyle.H5" Style="@($"color:{color};margin:0")">@valor</RadzenText>
+            <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">@rotulo</RadzenText>
+        </RadzenCard>
+    };
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

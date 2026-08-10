@@ -1,0 +1,928 @@
+@page "/mis-actividades"
+@attribute [Authorize(Policy = "AdminUDesarrollador")]
+@using AdminWeb.Shared.Dtos.Autocalificacion
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+@inject Descargas Descargas
+
+@*
+    Mis actividades: lo que el desarrollador escribe sobre su propio trabajo.
+
+    Junta lo que en el escritorio estaba en dos sitios —la pestaña «Mis actividades y puntos» del
+    panel y la pantalla «Actividades libres»— porque son la misma pregunta contestada de dos formas:
+    qué hice y con qué lo respaldo. Separarlas obligaba a recordar en cuál de las dos estaba cada
+    cosa.
+
+    Tres decisiones del escritorio que se conservan tal cual, por lo que valen y no por costumbre:
+
+      · El PUNTAJE se enseña, no se edita. Lo fija el criterio y solo el líder lo ajusta al revisar.
+        Antes era un campo escribible de 1 a 999, que contradecía la regla del propio módulo.
+      · Una entrada APROBADA no ofrece «Corregir». La regla la aplica el servidor; aquí se refleja
+        para no enseñar un botón que va a fallar.
+      · Al replicar, el motivo del rechazo va DELANTE del cuadro donde se argumenta. Pedir que
+        alguien responda sin tener a la vista lo que se le objetó es la forma más segura de que la
+        segunda vuelta repita el malentendido de la primera.
+
+    Lo que cambia respecto al escritorio: allí el formulario validaba el enlace antes de cerrarse
+    porque al aceptar se perdía lo escrito. Aquí el panel NO se cierra si el servidor rechaza, así
+    que no hace falta copiar esa regla en el navegador — y copiarla sería tener dos reglas que
+    tarde o temprano se separan.
+*@
+
+<PageTitle>Mis actividades</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.75rem">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Mis actividades</RadzenText>
+        <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
+    </RadzenStack>
+
+    @if (_datos is { } d)
+    {
+        @if (!d.TieneFicha)
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+                Tu cuenta no está vinculada a una ficha de desarrollador, así que no puedes registrar
+                actividades ni puntos. Contacta al líder si esto no es correcto.
+            </RadzenAlert>
+        }
+        else
+        {
+            <RadzenTabs>
+                <Tabs>
+                    <RadzenTabsItem Text="📝 Actividades y puntos">
+                        @PanelDePuntos(d)
+                    </RadzenTabsItem>
+                    <RadzenTabsItem Text="🧩 Actividades libres">
+                        @PanelDeActividades(d)
+                    </RadzenTabsItem>
+                </Tabs>
+            </RadzenTabs>
+        }
+    }
+</RadzenStack>
+
+@code {
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private MisActividadesDto? _datos;
+    private bool _ocupado;
+
+    /// <summary>Formulario de alta o corrección abierto; null significa que no hay ninguno.</summary>
+    private FormularioDeEntrada? _entrada;
+
+    /// <summary>Réplica en curso. Solo una a la vez: son dos actos distintos y mezclarlos confunde.</summary>
+    private FormularioDeReplica? _replica;
+
+    private FormularioDeActividad? _actividad;
+
+    /// <summary>La casilla del escritorio, con el mismo valor por omisión.</summary>
+    private bool _verCerradas = true;
+
+    /// <summary>Actividad cuya evidencia se está mirando. El panel se abre y se cierra con el mismo botón.</summary>
+    private ActividadLibreDto? _abierta;
+    private List<EvidenciaDto> _evidencias = [];
+    private List<ImagenAdjunta> _nuevaEvidencia = [];
+    private string _notaDeEvidencia = "";
+
+    private static readonly OpcionDeMes[] Meses =
+    [
+        new(1, "Enero"), new(2, "Febrero"), new(3, "Marzo"), new(4, "Abril"),
+        new(5, "Mayo"), new(6, "Junio"), new(7, "Julio"), new(8, "Agosto"),
+        new(9, "Septiembre"), new(10, "Octubre"), new(11, "Noviembre"), new(12, "Diciembre")
+    ];
+
+    private record OpcionDeMes(int Id, string Texto);
+
+    protected override Task OnInitializedAsync() => Cargar();
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            _datos = await Api.LeerAsync<MisActividadesDto>("api/autocalificacion/mias", _cancelacion.Token);
+
+            // La actividad que se estaba mirando se vuelve a resolver contra la lista recién traída:
+            // pudo cerrarse o desaparecer, y conservar la vieja dejaría el panel enseñando un estado
+            // que ya no es cierto.
+            if (_abierta is { } previa)
+            {
+                _abierta = _datos?.ActividadesLibres.FirstOrDefault(a => a.Id == previa.Id);
+                if (_abierta != null) await CargarEvidencias(_abierta.Id);
+                else _evidencias = [];
+            }
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    // ── Autocalificación ─────────────────────────────────────────────────────
+
+    private RenderFragment PanelDePuntos(MisActividadesDto d) => __builder =>
+    {
+        <RadzenStack Gap="0.75rem" class="rz-mt-2">
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                         Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                <RadzenButton Text="Registrar actividad" Icon="add" ButtonStyle="ButtonStyle.Primary"
+                              Click="@AbrirRegistro" Disabled="@(_ocupado || !HayCriterios(d))" />
+                @* El nivel decide qué actividades tocan: varias son «(Junior)», «(Mid)» o «(Senior)»
+                   y sin tenerlo a la vista no se sabe cuáles son las propias. *@
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                    Tu nivel: <b>@(d.Nivel ?? "— sin nivel registrado —")</b>
+                </RadzenText>
+            </RadzenStack>
+
+            @if (!HayCriterios(d))
+            {
+                <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false">
+                    Todavía no hay actividades configuradas que puedas registrar. Pídeselas al líder.
+                </RadzenAlert>
+            }
+
+            @if (_entrada is { } f)
+            {
+                @FormularioDePuntos(d, f)
+            }
+
+            @if (_replica is { } r)
+            {
+                @FormularioDeRespuesta(d, r)
+            }
+
+            <RadzenDataGrid TItem="AutocalificacionDto" Data="@d.Autocalificaciones" IsLoading="@_ocupado"
+                            AllowSorting="true" AllowPaging="true" PageSize="15"
+                            EmptyText="Todavía no has registrado ninguna actividad.">
+                <Columns>
+                    <RadzenDataGridColumn TItem="AutocalificacionDto" Title="Fecha" Width="105px">
+                        <Template Context="e">@e.FechaUtc.ToLocalTime().ToString("dd/MM/yyyy")</Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="AutocalificacionDto" Property="Criterio" Title="Qué hiciste">
+                        <Template Context="e">
+                            <div title="@(e.DescripcionCriterio ?? "(esta actividad no tiene descripción)")">
+                                @e.Criterio
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(e.Comentario))
+                            {
+                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@e.Comentario</RadzenText>
+                            }
+                        </Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="AutocalificacionDto" Property="Puntos" Title="Puntos"
+                                          Width="90px" TextAlign="TextAlign.Right">
+                        <Template Context="e"><b>@ConSigno(e.Puntos)</b></Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="AutocalificacionDto" Title="Período" Width="120px">
+                        <Template Context="e">@Periodo(e.Anio, e.Mes)</Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="AutocalificacionDto" Title="⏱ Tiempo" Width="100px">
+                        <Template Context="e">@Minutos(e.MinutosDeclarados)</Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="AutocalificacionDto" Title="Origen" Width="150px">
+                        @* De quién salió la entrada: decide qué se puede hacer con ella. *@
+                        <Template Context="e">
+                            @(e.EsAutocalificacion ? "Autocalificación" : "Asignado por líder")
+                        </Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="AutocalificacionDto" Title="Estado" Width="130px">
+                        <Template Context="e">
+                            <b style="@ColorDeEstado(e.Estado)">@Estado(e.Estado)</b>
+                            @if (e.Vueltas > 0)
+                            {
+                                <RadzenBadge BadgeStyle="BadgeStyle.Warning" Text="@($"🔁 ×{e.Vueltas}")"
+                                             title="@e.HistorialDeRevision" />
+                            }
+                        </Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="AutocalificacionDto" Title="Motivo del líder" Width="200px">
+                        @* Lo que el desarrollador necesita ver cuando algo se rechaza. Sin esto, un
+                           rechazo es un «no» sin explicación. *@
+                        <Template Context="e">
+                            @if (!string.IsNullOrWhiteSpace(e.ComentarioDeRevision))
+                            {
+                                <span title="@e.HistorialDeRevision">@e.ComentarioDeRevision</span>
+                            }
+                            else if (e.Estado == PointApprovalStatus.Rechazado)
+                            {
+                                <span>(sin motivo registrado)</span>
+                            }
+                        </Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="AutocalificacionDto" Title="" Width="240px" Sortable="false">
+                        <Template Context="e">
+                            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" Wrap="FlexWrap.Wrap">
+                                @if (e.SePuedeCorregir)
+                                {
+                                    <RadzenButton Text="Corregir" Icon="edit" ButtonStyle="ButtonStyle.Light"
+                                                  Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                  Click="@(() => AbrirCorreccion(e))" />
+                                }
+                                @if (e.SePuedeReplicar)
+                                {
+                                    <RadzenButton Text="Replicar" Icon="reply" ButtonStyle="ButtonStyle.Secondary"
+                                                  Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                  Click="@(() => AbrirReplica(e))"
+                                                  title="Argumenta y vuelve a mandarla a revisión." />
+                                }
+                                @if (e.TieneCaptura)
+                                {
+                                    <RadzenButton Icon="image" ButtonStyle="ButtonStyle.Light"
+                                                  Size="ButtonSize.ExtraSmall" title="Ver la captura"
+                                                  Click="@(() => Abrir($"api/autocalificacion/entradas/{e.Id}/captura"))" />
+                                }
+                                @if (!string.IsNullOrWhiteSpace(e.Enlace))
+                                {
+                                    <RadzenButton Icon="link" ButtonStyle="ButtonStyle.Light"
+                                                  Size="ButtonSize.ExtraSmall" title="@e.Enlace"
+                                                  Click="@(() => Abrir(e.Enlace!))" />
+                                }
+                            </RadzenStack>
+                        </Template>
+                    </RadzenDataGridColumn>
+                </Columns>
+            </RadzenDataGrid>
+        </RadzenStack>
+    };
+
+    private RenderFragment FormularioDePuntos(MisActividadesDto d, FormularioDeEntrada f) => __builder =>
+    {
+        var criterio = d.Criterios.FirstOrDefault(c => c.Id == f.CriterioId);
+
+        <RadzenCard Style="border-left:5px solid var(--rz-primary)">
+            <RadzenStack Gap="0.75rem">
+                <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">
+                    @(f.Id is null ? "📝 Registrar actividad" : "✏ Corregir actividad")
+                </RadzenText>
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                    @(f.Id is null
+                        ? "Los puntos que registres quedan PENDIENTES hasta que el líder los apruebe."
+                        : "Puedes corregirla mientras no esté aprobada. Corregir no la devuelve a revisión: para eso está «Replicar».")
+                </RadzenText>
+
+                @* «Criterio» es vocabulario del módulo de puntuación, no de quien registra lo que
+                   hizo. Al desarrollador se le pregunta lo que de verdad se le está preguntando. *@
+                <RadzenStack Gap="0.25rem">
+                    <RadzenLabel Text="¿Qué hiciste? *" Component="criterio" />
+                    <RadzenDropDown @bind-Value="f.CriterioId" Data="@d.Criterios" Name="criterio"
+                                    TextProperty="Texto" ValueProperty="Id" Style="width:100%"
+                                    Disabled="@_ocupado" />
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                        @(string.IsNullOrWhiteSpace(criterio?.Descripcion)
+                            ? "(esta actividad no tiene descripción; pídesela al líder)"
+                            : criterio!.Descripcion)
+                    </RadzenText>
+                    @if (criterio is { Disponible: false })
+                    {
+                        <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+                            Esta actividad ya no está disponible: elige otra para poder guardar.
+                        </RadzenAlert>
+                    }
+                </RadzenStack>
+
+                @* El puntaje lo fija el criterio, no el desarrollador: se muestra, no se edita. *@
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.75rem">
+                    <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0">Esto vale:</RadzenText>
+                    <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0" Style="color:var(--rz-success)">
+                        @(criterio is null ? "—" : $"+{criterio.Puntos}")
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                        El valor lo define el líder. Solo él puede ajustarlo al revisarlo.
+                    </RadzenText>
+                </RadzenStack>
+
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                             Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                    <RadzenLabel Text="Período:" Component="mes" />
+                    <RadzenDropDown @bind-Value="f.Mes" Data="@Meses" TextProperty="Texto" ValueProperty="Id"
+                                    Name="mes" Style="width:150px" Disabled="@_ocupado" />
+                    <RadzenNumeric @bind-Value="f.Anio" Min="2020" Max="2099" Style="width:110px"
+                                   Disabled="@_ocupado" />
+                </RadzenStack>
+
+                @* Tiempo DECLARADO, no cronometrado: cubre el trabajo que ocurre sin la aplicación
+                   abierta (una junta, un apoyo de pasillo), que es justo el que no quedaba en ningún
+                   lado. El tope de horas sale del que aplica el servidor y no de un número escrito
+                   aquí: con uno propio, el campo dejaba capturar más de lo que se acepta y el
+                   registro se rechazaba al guardar sin haber avisado de nada. *@
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                             Gap="0.5rem" Wrap="FlexWrap.Wrap">
+                    <RadzenLabel Text="Tiempo dedicado (opcional):" />
+                    <RadzenNumeric @bind-Value="f.Horas" Min="0" Max="@MaxHoras(d)" Style="width:100px"
+                                   Disabled="@_ocupado" />
+                    <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">h</RadzenText>
+                    <RadzenNumeric @bind-Value="f.Minutos" Min="0" Max="59" Step="5" Style="width:100px"
+                                   Disabled="@_ocupado" />
+                    <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">min</RadzenText>
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                        Independiente del cronómetro. Déjalo en 0 si no aplica.
+                    </RadzenText>
+                </RadzenStack>
+
+                <RadzenStack Gap="0.25rem">
+                    <RadzenLabel Text="Enlace al item de DevOps (PR, work item o ticket):" Component="enlace" />
+                    <RadzenTextBox @bind-Value="f.Enlace" Name="enlace" Style="width:100%"
+                                   Placeholder="https://dev.azure.com/…" Disabled="@_ocupado" />
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                        Copia la dirección desde la barra del navegador. El líder podrá abrirla al revisar.
+                    </RadzenText>
+                </RadzenStack>
+
+                <RadzenStack Gap="0.25rem">
+                    <RadzenLabel Text="Comentario / evidencia:" Component="comentario" />
+                    <RadzenTextArea @bind-Value="f.Comentario" Name="comentario" Rows="3"
+                                    Style="width:100%" Disabled="@_ocupado" />
+                </RadzenStack>
+
+                <RadzenStack Gap="0.25rem">
+                    <RadzenLabel Text="Requerimiento (opcional):" Component="requerimiento" />
+                    <RadzenDropDown @bind-Value="f.RequerimientoId" Data="@ConNinguno(d.Requerimientos)"
+                                    Name="requerimiento" TextProperty="Texto" ValueProperty="Id"
+                                    Style="width:100%" Disabled="@_ocupado" />
+                </RadzenStack>
+
+                <RadzenStack Gap="0.25rem">
+                    <RadzenLabel Text="Captura de pantalla (opcional):" />
+                    @if (f.TeniaCaptura && !f.QuitarCaptura && f.Captura.Count == 0)
+                    {
+                        @* Con captura guardada no se vuelve a bajar para volver a subirla: se enseña
+                           que está, se puede abrir, y solo viaja si se cambia o se quita. *@
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                            <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">Ya tiene una captura.</RadzenText>
+                            <RadzenButton Text="Verla" Icon="image" ButtonStyle="ButtonStyle.Light"
+                                          Size="ButtonSize.ExtraSmall"
+                                          Click="@(() => Abrir($"api/autocalificacion/entradas/{f.Id}/captura"))" />
+                            <RadzenButton Text="Quitarla" Icon="close" ButtonStyle="ButtonStyle.Light"
+                                          Size="ButtonSize.ExtraSmall" Click="@(() => f.QuitarCaptura = true)" />
+                        </RadzenStack>
+                    }
+                    else if (f.QuitarCaptura && f.Captura.Count == 0)
+                    {
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                            <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                                La captura se quitará al guardar.
+                            </RadzenText>
+                            <RadzenButton Text="Conservarla" ButtonStyle="ButtonStyle.Light"
+                                          Size="ButtonSize.ExtraSmall" Click="@(() => f.QuitarCaptura = false)" />
+                        </RadzenStack>
+                    }
+                    <PegarImagen @bind-Imagenes="f.Captura" Maximo="1" />
+                </RadzenStack>
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                    <RadzenButton Text="@(f.Id is null ? "Enviar a revisión" : "Guardar cambios")"
+                                  ButtonStyle="ButtonStyle.Primary" Click="@GuardarEntrada" Disabled="@_ocupado" />
+                    <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                                  Click="@(() => _entrada = null)" Disabled="@_ocupado" />
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    };
+
+    private RenderFragment FormularioDeRespuesta(MisActividadesDto d, FormularioDeReplica r) => __builder =>
+    {
+        <RadzenCard Style="border-left:5px solid var(--rz-warning)">
+            <RadzenStack Gap="0.75rem">
+                <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">🗣 Replicar el rechazo</RadzenText>
+                <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                    <b>@r.Entrada.Criterio</b> (@ConSigno(r.Entrada.Puntos) pts)
+                    @if (r.Entrada.Vueltas > 0)
+                    {
+                        <span> — ya ha ido y vuelto @r.Entrada.Vueltas vez/veces.</span>
+                    }
+                </RadzenText>
+
+                @* El motivo va delante del cuadro donde se argumenta, igual que en el escritorio. *@
+                <RadzenStack Gap="0.25rem">
+                    <RadzenLabel Text="Por qué te la rechazaron" />
+                    <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0"
+                                Style="@(string.IsNullOrWhiteSpace(r.Entrada.ComentarioDeRevision) ? "" : "color:var(--rz-danger)")">
+                        @(string.IsNullOrWhiteSpace(r.Entrada.ComentarioDeRevision)
+                            ? "El líder no dejó un motivo."
+                            : r.Entrada.ComentarioDeRevision)
+                    </RadzenText>
+                </RadzenStack>
+
+                @if (!string.IsNullOrWhiteSpace(r.Entrada.HistorialDeRevision))
+                {
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Lo que se ha dicho hasta ahora" />
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                                    Style="white-space:pre-wrap">@r.Entrada.HistorialDeRevision</RadzenText>
+                    </RadzenStack>
+                }
+
+                <RadzenStack Gap="0.25rem">
+                    <RadzenLabel Text="Tu argumento *" Component="argumento" />
+                    <RadzenTextArea @bind-Value="r.Argumento" Name="argumento" Rows="5" Style="width:100%"
+                                    MaxLength="@d.Limites.MaxArgumento" Disabled="@_ocupado" />
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                        Es lo que el líder va a leer. Hasta @d.Limites.MaxArgumento caracteres.
+                    </RadzenText>
+                </RadzenStack>
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                    <RadzenButton Text="Enviar a revisión" ButtonStyle="ButtonStyle.Primary"
+                                  Click="@EnviarReplica" Disabled="@_ocupado" />
+                    <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                                  Click="@(() => _replica = null)" Disabled="@_ocupado" />
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    };
+
+    private void AbrirRegistro()
+    {
+        _entrada = new FormularioDeEntrada
+        {
+            CriterioId = _datos?.Criterios.FirstOrDefault(c => c.Disponible)?.Id ?? 0
+        };
+        _replica = null;
+    }
+
+    private void AbrirCorreccion(AutocalificacionDto e)
+    {
+        int minutos = e.MinutosDeclarados ?? 0;
+        _entrada = new FormularioDeEntrada
+        {
+            Id = e.Id,
+            CriterioId = e.CriterioId,
+            Anio = e.Anio,
+            Mes = e.Mes,
+            Horas = minutos / 60,
+            Minutos = minutos % 60,
+            Enlace = e.Enlace ?? "",
+            Comentario = e.Comentario ?? "",
+            RequerimientoId = e.RequerimientoId ?? 0,
+            TeniaCaptura = e.TieneCaptura
+        };
+        _replica = null;
+    }
+
+    private async Task GuardarEntrada()
+    {
+        if (_entrada is not { } f) return;
+
+        int minutos = f.Horas * 60 + f.Minutos;
+        var captura = f.Captura.FirstOrDefault();
+
+        var cuerpo = new AutocalificacionRequest(
+            f.CriterioId, f.Anio, f.Mes,
+            f.Comentario,
+            f.RequerimientoId > 0 ? f.RequerimientoId : null,
+            minutos > 0 ? minutos : null,
+            f.Enlace,
+            captura?.Contenido, captura?.Nombre,
+            f.QuitarCaptura);
+
+        var ruta = f.Id is int id
+            ? $"api/autocalificacion/entradas/{id}/correccion"
+            : "api/autocalificacion/entradas";
+
+        // El panel solo se cierra si el servidor aceptó: si rechaza, lo escrito sigue ahí para
+        // corregirlo, que es lo que en el escritorio obligaba a validar antes de cerrar el diálogo.
+        if (await Enviar(ruta, cuerpo)) _entrada = null;
+    }
+
+    private void AbrirReplica(AutocalificacionDto e)
+    {
+        _replica = new FormularioDeReplica { Entrada = e };
+        _entrada = null;
+    }
+
+    private async Task EnviarReplica()
+    {
+        if (_replica is not { } r) return;
+        if (await Enviar($"api/autocalificacion/entradas/{r.Entrada.Id}/replica", new ReplicaRequest(r.Argumento)))
+            _replica = null;
+    }
+
+    // ── Actividades libres ───────────────────────────────────────────────────
+
+    private RenderFragment PanelDeActividades(MisActividadesDto d) => __builder =>
+    {
+        var filas = d.ActividadesLibres.Where(a => _verCerradas || a.EstaAbierta).ToList();
+
+        <RadzenStack Gap="0.75rem" class="rz-mt-2">
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                         Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                <RadzenButton Text="Nueva actividad" Icon="add" ButtonStyle="ButtonStyle.Primary"
+                              Click="@(() => AbrirActividad(null))" Disabled="@_ocupado" />
+                <RadzenCheckBox @bind-Value="_verCerradas" Name="cerradas" />
+                <RadzenLabel Text="Ver cerradas" Component="cerradas" />
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                    Registra aquí el trabajo que no cae en tus requerimientos asignados.
+                </RadzenText>
+            </RadzenStack>
+
+            @if (_actividad is { } f)
+            {
+                <RadzenCard Style="border-left:5px solid var(--rz-primary)">
+                    <RadzenStack Gap="0.75rem">
+                        <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">
+                            @(f.Id is null ? "🧩 Nueva actividad" : "✏ Editar actividad")
+                        </RadzenText>
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                            Para el trabajo que no corresponde a ninguno de tus requerimientos asignados
+                            (soporte, juntas, investigación, apoyo a otro equipo…).
+                        </RadzenText>
+                        <RadzenStack Gap="0.25rem">
+                            <RadzenLabel Text="Título *" Component="titulo" />
+                            <RadzenTextBox @bind-Value="f.Titulo" Name="titulo" MaxLength="200"
+                                           Style="width:100%" Disabled="@_ocupado" />
+                        </RadzenStack>
+                        <RadzenStack Gap="0.25rem">
+                            <RadzenLabel Text="Descripción (opcional):" Component="descripcion" />
+                            <RadzenTextArea @bind-Value="f.Descripcion" Name="descripcion" Rows="4"
+                                            Style="width:100%" Disabled="@_ocupado" />
+                        </RadzenStack>
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                            <RadzenButton Text="@(f.Id is null ? "Crear" : "Guardar")" ButtonStyle="ButtonStyle.Primary"
+                                          Click="@GuardarActividad" Disabled="@_ocupado" />
+                            <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                                          Click="@(() => _actividad = null)" Disabled="@_ocupado" />
+                        </RadzenStack>
+                    </RadzenStack>
+                </RadzenCard>
+            }
+
+            <RadzenDataGrid TItem="ActividadLibreDto" Data="@filas" IsLoading="@_ocupado"
+                            AllowSorting="true" AllowPaging="true" PageSize="15"
+                            EmptyText="Todavía no tienes actividades libres.">
+                <Columns>
+                    <RadzenDataGridColumn TItem="ActividadLibreDto" Property="Titulo" Title="Actividad">
+                        <Template Context="a">
+                            <div title="@(a.Descripcion ?? "(sin descripción)")">@a.Titulo</div>
+                        </Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="ActividadLibreDto" Title="Estado" Width="110px">
+                        <Template Context="a">@(a.EstaAbierta ? "🟢 Abierta" : "⚪ Cerrada")</Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="ActividadLibreDto" Title="Creada" Width="110px">
+                        <Template Context="a">@a.CreadaUtc.ToLocalTime().ToString("dd/MM/yyyy")</Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="ActividadLibreDto" Title="⏱ Tiempo dedicado" Width="150px">
+                        <Template Context="a">@Reloj(a.SegundosCronometrados)</Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="ActividadLibreDto" Title="📎" Width="70px">
+                        <Template Context="a">@(a.Evidencias > 0 ? $"📎 {a.Evidencias}" : "")</Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="ActividadLibreDto" Title="" Width="290px" Sortable="false">
+                        <Template Context="a">
+                            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" Wrap="FlexWrap.Wrap">
+                                @if (a.EstaAbierta)
+                                {
+                                    <RadzenButton Text="Editar" Icon="edit" ButtonStyle="ButtonStyle.Light"
+                                                  Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                  Click="@(() => AbrirActividad(a))" />
+                                }
+                                @* Habilitado también en las cerradas: se pueden CONSULTAR sus
+                                   evidencias; el servidor es quien impide cambiarlas. *@
+                                <RadzenButton Text="Evidencia" Icon="attach_file" ButtonStyle="ButtonStyle.Light"
+                                              Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                              Click="@(() => VerEvidencia(a))" />
+                                <RadzenButton Text="@(a.EstaAbierta ? "Cerrar" : "Reabrir")"
+                                              ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                              Disabled="@_ocupado" Click="@(() => CerrarOReabrir(a))" />
+                                <RadzenButton Text="Eliminar" Icon="delete" ButtonStyle="ButtonStyle.Danger"
+                                              Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                              Click="@(() => EliminarActividad(a))" />
+                            </RadzenStack>
+                        </Template>
+                    </RadzenDataGridColumn>
+                </Columns>
+            </RadzenDataGrid>
+
+            @if (_abierta is { } abierta)
+            {
+                @PanelDeEvidencia(d, abierta)
+            }
+        </RadzenStack>
+    };
+
+    private RenderFragment PanelDeEvidencia(MisActividadesDto d, ActividadLibreDto a) => __builder =>
+    {
+        <RadzenCard Style="border-left:5px solid var(--rz-info)">
+            <RadzenStack Gap="0.75rem">
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.75rem">
+                    <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">📎 Evidencia de «@a.Titulo»</RadzenText>
+                    <RadzenButton Icon="close" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                  title="Cerrar el panel" Click="@(() => VerEvidencia(a))" />
+                </RadzenStack>
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                    Es lo que convierte «estuve 6 h en esto» en algo que el líder puede revisar.
+                    Hasta @d.Limites.MaxEvidenciasPorActividad archivos de
+                    @(d.Limites.MaxEvidenciaBytes / (1024 * 1024)) MB.
+                </RadzenText>
+
+                @if (_evidencias.Count == 0)
+                {
+                    <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                        Esta actividad todavía no tiene evidencia.
+                    </RadzenText>
+                }
+                else
+                {
+                    <RadzenDataGrid TItem="EvidenciaDto" Data="@_evidencias" AllowPaging="false"
+                                    AllowSorting="false" EmptyText="">
+                        <Columns>
+                            <RadzenDataGridColumn TItem="EvidenciaDto" Title="Archivo">
+                                <Template Context="ev">@(ev.EsImagen ? "🖼 " : "📄 ")@ev.NombreArchivo</Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="EvidenciaDto" Title="Tamaño" Width="100px"
+                                                  TextAlign="TextAlign.Right">
+                                <Template Context="ev">@Tamano(ev.Bytes)</Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="EvidenciaDto" Property="Nota" Title="Nota" />
+                            <RadzenDataGridColumn TItem="EvidenciaDto" Title="Adjuntada" Width="140px">
+                                <Template Context="ev">@ev.FechaUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="EvidenciaDto" Title="" Width="150px" Sortable="false">
+                                <Template Context="ev">
+                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem">
+                                        @* Los bytes salen por la ruta común de adjuntos: es la que ya
+                                           decide el tipo por el contenido y manda nosniff. *@
+                                        <RadzenButton Text="Abrir" Icon="visibility" ButtonStyle="ButtonStyle.Light"
+                                                      Size="ButtonSize.ExtraSmall"
+                                                      Click="@(() => Abrir($"api/adjuntos/actividad/{ev.Id}"))" />
+                                        @if (a.EstaAbierta)
+                                        {
+                                            <RadzenButton Icon="delete" ButtonStyle="ButtonStyle.Danger"
+                                                          Size="ButtonSize.ExtraSmall" title="Quitar esta evidencia"
+                                                          Disabled="@_ocupado" Click="@(() => QuitarEvidencia(ev))" />
+                                        }
+                                    </RadzenStack>
+                                </Template>
+                            </RadzenDataGridColumn>
+                        </Columns>
+                    </RadzenDataGrid>
+                }
+
+                @if (a.EstaAbierta)
+                {
+                    <RadzenStack Gap="0.5rem">
+                        <PegarImagen @bind-Imagenes="_nuevaEvidencia" Maximo="1"
+                                     MaxBytes="@d.Limites.MaxEvidenciaBytes" />
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                     Gap="0.5rem" Wrap="FlexWrap.Wrap">
+                            <RadzenTextBox @bind-Value="_notaDeEvidencia" Style="width:320px"
+                                           Placeholder="Qué aporta esta evidencia (opcional)"
+                                           Disabled="@_ocupado" />
+                            <RadzenButton Text="Adjuntar" Icon="upload" ButtonStyle="ButtonStyle.Primary"
+                                          Size="ButtonSize.Small" Click="@AdjuntarEvidencia"
+                                          Disabled="@(_ocupado || _nuevaEvidencia.Count == 0)" />
+                        </RadzenStack>
+                    </RadzenStack>
+                }
+                else
+                {
+                    <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                        La actividad está cerrada. Reábrela si necesitas cambiar su evidencia.
+                    </RadzenText>
+                }
+            </RadzenStack>
+        </RadzenCard>
+    };
+
+    private void AbrirActividad(ActividadLibreDto? a) =>
+        _actividad = a == null
+            ? new FormularioDeActividad()
+            : new FormularioDeActividad { Id = a.Id, Titulo = a.Titulo, Descripcion = a.Descripcion ?? "" };
+
+    private async Task GuardarActividad()
+    {
+        if (_actividad is not { } f) return;
+
+        var cuerpo = new ActividadLibreRequest(f.Titulo, f.Descripcion);
+        var ruta = f.Id is int id
+            ? $"api/autocalificacion/actividades/{id}/edicion"
+            : "api/autocalificacion/actividades";
+
+        if (await Enviar(ruta, cuerpo)) _actividad = null;
+    }
+
+    private async Task CerrarOReabrir(ActividadLibreDto a)
+    {
+        if (!a.EstaAbierta)
+        {
+            await Enviar($"api/autocalificacion/actividades/{a.Id}/reapertura", SinCuerpo);
+            return;
+        }
+
+        // Con confirmación, igual que en el escritorio: cerrar detiene el cronómetro y consolida el
+        // tiempo, y volver atrás obliga a reabrirla.
+        if (!await Avisos.ConfirmarAsync(
+            $"¿Cerrar «{a.Titulo}»? Tiempo registrado: {Reloj(a.SegundosCronometrados)}. " +
+            "Si el cronómetro está corriendo, se detendrá.",
+            "Cerrar actividad", "Sí, cerrar"))
+            return;
+
+        await Enviar($"api/autocalificacion/actividades/{a.Id}/cierre", SinCuerpo);
+    }
+
+    private async Task EliminarActividad(ActividadLibreDto a)
+    {
+        if (!await Avisos.ConfirmarAsync(
+            $"¿Eliminar «{a.Titulo}»? Solo se puede si no tiene tiempo registrado.",
+            "Eliminar actividad", "Sí, eliminar"))
+            return;
+
+        if (await Enviar($"api/autocalificacion/actividades/{a.Id}/eliminacion", SinCuerpo)
+            && _abierta?.Id == a.Id)
+        {
+            _abierta = null;
+            _evidencias = [];
+        }
+    }
+
+    private async Task VerEvidencia(ActividadLibreDto a)
+    {
+        _abierta = _abierta?.Id == a.Id ? null : a;
+        _evidencias = [];
+        _nuevaEvidencia = [];
+        _notaDeEvidencia = "";
+        if (_abierta != null) await CargarEvidencias(_abierta.Id);
+    }
+
+    private async Task CargarEvidencias(int actividadId) =>
+        _evidencias = await Api.LeerAsync<List<EvidenciaDto>>(
+            $"api/autocalificacion/actividades/{actividadId}/evidencias", _cancelacion.Token) ?? [];
+
+    /// <summary>
+    /// Sube el archivo como formulario y no como JSON: en base64 cada archivo engorda un tercio y
+    /// obliga al servidor a materializarlo entero antes de poder mirarlo. El tipo de contenido no se
+    /// manda porque el servidor lo decide por los BYTES; enviarlo sería decorativo.
+    /// </summary>
+    private async Task AdjuntarEvidencia()
+    {
+        if (_abierta is not { } a || _nuevaEvidencia.FirstOrDefault() is not { } imagen) return;
+
+        var formulario = new MultipartFormDataContent
+        {
+            { new ByteArrayContent(imagen.Contenido), "archivo", imagen.Nombre }
+        };
+        if (!string.IsNullOrWhiteSpace(_notaDeEvidencia))
+            formulario.Add(new StringContent(_notaDeEvidencia), "nota");
+
+        _ocupado = true;
+        try
+        {
+            var (ok, r) = await Api.SubirAsync<ResultadoDto>(
+                $"api/autocalificacion/actividades/{a.Id}/evidencias", formulario, _cancelacion.Token);
+
+            if (ok && r is not null) Avisos.Exito(r.Mensaje);
+            if (!ok) return;
+
+            _nuevaEvidencia = [];
+            _notaDeEvidencia = "";
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+
+        await Cargar();
+    }
+
+    private async Task QuitarEvidencia(EvidenciaDto ev)
+    {
+        if (!await Avisos.ConfirmarAsync(
+            $"¿Quitar «{ev.NombreArchivo}» de la evidencia? No se puede deshacer.",
+            "Quitar evidencia", "Sí, quitar"))
+            return;
+
+        await Enviar($"api/autocalificacion/evidencias/{ev.Id}/eliminacion", SinCuerpo);
+    }
+
+    // ── Envío ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Para las operaciones que no llevan datos: la ruta ya dice todo (cerrar, reabrir, eliminar) y
+    /// el identificador va en ella.
+    /// </summary>
+    private static readonly object SinCuerpo = new();
+
+    /// <summary>
+    /// El envío que comparten todas las acciones. El mensaje del servidor se enseña TAL CUAL: explica
+    /// el motivo en concreto —«la actividad tiene 2h 30m de tiempo registrado y no se puede
+    /// eliminar»— y sustituirlo por un «no se pudo» genérico tiraría lo que el escritorio hacía bien.
+    /// </summary>
+    private async Task<bool> Enviar<T>(string ruta, T cuerpo)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, r) = await Api.EnviarAsync<T, ResultadoDto>(ruta, cuerpo, _cancelacion.Token);
+            if (ok && r is not null) Avisos.Exito(r.Mensaje);
+            if (ok) await Cargar();
+            return ok;
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    private Task Abrir(string url) => Descargas.AbrirEnOtraPestanaAsync(url).AsTask();
+
+    // ── Formato ──────────────────────────────────────────────────────────────
+
+    private static bool HayCriterios(MisActividadesDto d) => d.Criterios.Any(c => c.Disponible);
+
+    /// <summary>El tope de horas sale del que aplica el servidor, menos los 59 minutos del otro campo.</summary>
+    private static int MaxHoras(MisActividadesDto d) => (d.Limites.MaxMinutosDeclarados - 59) / 60;
+
+    /// <summary>«(Ninguno)» delante, como en el escritorio: el requerimiento es opcional.</summary>
+    private static List<OpcionDto> ConNinguno(IReadOnlyList<OpcionDto> opciones) =>
+        [new OpcionDto(0, "(Ninguno)"), .. opciones];
+
+    private static string ConSigno(int puntos) => puntos >= 0 ? $"+{puntos}" : puntos.ToString();
+
+    private static string Periodo(int anio, int mes) =>
+        $"{Meses.FirstOrDefault(m => m.Id == mes)?.Texto ?? mes.ToString()} {anio}";
+
+    private static string Minutos(int? minutos) => minutos switch
+    {
+        null or <= 0 => "—",
+        >= 60 => $"{minutos / 60}h {minutos % 60:00}m",
+        _ => $"{minutos}m"
+    };
+
+    private static string Reloj(int segundos)
+    {
+        var t = TimeSpan.FromSeconds(Math.Max(0, segundos));
+        return t.TotalHours >= 1
+            ? $"{(int)t.TotalHours}h {t.Minutes:00}m {t.Seconds:00}s"
+            : $"{t.Minutes:00}m {t.Seconds:00}s";
+    }
+
+    private static string Tamano(long bytes) =>
+        bytes >= 1024 * 1024 ? $"{bytes / (1024.0 * 1024.0):0.0} MB" : $"{Math.Max(1, bytes / 1024)} KB";
+
+    private static string Estado(PointApprovalStatus estado) => estado switch
+    {
+        PointApprovalStatus.Aprobado => "✅ Aprobado",
+        PointApprovalStatus.Pendiente => "⏳ Pendiente",
+        PointApprovalStatus.Rechazado => "❌ Rechazado",
+        _ => estado.ToString()
+    };
+
+    private static string ColorDeEstado(PointApprovalStatus estado) => estado switch
+    {
+        PointApprovalStatus.Aprobado => "color:var(--rz-success)",
+        PointApprovalStatus.Pendiente => "color:var(--rz-warning)",
+        PointApprovalStatus.Rechazado => "color:var(--rz-danger)",
+        _ => ""
+    };
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+
+    // ── Estado de los formularios ────────────────────────────────────────────
+
+    /// <summary>
+    /// Lo que se está capturando de una entrada de puntos. <c>Id</c> nulo es un alta; con
+    /// identificador es una corrección.
+    /// </summary>
+    private sealed class FormularioDeEntrada
+    {
+        public int? Id { get; set; }
+        public int CriterioId { get; set; }
+        public int Anio { get; set; } = DateTime.Today.Year;
+        public int Mes { get; set; } = DateTime.Today.Month;
+        public int Horas { get; set; }
+        public int Minutos { get; set; }
+        public string Enlace { get; set; } = "";
+        public string Comentario { get; set; } = "";
+
+        /// <summary>0 es «(Ninguno)»: un desplegable no admite nulo como valor.</summary>
+        public int RequerimientoId { get; set; }
+
+        /// <summary>La entrada ya traía captura guardada. No se baja: solo se dice que está.</summary>
+        public bool TeniaCaptura { get; set; }
+
+        public bool QuitarCaptura { get; set; }
+
+        /// <summary>La imagen nueva, si se eligió o se pegó una. Sustituye a la guardada.</summary>
+        public List<ImagenAdjunta> Captura { get; set; } = [];
+    }
+
+    private sealed class FormularioDeReplica
+    {
+        public required AutocalificacionDto Entrada { get; init; }
+        public string Argumento { get; set; } = "";
+    }
+
+    private sealed class FormularioDeActividad
+    {
+        public int? Id { get; set; }
+        public string Titulo { get; set; } = "";
+        public string Descripcion { get; set; } = "";
+    }
+}

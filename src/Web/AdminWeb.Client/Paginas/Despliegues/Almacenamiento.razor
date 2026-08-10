@@ -1,0 +1,601 @@
+@page "/almacenamiento"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Shared.Dtos.Programados
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+@inject Descargas Descargas
+
+@*
+    El explorador del contenedor de Azure Blob Storage: qué hay en cada carpeta, qué se sube, qué se
+    borra y qué enlaces de descarga se firman.
+
+    Solo el líder, igual que en el escritorio: desde aquí se toca directamente el almacenamiento —se
+    borran versiones y respaldos— y eso no es desplegar, es administrar.
+
+    Decisiones del escritorio que se conservan:
+
+      · Filtrar y reordenar NO vuelve a consultar Azure. Se hace sobre lo ya traído, porque a razón
+        de una petición de red por tecla la pantalla sería inusable. Aquí pesa todavía más: cada
+        consulta cruza además el enlace entre el navegador y el servidor.
+      · El orden por VERSIÓN compara números, no texto: alfabéticamente «1.10» va antes que «1.9»,
+        que es justo lo contrario de lo que espera quien busca la última.
+      · Antes de borrar una carpeta se cuenta lo que hay dentro y se avisa del alcance, con aviso
+        extra si es (o contiene) una carpeta base a donde escribe la aplicación.
+      · Los metadatos se releen del servidor antes de editarlos: pudieron cambiar desde el portal o
+        desde el escritorio, y guardar reemplaza el conjunto completo.
+
+    Lo que cambia respecto al escritorio:
+
+      · La cadena de conexión ya NO se puede probar sin guardarla. Allí se probaba lo tecleado para
+        no descubrir después que era la equivocada; aquí aceptar una cadena por parámetro convertiría
+        esta pantalla en un probador de credenciales de Azure ajenas. Se guarda en Configuración y se
+        prueba desde aquí.
+      · La descarga de un archivo pasa por la API. El enlace firmado sigue existiendo, pero es para
+        dárselo a alguien que NO entra a la aplicación: para bajarlo uno mismo no hace falta dejar un
+        enlace suelto por ahí.
+*@
+
+<PageTitle>Almacenamiento</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Almacenamiento</RadzenText>
+        <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
+        <RadzenButton Text="🔌 Probar conexión" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@Probar" Disabled="@(_ocupado || !Configurado)" />
+    </RadzenStack>
+
+    @if (_estado is { } e)
+    {
+        @if (!e.Configurado)
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+                @(e.Aviso ?? "Azure Blob Storage no está configurado.")
+            </RadzenAlert>
+        }
+        else
+        {
+            @if (!string.IsNullOrWhiteSpace(e.Aviso))
+            {
+                <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+                    @e.Aviso
+                </RadzenAlert>
+            }
+
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                         Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                <RadzenLabel Text="Carpeta:" Component="carpeta" />
+                <RadzenDropDown TValue="string" @bind-Value="_carpeta" Name="carpeta"
+                                Data="@e.Carpetas" AllowFiltering="true" Disabled="@_ocupado"
+                                Change="@(_ => Listar())" Style="min-width:20rem" />
+
+                <RadzenButton Text="🔄 Listar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                              Click="@Listar" Disabled="@_ocupado" />
+                <RadzenButton Text="📁 Nueva carpeta" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                              Click="@CrearCarpeta" Disabled="@_ocupado" />
+                <RadzenButton Text="🗑 Eliminar carpeta" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                              Click="@EliminarCarpeta" Disabled="@_ocupado" />
+
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                    Contenedor «@e.Contenedor»
+                </RadzenText>
+            </RadzenStack>
+
+            <RadzenCard>
+                <RadzenStack Gap="0.5rem">
+                    <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">Subir a esta carpeta</RadzenText>
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                 Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                        <InputFile OnChange="@Elegir" />
+                        <RadzenCheckBox TValue="bool" @bind-Value="_sobrescribir" Name="sobrescribir" />
+                        <RadzenLabel Text="Sobrescribir si ya existe" Component="sobrescribir" />
+                        <RadzenButton Text="⬆ Subir" Size="ButtonSize.Small" Disabled="@(_ocupado || _elegido is null)"
+                                      Click="@Subir" />
+                        @if (_elegido is { } archivo)
+                        {
+                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@archivo.Name</RadzenText>
+                        }
+                    </RadzenStack>
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                        Máximo @(MaxBytes / (1024 * 1024)) MB por archivo. Azure sobrescribe sin
+                        preguntar, así que sin marcar la casilla el servidor rechaza el que ya exista.
+                    </RadzenText>
+                </RadzenStack>
+            </RadzenCard>
+
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                         Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                <RadzenLabel Text="Filtrar:" Component="filtro" />
+                <RadzenTextBox @bind-Value="_filtro" Name="filtro" Style="width:18rem"
+                               Placeholder="versión, sistema o parte del nombre"
+                               Change="@(_ => StateHasChanged())" />
+
+                <RadzenLabel Text="Ordenar por:" Component="orden" />
+                <RadzenDropDown TValue="int" @bind-Value="_orden" Name="orden" Data="@Ordenes"
+                                TextProperty="Texto" ValueProperty="Valor" Style="min-width:16rem" />
+            </RadzenStack>
+
+            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@Resumen()</RadzenText>
+
+            <RadzenDataGrid TItem="ArchivoDeBlobDto" Data="@Filtrados" IsLoading="@_ocupado"
+                            AllowSorting="false" AllowPaging="true" PageSize="20"
+                            EmptyText="La carpeta está vacía o todavía no existe.">
+                <Columns>
+                    @* Nada de MarkupString sobre estos nombres: los escribe quien sube el archivo, y
+                       aquí solo son texto. *@
+                    <RadzenDataGridColumn TItem="ArchivoDeBlobDto" Property="Nombre" Title="Archivo" />
+                    <RadzenDataGridColumn TItem="ArchivoDeBlobDto" Property="TamanoLegible"
+                                          Title="Tamaño" Width="110px" TextAlign="TextAlign.Right" />
+                    <RadzenDataGridColumn TItem="ArchivoDeBlobDto" Property="ModificadoUtc"
+                                          Title="Modificado" Width="150px">
+                        <Template Context="a">
+                            @(a.ModificadoUtc?.LocalDateTime.ToString("dd/MM/yyyy HH:mm") ?? "—")
+                        </Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="ArchivoDeBlobDto" Title="Metadatos" Width="280px" Sortable="false">
+                        <Template Context="a">
+                            @(a.Metadatos.Count == 0 ? "—" : string.Join(", ", a.Metadatos.Select(m => $"{m.Clave}={m.Valor}")))
+                        </Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="ArchivoDeBlobDto" Title="" Width="330px" Sortable="false">
+                        <Template Context="a">
+                            <RadzenButton Text="Descargar" ButtonStyle="ButtonStyle.Light"
+                                          Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                          Click="@(() => Descargar(a))" />
+                            <RadzenButton Text="Enlace" ButtonStyle="ButtonStyle.Light"
+                                          Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                          Click="@(() => GenerarEnlace(a))" />
+                            <RadzenButton Text="Metadatos" ButtonStyle="ButtonStyle.Light"
+                                          Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                          Click="@(() => AbrirMetadatos(a))" />
+                            <RadzenButton Text="Eliminar" ButtonStyle="ButtonStyle.Light"
+                                          Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                          Click="@(() => Eliminar(a))" />
+                        </Template>
+                    </RadzenDataGridColumn>
+                </Columns>
+            </RadzenDataGrid>
+
+            @if (_editandoMetadatosDe is { } blob)
+            {
+                <RadzenCard>
+                    <RadzenStack Gap="0.75rem">
+                        <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                            Metadatos de @blob
+                        </RadzenText>
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                            Azure no mezcla: lo que quede aquí es lo que queda en el archivo. Los
+                            nombres solo admiten letras sin acento, números y guion bajo, y no pueden
+                            empezar por un número.
+                        </RadzenText>
+
+                        @foreach (var fila in _metadatos)
+                        {
+                            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem"
+                                         AlignItems="AlignItems.Center" Wrap="FlexWrap.Wrap">
+                                <RadzenTextBox @bind-Value="fila.Clave" Style="width:14rem" Placeholder="nombre" />
+                                <RadzenTextBox @bind-Value="fila.Valor" Style="width:22rem" Placeholder="valor" />
+                                <RadzenButton Text="Quitar" ButtonStyle="ButtonStyle.Light"
+                                              Size="ButtonSize.ExtraSmall" Click="@(() => _metadatos.Remove(fila))" />
+                            </RadzenStack>
+                        }
+
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                            <RadzenButton Text="➕ Agregar" ButtonStyle="ButtonStyle.Light"
+                                          Size="ButtonSize.Small" Click="@(() => _metadatos.Add(new FilaDeMetadato()))" />
+                            <RadzenButton Text="Guardar" Disabled="@_ocupado" Click="@GuardarMetadatos" />
+                            <RadzenButton Text="Cerrar" ButtonStyle="ButtonStyle.Light"
+                                          Disabled="@_ocupado" Click="@(() => _editandoMetadatosDe = null)" />
+                        </RadzenStack>
+                    </RadzenStack>
+                </RadzenCard>
+            }
+
+            @if (_enlace is { } enlace)
+            {
+                <RadzenCard>
+                    <RadzenStack Gap="0.5rem">
+                        <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">
+                            Enlace temporal — caduca el @enlace.CaducaUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                        </RadzenText>
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                            Quien lo tenga puede bajar ese archivo sin entrar a la aplicación. Queda en
+                            la bitácora quién lo generó, para qué archivo y hasta cuándo sirve.
+                        </RadzenText>
+                        <RadzenTextArea Value="@enlace.Url" ReadOnly="true" Rows="3" Style="width:100%" />
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                            <RadzenButton Text="📋 Copiar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                          Click="@(() => Copiar(enlace.Url))" />
+                            <RadzenButton Text="Cerrar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                          Click="@(() => _enlace = null)" />
+                        </RadzenStack>
+                    </RadzenStack>
+                </RadzenCard>
+            }
+        }
+    }
+</RadzenStack>
+
+@code {
+    /// <summary>El mismo tope que acepta el servidor (<c>ProgramadosEndpoints.MaxBytesDeSubida</c>).</summary>
+    private const long MaxBytes = 256L * 1024 * 1024;
+
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private AlmacenamientoDto? _estado;
+    private ListadoDeBlobsDto? _listado;
+    private bool _ocupado;
+
+    private string _carpeta = "";
+    private string _filtro = "";
+    private int _orden;
+
+    private IBrowserFile? _elegido;
+    private bool _sobrescribir;
+
+    private string? _editandoMetadatosDe;
+    private List<FilaDeMetadato> _metadatos = [];
+    private EnlaceDeDescargaDto? _enlace;
+
+    private bool Configurado => _estado?.Configurado == true;
+
+    private sealed record OpcionDeOrden(int Valor, string Texto);
+
+    private static readonly OpcionDeOrden[] Ordenes =
+    [
+        new(0, "Fecha (más reciente primero)"),
+        new(1, "Fecha (más antigua primero)"),
+        new(2, "Versión (descendente)"),
+        new(3, "Versión (ascendente)"),
+        new(4, "Tamaño (mayor primero)")
+    ];
+
+    /// <summary>Una fila editable de metadatos. Clase y no record porque se enlaza con @bind.</summary>
+    private sealed class FilaDeMetadato
+    {
+        public string Clave { get; set; } = "";
+        public string Valor { get; set; } = "";
+    }
+
+    protected override async Task OnInitializedAsync() => await Cargar();
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            _estado = await Api.LeerAsync<AlmacenamientoDto>("api/almacenamiento", _cancelacion.Token);
+
+            if (_estado is { Configurado: true })
+            {
+                // Se propone la carpeta de versiones, que es donde casi siempre se quiere mirar.
+                if (string.IsNullOrWhiteSpace(_carpeta) ||
+                    !_estado.Carpetas.Contains(_carpeta, StringComparer.OrdinalIgnoreCase))
+                    _carpeta = _estado.CarpetaDeVersiones;
+            }
+        }
+        finally { _ocupado = false; }
+
+        if (Configurado) await Listar();
+    }
+
+    private async Task Listar()
+    {
+        if (!Configurado) return;
+
+        _ocupado = true;
+        try
+        {
+            _listado = await Api.LeerAsync<ListadoDeBlobsDto>(
+                $"api/almacenamiento/archivos?carpeta={Uri.EscapeDataString(_carpeta ?? "")}",
+                _cancelacion.Token);
+
+            // El panel de metadatos apuntaba a un archivo de la carpeta anterior: dejarlo abierto
+            // haría creer que se está editando el que se ve ahora.
+            _editandoMetadatosDe = null;
+        }
+        finally { _ocupado = false; }
+    }
+
+    // ── Filtro y orden, sobre lo ya traído ───────────────────────────────────
+
+    private IReadOnlyList<ArchivoDeBlobDto> Archivos => _listado?.Archivos ?? [];
+
+    private IEnumerable<ArchivoDeBlobDto> Filtrados
+    {
+        get
+        {
+            var lista = Archivos.AsEnumerable();
+
+            var texto = _filtro.Trim();
+            if (texto.Length > 0)
+                // Se busca también en los metadatos: así «Infrasur» o un checksum encuentran el
+                // archivo aunque no aparezcan en su nombre.
+                lista = lista.Where(a =>
+                    a.Nombre.Contains(texto, StringComparison.OrdinalIgnoreCase) ||
+                    a.Metadatos.Any(m => m.Valor.Contains(texto, StringComparison.OrdinalIgnoreCase)));
+
+            return _orden switch
+            {
+                1 => lista.OrderBy(a => a.ModificadoUtc),
+                2 => lista.OrderByDescending(a => VersionDe(a), ComparadorDeVersion.Instancia)
+                          .ThenByDescending(a => a.ModificadoUtc),
+                3 => lista.OrderBy(a => VersionDe(a), ComparadorDeVersion.Instancia)
+                          .ThenBy(a => a.ModificadoUtc),
+                4 => lista.OrderByDescending(a => a.Bytes),
+                _ => lista.OrderByDescending(a => a.ModificadoUtc)
+            };
+        }
+    }
+
+    /// <summary>Versión del archivo: la de sus metadatos si la tiene, o la deducida del nombre.</summary>
+    private static string VersionDe(ArchivoDeBlobDto a)
+    {
+        var meta = a.Metadatos.FirstOrDefault(m => m.Clave.Equals("version", StringComparison.OrdinalIgnoreCase));
+        if (meta is not null && !string.IsNullOrWhiteSpace(meta.Valor)) return meta.Valor;
+
+        var m = System.Text.RegularExpressions.Regex.Match(a.NombreCorto, @"\d+(\.\d+)+");
+        return m.Success ? m.Value : a.NombreCorto;
+    }
+
+    /// <summary>
+    /// Compara versiones por número y no como texto: alfabéticamente «1.10» va antes que «1.9», que
+    /// es justo lo contrario de lo que espera quien busca la última.
+    /// </summary>
+    private sealed class ComparadorDeVersion : IComparer<string>
+    {
+        public static readonly ComparadorDeVersion Instancia = new();
+
+        public int Compare(string? x, string? y)
+        {
+            var a = Partes(x);
+            var b = Partes(y);
+
+            for (int i = 0; i < Math.Max(a.Length, b.Length); i++)
+            {
+                int va = i < a.Length ? a[i] : 0;
+                int vb = i < b.Length ? b[i] : 0;
+                if (va != vb) return va.CompareTo(vb);
+            }
+            return string.Compare(x, y, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static int[] Partes(string? v) =>
+            (v ?? "").Split('.', StringSplitOptions.RemoveEmptyEntries)
+                     .Select(p => int.TryParse(new string([.. p.TakeWhile(char.IsDigit)]), out var n) ? n : 0)
+                     .ToArray();
+    }
+
+    private string Resumen()
+    {
+        if (_listado is not { } l) return "";
+
+        var filtrados = Filtrados.Count();
+        long bytes = Filtrados.Sum(a => a.Bytes);
+
+        if (l.Archivos.Count == 0) return l.Resumen;
+
+        return filtrados == l.Archivos.Count
+            ? l.Resumen
+            : $"{filtrados} de {l.Archivos.Count} archivo(s) — {bytes / 1024d / 1024d:0.0} MB.";
+    }
+
+    // ── Acciones ─────────────────────────────────────────────────────────────
+
+    private async Task Probar()
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, r) = await Api.EnviarAsync<object?, ResultadoDto>(
+                "api/almacenamiento/probar", null, _cancelacion.Token);
+
+            // El mensaje del servidor se enseña tal cual: dice si el contenedor existe y si la cadena
+            // puede firmar enlaces, que es lo que conviene saber ANTES de necesitar uno.
+            if (ok && r is not null) Avisos.Exito(r.Mensaje);
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task CrearCarpeta()
+    {
+        var propuesta = string.IsNullOrWhiteSpace(_carpeta) ? "" : _carpeta + "/";
+        var ruta = await Avisos.PedirTextoAsync(
+            $"Ruta completa de la carpeta nueva (por ejemplo «{propuesta}QA»):", "Nueva carpeta");
+
+        if (string.IsNullOrWhiteSpace(ruta)) return;
+
+        if (await Enviar("api/almacenamiento/carpetas", new CrearCarpetaEnBlobRequest(ruta)))
+        {
+            _carpeta = ruta.Trim();
+            await Cargar();
+        }
+    }
+
+    private async Task EliminarCarpeta()
+    {
+        if (string.IsNullOrWhiteSpace(_carpeta))
+        {
+            Avisos.Aviso("Elige la carpeta que quieres eliminar.");
+            return;
+        }
+
+        // El alcance se pide ANTES de preguntar para que la confirmación diga qué se va a borrar de
+        // verdad en vez de «¿seguro?». Va por POST porque el nombre de la carpeta lleva barras.
+        var (consultado, alcance) = await Api.EnviarAsync<CarpetaRequest, AlcanceDeBorradoDto>(
+            "api/almacenamiento/carpetas/alcance", new CarpetaRequest(_carpeta), _cancelacion.Token);
+
+        if (!consultado || alcance is null) return;
+
+        if (alcance.Elementos == 0)
+        {
+            Avisos.Info($"La carpeta «{_carpeta}» está vacía o ya no existe.");
+            return;
+        }
+
+        var avisoBase = alcance.EsCarpetaBase
+            ? "\n\n⚠ Contiene una CARPETA BASE del sistema (versiones o respaldos): al borrarla se " +
+              "elimina TODO ese histórico."
+            : "";
+
+        if (!await Avisos.ConfirmarEscribiendoAsync(
+            $"Se borrarán {alcance.Elementos} elemento(s) de «{alcance.Carpeta}», subcarpetas " +
+            $"incluidas. Esto no se puede deshacer.{avisoBase}",
+            "BORRAR", "Eliminar carpeta"))
+            return;
+
+        if (await Enviar("api/almacenamiento/carpetas/eliminar", new CarpetaRequest(_carpeta)))
+            await Cargar();
+    }
+
+    private async Task Eliminar(ArchivoDeBlobDto archivo)
+    {
+        if (!await Avisos.ConfirmarAsync(
+            $"¿Eliminar definitivamente «{archivo.Nombre}» ({archivo.TamanoLegible})? " +
+            "Esta acción no se puede deshacer.",
+            "Eliminar archivo", "Sí, eliminarlo"))
+            return;
+
+        if (await Enviar("api/almacenamiento/eliminar", new BlobRequest(archivo.Nombre)))
+            await Listar();
+    }
+
+    private Task Descargar(ArchivoDeBlobDto archivo) =>
+        Descargas.DesdeApiAsync($"api/almacenamiento/descargar?blob={Uri.EscapeDataString(archivo.Nombre)}")
+                 .AsTask();
+
+    private async Task GenerarEnlace(ArchivoDeBlobDto archivo)
+    {
+        var texto = await Avisos.PedirTextoAsync(
+            $"¿Cuántas horas debe servir el enlace de «{archivo.NombreCorto}»? (entre 1 y 8760)",
+            "Enlace de descarga");
+        if (string.IsNullOrWhiteSpace(texto)) return;
+
+        if (!double.TryParse(texto, out var horas))
+        {
+            Avisos.Aviso("Escribe un número de horas.");
+            return;
+        }
+
+        _ocupado = true;
+        try
+        {
+            var (ok, enlace) = await Api.EnviarAsync<EnlaceDeDescargaRequest, EnlaceDeDescargaDto>(
+                "api/almacenamiento/enlace", new EnlaceDeDescargaRequest(archivo.Nombre, horas),
+                _cancelacion.Token);
+
+            if (ok && enlace is not null) _enlace = enlace;
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task Copiar(string texto)
+    {
+        if (!await Descargas.CopiarAsync(texto))
+            Avisos.Aviso("El navegador no dejó copiar. Selecciona el texto y cópialo a mano.");
+    }
+
+    // ── Metadatos ────────────────────────────────────────────────────────────
+
+    private async Task AbrirMetadatos(ArchivoDeBlobDto archivo)
+    {
+        _ocupado = true;
+        try
+        {
+            // Se releen del servidor y no se usan los de la lista: pudieron cambiar desde el portal o
+            // desde el escritorio, y guardar reemplaza el conjunto completo.
+            var actuales = await Api.LeerAsync<List<MetadatoDeBlobDto>>(
+                $"api/almacenamiento/metadatos?blob={Uri.EscapeDataString(archivo.Nombre)}",
+                _cancelacion.Token);
+
+            _metadatos = [.. (actuales ?? []).Select(m => new FilaDeMetadato { Clave = m.Clave, Valor = m.Valor })];
+            _editandoMetadatosDe = archivo.Nombre;
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task GuardarMetadatos()
+    {
+        if (_editandoMetadatosDe is not { } blob) return;
+
+        var filas = _metadatos
+            .Where(f => !string.IsNullOrWhiteSpace(f.Clave))
+            .Select(f => new MetadatoDeBlobDto(f.Clave.Trim(), f.Valor ?? ""))
+            .ToList();
+
+        if (await Enviar("api/almacenamiento/metadatos", new GuardarMetadatosRequest(blob, filas)))
+        {
+            _editandoMetadatosDe = null;
+            await Listar();
+        }
+    }
+
+    // ── Subida ───────────────────────────────────────────────────────────────
+
+    private void Elegir(InputFileChangeEventArgs e) => _elegido = e.File;
+
+    private async Task Subir()
+    {
+        if (_elegido is not { } archivo) return;
+
+        // El tope se comprueba aquí solo para no empujar por la red algo que va a rebotar; la
+        // comprobación que cuenta es la del servidor, porque a la API se la puede llamar sin pasar
+        // por esta página.
+        if (archivo.Size > MaxBytes)
+        {
+            Avisos.Aviso($"«{archivo.Name}» pasa de {MaxBytes / (1024 * 1024)} MB.");
+            return;
+        }
+
+        _ocupado = true;
+        try
+        {
+            // En flujo, sin materializar el archivo entero en memoria del navegador. El
+            // MultipartFormDataContent lo cierra ClienteApi.SubirAsync cuando la petición termina.
+            var contenido = new StreamContent(archivo.OpenReadStream(MaxBytes, _cancelacion.Token));
+
+            var formulario = new MultipartFormDataContent
+            {
+                { contenido, "archivo", archivo.Name },
+                { new StringContent(_carpeta ?? ""), "carpeta" },
+                { new StringContent(_sobrescribir.ToString().ToLowerInvariant()), "sobrescribir" }
+            };
+
+            var (ok, r) = await Api.SubirAsync<ResultadoDto>(
+                "api/almacenamiento/subir", formulario, _cancelacion.Token);
+
+            if (ok && r is not null) Avisos.Exito(r.Mensaje);
+            if (ok)
+            {
+                _elegido = null;
+                await Listar();
+            }
+        }
+        finally { _ocupado = false; }
+    }
+
+    /// <summary>
+    /// El envío que comparten las acciones. El mensaje del servidor se enseña TAL CUAL: explica el
+    /// motivo concreto —«ya existe en esa carpeta», «esa cadena no incluye la clave de la cuenta»— y
+    /// cambiarlo por un «no se pudo» genérico tiraría lo que el escritorio hacía bien.
+    /// </summary>
+    private async Task<bool> Enviar<T>(string ruta, T cuerpo)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, r) = await Api.EnviarAsync<T, ResultadoDto>(ruta, cuerpo, _cancelacion.Token);
+            if (ok && r is not null) Avisos.Exito(r.Mensaje);
+            return ok;
+        }
+        finally { _ocupado = false; }
+    }
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

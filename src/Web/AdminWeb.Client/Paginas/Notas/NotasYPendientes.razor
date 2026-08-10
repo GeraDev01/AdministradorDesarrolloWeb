@@ -1,0 +1,318 @@
+@page "/notas"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Shared.Dtos.Notas
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+@inject Descargas Descargas
+
+@*
+    Notas y pendientes del líder: lo que le comentan de paso y no debe olvidársele.
+
+    DÓNDE VIVE, Y POR QUÉ AQUÍ. En el escritorio era la segunda pestaña de la pantalla de vacaciones,
+    y eso fue un accidente de la interfaz: la entidad Note no tiene relación con las solicitudes de
+    vacaciones ni comparte con ellas ciclo de vida ni gente. Repetir aquel acomodo habría escondido el
+    módulo detrás de un nombre que no lo anuncia. Además el dashboard YA enseñaba estos recordatorios
+    en solo lectura y no había ningún sitio donde atenderlos; ahora lo hay, y tiene dirección propia
+    que se puede compartir.
+
+    LO QUE CAMBIA respecto al escritorio, y por qué:
+
+      · El detalle se edita en un panel dentro de la misma pantalla, no en una ventana modal. Misma
+        decisión que en minutas y en el pool: en el navegador una ventana encima de otra se pierde
+        detrás del propio navegador con demasiada facilidad.
+      · El «Sin recordatorio» deja de ser una casilla aparte: el selector de fecha se puede vaciar, y
+        vacío ES «sin recordatorio». La casilla existía porque el control del escritorio no admitía
+        estar vacío.
+      · «Completar» es de ida y vuelta. Allá solo cerraba, y deshacer un clic equivocado obligaba a
+        abrir la ventana de detalle a quitar la palomita.
+      · Se puede filtrar a solo pendientes. Apagado por omisión: lo que se ve al entrar es lo mismo de
+        siempre.
+
+    El contenido de una nota lo escribe una persona y se pinta como TEXTO, aquí y en cualquier otro
+    lado: nunca se interpreta como HTML.
+*@
+
+<PageTitle>Notas y pendientes</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Notas y pendientes</RadzenText>
+        <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
+
+        @if (_datos is { } datos)
+        {
+            @* Las cifras las cuenta el servidor sobre TODAS las notas, así que el filtro no las mueve. *@
+            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                @datos.Pendientes pendiente(s)
+            </RadzenText>
+            @if (datos.Vencidas > 0)
+            {
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0" Style="@($"color:{Rojo};font-weight:600")">
+                    ⚠ @datos.Vencidas con el recordatorio vencido
+                </RadzenText>
+            }
+        }
+    </RadzenStack>
+
+    <RadzenCard>
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem"
+                     AlignItems="AlignItems.Center" Wrap="FlexWrap.Wrap">
+            <RadzenCheckBox @bind-Value="_soloPendientes" Name="soloPendientes"
+                            Change="@((bool _) => Cargar())" Disabled="@_ocupado" />
+            <RadzenLabel Text="Solo pendientes" Component="soloPendientes" />
+
+            <RadzenButton Text="➕ Nueva" Click="@Nueva" Disabled="@_ocupado" Style="margin-left:auto" />
+            <RadzenButton Text="📊 Excel" ButtonStyle="ButtonStyle.Light"
+                          Click="@(() => Descargas.DesdeApiAsync(Ruta("/excel")))" Disabled="@_ocupado" />
+        </RadzenStack>
+    </RadzenCard>
+
+    @if (_editando)
+    {
+        <RadzenCard>
+            <RadzenStack Gap="0.75rem">
+                <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                    @(_id == 0 ? "Nueva nota" : "Editar nota")
+                </RadzenText>
+
+                <RadzenTextBox @bind-Value="_titulo" MaxLength="200" Style="width:100%"
+                               Placeholder="Título (obligatorio)" aria-label="Título" />
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem"
+                             AlignItems="AlignItems.Center" Wrap="FlexWrap.Wrap">
+                    @* «Dev (origen)»: quién lo comentó, no a quién se le encarga. Es el mismo
+                       significado que en el escritorio y por eso puede quedar vacío. *@
+                    <RadzenLabel Text="Dev (origen):" Component="devOrigen" />
+                    <RadzenDropDown TValue="int?" @bind-Value="_desarrolladorId" Name="devOrigen"
+                                    Data="@Desarrolladores" TextProperty="Texto" ValueProperty="Id"
+                                    AllowClear="true" Placeholder="(Ninguno)" Style="min-width:14rem" />
+
+                    <RadzenLabel Text="Prioridad:" Component="prioridad" />
+                    <RadzenDropDown TValue="NotePriority" @bind-Value="_prioridad" Name="prioridad"
+                                    Data="@Prioridades" TextProperty="Texto" ValueProperty="Valor"
+                                    Style="min-width:9rem" />
+
+                    @* Vaciar el selector ES «sin recordatorio»; en el escritorio hacía falta una
+                       casilla aparte porque su control no admitía quedarse vacío. *@
+                    <RadzenLabel Text="Recordatorio:" Component="recordatorio" />
+                    <RadzenDatePicker TValue="DateTime?" @bind-Value="_recordatorio" Name="recordatorio"
+                                      DateFormat="dd/MM/yyyy" ShowTime="false" AllowClear="true"
+                                      Placeholder="Sin recordatorio" Style="width:11rem" />
+
+                    <RadzenCheckBox @bind-Value="_completada" Name="completada" />
+                    <RadzenLabel Text="Completado / Resuelto" Component="completada" />
+                </RadzenStack>
+
+                <RadzenTextArea @bind-Value="_contenido" Rows="4" MaxLength="4000" Style="width:100%"
+                                Placeholder="Notas adicionales" aria-label="Notas adicionales" />
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                    <RadzenButton Text="Guardar" Click="@Guardar" Disabled="@_ocupado" />
+                    <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+                                  Click="@(() => _editando = false)" />
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    }
+
+    <RadzenDataGrid TItem="NotaDto" Data="@Lista" IsLoading="@_ocupado"
+                    AllowSorting="true" AllowPaging="true" PageSize="15"
+                    RowRender="@Pintar"
+                    EmptyText="@(_soloPendientes ? "No queda nada pendiente." : "Todavía no hay notas.")">
+        <Columns>
+            <RadzenDataGridColumn TItem="NotaDto" Property="Id" Title="ID" Width="70px" />
+            <RadzenDataGridColumn TItem="NotaDto" Property="Titulo" Title="Título">
+                <Template Context="n">
+                    <div>@n.Titulo</div>
+                    @if (!string.IsNullOrWhiteSpace(n.Contenido))
+                    {
+                        @* Texto plano, con un recorte para que una nota larga no estire la fila. El
+                           completo se lee al abrirla. *@
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@Resumen(n.Contenido)</RadzenText>
+                    }
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="NotaDto" Property="Desarrollador" Title="Dev (origen)" Width="160px">
+                <Template Context="n">@(n.Desarrollador ?? "—")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="NotaDto" Property="Prioridad" Title="Prioridad" Width="120px">
+                <Template Context="n">@n.PrioridadTexto</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="NotaDto" Property="Recordatorio" Title="Recordatorio" Width="130px">
+                @* Sin ToLocalTime: el recordatorio es un día del calendario, no un instante. *@
+                <Template Context="n">@(n.Recordatorio?.ToString("dd/MM/yyyy") ?? "—")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="NotaDto" Property="Completada" Title="Estado" Width="130px">
+                <Template Context="n">@(n.Completada ? "✓ Completado" : "Pendiente")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="NotaDto" Property="Alta" Title="Alta" Width="110px">
+                @* La fecha de alta sí es un instante en UTC, así que esta sí se convierte. *@
+                <Template Context="n">@n.Alta.ToLocalTime().ToString("dd/MM/yyyy")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="NotaDto" Title="" Width="230px" Sortable="false">
+                <Template Context="n">
+                    <RadzenButton Text="Abrir" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                  Disabled="@_ocupado" Click="@(() => Abrir(n))" />
+                    <RadzenButton Text="@(n.Completada ? "Reabrir" : "Completar")"
+                                  ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                  Disabled="@_ocupado" Click="@(() => Completar(n))" />
+                    <RadzenButton Text="Eliminar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                  Disabled="@_ocupado" Click="@(() => Eliminar(n))" />
+                </Template>
+            </RadzenDataGridColumn>
+        </Columns>
+    </RadzenDataGrid>
+</RadzenStack>
+
+@code {
+    // Los mismos colores del escritorio, para que las dos aplicaciones se lean igual mientras
+    // convivan: rojo lo vencido, gris lo ya cerrado.
+    private const string Rojo = "#ef4444";
+    private const string Gris = "#64748b";
+
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private NotasDto? _datos;
+    private bool _ocupado;
+
+    /// <summary>Apagado por omisión: al entrar se ve lo mismo que enseñaba el escritorio.</summary>
+    private bool _soloPendientes;
+
+    // Captura.
+    private bool _editando;
+    private int _id;
+    private string _titulo = "";
+    private string _contenido = "";
+    private int? _desarrolladorId;
+    private NotePriority _prioridad = NotePriority.Media;
+    private DateTime? _recordatorio;
+    private bool _completada;
+
+    /// <summary>No se llama «Notas» a propósito: la carpeta de la página y el espacio de nombres de
+    /// sus DTOs ya se llaman así, y un miembro con ese nombre haría que cualquier «Notas» suelto de
+    /// este archivo resolviera a la propiedad en vez de a lo que se pretendía.</summary>
+    private IReadOnlyList<NotaDto> Lista => _datos?.Notas ?? [];
+    private IReadOnlyList<PrioridadDeNotaDto> Prioridades => _datos?.Prioridades ?? [];
+    private IReadOnlyList<OpcionDto> Desarrolladores => _datos?.Desarrolladores ?? [];
+
+    protected override async Task OnInitializedAsync() => await Cargar();
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try { _datos = await Api.LeerAsync<NotasDto>(Ruta(""), _cancelacion.Token); }
+        finally { _ocupado = false; }
+    }
+
+    /// <summary>La dirección de la lista con su filtro; el sufijo la convierte en la exportación.</summary>
+    private string Ruta(string sufijo) => $"api/notas{sufijo}?soloPendientes={(_soloPendientes ? "true" : "false")}";
+
+    private void Nueva()
+    {
+        _id = 0;
+        _titulo = "";
+        _contenido = "";
+        _desarrolladorId = null;
+        _prioridad = NotePriority.Media;   // la misma que traía preseleccionada el escritorio
+        _recordatorio = null;
+        _completada = false;
+        _editando = true;
+    }
+
+    /// <summary>
+    /// Abre una nota en el panel. No hace falta pedirla al servidor: la lista ya trae el contenido
+    /// completo, que en una nota son un par de renglones.
+    /// </summary>
+    private void Abrir(NotaDto nota)
+    {
+        _id = nota.Id;
+        _titulo = nota.Titulo;
+        _contenido = nota.Contenido ?? "";
+        _desarrolladorId = nota.DesarrolladorId;
+        _prioridad = nota.Prioridad;
+        _recordatorio = nota.Recordatorio?.Date;
+        _completada = nota.Completada;
+        _editando = true;
+    }
+
+    private async Task Guardar()
+    {
+        // Solo lo evidente se comprueba aquí; el servicio vuelve a validarlo, que es donde la regla
+        // tiene que vivir.
+        if (string.IsNullOrWhiteSpace(_titulo))
+        {
+            Avisos.Aviso("El título es obligatorio.");
+            return;
+        }
+
+        var peticion = new GuardarNotaRequest(
+            _id, _titulo, _contenido, _desarrolladorId, _prioridad, _recordatorio?.Date, _completada);
+
+        if (await Enviar("api/notas", peticion)) _editando = false;
+    }
+
+    private async Task Completar(NotaDto nota)
+    {
+        // Cerrar y reabrir no destruyen nada, así que no se pregunta dos veces: se hace y el mensaje
+        // del servidor dice qué quedó.
+        await Enviar($"api/notas/{nota.Id}/completar", new CompletarNotaRequest(!nota.Completada));
+    }
+
+    private async Task Eliminar(NotaDto nota)
+    {
+        var aviso = nota.Completada
+            ? $"¿Eliminar la nota «{nota.Titulo}»?"
+            : $"«{nota.Titulo}» sigue pendiente. ¿Eliminarla igual?";
+
+        if (!await Avisos.ConfirmarAsync(aviso, "Eliminar nota", "Sí, eliminarla")) return;
+
+        if (await Enviar<object?>($"api/notas/{nota.Id}/eliminar", null) && _id == nota.Id)
+            _editando = false;   // estaba abierta en el panel: dejarla ahí invitaría a guardarla otra vez
+    }
+
+    /// <summary>
+    /// El envío que comparten las acciones. El mensaje del servidor se enseña TAL CUAL: dice si la
+    /// nota seguía pendiente al borrarla o por qué se rechazó, y cambiarlo por un «listo» genérico
+    /// tiraría lo que el servicio se molestó en explicar.
+    /// </summary>
+    private async Task<bool> Enviar<T>(string ruta, T cuerpo)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, respuesta) = await Api.EnviarAsync<T, ResultadoDto>(ruta, cuerpo, _cancelacion.Token);
+            if (ok && respuesta is not null) Avisos.Exito(respuesta.Mensaje);
+            if (ok) await Cargar();
+            return ok;
+        }
+        finally { _ocupado = false; }
+    }
+
+    /// <summary>
+    /// Vencido en rojo, cerrado en gris: la misma lectura de un vistazo que daba la rejilla del
+    /// escritorio. Lo de «atrasada» lo calculó el SERVIDOR con su propio reloj — un equipo con la
+    /// fecha mal puesta no puede decidir qué va con retraso.
+    /// </summary>
+    private void Pintar(RowRenderEventArgs<NotaDto> args)
+    {
+        if (args.Data.Completada) args.Attributes["style"] = $"color:{Gris}";
+        else if (args.Data.Atrasada) args.Attributes["style"] = $"color:{Rojo}";
+    }
+
+    /// <summary>Tope del recorte del contenido en la rejilla; el texto completo se ve al abrir la nota.</summary>
+    private const int MaxResumen = 160;
+
+    private static string Resumen(string? texto)
+    {
+        texto = (texto ?? "").Trim();
+        return texto.Length <= MaxResumen ? texto : texto[..MaxResumen] + "…";
+    }
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

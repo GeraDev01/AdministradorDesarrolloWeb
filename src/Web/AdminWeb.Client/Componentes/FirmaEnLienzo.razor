@@ -1,0 +1,90 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject AvisosDeInterfaz Avisos
+
+@*
+    Capturar una firma a mano alzada.
+
+    En el escritorio esto era un control que dibujaba con GDI+ y solo entendía el ratón. Aquí se usan
+    eventos de PUNTERO, que unifican ratón, dedo y lápiz: quien firme desde una tableta lo hará con
+    el dedo, que es como se firma de verdad. Es de las pocas cosas que la web hace mejor que el
+    escritorio, y por eso conviene no perderla al portar.
+
+    El PNG sale con FONDO TRANSPARENTE y recortado a lo dibujado. Las dos cosas importan porque esta
+    imagen se pega dentro de un documento que alguien archiva: un rectángulo blanco encima del papel
+    se nota, y una firma pequeña en un lienzo grande saldría diminuta al escalarla.
+*@
+
+<RadzenStack Gap="0.5rem">
+    <canvas @ref="_lienzo"
+            style="width:100%; height:@(Alto)px; border:1px dashed var(--rz-border); border-radius:6px;
+                   background:var(--rz-base-background-color); touch-action:none; cursor:crosshair"></canvas>
+
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+        <RadzenButton Text="Borrar" Icon="delete" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                      Click="@Limpiar" />
+        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+            Firma con el dedo, el lápiz o el ratón dentro del recuadro.
+        </RadzenText>
+    </RadzenStack>
+</RadzenStack>
+
+@code {
+    /// <summary>Alto del recuadro en píxeles. El ancho lo pone el contenedor.</summary>
+    [Parameter] public int Alto { get; set; } = 160;
+
+    private ElementReference _lienzo;
+    private bool _listo;
+
+    protected override async Task OnAfterRenderAsync(bool primeraVez)
+    {
+        if (!primeraVez) return;
+        await JS.InvokeVoidAsync("adminweb.firma.iniciar", _lienzo);
+        _listo = true;
+    }
+
+    /// <summary>¿Está en blanco? Sirve para no dejar guardar una firma que no existe.</summary>
+    public async Task<bool> EstaVaciaAsync() =>
+        !_listo || await JS.InvokeAsync<bool>("adminweb.firma.vacia", _lienzo);
+
+    /// <summary>
+    /// El PNG de lo dibujado, con sus medidas. Null si no se firmó nada.
+    ///
+    /// Las medidas viajan porque el documento las usa para colocar la firma sin deformarla; el
+    /// escritorio guardaba lo mismo en la ficha de firma y esa columna la comparten las dos
+    /// aplicaciones.
+    /// </summary>
+    public async Task<FirmaCapturada?> ObtenerAsync()
+    {
+        if (!_listo) return null;
+
+        var datos = await JS.InvokeAsync<Trazo?>("adminweb.firma.png", _lienzo);
+        if (datos is null || datos.Base64.Length == 0) return null;
+
+        try
+        {
+            return new FirmaCapturada(Convert.FromBase64String(datos.Base64), datos.Ancho, datos.Alto);
+        }
+        catch (Exception ex)
+        {
+            Avisos.Error($"No se pudo leer la firma: {ex.Message}");
+            return null;
+        }
+    }
+
+    public async Task Limpiar()
+    {
+        if (_listo) await JS.InvokeVoidAsync("adminweb.firma.limpiar", _lienzo);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        // El lienzo se va con la página; no hay escuchadores globales que soltar. Se limpia por si
+        // acaso queda una referencia viva, que con una imagen a pantalla completa no es poca memoria.
+        try { if (_listo) await JS.InvokeVoidAsync("adminweb.firma.limpiar", _lienzo); }
+        catch (JSDisconnectedException) { }
+        catch (ObjectDisposedException) { }
+    }
+
+    private sealed record Trazo(string Base64, int Ancho, int Alto);
+}

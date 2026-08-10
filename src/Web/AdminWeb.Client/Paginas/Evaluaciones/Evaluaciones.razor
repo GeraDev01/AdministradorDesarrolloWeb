@@ -1,0 +1,423 @@
+@page "/evaluaciones"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Shared.Dtos.Evaluaciones
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+@inject Descargas Descargas
+
+@*
+    Evaluaciones e hitos por desarrollador (clave del escritorio: «developer-reports»).
+
+    Aquí el líder escribe las fortalezas, las debilidades y la calificación de cada quien, registra
+    sus hitos y genera la ficha en PDF que se lleva a la conversación de evaluación.
+
+    Decisiones del escritorio que se conservan:
+
+      · Se elige PRIMERO al desarrollador y todo lo demás cuelga de esa elección. Es lo que evita
+        escribirle a alguien la evaluación de otro.
+      · Una evaluación NO cambia de dueño al editarla, ni cambia de evaluador: el nombre que quedó
+        grabado es el de quien hizo esa valoración, no el de quien corrige una errata después. Lo
+        garantiza el servidor.
+      · La calificación es OPCIONAL. «Sin calificar» es una respuesta legítima y distinta de un 1.
+
+    Lo que cambia respecto al escritorio: el PDF ya no depende de que LibreOffice esté instalado en
+    la máquina de quien lo pide (allí había hasta una pantalla para corregir su ruta). Lo genera el
+    servidor y se abre en otra pestaña, así que no hay ruta que configurar ni diálogo de «guardar
+    como»: decide el navegador de cada quien.
+
+    El alta y la edición se hacen en un panel dentro de la misma pantalla y no en una ventana modal
+    aparte —igual que en el pool—: en el navegador una modal encima de otra pantalla se pierde detrás
+    del propio navegador con demasiada facilidad.
+*@
+
+<PageTitle>Evaluaciones</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Evaluaciones</RadzenText>
+    </RadzenStack>
+
+    <RadzenCard>
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                     Gap="0.75rem" Wrap="FlexWrap.Wrap">
+            <RadzenLabel Text="Desarrollador:" Component="dev" />
+            <RadzenDropDown TValue="int?" @bind-Value="_desarrolladorId" Name="dev"
+                            Data="@_desarrolladores" TextProperty="Texto" ValueProperty="Id"
+                            Placeholder="Elige a quién evaluar" Style="min-width:20rem"
+                            Disabled="@_ocupado" Change="@(_ => CargarFicha())" />
+
+            <RadzenButton Text="📄 Ver ficha (PDF)" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                          Disabled="@(_ocupado || _desarrolladorId is null)" Click="@AbrirFicha" />
+            <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                          Size="ButtonSize.Small" Click="@CargarFicha" Disabled="@_ocupado" />
+        </RadzenStack>
+    </RadzenCard>
+
+    @if (_ficha is null)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false">
+            Elige un desarrollador para ver y capturar sus evaluaciones e hitos.
+        </RadzenAlert>
+    }
+    else
+    {
+        <RadzenTabs>
+            <Tabs>
+                <RadzenTabsItem Text="📝 Evaluaciones">
+                    <RadzenStack Gap="0.75rem">
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+                            <RadzenButton Text="➕ Nueva evaluación" Disabled="@_ocupado"
+                                          Click="@AbrirEvaluacionNueva" />
+                        </RadzenStack>
+
+                        @if (_capturandoEvaluacion)
+                        {
+                            <RadzenCard>
+                                <RadzenStack Gap="0.75rem">
+                                    <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                                        @(_evaluacionId is null ? "Nueva evaluación" : "Editar evaluación")
+                                        de @_ficha.Desarrollador
+                                    </RadzenText>
+
+                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem"
+                                                 Wrap="FlexWrap.Wrap" AlignItems="AlignItems.Center">
+                                        <RadzenLabel Text="Fecha:" Component="fechaEval" />
+                                        <RadzenDatePicker @bind-Value="_fecha" Name="fechaEval"
+                                                          DateFormat="dd/MM/yyyy" ShowTime="false"
+                                                          Style="width:160px" />
+
+                                        <RadzenLabel Text="Periodo:" Component="periodo" />
+                                        <RadzenTextBox @bind-Value="_periodo" Name="periodo" MaxLength="200"
+                                                       Placeholder="2026 Q3, Semestre 1…" Style="width:220px" />
+
+                                        <RadzenLabel Text="Calificación:" Component="calif" />
+                                        @* Sin calificar es una respuesta legítima: por eso admite vacío
+                                           y no arranca en 1. *@
+                                        <RadzenNumeric TValue="int?" @bind-Value="_calificacion" Name="calif"
+                                                       Min="1" Max="5" Placeholder="Sin calificar"
+                                                       Style="width:150px" />
+                                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                            de 1 a 5, o vacío
+                                        </RadzenText>
+                                    </RadzenStack>
+
+                                    <RadzenLabel Text="Fortalezas" Component="fortalezas" />
+                                    <RadzenTextArea @bind-Value="_fortalezas" Name="fortalezas" Rows="4"
+                                                    MaxLength="4000" Style="width:100%"
+                                                    Placeholder="Una por línea. Es lo que la persona va a leer en su ficha." />
+
+                                    <RadzenLabel Text="Debilidades / áreas de mejora" Component="debilidades" />
+                                    <RadzenTextArea @bind-Value="_debilidades" Name="debilidades" Rows="4"
+                                                    MaxLength="4000" Style="width:100%"
+                                                    Placeholder="Una por línea." />
+
+                                    <RadzenLabel Text="Comentarios" Component="comentarios" />
+                                    <RadzenTextArea @bind-Value="_comentarios" Name="comentarios" Rows="3"
+                                                    MaxLength="4000" Style="width:100%" />
+
+                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                                        <RadzenButton Text="@(_evaluacionId is null ? "Registrar" : "Guardar")"
+                                                      Disabled="@_ocupado" Click="@GuardarEvaluacion" />
+                                        <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                                                      Disabled="@_ocupado"
+                                                      Click="@(() => _capturandoEvaluacion = false)" />
+                                    </RadzenStack>
+                                </RadzenStack>
+                            </RadzenCard>
+                        }
+
+                        <RadzenDataGrid TItem="EvaluacionDto" Data="@_ficha.Evaluaciones" IsLoading="@_ocupado"
+                                        AllowSorting="true" AllowPaging="true" PageSize="10"
+                                        EmptyText="Todavía no tiene evaluaciones registradas.">
+                            <Columns>
+                                <RadzenDataGridColumn TItem="EvaluacionDto" Property="Fecha" Title="Fecha" Width="120px">
+                                    <Template Context="e">@e.Fecha.ToString("dd/MM/yyyy")</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="EvaluacionDto" Property="Periodo" Title="Periodo" Width="140px">
+                                    <Template Context="e">@(e.Periodo ?? "—")</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="EvaluacionDto" Property="Calificacion"
+                                                      Title="Calificación" Width="170px">
+                                    <Template Context="e">@e.Estrellas</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="EvaluacionDto" Property="Evaluador" Title="Evaluó" Width="180px">
+                                    <Template Context="e">@(e.Evaluador ?? "—")</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="EvaluacionDto" Property="Fortalezas"
+                                                      Title="Fortalezas / debilidades" Sortable="false">
+                                    <Template Context="e">@e.Resumen</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="EvaluacionDto" Title="" Width="180px" Sortable="false">
+                                    <Template Context="e">
+                                        <RadzenButton Text="Editar" ButtonStyle="ButtonStyle.Light"
+                                                      Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                      Click="@(() => AbrirEvaluacionDe(e))" />
+                                        <RadzenButton Text="Eliminar" ButtonStyle="ButtonStyle.Light"
+                                                      Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                      Click="@(() => EliminarEvaluacion(e))" />
+                                    </Template>
+                                </RadzenDataGridColumn>
+                            </Columns>
+                        </RadzenDataGrid>
+                    </RadzenStack>
+                </RadzenTabsItem>
+
+                <RadzenTabsItem Text="🏆 Hitos">
+                    <RadzenStack Gap="0.75rem">
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+                            <RadzenButton Text="➕ Nuevo hito" Disabled="@_ocupado" Click="@AbrirHitoNuevo" />
+                        </RadzenStack>
+
+                        @if (_capturandoHito)
+                        {
+                            <RadzenCard>
+                                <RadzenStack Gap="0.75rem">
+                                    <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                                        @(_hitoId is null ? "Nuevo hito" : "Editar hito") de @_ficha.Desarrollador
+                                    </RadzenText>
+
+                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem"
+                                                 Wrap="FlexWrap.Wrap" AlignItems="AlignItems.Center">
+                                        <RadzenLabel Text="Fecha:" Component="fechaHito" />
+                                        <RadzenDatePicker @bind-Value="_fechaHito" Name="fechaHito"
+                                                          DateFormat="dd/MM/yyyy" ShowTime="false"
+                                                          Style="width:160px" />
+
+                                        <RadzenLabel Text="Tipo:" Component="tipoHito" />
+                                        <RadzenDropDown TValue="MilestoneKind" @bind-Value="_tipoHito" Name="tipoHito"
+                                                        Data="@EtiquetasDeEvaluacion.TiposDeHito"
+                                                        TextProperty="Texto" ValueProperty="Valor"
+                                                        Style="min-width:14rem" />
+                                    </RadzenStack>
+
+                                    <RadzenTextBox @bind-Value="_tituloHito" MaxLength="200" Style="width:100%"
+                                                   Placeholder="¿Qué logró? Es lo que se lee en la ficha." />
+                                    <RadzenTextArea @bind-Value="_descripcionHito" Rows="3" MaxLength="4000"
+                                                    Style="width:100%" Placeholder="Detalle (opcional)" />
+
+                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                                        <RadzenButton Text="@(_hitoId is null ? "Registrar" : "Guardar")"
+                                                      Disabled="@_ocupado" Click="@GuardarHito" />
+                                        <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                                                      Disabled="@_ocupado" Click="@(() => _capturandoHito = false)" />
+                                    </RadzenStack>
+                                </RadzenStack>
+                            </RadzenCard>
+                        }
+
+                        <RadzenDataGrid TItem="HitoDto" Data="@_ficha.Hitos" IsLoading="@_ocupado"
+                                        AllowSorting="true" AllowPaging="true" PageSize="10"
+                                        EmptyText="Sin hitos registrados.">
+                            <Columns>
+                                <RadzenDataGridColumn TItem="HitoDto" Property="Fecha" Title="Fecha" Width="120px">
+                                    <Template Context="h">@h.Fecha.ToString("dd/MM/yyyy")</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="HitoDto" Property="TipoTexto" Title="Tipo" Width="180px" />
+                                <RadzenDataGridColumn TItem="HitoDto" Property="Titulo" Title="Título" />
+                                <RadzenDataGridColumn TItem="HitoDto" Property="Descripcion" Title="Descripción">
+                                    <Template Context="h">@(h.Descripcion ?? "—")</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="HitoDto" Title="" Width="180px" Sortable="false">
+                                    <Template Context="h">
+                                        <RadzenButton Text="Editar" ButtonStyle="ButtonStyle.Light"
+                                                      Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                      Click="@(() => AbrirHitoDe(h))" />
+                                        <RadzenButton Text="Eliminar" ButtonStyle="ButtonStyle.Light"
+                                                      Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                      Click="@(() => EliminarHito(h))" />
+                                    </Template>
+                                </RadzenDataGridColumn>
+                            </Columns>
+                        </RadzenDataGrid>
+                    </RadzenStack>
+                </RadzenTabsItem>
+            </Tabs>
+        </RadzenTabs>
+    }
+</RadzenStack>
+
+@code {
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private List<OpcionDto> _desarrolladores = [];
+    private int? _desarrolladorId;
+    private EvaluacionesDeDesarrolladorDto? _ficha;
+    private bool _ocupado;
+
+    // Captura de la evaluación.
+    private bool _capturandoEvaluacion;
+    private int? _evaluacionId;
+    private DateTime _fecha = DateTime.Today;
+    private string _periodo = "";
+    private int? _calificacion;
+    private string _fortalezas = "";
+    private string _debilidades = "";
+    private string _comentarios = "";
+
+    // Captura del hito.
+    private bool _capturandoHito;
+    private int? _hitoId;
+    private DateTime _fechaHito = DateTime.Today;
+    private MilestoneKind _tipoHito = MilestoneKind.Logro;
+    private string _tituloHito = "";
+    private string _descripcionHito = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _desarrolladores = await Api.LeerAsync<List<OpcionDto>>(
+            "api/evaluaciones/desarrolladores", _cancelacion.Token) ?? [];
+
+        // Se abre con el primero elegido: la pantalla sin nadie seleccionado no enseña nada y el
+        // primer clic siempre acababa siendo el mismo.
+        _desarrolladorId = _desarrolladores.FirstOrDefault()?.Id;
+        await CargarFicha();
+    }
+
+    private async Task CargarFicha()
+    {
+        if (_desarrolladorId is not int devId) { _ficha = null; return; }
+
+        _ocupado = true;
+        try
+        {
+            _ficha = await Api.LeerAsync<EvaluacionesDeDesarrolladorDto>(
+                $"api/evaluaciones/{devId}", _cancelacion.Token);
+        }
+        finally { _ocupado = false; }
+    }
+
+    private Task AbrirFicha() =>
+        _desarrolladorId is int devId
+            ? Descargas.AbrirEnOtraPestanaAsync($"api/evaluaciones/{devId}/ficha").AsTask()
+            : Task.CompletedTask;
+
+    // ── Evaluaciones ─────────────────────────────────────────────────────────
+
+    private void AbrirEvaluacionNueva()
+    {
+        _evaluacionId = null;
+        _fecha = DateTime.Today;
+        _periodo = "";
+        _calificacion = null;
+        _fortalezas = "";
+        _debilidades = "";
+        _comentarios = "";
+        _capturandoEvaluacion = true;
+    }
+
+    private void AbrirEvaluacionDe(EvaluacionDto e)
+    {
+        _evaluacionId = e.Id;
+        _fecha = e.Fecha;
+        _periodo = e.Periodo ?? "";
+        _calificacion = e.Calificacion;
+        _fortalezas = e.Fortalezas ?? "";
+        _debilidades = e.Debilidades ?? "";
+        _comentarios = e.Comentarios ?? "";
+        _capturandoEvaluacion = true;
+    }
+
+    private async Task GuardarEvaluacion()
+    {
+        if (_desarrolladorId is not int devId) return;
+
+        // Solo lo evidente se comprueba aquí; los topes y el rango de la calificación los valida el
+        // servicio, que es donde la regla tiene que vivir.
+        if (string.IsNullOrWhiteSpace(_fortalezas) && string.IsNullOrWhiteSpace(_debilidades)
+            && string.IsNullOrWhiteSpace(_comentarios) && _calificacion is null)
+        {
+            Avisos.Aviso("Una evaluación vacía no le dice nada a nadie: escribe al menos fortalezas, " +
+                         "debilidades, comentarios o una calificación.");
+            return;
+        }
+
+        var cuerpo = new GuardarEvaluacionRequest(
+            _evaluacionId, devId, _fecha, _periodo, _calificacion,
+            _fortalezas, _debilidades, _comentarios);
+
+        if (await Enviar("api/evaluaciones", cuerpo)) _capturandoEvaluacion = false;
+    }
+
+    private async Task EliminarEvaluacion(EvaluacionDto e)
+    {
+        if (!await Avisos.ConfirmarAsync(
+            $"¿Eliminar la evaluación del {e.Fecha:dd/MM/yyyy}? No se puede deshacer.",
+            "Eliminar evaluación", "Sí, eliminarla"))
+            return;
+
+        await Enviar<object?>($"api/evaluaciones/{e.Id}/eliminacion", null);
+    }
+
+    // ── Hitos ────────────────────────────────────────────────────────────────
+
+    private void AbrirHitoNuevo()
+    {
+        _hitoId = null;
+        _fechaHito = DateTime.Today;
+        _tipoHito = MilestoneKind.Logro;
+        _tituloHito = "";
+        _descripcionHito = "";
+        _capturandoHito = true;
+    }
+
+    private void AbrirHitoDe(HitoDto h)
+    {
+        _hitoId = h.Id;
+        _fechaHito = h.Fecha;
+        _tipoHito = h.Tipo;
+        _tituloHito = h.Titulo;
+        _descripcionHito = h.Descripcion ?? "";
+        _capturandoHito = true;
+    }
+
+    private async Task GuardarHito()
+    {
+        if (_desarrolladorId is not int devId) return;
+
+        if (string.IsNullOrWhiteSpace(_tituloHito))
+        {
+            Avisos.Aviso("Escribe el título del hito: es lo que se lee en la ficha.");
+            return;
+        }
+
+        var cuerpo = new GuardarHitoRequest(
+            _hitoId, devId, _fechaHito, _tipoHito, _tituloHito, _descripcionHito);
+
+        if (await Enviar("api/evaluaciones/hitos", cuerpo)) _capturandoHito = false;
+    }
+
+    private async Task EliminarHito(HitoDto h)
+    {
+        if (!await Avisos.ConfirmarAsync($"¿Eliminar el hito «{h.Titulo}»?", "Eliminar hito", "Sí, eliminarlo"))
+            return;
+
+        await Enviar<object?>($"api/evaluaciones/hitos/{h.Id}/eliminacion", null);
+    }
+
+    // ── Envío ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// El envío que comparten todas las acciones. El mensaje del servidor se enseña TAL CUAL: dice el
+    /// motivo concreto —«la calificación va de 1 a 5», «el desarrollador no existe»— y cambiarlo por
+    /// un «no se pudo» genérico tiraría lo que el escritorio hacía bien.
+    /// </summary>
+    private async Task<bool> Enviar<T>(string ruta, T cuerpo)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, r) = await Api.EnviarAsync<T, ResultadoDto>(ruta, cuerpo, _cancelacion.Token);
+            if (ok && r is not null) Avisos.Exito(r.Mensaje);
+            if (ok) await CargarFicha();
+            return ok;
+        }
+        finally { _ocupado = false; }
+    }
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

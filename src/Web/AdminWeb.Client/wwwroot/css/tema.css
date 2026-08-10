@@ -1,0 +1,334 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   Tema propio: azul pizarra, con modo claro y oscuro.
+
+   Se monta ENCIMA del tema de Radzen redefiniendo sus variables, en vez de
+   pelearse con sus reglas a golpe de selector. Radzen construye todo su aspecto
+   a partir de estas variables, así que cambiarlas aquí cambia botones, rejillas,
+   pestañas y diálogos a la vez y sin sorpresas al actualizar el paquete.
+
+   Tres decisiones que explican el resto:
+
+   1. UN SOLO acento. El tema de Radzen trae un morado de primario y un rosa de
+      secundario; aquí los dos son el mismo azul. Dos acentos compiten y ninguno
+      llega a significar «esto es lo importante».
+
+   2. Bordes finos en lugar de sombras. Una herramienta que se pasa el día
+      enseñando tablas se lee mejor con líneas que con relieve; las sombras de
+      Material están pensadas para tarjetas que flotan, y aquí casi nada flota.
+
+   3. El color se reserva para el estado. Verde, ámbar y rojo solo aparecen
+      cuando dicen algo (aprobado, por vencer, vencido). Si todo lleva color, el
+      color deja de avisar.
+
+   El modo lo decide, por este orden: lo que el usuario haya elegido
+   (data-tema en <html>), y si no ha elegido, lo que diga su sistema operativo.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* ── Claro ──────────────────────────────────────────────────────────────────── */
+
+:root,
+:root[data-tema="claro"] {
+    /* Escala de grises AZULADOS (slate), no neutros: es lo que da el aire sobrio
+       sin llegar a ser frío del todo. */
+    --rz-base:            #e2e8f0;
+    --rz-base-50:         #f8fafc;
+    --rz-base-100:        #f1f5f9;
+    --rz-base-200:        #e2e8f0;
+    --rz-base-300:        #cbd5e1;
+    --rz-base-400:        #94a3b8;
+    --rz-base-500:        #64748b;
+    --rz-base-600:        #475569;
+    --rz-base-700:        #334155;
+    --rz-base-800:        #1e293b;
+    --rz-base-900:        #0f172a;
+    --rz-base-light:      #f1f5f9;
+    --rz-base-lighter:    #ffffff;
+    --rz-base-dark:       #475569;
+    --rz-base-darker:     #0f172a;
+    --rz-base-background-color: #ffffff;
+    --rz-on-base:         #0f172a;
+
+    --rz-body-background-color: #f8fafc;
+    --rz-body-color:      #0f172a;
+    --rz-text-color:      #0f172a;
+    --rz-text-secondary-color: #64748b;
+    --rz-text-disabled-color:  #94a3b8;
+
+    /* El acento único. */
+    --rz-primary:         #2563eb;
+    --rz-primary-dark:    #1d4ed8;
+    --rz-primary-darker:  #1e40af;
+    --rz-primary-light:   #3b82f6;
+    --rz-primary-lighter: rgba(37, 99, 235, .10);
+    --rz-on-primary:      #ffffff;
+
+    /* El secundario NO es otro color: es el mismo azul en un tono más apagado.
+       Así los botones «secundarios» se leen como lo que son —la opción menos
+       importante— en vez de como una segunda llamada de atención. */
+    --rz-secondary:         #475569;
+    --rz-secondary-dark:    #334155;
+    --rz-secondary-darker:  #1e293b;
+    --rz-secondary-light:   #64748b;
+    --rz-secondary-lighter: rgba(71, 85, 105, .10);
+    --rz-on-secondary:      #ffffff;
+
+    /* Estados. Menos saturados que los de Material: en una pantalla llena de
+       filas, el rojo de Material grita más de lo que un vencimiento merece. */
+    --rz-success:         #15803d;
+    --rz-success-light:   #22c55e;
+    --rz-success-lighter: rgba(21, 128, 61, .12);
+    --rz-warning:         #b45309;
+    --rz-warning-light:   #f59e0b;
+    --rz-warning-lighter: rgba(180, 83, 9, .12);
+    --rz-danger:          #b91c1c;
+    --rz-danger-light:    #ef4444;
+    --rz-danger-lighter:  rgba(185, 28, 28, .12);
+    --rz-info:            #0369a1;
+    --rz-info-light:      #0ea5e9;
+    --rz-info-lighter:    rgba(3, 105, 161, .12);
+
+    /* La barra superior en pizarra oscura y no en el color de acento: el acento
+       tiene que poder destacar SOBRE ella, y no puede si es ella. */
+    --rz-header-background-color: #1e293b;
+    --rz-header-color:            #f1f5f9;
+    --rz-header-shadow:           none;
+    --rz-header-border:           1px solid #334155;
+
+    --rz-sidebar-background-color: #ffffff;
+    --rz-sidebar-border:           1px solid #e2e8f0;
+    --rz-sidebar-color:            #334155;
+    --rz-sidebar-width:            16rem;
+
+    --rz-panel-background-color: #ffffff;
+    --rz-card-background-color:  #ffffff;
+    --rz-border-color:           #e2e8f0;
+
+    --rz-border-radius: 6px;
+
+    /* Sombras casi apagadas: quedan solo donde algo flota de verdad (diálogos,
+       desplegables). Ver la decisión 2 de la cabecera. */
+    --rz-shadow-1: 0 1px 2px rgba(15, 23, 42, .05);
+    --rz-shadow-2: 0 1px 3px rgba(15, 23, 42, .07);
+    --rz-shadow-3: 0 2px 6px rgba(15, 23, 42, .08);
+    --rz-shadow-4: 0 4px 12px rgba(15, 23, 42, .10);
+    --rz-shadow-5: 0 8px 24px rgba(15, 23, 42, .12);
+    --rz-shadow-6: 0 12px 32px rgba(15, 23, 42, .14);
+
+    --rz-grid-header-background-color: #f8fafc;
+    --rz-grid-stripe-background-color: #f8fafc;
+
+    --adminweb-acceso-fondo: linear-gradient(160deg, #f8fafc 0%, #e2e8f0 100%);
+    --adminweb-cargando-color: #64748b;
+    --adminweb-aviso-fondo: #fef3c7;
+    --adminweb-aviso-color: #78350f;
+}
+
+/* ── Oscuro ─────────────────────────────────────────────────────────────────── */
+
+:root[data-tema="oscuro"] {
+    --rz-base:            #1e293b;
+    --rz-base-50:         #0f172a;
+    --rz-base-100:        #1e293b;
+    --rz-base-200:        #334155;
+    --rz-base-300:        #475569;
+    --rz-base-400:        #64748b;
+    --rz-base-500:        #94a3b8;
+    --rz-base-600:        #cbd5e1;
+    --rz-base-700:        #e2e8f0;
+    --rz-base-800:        #f1f5f9;
+    --rz-base-900:        #f8fafc;
+    --rz-base-light:      #334155;
+    --rz-base-lighter:    #1e293b;
+    --rz-base-dark:       #94a3b8;
+    --rz-base-darker:     #f1f5f9;
+    --rz-base-background-color: #1e293b;
+    --rz-on-base:         #f1f5f9;
+
+    --rz-body-background-color: #0f172a;
+    --rz-body-color:      #e2e8f0;
+    --rz-text-color:      #e2e8f0;
+    --rz-text-secondary-color: #94a3b8;
+    --rz-text-disabled-color:  #64748b;
+
+    /* Un azul MÁS CLARO que en modo claro. El #2563eb sobre #0f172a no llega al
+       contraste mínimo para texto pequeño; éste sí. */
+    --rz-primary:         #60a5fa;
+    --rz-primary-dark:    #3b82f6;
+    --rz-primary-darker:  #2563eb;
+    --rz-primary-light:   #93c5fd;
+    --rz-primary-lighter: rgba(96, 165, 250, .16);
+    --rz-on-primary:      #0f172a;
+
+    --rz-secondary:         #94a3b8;
+    --rz-secondary-dark:    #64748b;
+    --rz-secondary-darker:  #475569;
+    --rz-secondary-light:   #cbd5e1;
+    --rz-secondary-lighter: rgba(148, 163, 184, .16);
+    --rz-on-secondary:      #0f172a;
+
+    /* Los estados también suben de luminosidad: los tonos oscuros del modo claro
+       desaparecen sobre un fondo oscuro. */
+    --rz-success:         #4ade80;
+    --rz-success-light:   #86efac;
+    --rz-success-lighter: rgba(74, 222, 128, .16);
+    --rz-warning:         #fbbf24;
+    --rz-warning-light:   #fcd34d;
+    --rz-warning-lighter: rgba(251, 191, 36, .16);
+    --rz-danger:          #f87171;
+    --rz-danger-light:    #fca5a5;
+    --rz-danger-lighter:  rgba(248, 113, 113, .16);
+    --rz-info:            #38bdf8;
+    --rz-info-light:      #7dd3fc;
+    --rz-info-lighter:    rgba(56, 189, 248, .16);
+
+    --rz-header-background-color: #0f172a;
+    --rz-header-color:            #e2e8f0;
+    --rz-header-shadow:           none;
+    --rz-header-border:           1px solid #1e293b;
+
+    --rz-sidebar-background-color: #0f172a;
+    --rz-sidebar-border:           1px solid #1e293b;
+    --rz-sidebar-color:            #cbd5e1;
+
+    --rz-panel-background-color: #1e293b;
+    --rz-card-background-color:  #1e293b;
+    --rz-border-color:           #334155;
+
+    /* En oscuro las sombras casi no se ven: la separación la hace el borde. */
+    --rz-shadow-1: 0 1px 2px rgba(0, 0, 0, .30);
+    --rz-shadow-2: 0 1px 3px rgba(0, 0, 0, .35);
+    --rz-shadow-3: 0 2px 6px rgba(0, 0, 0, .40);
+    --rz-shadow-4: 0 4px 12px rgba(0, 0, 0, .45);
+    --rz-shadow-5: 0 8px 24px rgba(0, 0, 0, .50);
+    --rz-shadow-6: 0 12px 32px rgba(0, 0, 0, .55);
+
+    --rz-grid-header-background-color: #172033;
+    --rz-grid-stripe-background-color: #172033;
+
+    --adminweb-acceso-fondo: linear-gradient(160deg, #0f172a 0%, #1e293b 100%);
+    --adminweb-cargando-color: #94a3b8;
+    --adminweb-aviso-fondo: #422006;
+    --adminweb-aviso-color: #fde68a;
+
+    color-scheme: dark;
+}
+
+/* Sin elección explícita, manda el sistema operativo. Va DESPUÉS de las dos
+   definiciones y acotado a :root:not([data-tema]) para que elegir a mano siempre
+   gane sobre la preferencia del sistema — que es lo que espera quien acaba de
+   pulsar el interruptor. */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-tema]) {
+        --rz-base:            #1e293b;
+        --rz-base-50:         #0f172a;
+        --rz-base-100:        #1e293b;
+        --rz-base-200:        #334155;
+        --rz-base-300:        #475569;
+        --rz-base-400:        #64748b;
+        --rz-base-500:        #94a3b8;
+        --rz-base-600:        #cbd5e1;
+        --rz-base-700:        #e2e8f0;
+        --rz-base-800:        #f1f5f9;
+        --rz-base-900:        #f8fafc;
+        --rz-base-light:      #334155;
+        --rz-base-lighter:    #1e293b;
+        --rz-base-dark:       #94a3b8;
+        --rz-base-darker:     #f1f5f9;
+        --rz-base-background-color: #1e293b;
+        --rz-on-base:         #f1f5f9;
+
+        --rz-body-background-color: #0f172a;
+        --rz-body-color:      #e2e8f0;
+        --rz-text-color:      #e2e8f0;
+        --rz-text-secondary-color: #94a3b8;
+        --rz-text-disabled-color:  #64748b;
+
+        --rz-primary:         #60a5fa;
+        --rz-primary-dark:    #3b82f6;
+        --rz-primary-darker:  #2563eb;
+        --rz-primary-light:   #93c5fd;
+        --rz-primary-lighter: rgba(96, 165, 250, .16);
+        --rz-on-primary:      #0f172a;
+
+        --rz-secondary:         #94a3b8;
+        --rz-secondary-dark:    #64748b;
+        --rz-secondary-darker:  #475569;
+        --rz-secondary-light:   #cbd5e1;
+        --rz-secondary-lighter: rgba(148, 163, 184, .16);
+        --rz-on-secondary:      #0f172a;
+
+        --rz-success:         #4ade80;
+        --rz-success-light:   #86efac;
+        --rz-success-lighter: rgba(74, 222, 128, .16);
+        --rz-warning:         #fbbf24;
+        --rz-warning-light:   #fcd34d;
+        --rz-warning-lighter: rgba(251, 191, 36, .16);
+        --rz-danger:          #f87171;
+        --rz-danger-light:    #fca5a5;
+        --rz-danger-lighter:  rgba(248, 113, 113, .16);
+        --rz-info:            #38bdf8;
+        --rz-info-light:      #7dd3fc;
+        --rz-info-lighter:    rgba(56, 189, 248, .16);
+
+        --rz-header-background-color: #0f172a;
+        --rz-header-color:            #e2e8f0;
+        --rz-header-border:           1px solid #1e293b;
+
+        --rz-sidebar-background-color: #0f172a;
+        --rz-sidebar-border:           1px solid #1e293b;
+        --rz-sidebar-color:            #cbd5e1;
+
+        --rz-panel-background-color: #1e293b;
+        --rz-card-background-color:  #1e293b;
+        --rz-border-color:           #334155;
+
+        --rz-grid-header-background-color: #172033;
+        --rz-grid-stripe-background-color: #172033;
+
+        --adminweb-acceso-fondo: linear-gradient(160deg, #0f172a 0%, #1e293b 100%);
+        --adminweb-cargando-color: #94a3b8;
+        --adminweb-aviso-fondo: #422006;
+        --adminweb-aviso-color: #fde68a;
+
+        color-scheme: dark;
+    }
+}
+
+/* ── Ajustes que las variables no alcanzan ──────────────────────────────────── */
+
+/* Las tarjetas se separan con una línea, no con relieve. */
+.rz-card,
+.rz-panel,
+.rz-fieldset {
+    border: 1px solid var(--rz-border-color);
+    box-shadow: none;
+}
+
+/* La cabecera de una rejilla tiene que leerse como cabecera aunque no tenga
+   fondo fuerte: se distingue por peso y por la línea de abajo. */
+.rz-grid-table thead th {
+    font-weight: 600;
+    letter-spacing: .01em;
+    border-bottom: 2px solid var(--rz-border-color);
+}
+
+/* Los botones de Material van en MAYÚSCULAS por omisión. Aquí no: un menú de
+   acciones en mayúsculas se lee peor y da un aire de aplicación de móvil que no
+   es el de una herramienta interna. */
+.rz-button .rz-button-text {
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 500;
+}
+
+/* La entrada del menú activa se marca con una barra a la izquierda, además del
+   fondo: el fondo solo se distingue mal en pantallas con poco contraste. */
+.rz-navigation-item-wrapper.rz-navigation-item-wrapper-active {
+    border-inline-start: 3px solid var(--rz-primary);
+    background: var(--rz-primary-lighter);
+}
+
+/* Filas más aireadas: es lo que más se nota al pasar el día leyendo tablas. */
+.rz-grid-table td {
+    padding-block: .55rem;
+}

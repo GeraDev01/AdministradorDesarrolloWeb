@@ -1,0 +1,148 @@
+@page "/avisos"
+@using AdminWeb.Shared.Dtos
+@using AdminWeb.Shared.Dtos.Avisos
+@attribute [Authorize]
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Interfaz
+@inject Descargas Descargas
+
+@*
+    Bandeja de avisos. Réplica de NotificationsControl (clave 'notifications' en el escritorio).
+
+    La ve todo el mundo, sea cual sea su rol: los avisos son correspondencia personal y cada quien
+    recibe la suya. El servidor no acepta un identificador de usuario en ninguna de estas rutas — el
+    destinatario sale de la sesión — así que aquí no hay nada que filtrar.
+
+    Marcar leído escribe, y es la única escritura de esta fase. Sin ella la bandeja no sirve de nada:
+    todo quedaría en negritas para siempre y el contador del menú nunca bajaría de su máximo.
+
+    Va PAGINADO contra el servidor, cosa que el escritorio no hacía (leía los 100 últimos de un
+    tirón). Esta tabla crece con cada asignación de DevOps y cada comunicado, y no deja de crecer.
+*@
+
+<PageTitle>Avisos</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" Style="margin:0">Avisos</RadzenText>
+        <RadzenButton Text="✓  Marcar todo leído" Click="@MarcarTodoLeidoAsync" Disabled="@_ocupado" />
+        <RadzenButton Text="🔄  Recargar" ButtonStyle="ButtonStyle.Light" Click="@LeerAsync" Disabled="@_ocupado" />
+    </RadzenStack>
+
+    <RadzenText TextStyle="TextStyle.Caption">
+        Doble clic sobre un aviso lo marca como leído y, si trae un enlace, lo abre en otra pestaña.
+    </RadzenText>
+
+    @* Aquí y no en una pantalla de ajustes: es donde alguien piensa en sus avisos. *@
+    <InterruptorDeAvisosPush />
+
+    <RadzenDataGrid TItem="AvisoDto" Data="@_filas" Count="@_total"
+                    LoadData="@CargarAsync" AllowPaging="true" PageSize="25"
+                    AllowSorting="false" IsLoading="@_ocupado"
+                    RowRender="@PintarAviso" RowDoubleClick="@AbrirAsync"
+                    EmptyText="No tienes avisos.">
+        <Columns>
+            @* El punto es el mismo indicador del escritorio: se ve de un golpe cuáles no has abierto. *@
+            <RadzenDataGridColumn TItem="AvisoDto" Title="" Width="42px" Sortable="false" Filterable="false">
+                <Template Context="aviso">
+                    @if (!aviso.Leido)
+                    {
+                        <span style="@($"color:{Azul}")">●</span>
+                    }
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="AvisoDto" Title="Fecha" Width="150px">
+                @* La hora llega en UTC y se pasa a la del navegador: un aviso de hace diez minutos
+                   tiene que leerse como de hace diez minutos, esté quien esté donde esté. *@
+                <Template Context="aviso">@aviso.CreadoUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="AvisoDto" Property="TipoTexto" Title="Tipo" Width="170px" />
+            <RadzenDataGridColumn TItem="AvisoDto" Property="Titulo" Title="Aviso" Width="260px" />
+            <RadzenDataGridColumn TItem="AvisoDto" Property="Mensaje" Title="Detalle" />
+        </Columns>
+    </RadzenDataGrid>
+</RadzenStack>
+
+@code {
+    /// <summary>El azul del escritorio para el punto de «sin leer» (AppTheme.SidebarActive).</summary>
+    private const string Azul = "#2563eb";
+
+    private IReadOnlyList<AvisoDto> _filas = [];
+    private int _total;
+    private int _pagina = 1;
+    private int _tamanoPagina = 25;
+    private bool _ocupado;
+
+    /// <summary>
+    /// Lo llama la rejilla al entrar y cada vez que se cambia de página. Se guardan página y tamaño
+    /// para que recargar después de marcar un aviso vuelva a donde estabas, y no al principio.
+    /// </summary>
+    private async Task CargarAsync(LoadDataArgs args)
+    {
+        if (args.Top is int tamano && tamano > 0) _tamanoPagina = tamano;
+        _pagina = (args.Skip ?? 0) / _tamanoPagina + 1;
+        await LeerAsync();
+    }
+
+    private async Task LeerAsync()
+    {
+        _ocupado = true;
+        try
+        {
+            var pagina = await Api.LeerAsync<PaginaDto<AvisoDto>>(
+                $"api/avisos?pagina={_pagina}&tamanoPagina={_tamanoPagina}");
+
+            // null significa que algo falló y el mensaje ya se mostró: se deja lo que había en
+            // pantalla en vez de vaciarla, que se leería como «no tienes avisos» y sería mentira.
+            if (pagina is null) return;
+
+            _filas = pagina.Filas;
+            _total = pagina.Total;
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    // Los no leídos en negritas, igual que el escritorio.
+    private void PintarAviso(RowRenderEventArgs<AvisoDto> args)
+    {
+        if (!args.Data.Leido) args.Attributes["style"] = "font-weight:600";
+    }
+
+    /// <summary>
+    /// Doble clic: marca leído y abre el enlace. Si no hay enlace usable se muestra el detalle
+    /// completo, porque la columna lo recorta y ese texto es justamente el aviso.
+    ///
+    /// El enlace no se valida aquí: la API ya devolvió null en Url si no era http/https. Comprobarlo
+    /// en el navegador no serviría de barrera —este código es manipulable—, y hacerlo en el servidor
+    /// significa que un enlace peligroso ni siquiera llega.
+    /// </summary>
+    private async Task AbrirAsync(DataGridRowMouseEventArgs<AvisoDto> args)
+    {
+        var aviso = args.Data;
+
+        if (!aviso.Leido) await MarcarLeidoAsync(aviso.Id);
+
+        if (!string.IsNullOrWhiteSpace(aviso.Url))
+            await Descargas.AbrirEnOtraPestanaAsync(aviso.Url);
+        else if (!string.IsNullOrWhiteSpace(aviso.Mensaje))
+            Interfaz.Info(aviso.Mensaje, aviso.Titulo);
+    }
+
+    private async Task MarcarLeidoAsync(int id)
+    {
+        var (ok, _) = await Api.EnviarAsync<object, ResultadoDto>($"api/avisos/{id}/leido", new { });
+        if (ok) await LeerAsync();
+    }
+
+    private async Task MarcarTodoLeidoAsync()
+    {
+        var (ok, resultado) = await Api.EnviarAsync<object, ResultadoDto>("api/avisos/leidos", new { });
+        if (!ok) return;
+
+        Interfaz.Exito(resultado?.Mensaje ?? "Listo.");
+        await LeerAsync();
+    }
+}

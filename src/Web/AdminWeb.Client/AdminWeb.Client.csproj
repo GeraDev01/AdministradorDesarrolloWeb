@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+
+  <!--
+    El cliente. Corre en el navegador de cada persona, así que aquí NO vive ninguna regla que
+    importe: lo que se decide aquí se puede manipular. El menú recortado por rol es comodidad; la
+    autorización de verdad está en los endpoints y en los servicios.
+
+    Referencia únicamente a Shared, y eso es una frontera dura: si algún día entrara aquí una
+    referencia a Domain o Infrastructure, el navegador acabaría descargando el modelo de datos y la
+    lógica de negocio completos.
+  -->
+
+  <PropertyGroup>
+    <!--
+      El arranque de una aplicación de ~49 pantallas es el riesgo conocido de WebAssembly, así que
+      se comprime desde el principio y no al final.
+
+      El RECORTE de ensamblados está APAGADO a propósito. Recortar quita el código que el análisis
+      estático no ve usado, y aquí hay mucho que solo se alcanza por reflexión: la serialización de
+      los DTO, los componentes de Radzen y el propio enrutador. Con el recorte encendido, la
+      aplicación descarga sus 98 archivos y después se queda colgada sin lanzar ninguna excepción,
+      que es la peor forma de fallar: no hay nada que leer en la consola.
+
+      El coste de apagarlo es tamaño, y resultó pequeño: unos 4,6 MB comprimidos, muy por debajo del
+      presupuesto de 8 MB. Si algún día hace falta recuperarlo, hay que hacerlo con
+      TrimmerRootDescriptor y volver a probar el arranque en un navegador de verdad — no basta con
+      que compile.
+    -->
+    <PublishTrimmed>false</PublishTrimmed>
+    <BlazorEnableCompression>true</BlazorEnableCompression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.*" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.*" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.Authorization" Version="10.0.*" />
+    <!-- La conexión en vivo: presencia y latido del cronómetro. Es lo que sustituye a los
+         temporizadores del escritorio, que dependían de que alguien tuviera la aplicación abierta. -->
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.*" />
+    <PackageReference Include="Radzen.Blazor" Version="5.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AdminWeb.Shared\AdminWeb.Shared.csproj" />
+  </ItemGroup>
+
+</Project>

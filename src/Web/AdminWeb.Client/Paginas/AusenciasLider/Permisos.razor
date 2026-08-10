@@ -1,0 +1,491 @@
+@page "/permisos"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Shared.Dtos.AusenciasLider
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+@inject Descargas Descargas
+
+@*
+    Permisos del equipo, del lado del líder. Su trabajo aquí es RESOLVER —aprobar o rechazar lo que
+    el equipo pide— y de paso consultar el histórico.
+
+    Decisiones del escritorio que se conservan:
+
+      · Arranca en PENDIENTES. Es a lo que se viene a esta pantalla; empezar con todo el histórico
+        obligaría a filtrar antes de poder trabajar.
+      · Sigue existiendo «➕ Registrar» para el permiso acordado fuera de la aplicación (una llamada,
+        un pasillo). Esa fila nace ya aprobada porque registrarla ES concederla. Quitarlo dejaría sin
+        lugar a la mitad de los permisos reales.
+      · RECHAZAR exige motivo, y el mensaje que lo explica lo escribe el servicio.
+      · El motivo y las notas se leen enteros sin abrir nada: en el escritorio eso era el tooltip de
+        la celda; aquí son columnas propias, porque en una tabla web el tooltip no está a mano en una
+        tableta y esto es lo que se lee para decidir.
+
+    CORREGIR UN PENDIENTE, y por qué ahora sí. Esto faltaba porque el único camino que había
+    (LeaveRequestService.EditarAsync) reemplaza la solicitud ENTERA con lo que se le mande, adjunto
+    incluido: desde una pantalla que no sube archivos, arreglar una falta de ortografía en el motivo
+    habría borrado el justificante que subió quien pidió el permiso. La solución no fue añadir aquí
+    un campo de archivo —el líder no viene a resubir el justificante de otro— sino un camino que solo
+    toca los datos capturados: CorregirPendienteAsync, cuya petición ni siquiera tiene dónde meter un
+    adjunto. Por eso este panel no enseña el justificante como editable: se ve y se abre, y sigue
+    donde estaba.
+*@
+
+<PageTitle>Permisos del equipo</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Permisos del equipo</RadzenText>
+        <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
+    </RadzenStack>
+
+    @if (_datos is { } d)
+    {
+        @* El contador se cuenta sobre TODOS y no sobre lo filtrado: es el número que dice si queda
+           trabajo por hacer. *@
+        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                    Style="@(d.Pendientes > 0 ? "color:var(--rz-warning)" : "")">
+            @(d.Pendientes == 0
+                ? "No hay solicitudes esperando respuesta."
+                : $"⏳ {d.Pendientes} solicitud(es) esperando tu respuesta.")
+        </RadzenText>
+
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                     Gap="1rem" Wrap="FlexWrap.Wrap">
+            <RadzenLabel Text="Desarrollador:" Component="dev" />
+            <RadzenDropDown TValue="int?" @bind-Value="_developerId" Name="dev"
+                            Data="@d.Desarrolladores" TextProperty="Texto" ValueProperty="Valor"
+                            AllowClear="true" Placeholder="Todos" Disabled="@_ocupado"
+                            Change="@(_ => Cargar())" Style="min-width:14rem" />
+
+            <RadzenLabel Text="Estado:" Component="estado" />
+            <RadzenDropDown TValue="LeaveStatus?" @bind-Value="_estado" Name="estado"
+                            Data="@d.Estados" TextProperty="Texto" ValueProperty="Valor"
+                            AllowClear="true" Placeholder="Todos" Disabled="@_ocupado"
+                            Change="@(_ => Cargar())" Style="min-width:14rem" />
+
+            <RadzenButton Text="➕ Registrar" ButtonStyle="ButtonStyle.Primary" Disabled="@_ocupado"
+                          Click="@AbrirRegistro" />
+        </RadzenStack>
+
+        @if (_registrando)
+        {
+            <RadzenCard>
+                <RadzenStack Gap="0.75rem">
+                    <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                        Registrar un permiso ya concedido
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                        Para lo que se acordó fuera de la aplicación. Nace aprobado: registrarlo es concederlo.
+                    </RadzenText>
+
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap"
+                                 AlignItems="AlignItems.End">
+                        <RadzenStack Gap="0.25rem">
+                            <RadzenLabel Text="Desarrollador" Component="devNuevo" />
+                            <RadzenDropDown TValue="int?" @bind-Value="_devRegistro" Name="devNuevo"
+                                            Data="@d.Desarrolladores" TextProperty="Texto" ValueProperty="Valor"
+                                            Placeholder="Elige a quién" Style="min-width:14rem" />
+                        </RadzenStack>
+                        <RadzenStack Gap="0.25rem">
+                            <RadzenLabel Text="Tipo" Component="tipoNuevo" />
+                            <RadzenDropDown TValue="LeaveType?" @bind-Value="_tipoRegistro" Name="tipoNuevo"
+                                            Data="@d.Tipos" TextProperty="Texto" ValueProperty="Valor"
+                                            Style="min-width:14rem" />
+                        </RadzenStack>
+                        <RadzenStack Gap="0.25rem">
+                            <RadzenLabel Text="Desde" Component="desdeNuevo" />
+                            <RadzenDatePicker TValue="DateTime" @bind-Value="_desdeRegistro" Name="desdeNuevo"
+                                              DateFormat="dd/MM/yyyy" ShowTime="false" Style="width:170px" />
+                        </RadzenStack>
+                        <RadzenStack Gap="0.25rem">
+                            <RadzenLabel Text="Días" Component="diasNuevo" />
+                            <RadzenNumeric TValue="int" @bind-Value="_diasRegistro" Name="diasNuevo"
+                                           Min="1" Max="@d.MaxDias" Style="width:110px" />
+                        </RadzenStack>
+                        @* El último día cubierto, a la vista mientras se captura: con «5 días desde
+                           una fecha» hay que contar a mano, y ahí es donde se cuela el error de un día. *@
+                        <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0">
+                            <b>Hasta el @HastaRegistro.ToString("dd/MM/yyyy")</b>
+                        </RadzenText>
+                    </RadzenStack>
+
+                    <RadzenTextArea @bind-Value="_motivoRegistro" Rows="2" MaxLength="1000" Style="width:100%"
+                                    Placeholder="Motivo (opcional en un registro: el trámite ya ocurrió)" />
+                    <RadzenTextArea @bind-Value="_notasRegistro" Rows="2" MaxLength="1000" Style="width:100%"
+                                    Placeholder="Notas internas (opcional)" />
+
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                        <RadzenButton Text="Registrar" Icon="save" Disabled="@(_ocupado || _devRegistro is null)"
+                                      Click="@Registrar" />
+                        <RadzenButton Text="Descartar" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+                                      Click="@(() => _registrando = false)" />
+                    </RadzenStack>
+                </RadzenStack>
+            </RadzenCard>
+        }
+
+        @if (_corrigiendo is { } enCorreccion)
+        {
+            <RadzenCard>
+                <RadzenStack Gap="0.75rem">
+                    <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                        ✏ Corregir el permiso de @enCorreccion.Desarrollador
+                    </RadzenText>
+
+                    @* Se dice ANTES de tocar nada, no después: lo primero que uno se pregunta al ver
+                       un formulario de edición sobre una solicitud ajena es si va a estropear el
+                       archivo que subió el otro. *@
+                    <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false">
+                        Se corrigen los datos capturados. El justificante
+                        @(enCorreccion.TieneJustificante
+                            ? "que subió quien lo pidió NO se toca: sigue adjunto tal cual."
+                            : "no existe en esta solicitud, y desde aquí no se sube: eso es de quien la pidió.")
+                        Tampoco cambia de dueño ni de estado — sigue pendiente de tu respuesta.
+                    </RadzenAlert>
+
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap"
+                                 AlignItems="AlignItems.End">
+                        <RadzenStack Gap="0.25rem">
+                            <RadzenLabel Text="Tipo" Component="tipoCorregir" />
+                            <RadzenDropDown TValue="LeaveType?" @bind-Value="_tipoCorreccion" Name="tipoCorregir"
+                                            Data="@d.Tipos" TextProperty="Texto" ValueProperty="Valor"
+                                            Style="min-width:14rem" />
+                        </RadzenStack>
+                        <RadzenStack Gap="0.25rem">
+                            <RadzenLabel Text="Desde" Component="desdeCorregir" />
+                            <RadzenDatePicker TValue="DateTime" @bind-Value="_desdeCorreccion" Name="desdeCorregir"
+                                              DateFormat="dd/MM/yyyy" ShowTime="false" Style="width:170px" />
+                        </RadzenStack>
+                        <RadzenStack Gap="0.25rem">
+                            <RadzenLabel Text="Días" Component="diasCorregir" />
+                            <RadzenNumeric TValue="int" @bind-Value="_diasCorreccion" Name="diasCorregir"
+                                           Min="1" Max="@d.MaxDias" Style="width:110px" />
+                        </RadzenStack>
+                        <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0">
+                            <b>Hasta el @HastaCorreccion.ToString("dd/MM/yyyy")</b>
+                        </RadzenText>
+
+                        @if (enCorreccion.TieneJustificante)
+                        {
+                            <RadzenButton Text="📎 Ver el justificante" ButtonStyle="ButtonStyle.Light"
+                                          Size="ButtonSize.Small" Disabled="@_ocupado"
+                                          Click="@(() => VerJustificante(enCorreccion))" />
+                        }
+                    </RadzenStack>
+
+                    <RadzenTextArea @bind-Value="_motivoCorreccion" Rows="2" MaxLength="1000" Style="width:100%"
+                                    Placeholder="Motivo" aria-label="Motivo" />
+                    <RadzenTextArea @bind-Value="_notasCorreccion" Rows="2" MaxLength="1000" Style="width:100%"
+                                    Placeholder="Notas internas (opcional)" aria-label="Notas internas" />
+
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                        <RadzenButton Text="Guardar corrección" Icon="save"
+                                      Disabled="@(_ocupado || _tipoCorreccion is null)" Click="@Corregir" />
+                        <RadzenButton Text="Descartar" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+                                      Click="@(() => _corrigiendo = null)" />
+                    </RadzenStack>
+                </RadzenStack>
+            </RadzenCard>
+        }
+
+        <RadzenDataGrid TItem="PermisoDelLiderDto" Data="@d.Permisos" IsLoading="@_ocupado"
+                        AllowSorting="true" AllowPaging="true" PageSize="15"
+                        EmptyText="No hay permisos que cumplan el filtro.">
+            <Columns>
+                <RadzenDataGridColumn TItem="PermisoDelLiderDto" Title="Estado" Property="Estado" Width="130px">
+                    <Template Context="l">
+                        <b style="@($"color:{Color(l.Estado)}")">@l.EtiquetaEstado</b>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="PermisoDelLiderDto" Title="Desarrollador"
+                                      Property="Desarrollador" Width="170px" />
+                <RadzenDataGridColumn TItem="PermisoDelLiderDto" Title="Tipo" Property="EtiquetaTipo" Width="170px" />
+                <RadzenDataGridColumn TItem="PermisoDelLiderDto" Title="Desde" Property="Desde" Width="110px">
+                    <Template Context="l">@l.Desde.ToString("dd/MM/yyyy")</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="PermisoDelLiderDto" Title="Hasta" Property="Hasta" Width="110px">
+                    <Template Context="l">@l.Hasta.ToString("dd/MM/yyyy")</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="PermisoDelLiderDto" Title="Días" Property="Dias" Width="75px" />
+                <RadzenDataGridColumn TItem="PermisoDelLiderDto" Title="Motivo" Property="Motivo">
+                    <Template Context="l">@(l.Motivo ?? "—")</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="PermisoDelLiderDto" Title="Notas" Property="Notas">
+                    <Template Context="l">@(l.Notas ?? "—")</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="PermisoDelLiderDto" Title="Justificante" Width="110px" Sortable="false">
+                    <Template Context="l">
+                        @if (l.TieneJustificante)
+                        {
+                            <RadzenButton Text="📎 Abrir" ButtonStyle="ButtonStyle.Light"
+                                          Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                          Click="@(() => VerJustificante(l))" />
+                        }
+                        else
+                        {
+                            <span>—</span>
+                        }
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="PermisoDelLiderDto" Title="Origen" Width="110px" Sortable="false">
+                    <Template Context="l">@(l.LoRegistroElLider ? "Registro" : "Solicitud")</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="PermisoDelLiderDto" Title="Mi respuesta" Property="RespuestaDelLider">
+                    <Template Context="l">
+                        @* Un rechazo sin explicación deja al solicitante sin nada que hacer con la
+                           respuesta; se dice que falta en vez de dejar la celda en blanco. *@
+                        @if (!string.IsNullOrWhiteSpace(l.RespuestaDelLider))
+                        {
+                            <span>@l.RespuestaDelLider</span>
+                        }
+                        else if (l.Estado == LeaveStatus.Rechazada)
+                        {
+                            <span style="color:var(--rz-danger)">(sin motivo registrado)</span>
+                        }
+                        else
+                        {
+                            <span>—</span>
+                        }
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="PermisoDelLiderDto" Title="Resolvió" Property="Resolvio" Width="140px">
+                    <Template Context="l">@(l.Resolvio ?? "—")</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="PermisoDelLiderDto" Title="" Width="330px" Sortable="false">
+                    <Template Context="l">
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" Wrap="FlexWrap.Wrap">
+                            @* Los botones aparecen según lo que responde el SERVIDOR: así el botón que
+                               se ve y la operación que se permite no pueden discrepar. *@
+                            @if (l.SePuedeResolver)
+                            {
+                                <RadzenButton Text="Aprobar" ButtonStyle="ButtonStyle.Success"
+                                              Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                              Click="@(() => Aprobar(l))" />
+                                <RadzenButton Text="Rechazar" ButtonStyle="ButtonStyle.Danger"
+                                              Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                              Click="@(() => Rechazar(l))" />
+                            }
+                            @if (l.SePuedeCorregir)
+                            {
+                                <RadzenButton Text="Corregir" ButtonStyle="ButtonStyle.Light"
+                                              Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                              Click="@(() => AbrirCorreccion(l))" />
+                            }
+                            <RadzenButton Text="Eliminar" ButtonStyle="ButtonStyle.Light"
+                                          Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                          Click="@(() => Eliminar(l))" />
+                        </RadzenStack>
+                    </Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
+    }
+</RadzenStack>
+
+@code {
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private PermisosDelLiderDto? _datos;
+    private bool _ocupado;
+
+    // ── Filtros ──────────────────────────────────────────────────────────────
+    // Arranca en pendientes: es a lo que se viene a esta pantalla, igual que en el escritorio.
+    private int? _developerId;
+    private LeaveStatus? _estado = LeaveStatus.Pendiente;
+
+    // ── Registro de un permiso ya concedido ──────────────────────────────────
+    private bool _registrando;
+    private int? _devRegistro;
+    private LeaveType? _tipoRegistro = LeaveType.PermisoPersonal;
+    private DateTime _desdeRegistro = DateTime.Today;
+    private int _diasRegistro = 1;
+    private string? _motivoRegistro;
+    private string? _notasRegistro;
+
+    private DateTime HastaRegistro => _desdeRegistro.Date.AddDays(Math.Max(1, _diasRegistro) - 1);
+
+    // ── Corrección de un permiso pendiente ───────────────────────────────────
+    //
+    // No hay campo de adjunto, y no falta: el justificante es de quien pidió el permiso y esta
+    // pantalla no lo toca. La petición que se manda tampoco tiene dónde llevarlo.
+    private PermisoDelLiderDto? _corrigiendo;
+    private LeaveType? _tipoCorreccion;
+    private DateTime _desdeCorreccion = DateTime.Today;
+    private int _diasCorreccion = 1;
+    private string? _motivoCorreccion;
+    private string? _notasCorreccion;
+
+    private DateTime HastaCorreccion => _desdeCorreccion.Date.AddDays(Math.Max(1, _diasCorreccion) - 1);
+
+    protected override Task OnInitializedAsync() => Cargar();
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            var ruta = "api/ausencias-lider/permisos";
+            var filtros = new List<string>();
+            if (_developerId is int dev) filtros.Add($"developerId={dev}");
+            if (_estado is LeaveStatus e) filtros.Add($"estado={(int)e}");
+            if (filtros.Count > 0) ruta += "?" + string.Join("&", filtros);
+
+            _datos = await Api.LeerAsync<PermisosDelLiderDto>(ruta, _cancelacion.Token);
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    // ── Resolver ─────────────────────────────────────────────────────────────
+
+    private async Task Aprobar(PermisoDelLiderDto l)
+    {
+        var comentario = await Avisos.PedirTextoAsync(
+            "Comentario para el solicitante (opcional):", $"Aprobar el permiso de {l.Desarrollador}");
+        if (comentario is null) return;   // canceló el diálogo
+
+        await Enviar($"api/ausencias-lider/permisos/{l.Id}/aprobacion",
+            new ResolucionDePermisoRequest(comentario));
+    }
+
+    private async Task Rechazar(PermisoDelLiderDto l)
+    {
+        var motivo = await Avisos.PedirTextoAsync(
+            "Motivo del rechazo (obligatorio):", $"Rechazar el permiso de {l.Desarrollador}");
+        if (motivo is null) return;
+
+        // El motivo vacío se manda igual: el mensaje que explica por qué hace falta —«es lo único
+        // que el solicitante va a leer»— lo escribe el servicio, y ese es el que hay que enseñar.
+        await Enviar($"api/ausencias-lider/permisos/{l.Id}/rechazo",
+            new ResolucionDePermisoRequest(motivo));
+    }
+
+    private async Task Eliminar(PermisoDelLiderDto l)
+    {
+        if (!await Avisos.ConfirmarAsync(
+            $"¿Eliminar el permiso de {l.Desarrollador} del {l.Desde:dd/MM/yyyy}?\n\n" +
+            "Desaparece del historial y no se puede deshacer.",
+            "Eliminar permiso", "Sí, eliminar"))
+            return;
+
+        await Enviar($"api/ausencias-lider/permisos/{l.Id}/eliminacion", new { });
+    }
+
+    private Task VerJustificante(PermisoDelLiderDto l) =>
+        // El justificante lo sirve /api/adjuntos, que ya trata igual todos los adjuntos guardados en
+        // la base (tipo por bytes, nosniff, nombre limpio). Duplicarlo sería tener dos sitios donde
+        // equivocarse.
+        Descargas.AbrirEnOtraPestanaAsync($"api/adjuntos/permiso/{l.Id}").AsTask();
+
+    // ── Registro ─────────────────────────────────────────────────────────────
+
+    private void AbrirRegistro()
+    {
+        _devRegistro = null;
+        _tipoRegistro = LeaveType.PermisoPersonal;
+        _desdeRegistro = DateTime.Today;
+        _diasRegistro = 1;
+        _motivoRegistro = null;
+        _notasRegistro = null;
+        _registrando = true;
+
+        // Los dos paneles capturan lo mismo con dos significados opuestos —uno concede, el otro
+        // enmienda—; tenerlos abiertos a la vez es la forma más fácil de guardar en el equivocado.
+        _corrigiendo = null;
+    }
+
+    private async Task Registrar()
+    {
+        if (_devRegistro is not int dev || _tipoRegistro is not LeaveType tipo) return;
+
+        _ocupado = true;
+        try
+        {
+            var (ok, respuesta) = await Api.EnviarAsync<RegistroDePermisoRequest, ResultadoDto>(
+                "api/ausencias-lider/permisos/registro",
+                new RegistroDePermisoRequest(dev, tipo, _desdeRegistro, _diasRegistro,
+                    _motivoRegistro, _notasRegistro),
+                _cancelacion.Token);
+
+            if (!ok) return;
+            if (respuesta is not null) Avisos.Exito(respuesta.Mensaje);
+            _registrando = false;
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+
+        await Cargar();
+    }
+
+    // ── Corrección ───────────────────────────────────────────────────────────
+
+    private void AbrirCorreccion(PermisoDelLiderDto l)
+    {
+        _corrigiendo = l;
+        _tipoCorreccion = l.Tipo;
+        _desdeCorreccion = l.Desde.Date;
+        _diasCorreccion = l.Dias;
+        _motivoCorreccion = l.Motivo;
+        _notasCorreccion = l.Notas;
+        _registrando = false;
+    }
+
+    private async Task Corregir()
+    {
+        if (_corrigiendo is not { } l || _tipoCorreccion is not LeaveType tipo) return;
+
+        // Ni el desarrollador ni el justificante viajan: el dueño no cambia y el archivo no es de
+        // quien está corrigiendo. Lo que se manda es exactamente lo que se está viendo editar.
+        if (await Enviar($"api/ausencias-lider/permisos/{l.Id}/correccion",
+                new CorreccionDePermisoRequest(tipo, _desdeCorreccion.Date, _diasCorreccion,
+                    _motivoCorreccion, _notasCorreccion)))
+            _corrigiendo = null;
+    }
+
+    // ── Apoyo ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// El envío que comparten las acciones. El mensaje del servidor se enseña TAL CUAL: explica el
+    /// motivo en concreto —«Esa solicitud ya está «🚫 Cancelada»; no hay nada que resolver»— y
+    /// cambiarlo por un «no se pudo» genérico tiraría lo que el escritorio hacía bien.
+    /// </summary>
+    private async Task<bool> Enviar<T>(string ruta, T cuerpo)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, respuesta) = await Api.EnviarAsync<T, ResultadoDto>(ruta, cuerpo, _cancelacion.Token);
+            if (ok && respuesta is not null) Avisos.Exito(respuesta.Mensaje);
+            if (!ok) return false;
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+
+        await Cargar();
+        return true;
+    }
+
+    /// <summary>El color del estado lo pone la pantalla; el servicio solo da el texto.</summary>
+    private static string Color(LeaveStatus estado) => estado switch
+    {
+        LeaveStatus.Aprobada => "var(--rz-success)",
+        LeaveStatus.Rechazada => "var(--rz-danger)",
+        LeaveStatus.Cancelada => "var(--rz-warning)",
+        _ => "var(--rz-text-secondary-color)"
+    };
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

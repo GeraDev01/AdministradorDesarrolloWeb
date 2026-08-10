@@ -1,0 +1,503 @@
+@page "/mis-permisos"
+@attribute [Authorize(Policy = "AdminUDesarrollador")]
+@using AdminWeb.Shared.Dtos.Ausencias
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+@inject Descargas Descargas
+
+@*
+    Mis permisos: pedirlos, ver en qué quedaron y retirarlos.
+
+    Antes de que existiera esta pantalla el permiso se acordaba por fuera y el único registro era el
+    apunte del administrador, que el interesado no podía consultar. Lo que la hace útil es la columna
+    de la RESPUESTA: el motivo de un rechazo es lo que de verdad se viene a leer aquí, y por eso
+    cuando falta se dice que falta en vez de dejar la celda vacía.
+
+    Del escritorio se conservan además:
+
+      · Los permisos que capturó el líder se ven, pero no se corrigen desde aquí: no son solicitudes
+        del desarrollador, son su libreta.
+      · El justificante solo se puede colgar mientras la solicitud siga PENDIENTE. Después ya es la
+        respuesta del líder sobre lo que había, y cambiar el respaldo por debajo la invalidaría.
+
+    El justificante SUBE por /api/ausencias y BAJA por /api/adjuntos/permiso/{id}, que es la ruta
+    común a todos los adjuntos guardados en la base. Los bytes nunca viajan en la lista: se piden
+    cuando alguien pulsa.
+*@
+
+<PageTitle>Mis permisos</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Mis permisos</RadzenText>
+
+    @if (_datos is { } d)
+    {
+        @if (!d.TieneFicha)
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+                Tu cuenta no está vinculada a una ficha de desarrollador, así que no puedes solicitar
+                permisos desde aquí. Contacta al líder si esto no es correcto.
+            </RadzenAlert>
+        }
+        else
+        {
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                @Indicador("⏳ Esperando respuesta", d.Resumen.EsperandoRespuesta, "var(--rz-warning)",
+                           "Solicitudes tuyas que el líder todavía no ha resuelto.")
+                @Indicador("✅ Aprobados (este año)", d.Resumen.AprobadosEsteAnio, "var(--rz-success)",
+                           "Permisos aprobados con fecha de este año.")
+                @Indicador("📅 Días aprobados (año)", d.Resumen.DiasAprobadosEsteAnio, "var(--rz-info)",
+                           "Suma de los días de esos permisos aprobados.")
+            </RadzenStack>
+
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+                <RadzenButton Text="Solicitar permiso" Icon="add" ButtonStyle="ButtonStyle.Primary"
+                              Click="@AbrirFormulario" Disabled="@(_ocupado || _pidiendo)" />
+                <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                              Click="@Cargar" Disabled="@_ocupado" />
+            </RadzenStack>
+        }
+
+        @if (_pidiendo)
+        {
+            <RadzenCard>
+                <RadzenStack Gap="0.75rem">
+                    <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">Solicitar permiso</RadzenText>
+                    <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false">
+                        Tu solicitud queda PENDIENTE hasta que el líder la resuelva.
+                    </RadzenAlert>
+
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem"
+                                 AlignItems="AlignItems.End" Wrap="FlexWrap.Wrap">
+                        <RadzenStack Gap="0.25rem">
+                            <RadzenLabel Text="Tipo" Component="tipo" />
+                            <RadzenDropDown @bind-Value="_tipo" Data="@d.TiposDePermiso" Name="tipo"
+                                            TextProperty="Texto" ValueProperty="Id" Style="width:260px" />
+                        </RadzenStack>
+                        <RadzenStack Gap="0.25rem">
+                            <RadzenLabel Text="Desde" Component="desde" />
+                            <RadzenDatePicker TValue="DateTime" @bind-Value="_desde" Name="desde"
+                                              DateFormat="dd/MM/yyyy" ShowTime="false" Style="width:170px" />
+                        </RadzenStack>
+                        <RadzenStack Gap="0.25rem">
+                            <RadzenLabel Text="Días" Component="dias" />
+                            <RadzenNumeric @bind-Value="_dias" Name="dias" Min="1" Max="@d.MaxDias"
+                                           Style="width:110px" />
+                        </RadzenStack>
+                        @* Con «5 días» a partir de una fecha hay que contar a mano para saber hasta
+                           cuándo llega, y ahí es donde se cuela el error de un día. *@
+                        <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0">
+                            <b>Hasta el @Hasta.ToString("dd/MM/yyyy")</b>
+                        </RadzenText>
+                    </RadzenStack>
+
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Motivo" Component="motivo" />
+                        <RadzenTextArea @bind-Value="_motivo" Name="motivo" Rows="3" MaxLength="1000"
+                                        Style="width:100%"
+                                        Placeholder="Es lo que el líder va a leer para decidir." />
+                    </RadzenStack>
+
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Notas (opcional)" Component="notas" />
+                        <RadzenTextArea @bind-Value="_notas" Name="notas" Rows="2" MaxLength="1000"
+                                        Style="width:100%" />
+                    </RadzenStack>
+
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Justificante (opcional)" />
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                            Receta, constancia, captura del correo que lo autoriza… Hasta @Megas(d) MB.
+                        </RadzenText>
+                        <InputFile OnChange="@(e => ElegirParaElAlta(e, d))" />
+                        @if (_archivoDelAlta is { } elegido)
+                        {
+                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                                        Style="color:var(--rz-success)">
+                                📎 @elegido.Nombre (@(elegido.Contenido.Length / 1024) KB)
+                            </RadzenText>
+                        }
+                    </RadzenStack>
+
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                        <RadzenButton Text="Solicitar" Icon="send" ButtonStyle="ButtonStyle.Primary"
+                                      Click="@Solicitar" Disabled="@_ocupado" />
+                        <RadzenButton Text="Descartar" ButtonStyle="ButtonStyle.Light"
+                                      Click="@(() => _pidiendo = false)" Disabled="@_ocupado" />
+                    </RadzenStack>
+                </RadzenStack>
+            </RadzenCard>
+        }
+
+        @if (_adjuntandoEn is int permisoId)
+        {
+            <RadzenCard Style="border-left:5px solid var(--rz-info)">
+                <RadzenStack Gap="0.5rem">
+                    <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">
+                        📎 Justificante de la solicitud del @_adjuntandoDescripcion
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                        Hasta @Megas(d) MB. Si ya había uno, este lo reemplaza.
+                    </RadzenText>
+                    <InputFile OnChange="@(e => AdjuntarAExistente(e, permisoId, d))" />
+                    <div>
+                        <RadzenButton Text="Cerrar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                      Click="@(() => _adjuntandoEn = null)" Disabled="@_ocupado" />
+                    </div>
+                </RadzenStack>
+            </RadzenCard>
+        }
+
+        <RadzenDataGrid TItem="SolicitudDePermisoDto" Data="@d.Solicitudes" IsLoading="@_ocupado"
+                        AllowSorting="true" AllowPaging="true" PageSize="15"
+                        EmptyText="Todavía no has solicitado ningún permiso.">
+            <Columns>
+                <RadzenDataGridColumn TItem="SolicitudDePermisoDto" Title="Estado" Property="Estado" Width="130px">
+                    <Template Context="p">
+                        <b style="@($"color:{Color(p.Estado)}")">@p.EtiquetaEstado</b>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="SolicitudDePermisoDto" Title="Tipo" Property="EtiquetaTipo" Width="180px" />
+                <RadzenDataGridColumn TItem="SolicitudDePermisoDto" Title="Desde" Property="Desde" Width="110px">
+                    <Template Context="p">
+                        <span title="@Rango(p)">@p.Desde.ToString("dd/MM/yyyy")</span>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="SolicitudDePermisoDto" Title="Días" Property="Dias" Width="80px" />
+                <RadzenDataGridColumn TItem="SolicitudDePermisoDto" Title="Motivo" Property="Motivo">
+                    <Template Context="p">
+                        <span title="@Detalle(p)">@(p.Motivo ?? "—")</span>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="SolicitudDePermisoDto" Title="Respuesta del líder"
+                                      Property="RespuestaDelLider">
+                    <Template Context="p">
+                        @* Un rechazo sin motivo deja al solicitante sin nada que hacer con la
+                           respuesta; se dice que falta en vez de dejar la celda en blanco. *@
+                        @if (!string.IsNullOrWhiteSpace(p.RespuestaDelLider))
+                        {
+                            <span style="@(p.Estado == LeaveStatus.Rechazada ? "color:var(--rz-danger)" : "")">
+                                @p.RespuestaDelLider
+                            </span>
+                        }
+                        else if (p.Estado == LeaveStatus.Rechazada)
+                        {
+                            <span style="color:var(--rz-danger)">(sin motivo registrado)</span>
+                        }
+                        else
+                        {
+                            <span>—</span>
+                        }
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="SolicitudDePermisoDto" Title="" Width="290px" Sortable="false">
+                    <Template Context="p">
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" Wrap="FlexWrap.Wrap">
+                            @if (p.TieneJustificante)
+                            {
+                                <RadzenButton Text="📎 Ver" ButtonStyle="ButtonStyle.Light"
+                                              Size="ButtonSize.ExtraSmall"
+                                              title="Abre el justificante que subiste."
+                                              Click="@(() => VerJustificante(p))" />
+                            }
+                            @if (p.SePuedeAdjuntar)
+                            {
+                                <RadzenButton Text="@(p.TieneJustificante ? "Cambiar" : "📎 Adjuntar")"
+                                              ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                              Disabled="@_ocupado" Click="@(() => AbrirAdjunto(p))" />
+                            }
+                            @if (p.SePuedeCancelar)
+                            {
+                                <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                                              Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                              Click="@(() => CancelarSolicitud(p))" />
+                            }
+                            @if (p.SePuedeEliminar)
+                            {
+                                <RadzenButton Text="Eliminar" ButtonStyle="ButtonStyle.Danger"
+                                              Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                              Click="@(() => EliminarSolicitud(p))" />
+                            }
+                            @if (p.LoRegistroElLider)
+                            {
+                                <RadzenBadge BadgeStyle="BadgeStyle.Light" Text="Del líder"
+                                             title="Este permiso lo registró el líder; no es una solicitud tuya." />
+                            }
+                        </RadzenStack>
+                    </Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
+    }
+</RadzenStack>
+
+@code {
+    /// <summary>Un archivo ya leído en el navegador, a la espera de que se envíe con el formulario.</summary>
+    private record ArchivoElegido(string Nombre, byte[] Contenido);
+
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private MisPermisosDto? _datos;
+    private bool _ocupado;
+
+    // ── Formulario de alta ───────────────────────────────────────────────────
+    private bool _pidiendo;
+    private int _tipo;
+    private DateTime _desde = DateTime.Today;
+    private int _dias = 1;
+    private string? _motivo;
+    private string? _notas;
+    private ArchivoElegido? _archivoDelAlta;
+
+    // ── Justificante de una solicitud ya existente ───────────────────────────
+    private int? _adjuntandoEn;
+    private string _adjuntandoDescripcion = "";
+
+    private DateTime Hasta => _desde.Date.AddDays(Math.Max(1, _dias) - 1);
+
+    protected override Task OnInitializedAsync() => Cargar();
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            _datos = await Api.LeerAsync<MisPermisosDto>("api/ausencias/permisos/mios", _cancelacion.Token);
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    private void AbrirFormulario()
+    {
+        _tipo = 0;
+        _desde = DateTime.Today;
+        _dias = 1;
+        _motivo = _notas = null;
+        _archivoDelAlta = null;
+        _adjuntandoEn = null;
+        _pidiendo = true;
+    }
+
+    // ── Alta ─────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Pide el permiso y, si se eligió justificante, lo sube después contra la solicitud recién
+    /// creada.
+    ///
+    /// Son dos peticiones y no una porque el archivo viaja como multipart mientras que el resto del
+    /// formulario es JSON, como toda la escritura de esta API. La ventaja es que un rechazo del alta
+    /// —una fecha imposible, un motivo vacío— se responde sin haber empujado el archivo por la red.
+    /// Si el alta pasa y la subida falla, la solicitud queda enviada y sin respaldo, y eso se dice:
+    /// se puede volver a adjuntar desde la lista.
+    /// </summary>
+    private async Task Solicitar()
+    {
+        _ocupado = true;
+        int id;
+        try
+        {
+            var (ok, respuesta) = await Api.EnviarAsync<NuevaSolicitudDePermisoRequest, SolicitudCreadaDto>(
+                "api/ausencias/permisos",
+                new NuevaSolicitudDePermisoRequest((LeaveType)_tipo, _desde, _dias, _motivo, _notas),
+                _cancelacion.Token);
+
+            if (!ok || respuesta is null) return;
+
+            Avisos.Exito(respuesta.Mensaje);
+            id = respuesta.Id;
+            _pidiendo = false;
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+
+        if (_archivoDelAlta is { } archivo)
+        {
+            await Subir(id, archivo);
+            _archivoDelAlta = null;
+        }
+
+        await Cargar();
+    }
+
+    // ── Justificante ─────────────────────────────────────────────────────────
+
+    private void AbrirAdjunto(SolicitudDePermisoDto p)
+    {
+        _adjuntandoEn = p.Id;
+        _adjuntandoDescripcion = $"{p.Desde:dd/MM/yyyy} ({p.Dias} día(s))";
+    }
+
+    private async Task ElegirParaElAlta(InputFileChangeEventArgs e, MisPermisosDto d)
+    {
+        _archivoDelAlta = await Leer(e.File, d.MaxJustificanteBytes);
+    }
+
+    private async Task AdjuntarAExistente(InputFileChangeEventArgs e, int permisoId, MisPermisosDto d)
+    {
+        if (await Leer(e.File, d.MaxJustificanteBytes) is not { } archivo) return;
+
+        _ocupado = true;
+        try
+        {
+            if (!await Subir(permisoId, archivo)) return;
+            _adjuntandoEn = null;
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+
+        await Cargar();
+    }
+
+    /// <summary>
+    /// Abre el justificante por la ruta común a todos los adjuntos: decide el tipo por los BYTES,
+    /// manda <c>nosniff</c> y limpia el nombre. El navegador lo previsualiza si sabe (PDF, imágenes)
+    /// y si no lo descarga; ya no quedan volcados a carpetas temporales como en el escritorio.
+    /// </summary>
+    private async Task VerJustificante(SolicitudDePermisoDto p) =>
+        await Descargas.DesdeApiAsync($"api/adjuntos/permiso/{p.Id}");
+
+    /// <summary>
+    /// Lee el archivo en memoria. El tope se comprueba aquí solo para no empujar por la red algo que
+    /// va a rebotar; la comprobación que cuenta —tamaño, nombre y extensión— la hace el servidor,
+    /// porque a la API se la puede llamar sin pasar por esta página.
+    /// </summary>
+    private async Task<ArchivoElegido?> Leer(IBrowserFile archivo, long maxBytes)
+    {
+        if (archivo.Size > maxBytes)
+        {
+            Avisos.Aviso($"«{archivo.Name}» pasa de {maxBytes / (1024 * 1024)} MB.");
+            return null;
+        }
+
+        try
+        {
+            using var origen = archivo.OpenReadStream(maxBytes);
+            using var memoria = new MemoryStream();
+            await origen.CopyToAsync(memoria);
+            return new ArchivoElegido(archivo.Name, memoria.ToArray());
+        }
+        catch (Exception ex)
+        {
+            Avisos.Error($"No se pudo leer «{archivo.Name}»: {ex.Message}");
+            return null;
+        }
+    }
+
+    private async Task<bool> Subir(int permisoId, ArchivoElegido archivo)
+    {
+        // El MultipartFormDataContent lo cierra ClienteApi.SubirAsync cuando la petición termina.
+        var formulario = new MultipartFormDataContent
+        {
+            { new ByteArrayContent(archivo.Contenido), "archivo", archivo.Nombre }
+        };
+
+        var (ok, respuesta) = await Api.SubirAsync<ResultadoDto>(
+            $"api/ausencias/permisos/{permisoId}/justificante", formulario, _cancelacion.Token);
+
+        if (ok && respuesta is not null) Avisos.Exito(respuesta.Mensaje);
+        return ok;
+    }
+
+    // ── Cancelar y eliminar ──────────────────────────────────────────────────
+
+    private async Task CancelarSolicitud(SolicitudDePermisoDto p)
+    {
+        // El escritorio distinguía los dos casos y se conserva: retirar algo pendiente es deshacer
+        // una petición; cancelar algo aprobado es avisar de que no se va a tomar.
+        var explicacion = p.Estado == LeaveStatus.Aprobada
+            ? "Ya estaba aprobado: cancelarlo avisa de que no lo vas a tomar."
+            : "Se retira la solicitud antes de que la resuelvan.";
+
+        if (!await Avisos.ConfirmarAsync(
+            $"¿Cancelar tu permiso del {p.Desde:dd/MM/yyyy} ({p.Dias} día(s))?\n\n{explicacion}",
+            "Cancelar permiso", "Sí, cancelar"))
+            return;
+
+        var motivo = await Avisos.PedirTextoAsync(
+            "¿Quieres decir por qué lo cancelas? (opcional)", "Cancelar permiso");
+
+        await Enviar($"api/ausencias/permisos/{p.Id}/cancelacion", new CancelacionRequest(motivo));
+    }
+
+    private async Task EliminarSolicitud(SolicitudDePermisoDto p)
+    {
+        if (!await Avisos.ConfirmarAsync(
+            $"¿Eliminar tu solicitud del {p.Desde:dd/MM/yyyy}?\n\nEsta acción no se puede deshacer.",
+            "Eliminar permiso", "Sí, eliminar"))
+            return;
+
+        await Enviar($"api/ausencias/permisos/{p.Id}/eliminacion", new CancelacionRequest(null));
+    }
+
+    /// <summary>
+    /// El envío que comparten las acciones. El mensaje del servidor se enseña TAL CUAL: explica el
+    /// motivo en concreto —«es parte del historial; si ya no la vas a tomar, cancélala»— y cambiarlo
+    /// por un «no se pudo» genérico tiraría justo lo que el escritorio hacía bien.
+    /// </summary>
+    private async Task Enviar<T>(string ruta, T cuerpo)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, respuesta) = await Api.EnviarAsync<T, ResultadoDto>(ruta, cuerpo, _cancelacion.Token);
+            if (ok && respuesta is not null) Avisos.Exito(respuesta.Mensaje);
+            if (!ok) return;
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+
+        await Cargar();
+    }
+
+    // ── Formato ──────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Tarjeta de indicador: el título arriba y pequeño, el dato grande. Lo que se busca de un
+    /// vistazo es el número.
+    /// </summary>
+    private RenderFragment Indicador(string titulo, int valor, string color, string explicacion) => __builder =>
+    {
+        <RadzenCard Style="@($"min-width:210px;border-left:5px solid {color}")" title="@explicacion">
+            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-1">@titulo</RadzenText>
+            <RadzenText TextStyle="TextStyle.H6" Style="@($"margin:0;color:{color}")">@valor</RadzenText>
+        </RadzenCard>
+    };
+
+    /// <summary>
+    /// El color del estado lo pone la pantalla y no el servicio, que ya lo dejó dicho: un servicio no
+    /// debe depender del tema visual.
+    /// </summary>
+    private static string Color(LeaveStatus estado) => estado switch
+    {
+        LeaveStatus.Aprobada => "var(--rz-success)",
+        LeaveStatus.Rechazada => "var(--rz-danger)",
+        LeaveStatus.Cancelada => "var(--rz-warning)",
+        _ => "var(--rz-text-secondary-color)"
+    };
+
+    private static string Rango(SolicitudDePermisoDto p) =>
+        p.Dias > 1 ? $"Del {p.Desde:dd/MM/yyyy} al {p.Hasta:dd/MM/yyyy}" : $"Solo el {p.Desde:dd/MM/yyyy}";
+
+    private static string Detalle(SolicitudDePermisoDto p) =>
+        string.IsNullOrWhiteSpace(p.Notas)
+            ? p.Motivo ?? "(sin motivo)"
+            : $"{p.Motivo ?? "(sin motivo)"}\n\nNotas:\n{p.Notas}";
+
+    private static long Megas(MisPermisosDto d) => d.MaxJustificanteBytes / (1024 * 1024);
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

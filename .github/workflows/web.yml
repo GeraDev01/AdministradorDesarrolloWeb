@@ -1,0 +1,154 @@
+# Integración y despliegue de la réplica web.
+#
+# La aplicación de ESCRITORIO no entra aquí: se publica con su propio guion y con firma de código, y
+# seguirá haciéndolo hasta el corte. Este flujo solo toca `src/Web`.
+#
+# La forma del despliegue es la que evita la caída: se publica a una ranura de ensayo, se comprueba
+# que arranque de verdad contra la base real, y solo entonces se intercambia con producción. Publicar
+# directo sobre producción deja la aplicación caída durante el arranque —que aquí incluye migrar el
+# esquema— y sin marcha atrás si algo falla.
+
+name: Web
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/Web/**'
+      - 'nuget.config'
+      - '.github/workflows/web.yml'
+  pull_request:
+    paths:
+      - 'src/Web/**'
+  # Para poder desplegar a mano el día del corte sin empujar un commit de mentira.
+  workflow_dispatch:
+
+env:
+  DOTNET_VERSION: '10.0.x'
+  # Sin telemetría y sin el saludo del primer uso: ruido en los registros de cada ejecución.
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  # ── Comprobar ────────────────────────────────────────────────────────────────
+  #
+  # Corre en TODA rama y en cada pull request. Es la puerta: sin esto en verde no se despliega nada.
+  comprobar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      # En Linux a propósito, aunque se desarrolle en Windows: es donde corre App Service y es lo que
+      # atrapa los fallos que solo se ven ahí —rutas con «\», comparaciones de mayúsculas en nombres
+      # de archivo, dependencias nativas—. La solución web es net10.0 puro justamente para esto.
+      - name: Restaurar
+        run: dotnet restore src/Web/AdminWeb.Api/AdminWeb.Api.csproj
+
+      - name: Compilar
+        run: dotnet build src/Web/AdminWeb.Api/AdminWeb.Api.csproj -c Release --no-restore
+
+      - name: Pruebas de los servicios
+        run: dotnet test src/Web/tests/AdminWeb.Application.Tests/AdminWeb.Application.Tests.csproj -c Release --no-build --verbosity normal
+
+      # Levantan la API en memoria con su tubería completa: políticas, cookie, filtro de excepciones.
+      # Es lo que atrapa un servicio sin registrar, que no rompe la compilación pero impide arrancar.
+      - name: Pruebas de la API
+        run: dotnet test src/Web/tests/AdminWeb.Api.Tests/AdminWeb.Api.Tests.csproj -c Release --verbosity normal
+
+      - name: Publicar
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: dotnet publish src/Web/AdminWeb.Api/AdminWeb.Api.csproj -c Release -o publicado
+
+      - name: Guardar lo publicado
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: publicado
+          retention-days: 7
+
+  # ── Probar contra SQL Server, en Linux ───────────────────────────────────────
+  #
+  # Las pruebas de arriba corren sobre SQLite, y hay dos familias enteras de fallos que no pueden
+  # ver: la rama de SQL SERVER del migrador (otro dialecto, otros tipos, sp_getapplock) y todo lo
+  # que solo se rompe en Linux. Las dos aparecieron de verdad — el arranque contra SQL Server estuvo
+  # roto hasta que se probó así — y las dos habrían aparecido el día del corte.
+  #
+  # La base es un contenedor vacío y desechable. No toca ninguna base real.
+  sql-server:
+    needs: comprobar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Levantar la aplicación contra SQL Server
+        run: docker compose -f src/Web/docker-compose.yml up -d --build
+
+      - name: Prueba de humo
+        shell: pwsh
+        run: ./src/Web/humo-docker.ps1
+
+      - name: Registro del contenedor si algo falló
+        if: failure()
+        run: docker compose -f src/Web/docker-compose.yml logs api --tail 120
+
+      - name: Recoger
+        if: always()
+        run: docker compose -f src/Web/docker-compose.yml down -v
+
+  # ── Desplegar ────────────────────────────────────────────────────────────────
+  #
+  # Solo desde main. El intercambio de ranuras es lo que hace que el despliegue no se note: la ranura
+  # de ensayo arranca —migrador incluido— mientras producción sigue atendiendo, y solo cuando
+  # responde se cambian de sitio.
+  desplegar:
+    needs: [comprobar, sql-server]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: produccion
+    steps:
+      - name: Recuperar lo publicado
+        uses: actions/download-artifact@v4
+        with:
+          name: web
+          path: publicado
+
+      # Identidad federada, sin contraseñas guardadas en el repositorio. Es la misma razón por la que
+      # la cadena de conexión vive en Key Vault y no en el código.
+      - name: Entrar a Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Publicar en la ranura de ensayo
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ vars.AZURE_WEBAPP_NAME }}
+          slot-name: ensayo
+          package: publicado
+
+      # La comprobación que decide. `/api/health` no dice «el proceso vive»: consulta la base. Si la
+      # migración falló o la cadena de conexión está mal, aquí se ve — y producción sigue intacta.
+      - name: Comprobar que la ranura de ensayo responde
+        run: |
+          url="https://${{ vars.AZURE_WEBAPP_NAME }}-ensayo.azurewebsites.net/api/health"
+          for intento in $(seq 1 30); do
+            codigo=$(curl -s -o /dev/null -w "%{http_code}" "$url" || true)
+            if [ "$codigo" = "200" ]; then
+              echo "La ranura de ensayo responde."
+              exit 0
+            fi
+            echo "Intento $intento: $codigo"
+            sleep 10
+          done
+          echo "La ranura de ensayo no llegó a responder. NO se intercambia."
+          exit 1
+
+      - name: Intercambiar con producción
+        run: az webapp deployment slot swap --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} --name ${{ vars.AZURE_WEBAPP_NAME }} --slot ensayo --target-slot production

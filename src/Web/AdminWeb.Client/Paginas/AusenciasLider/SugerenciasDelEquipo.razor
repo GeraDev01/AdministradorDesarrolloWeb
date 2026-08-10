@@ -1,0 +1,286 @@
+@page "/sugerencias"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Shared.Dtos.AusenciasLider
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+
+@*
+    El tablero del líder sobre las sugerencias del equipo: filtrarlas, leerlas, cambiarles el estado
+    y responderlas.
+
+    Decisiones del escritorio que se conservan:
+
+      · Las ANÓNIMAS no muestran quién las mandó. Aquí eso lo resuelve el SERVIDOR: el nombre no
+        viaja, así que no hay nada que esconder en la pantalla.
+      · Lo que va dirigido SOLO AL LÍDER se destaca: nadie más lo va a leer, así que si él no lo
+        atiende no lo atiende nadie.
+      · «Más votadas primero» es un interruptor, no el orden por omisión: lo normal es atender por
+        antigüedad, y el apoyo del equipo es una segunda lectura.
+      · La respuesta va con el cambio de estado en un solo acto, como en la ficha del escritorio: un
+        «Rechazada» sin explicación es justo lo que hace que la gente deje de proponer.
+
+    El cuerpo de la sugerencia lo escribió una persona y se pinta como TEXTO, nunca como marcado.
+*@
+
+<PageTitle>Sugerencias del equipo</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Sugerencias del equipo</RadzenText>
+        <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
+    </RadzenStack>
+
+    @if (_datos is { } d)
+    {
+        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+            @(d.Sugerencias.Count == 0
+                ? "No hay sugerencias con ese filtro."
+                : $"{d.Sugerencias.Count} sugerencia(s) · {d.SinAtender} sin atender · {d.SoloParaTi} solo para ti.")
+        </RadzenText>
+
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                     Gap="1rem" Wrap="FlexWrap.Wrap">
+            <RadzenLabel Text="Estado:" Component="estado" />
+            <RadzenDropDown TValue="SuggestionStatus?" @bind-Value="_estado" Name="estado"
+                            Data="@d.Estados" TextProperty="Texto" ValueProperty="Valor"
+                            AllowClear="true" Placeholder="Todos" Disabled="@_ocupado"
+                            Change="@(_ => Cargar())" Style="min-width:12rem" />
+
+            <RadzenLabel Text="Categoría:" Component="categoria" />
+            <RadzenDropDown TValue="SuggestionCategory?" @bind-Value="_categoria" Name="categoria"
+                            Data="@d.Categorias" TextProperty="Texto" ValueProperty="Valor"
+                            AllowClear="true" Placeholder="Todas" Disabled="@_ocupado"
+                            Change="@(_ => Cargar())" Style="min-width:12rem" />
+
+            <RadzenLabel Text="Quién la ve:" Component="visibilidad" />
+            <RadzenDropDown TValue="SuggestionVisibility?" @bind-Value="_visibilidad" Name="visibilidad"
+                            Data="@d.Visibilidades" TextProperty="Texto" ValueProperty="Valor"
+                            AllowClear="true" Placeholder="Todas" Disabled="@_ocupado"
+                            Change="@(_ => Cargar())" Style="min-width:14rem" />
+
+            <RadzenCheckBox TValue="bool" @bind-Value="_topVotos" Name="votos"
+                            Change="@(_ => Cargar())" Disabled="@_ocupado" />
+            <RadzenLabel Text="Más votadas primero" Component="votos" />
+        </RadzenStack>
+
+        @if (_atendiendo is { } s)
+        {
+            <RadzenCard>
+                <RadzenStack Gap="0.75rem">
+                    <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">📝 @s.Titulo</RadzenText>
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                        @Autor(s) · @s.CategoriaEtiqueta · @s.Alcance ·
+                        @s.CreadaUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                    </RadzenText>
+
+                    @* Texto plano y con los saltos de línea respetados por CSS: nada de MarkupString
+                       sobre algo que escribió una persona. *@
+                    <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0"
+                                Style="white-space:pre-wrap">@s.Cuerpo</RadzenText>
+
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap"
+                                 AlignItems="AlignItems.End">
+                        <RadzenStack Gap="0.25rem">
+                            <RadzenLabel Text="Nuevo estado" Component="nuevoEstado" />
+                            <RadzenDropDown TValue="SuggestionStatus?" @bind-Value="_nuevoEstado" Name="nuevoEstado"
+                                            Data="@d.Estados" TextProperty="Texto" ValueProperty="Valor"
+                                            Style="min-width:14rem" />
+                        </RadzenStack>
+                    </RadzenStack>
+
+                    <RadzenTextArea @bind-Value="_respuesta" Rows="4" MaxLength="4000" Style="width:100%"
+                                    Placeholder="Tu respuesta para quien la propuso. Un «Rechazada» sin explicación es lo que hace que la gente deje de proponer." />
+
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                        <RadzenButton Text="Guardar respuesta" Icon="send" Disabled="@_ocupado"
+                                      Click="@(() => Responder(s))" />
+                        <RadzenButton Text="Descartar" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+                                      Click="@(() => _atendiendo = null)" />
+                    </RadzenStack>
+                </RadzenStack>
+            </RadzenCard>
+        }
+
+        <RadzenDataGrid TItem="SugerenciaDelLiderDto" Data="@d.Sugerencias" IsLoading="@_ocupado"
+                        AllowPaging="true" PageSize="15"
+                        EmptyText="No hay sugerencias con ese filtro.">
+            @* Sin ordenación por encabezado: el orden lo decide el servidor (antigüedad, o apoyo si
+               se pide) y dejar que la rejilla lo cambie por su cuenta escondería que «más votadas
+               primero» ya está haciendo eso mismo. *@
+            <Columns>
+                <RadzenDataGridColumn TItem="SugerenciaDelLiderDto" Title="Fecha" Property="CreadaUtc"
+                                      Width="120px" Sortable="false">
+                    <Template Context="s">@s.CreadaUtc.ToLocalTime().ToString("dd/MM/yyyy")</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="SugerenciaDelLiderDto" Title="De" Width="170px" Sortable="false">
+                    <Template Context="s">@Autor(s)</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="SugerenciaDelLiderDto" Title="Categoría"
+                                      Property="CategoriaEtiqueta" Width="130px" Sortable="false" />
+                <RadzenDataGridColumn TItem="SugerenciaDelLiderDto" Title="Título" Property="Titulo" Sortable="false">
+                    <Template Context="s">
+                        @* Las nuevas en negrita: son las que piden una acción. *@
+                        @if (s.Estado == SuggestionStatus.Nueva)
+                        {
+                            <b>@s.Titulo</b>
+                        }
+                        else
+                        {
+                            @s.Titulo
+                        }
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="SugerenciaDelLiderDto" Title="Quién la ve" Property="Alcance"
+                                      Width="180px" Sortable="false">
+                    <Template Context="s">
+                        @* Lo que solo ve el líder se destaca: si él no lo atiende, no lo atiende nadie. *@
+                        <span style="@(s.SoloParaElLider ? "color:var(--rz-warning)" : "")">@s.Alcance</span>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="SugerenciaDelLiderDto" Title="👍" Property="Votos"
+                                      Width="80px" TextAlign="TextAlign.Right" Sortable="false">
+                    <Template Context="s">@(s.SePuedeVotar ? s.Votos.ToString() : "—")</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="SugerenciaDelLiderDto" Title="Estado" Property="EstadoEtiqueta"
+                                      Width="130px" Sortable="false">
+                    <Template Context="s">
+                        <b style="@($"color:{Color(s.Estado)}")">@s.EstadoEtiqueta</b>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="SugerenciaDelLiderDto" Title="Mi respuesta" Property="Respuesta"
+                                      Sortable="false">
+                    <Template Context="s">@(s.Respuesta ?? "—")</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="SugerenciaDelLiderDto" Title="" Width="220px" Sortable="false">
+                    <Template Context="s">
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" Wrap="FlexWrap.Wrap">
+                            <RadzenButton Text="Atender" ButtonStyle="ButtonStyle.Primary"
+                                          Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                          Click="@(() => Atender(s))" />
+                            <RadzenButton Text="Eliminar" ButtonStyle="ButtonStyle.Danger"
+                                          Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                          Click="@(() => Eliminar(s))" />
+                        </RadzenStack>
+                    </Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
+    }
+</RadzenStack>
+
+@code {
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private TableroDeSugerenciasDto? _datos;
+    private bool _ocupado;
+
+    private SuggestionStatus? _estado;
+    private SuggestionCategory? _categoria;
+    private SuggestionVisibility? _visibilidad;
+    private bool _topVotos;
+
+    // ── Ficha de respuesta ───────────────────────────────────────────────────
+    private SugerenciaDelLiderDto? _atendiendo;
+    private SuggestionStatus? _nuevoEstado;
+    private string? _respuesta;
+
+    protected override Task OnInitializedAsync() => Cargar();
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            var filtros = new List<string>();
+            if (_estado is SuggestionStatus e) filtros.Add($"estado={(int)e}");
+            if (_categoria is SuggestionCategory c) filtros.Add($"categoria={(int)c}");
+            if (_visibilidad is SuggestionVisibility v) filtros.Add($"visibilidad={(int)v}");
+            if (_topVotos) filtros.Add("topVotos=true");
+
+            var ruta = "api/ausencias-lider/sugerencias";
+            if (filtros.Count > 0) ruta += "?" + string.Join("&", filtros);
+
+            _datos = await Api.LeerAsync<TableroDeSugerenciasDto>(ruta, _cancelacion.Token);
+
+            // La ficha abierta se vuelve a leer del resultado, para que no siga enseñando el estado
+            // que tenía antes de responderla.
+            if (_atendiendo is { } abierta)
+                _atendiendo = _datos?.Sugerencias.FirstOrDefault(s => s.Id == abierta.Id);
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    private void Atender(SugerenciaDelLiderDto s)
+    {
+        _atendiendo = s;
+        // Se propone «En revisión» cuando aún está sin tocar: es el paso natural y evita que atender
+        // algo lo deje marcado como nuevo. Si ya tiene estado, se respeta el que tiene.
+        _nuevoEstado = s.Estado == SuggestionStatus.Nueva ? SuggestionStatus.EnRevision : s.Estado;
+        _respuesta = s.Respuesta;
+    }
+
+    private async Task Responder(SugerenciaDelLiderDto s)
+    {
+        if (_nuevoEstado is not SuggestionStatus estado) return;
+
+        await Enviar($"api/ausencias-lider/sugerencias/{s.Id}/respuesta",
+            new RespuestaASugerenciaRequest(estado, _respuesta));
+    }
+
+    private async Task Eliminar(SugerenciaDelLiderDto s)
+    {
+        if (!await Avisos.ConfirmarAsync(
+            $"¿Eliminar la sugerencia «{s.Titulo}»?\n\nEsta acción no se puede deshacer.",
+            "Eliminar sugerencia", "Sí, eliminar"))
+            return;
+
+        if (_atendiendo?.Id == s.Id) _atendiendo = null;
+        await Enviar($"api/ausencias-lider/sugerencias/{s.Id}/eliminacion", new { });
+    }
+
+    // ── Apoyo ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Quién la mandó. En una anónima el servidor NO manda el nombre, así que aquí no hay nada que
+    /// ocultar: solo se dice que lo es.
+    /// </summary>
+    private static string Autor(SugerenciaDelLiderDto s) =>
+        s.Anonima ? "Anónima" : s.Autor ?? "Sin ficha ligada";
+
+    private async Task Enviar<T>(string ruta, T cuerpo)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, respuesta) = await Api.EnviarAsync<T, ResultadoDto>(ruta, cuerpo, _cancelacion.Token);
+            if (ok && respuesta is not null) Avisos.Exito(respuesta.Mensaje);
+            if (!ok) return;
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+
+        await Cargar();
+    }
+
+    /// <summary>El color del estado lo pone la pantalla; el servicio solo da el texto.</summary>
+    private static string Color(SuggestionStatus estado) => estado switch
+    {
+        SuggestionStatus.Aceptada or SuggestionStatus.Implementada => "var(--rz-success)",
+        SuggestionStatus.Rechazada => "var(--rz-danger)",
+        SuggestionStatus.EnRevision => "var(--rz-warning)",
+        _ => "var(--rz-text-secondary-color)"
+    };
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

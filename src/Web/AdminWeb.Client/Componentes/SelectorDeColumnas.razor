@@ -1,0 +1,65 @@
+@*
+    Deja que cada quien elija qué columnas ve en una rejilla, y se acuerda de ello entre sesiones.
+
+    Es el port de GridColumns/ColumnPickerForm del escritorio, con la misma decisión de fondo: se
+    guarda lo OCULTO y no lo visible, para que una columna nueva le aparezca a todo el mundo en
+    lugar de quedar invisible justo para quien ya había configurado esa lista.
+
+    La diferencia con el escritorio es dónde vive la preferencia: allí era un archivo por máquina
+    (%AppData%\...\columnas.json) y quien cambiaba de computadora perdía su configuración; aquí va
+    en la base y sigue a la persona, que es lo que se espera de una web.
+
+    No usa @ref: el estado se comunica hacia arriba con OcultasCambiaron, porque las preferencias se
+    leen del servidor y una referencia estaría vacía justo en el primer pintado, que es cuando la
+    rejilla decide qué columnas mostrar.
+*@
+@using AdminWeb.Client.Servicios
+@inject PreferenciasDeUsuario Preferencias
+
+<RadzenDropDown TValue="IEnumerable<string>"
+                Data="@Columnas"
+                Value="@_visibles"
+                ValueChanged="@Elegir"
+                Multiple="true"
+                AllowClear="false"
+                Chips="false"
+                MaxSelectedLabels="0"
+                SelectedItemsText="@($"{_visibles.Count} de {Columnas.Count} columnas")"
+                Placeholder="Columnas"
+                Style="min-width:14rem"
+                title="Elige qué columnas ves. Se recuerda para la próxima vez." />
+
+@code {
+    /// <summary>Clave estable de la rejilla. Cambiarla equivale a borrarle la configuración a todos.</summary>
+    [Parameter, EditorRequired] public string Clave { get; set; } = "";
+
+    /// <summary>Los nombres de TODAS las columnas que la rejilla puede mostrar, en su orden.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<string> Columnas { get; set; } = [];
+
+    /// <summary>Avisa a la pantalla qué columnas están ocultas, al cargar y en cada cambio.</summary>
+    [Parameter] public EventCallback<HashSet<string>> OcultasCambiaron { get; set; }
+
+    private List<string> _visibles = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var ocultas = await Preferencias.ColumnasOcultasAsync(Clave);
+        _visibles = Columnas.Where(c => !ocultas.Contains(c)).ToList();
+        await OcultasCambiaron.InvokeAsync(ocultas);
+    }
+
+    private async Task Elegir(IEnumerable<string>? seleccion)
+    {
+        var visibles = (seleccion ?? []).ToList();
+
+        // Red de seguridad heredada del escritorio: una rejilla sin columnas parece rota y desde
+        // ahí no hay forma de volver, porque el propio selector queda flotando sobre la nada.
+        if (visibles.Count == 0 && Columnas.Count > 0) visibles = [Columnas[0]];
+
+        _visibles = visibles;
+        var ocultas = Columnas.Where(c => !visibles.Contains(c)).ToHashSet();
+
+        await Preferencias.GuardarColumnasOcultasAsync(Clave, ocultas);
+        await OcultasCambiaron.InvokeAsync(ocultas);
+    }
+}

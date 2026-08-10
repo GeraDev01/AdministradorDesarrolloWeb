@@ -1,0 +1,65 @@
+@using AdminWeb.Shared.Dtos.Despliegues
+
+@*
+    La consola del despliegue: los renglones que va contando el servidor, en el orden en que
+    llegaron.
+
+    DOS DECISIONES QUE CONVIENE NO PERDER:
+
+      · El texto se pinta como TEXTO. Nada de MarkupString: por aquí pasan rutas remotas y respuestas
+        literales de servidores FTP ajenos, y esos servidores no son de fiar. Un mensaje de error que
+        se interpretara como marcado sería una inyección de HTML con la sesión de quien está mirando.
+        El color se decide aquí, en el atributo de estilo, y no viene dentro del mensaje.
+      · El contenedor va en «column-reverse» con los renglones al revés: eso deja el navegador
+        anclado abajo por sí solo, así que la consola sigue el despliegue sin que nadie tenga que
+        desplazarla ni tocar JavaScript. Es el equivalente del ScrollToCaret del escritorio.
+*@
+
+<div style="background:#141821; color:#dce6f0; font-family:Consolas,'Courier New',monospace;
+            font-size:.82rem; line-height:1.45; padding:.75rem; border-radius:6px;
+            height:@Alto; overflow-y:auto; display:flex; flex-direction:column-reverse;">
+    <div>
+        @if (Renglones.Count == 0)
+        {
+            <div style="color:#7d8ba0">@Vacio</div>
+        }
+        else
+        {
+            @* Al revés porque el contenedor invierte el eje: así se lee de arriba abajo. *@
+            @foreach (var renglon in Renglones.Reverse())
+            {
+                <div style="@Estilo(renglon); white-space:pre-wrap; word-break:break-word;">
+                    <span style="color:#6d7a8d">[@renglon.Utc.ToLocalTime().ToString("HH:mm:ss")]</span>
+                    @(renglon.Servidor is null ? "" : $" [{renglon.Servidor}]")
+                    @(" " + renglon.Mensaje)
+                </div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>Los renglones en orden cronológico. El componente los invierte para pintarlos.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<RenglonDeBitacoraDto> Renglones { get; set; } = [];
+
+    [Parameter] public string Alto { get; set; } = "22rem";
+
+    [Parameter] public string Vacio { get; set; } = "(sin actividad todavía)";
+
+    /// <summary>
+    /// El color de un renglón. Se decide por el NIVEL, que lo pone el servidor; la bitácora fina
+    /// llega toda como «Info», así que para esa se mira el símbolo con el que se escribió —el mismo
+    /// criterio que la consola del escritorio— y no el texto en sí.
+    /// </summary>
+    private static string Estilo(RenglonDeBitacoraDto r) => r.Nivel switch
+    {
+        DeployLogLevel.Exito => "color:#86efac",
+        DeployLogLevel.Error => "color:#fca5a5",
+        DeployLogLevel.Advertencia => "color:#fde047",
+        _ when r.Mensaje.Contains('✓') || r.Mensaje.Contains('✅') => "color:#86efac",
+        _ when r.Mensaje.Contains('⚠') || r.Mensaje.Contains('↻') => "color:#fde047",
+        // Con cadenas y no con caracteres: estos emojis no caben en un char (son pares subrogados).
+        _ when r.Mensaje.Contains("🚀") || r.Mensaje.Contains("🌐") || r.Mensaje.Contains("💾") => "color:#93c5fd",
+        _ => ""
+    };
+}

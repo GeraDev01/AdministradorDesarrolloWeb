@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    El dominio: entidades, reglas de cálculo puras y las guardas de autorización.
+
+    Depende de Shared (los enums) y de BCrypt, y de nada más — en particular NO de EF Core. Que las
+    entidades no conozcan a su ORM es lo que permite probar las reglas sin base de datos, que es
+    exactamente lo que hacen las ~1000 pruebas que se portan.
+  -->
+
+  <ItemGroup>
+    <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AdminWeb.Shared\AdminWeb.Shared.csproj" />
+  </ItemGroup>
+
+</Project>

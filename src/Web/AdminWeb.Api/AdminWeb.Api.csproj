@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    La API: endpoints, autenticación, SignalR y los trabajos de fondo. Hospeda además los archivos
+    del cliente Blazor, así que todo viaja en el mismo origen (que es lo que permite autenticar con
+    una cookie HttpOnly en vez de un token accesible desde JavaScript).
+  -->
+
+  <PropertyGroup>
+    <UserSecretsId>adminweb-api</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Health check que comprueba que la base responde de verdad, no solo que el proceso vive:
+         es lo que mira el smoke del despliegue antes de intercambiar los slots. -->
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="9.0.*" />
+    <!-- Sirve los archivos del cliente WebAssembly desde esta misma aplicación. -->
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.*" />
+
+    <!-- El LLAVERO de Data Protection, persistido fuera del contenedor.
+         Sin esto las llaves viven en el sistema de archivos efímero: cada reinicio inventa unas
+         nuevas y los PAT ya cifrados dejan de descifrarse en silencio, sin más síntoma que un
+         «token inválido» al hablar con DevOps. Los dos paquetes son MIT. -->
+    <PackageReference Include="Azure.Extensions.AspNetCore.DataProtection.Blobs" Version="1.5.*" />
+    <PackageReference Include="Azure.Extensions.AspNetCore.DataProtection.Keys" Version="1.5.*" />
+    <!-- El ALIAS no es capricho: Azure.Core 1.55 absorbió DefaultAzureCredential, que Azure.Identity
+         también define, y con los dos ensamblados presentes el compilador se niega a elegir (CS0433).
+         Aliasando Azure.Identity, el único archivo que lo usa (Arranque/Llavero.cs) dice de cuál lo
+         quiere y el resto de la solución sigue viendo Azure.Core sin enterarse. -->
+    <PackageReference Include="Azure.Identity" Version="1.13.*" Aliases="azidentidad" />
+
+    <!-- Registro en ARCHIVO con rotación, además de la salida estándar (no en su lugar).
+         Apache-2.0. Es lo que el escritorio tenía con LoggingSetup y se había perdido: sin archivo,
+         revisar qué pasó anteayer depende de que el agregador de la plataforma lo hubiera guardado. -->
+    <PackageReference Include="Serilog.Extensions.Logging" Version="9.0.*" />
+    <PackageReference Include="Serilog.Sinks.File" Version="6.0.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AdminWeb.Application\AdminWeb.Application.csproj" />
+    <!-- El cliente lo sirve esta misma API: mismo origen, que es lo que permite autenticar con una
+         cookie HttpOnly en vez de un token que JavaScript pueda leer. -->
+    <ProjectReference Include="..\AdminWeb.Client\AdminWeb.Client.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,464 @@
+@page "/desempeno"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Shared.Dtos.Desempeno
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+
+@*
+    Desempeño del mes (administrador): los dos rankings y la cola de revisión.
+
+    Es la traducción de las pestañas «Ranking Mensual», «Ranking por Equipo» y «Pendientes de
+    aprobación» del escritorio.
+
+    Decisiones del escritorio que se conservan en la parte de escritura:
+
+      · Una entrada YA APROBADA no se vuelve a tocar. La pantalla ni siquiera la ofrece —solo lista
+        pendientes— y el servidor la rechazaría igual: esos puntos ya se contaron en un ranking que
+        la gente vio.
+      · El PUNTAJE no lo escribe el desarrollador. Lo pone el criterio y solo el líder lo ajusta, y
+        ajustarlo NO aprueba la entrada: sigue esperando decisión. Es la contraparte necesaria de
+        haberle quitado el campo al desarrollador.
+      · Las VUELTAS se ven en la lista, no dentro de la ficha. Una entrada que vuelve por tercera vez
+        no es una propuesta nueva, y saberlo antes de abrirla cambia cómo se revisa.
+      · La evidencia completa —comentario, enlace, tiempo declarado, captura e historial— se mira
+        junta. En el escritorio costó una versión aprender que revisar con el comentario truncado en
+        una celda no es revisar.
+
+    Lo que cambia respecto al escritorio: el motivo del rechazo es OBLIGATORIO (allí el diálogo lo
+    pedía «(opcional)»). Sin motivo, quien recibe la devolución no sabe qué arreglar y vuelve a
+    mandar lo mismo. Es además lo que ya exige el pool al devolver una entrega.
+*@
+
+<PageTitle>Desempeño</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Desempeño</RadzenText>
+
+    <RadzenCard>
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                     Gap="0.75rem" Wrap="FlexWrap.Wrap">
+            @* El período solo manda en los rankings: la cola de revisión no se filtra por él. *@
+            <RadzenLabel Text="Mes:" Component="mes" />
+            <RadzenDropDown @bind-Value="_mes" Data="@Meses" TextProperty="Texto" ValueProperty="Id"
+                            Name="mes" Style="width:150px" Change="@(_ => CargarRanking())" Disabled="@_ocupado" />
+
+            <RadzenLabel Text="Año:" Component="anio" />
+            <RadzenNumeric @bind-Value="_anio" Min="2020" Max="2099" Name="anio"
+                           Style="width:110px" Change="@((int _) => CargarRanking())" Disabled="@_ocupado" />
+
+            @* El nivel Lead no compite (reparte parte de los puntos y no se mide contra los niveles
+               que evalúa), pero el administrador necesita poder verlo: entra fuera de concurso, con
+               corona y sin ocupar lugar. *@
+            <RadzenCheckBox @bind-Value="_incluirNivelLead" Name="lead"
+                            Change="@((bool _) => CargarRanking())" Disabled="@_ocupado" />
+            <RadzenLabel Text="Incluir nivel Lead (fuera de concurso)" Component="lead" />
+
+            <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                          Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
+        </RadzenStack>
+    </RadzenCard>
+
+    <RadzenTabs>
+        <Tabs>
+            <RadzenTabsItem Text="🏅 Ranking mensual">
+                @* Lista vacía y no null mientras carga: la rejilla enseña su EmptyText en vez de
+                   quedarse a medio pintar. *@
+                <RadzenDataGrid TItem="RankingIndividualFilaDto" Data="@(_datos?.Individual ?? Array.Empty<RankingIndividualFilaDto>())"
+                                IsLoading="@_ocupado" AllowSorting="true" AllowColumnResize="true"
+                                PageSize="25" AllowPaging="true" EmptyText="Sin puntos aprobados en el mes."
+                                RowRender="@ResaltarPodio">
+                    <Columns>
+                        <RadzenDataGridColumn TItem="RankingIndividualFilaDto" Property="Posicion" Title="Pos." Width="80px">
+                            <Template Context="fila">@fila.Medalla</Template>
+                        </RadzenDataGridColumn>
+                        <RadzenDataGridColumn TItem="RankingIndividualFilaDto" Property="Desarrollador" Title="Desarrollador" />
+                        <RadzenDataGridColumn TItem="RankingIndividualFilaDto" Property="Total" Title="Total" Width="110px"
+                                              TextAlign="TextAlign.Right">
+                            <Template Context="fila">
+                                <b style="@EstiloDeTotal(fila.Total)">@ConSigno(fila.Total)</b>
+                            </Template>
+                        </RadzenDataGridColumn>
+                        <RadzenDataGridColumn TItem="RankingIndividualFilaDto" Property="Premio" Title="+ Premio"
+                                              Width="120px" TextAlign="TextAlign.Right">
+                            <Template Context="fila">@(fila.Premio > 0 ? $"+{fila.Premio}" : "—")</Template>
+                        </RadzenDataGridColumn>
+                        <RadzenDataGridColumn TItem="RankingIndividualFilaDto" Property="Penalizacion" Title="- Penaliz."
+                                              Width="120px" TextAlign="TextAlign.Right">
+                            <Template Context="fila">@(fila.Penalizacion < 0 ? fila.Penalizacion.ToString() : "—")</Template>
+                        </RadzenDataGridColumn>
+                        <RadzenDataGridColumn TItem="RankingIndividualFilaDto" Property="Entradas" Title="Entradas"
+                                              Width="110px" TextAlign="TextAlign.Right" />
+                    </Columns>
+                </RadzenDataGrid>
+            </RadzenTabsItem>
+
+            <RadzenTabsItem Text="👥 Ranking por equipo">
+                @* Aquí TODOS cuentan, también los de nivel Lead: la competencia es entre equipos y
+                   cada quien es parte del suyo. Restar los puntos del Lead castigaría justo a los
+                   equipos cuyo Lead más trabaja. *@
+                <RadzenDataGrid TItem="RankingEquipoFilaDto" Data="@(_datos?.Equipos ?? Array.Empty<RankingEquipoFilaDto>())"
+                                IsLoading="@_ocupado" AllowSorting="true" AllowColumnResize="true"
+                                PageSize="25" AllowPaging="true" EmptyText="No hay equipos.">
+                    <Columns>
+                        <RadzenDataGridColumn TItem="RankingEquipoFilaDto" Property="Posicion" Title="Pos." Width="80px">
+                            <Template Context="fila">@fila.Medalla</Template>
+                        </RadzenDataGridColumn>
+                        <RadzenDataGridColumn TItem="RankingEquipoFilaDto" Property="Equipo" Title="Equipo" />
+                        <RadzenDataGridColumn TItem="RankingEquipoFilaDto" Property="Total" Title="Total"
+                                              Width="110px" TextAlign="TextAlign.Right">
+                            <Template Context="fila">
+                                <b style="@EstiloDeTotal(fila.Total)">@ConSigno(fila.Total)</b>
+                            </Template>
+                        </RadzenDataGridColumn>
+                        <RadzenDataGridColumn TItem="RankingEquipoFilaDto" Property="PuntosIntegrantes"
+                                              Title="Pts integrantes" Width="150px" TextAlign="TextAlign.Right" />
+                        <RadzenDataGridColumn TItem="RankingEquipoFilaDto" Property="PuntosEquipo"
+                                              Title="Pts equipo" Width="130px" TextAlign="TextAlign.Right" />
+                        <RadzenDataGridColumn TItem="RankingEquipoFilaDto" Property="Miembros"
+                                              Title="# Miembros" Width="120px" TextAlign="TextAlign.Right" />
+                    </Columns>
+                </RadzenDataGrid>
+            </RadzenTabsItem>
+
+            <RadzenTabsItem Text="@TituloDePendientes()">
+                <RadzenStack Gap="0.75rem">
+                    @* La cola NO se filtra por el mes de arriba: lo pendiente es pendiente venga del
+                       mes que venga, y filtrarlo escondería justo lo que más tiempo lleva esperando. *@
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                        Puntos que los desarrolladores se autoasignaron, de lo más antiguo a lo más
+                        reciente. El puntaje lo fija el criterio: solo tú puedes ajustarlo aquí antes
+                        de aprobar. Se puede marcar más de una fila.
+                    </RadzenText>
+
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+                        <RadzenButton Text="✅ Aprobar" Disabled="@(_ocupado || Marcadas.Count == 0)"
+                                      Click="@Aprobar" />
+                        <RadzenButton Text="❌ Rechazar" ButtonStyle="ButtonStyle.Danger"
+                                      Disabled="@(_ocupado || Marcadas.Count == 0)" Click="@Rechazar" />
+                        <RadzenButton Text="✏ Ajustar puntos" ButtonStyle="ButtonStyle.Light"
+                                      Disabled="@(_ocupado || Marcadas.Count != 1)" Click="@AjustarPuntos" />
+                        <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                                      Size="ButtonSize.Small" Click="@CargarPendientes" Disabled="@_ocupado" />
+                    </RadzenStack>
+
+                    <RadzenDataGrid TItem="PuntoPendienteDto" Data="@_pendientes" IsLoading="@_ocupado"
+                                    AllowSorting="true" AllowPaging="true" PageSize="15"
+                                    SelectionMode="DataGridSelectionMode.Multiple"
+                                    Value="@_marcadas" ValueChanged="@Marcar"
+                                    RowRender="@ResaltarLasReplicas"
+                                    EmptyText="No hay nada esperando aprobación.">
+                        <Columns>
+                            <RadzenDataGridColumn TItem="PuntoPendienteDto" Property="Desarrollador"
+                                                  Title="Desarrollador" Width="180px" />
+                            <RadzenDataGridColumn TItem="PuntoPendienteDto" Property="Criterio"
+                                                  Title="Actividad / criterio">
+                                <Template Context="p">
+                                    <span title="@p.DescripcionCriterio">@p.Criterio</span>
+                                </Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="PuntoPendienteDto" Property="Puntos" Title="Puntos"
+                                                  Width="90px" TextAlign="TextAlign.Right">
+                                <Template Context="p"><b>@ConSigno(p.Puntos)</b></Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="PuntoPendienteDto" Property="Periodo"
+                                                  Title="Período" Width="140px" />
+                            <RadzenDataGridColumn TItem="PuntoPendienteDto" Property="FechaUtc"
+                                                  Title="Registrada" Width="130px">
+                                <Template Context="p">@p.FechaUtc.ToLocalTime().ToString("dd/MM/yyyy")</Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="PuntoPendienteDto" Property="Requerimiento"
+                                                  Title="Req." Width="90px">
+                                <Template Context="p">
+                                    <span title="@p.Requerimiento">
+                                        @(p.RequerimientoId is int r ? $"#{r}" : "—")
+                                    </span>
+                                </Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="PuntoPendienteDto" Property="Vueltas"
+                                                  Title="🔁" Width="90px">
+                                <Template Context="p">
+                                    @if (p.EsReplica)
+                                    {
+                                        <span style="color:var(--rz-warning);font-weight:600"
+                                              title="El desarrollador ya replicó. Abre la ficha para leer la discusión.">
+                                            ×@p.Vueltas
+                                        </span>
+                                    }
+                                </Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="PuntoPendienteDto" Property="TiempoDeclarado"
+                                                  Title="⏱ Tiempo" Width="110px" />
+                            <RadzenDataGridColumn TItem="PuntoPendienteDto" Title="Evidencia"
+                                                  Width="110px" Sortable="false">
+                                <Template Context="p">
+                                    @(p.TieneCaptura ? "📷" : "")@(string.IsNullOrWhiteSpace(p.Enlace) ? "" : " 🔗")
+                                </Template>
+                            </RadzenDataGridColumn>
+                        </Columns>
+                    </RadzenDataGrid>
+
+                    @* La ficha de evidencia va SIEMPRE a la vista, debajo de la lista y no detrás de
+                       un botón: revisar es mirar esto. *@
+                    <RadzenCard>
+                        @if (Abierta is not { } entrada)
+                        {
+                            <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                                Marca una actividad para ver su evidencia completa.
+                            </RadzenText>
+                        }
+                        else
+                        {
+                            <RadzenStack Gap="0.75rem">
+                                <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">
+                                    @entrada.Desarrollador — @entrada.Criterio (@ConSigno(entrada.Puntos) pts,
+                                    @entrada.Periodo)
+                                </RadzenText>
+
+                                @if (!string.IsNullOrWhiteSpace(entrada.DescripcionCriterio))
+                                {
+                                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                        @entrada.DescripcionCriterio
+                                    </RadzenText>
+                                }
+
+                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                    ⏱ @entrada.TiempoDeclarado declarados
+                                    @(entrada.Requerimiento is null ? "" : $"  ·  Requerimiento: {entrada.Requerimiento}")
+                                </RadzenText>
+
+                                @* Texto escrito por una persona: se pinta TAL CUAL, sin interpretarlo
+                                   como marcado. Los saltos de línea los respeta el estilo, no el HTML. *@
+                                <div style="white-space:pre-wrap">@(entrada.Comentario ?? "(sin comentario)")</div>
+
+                                @if (!string.IsNullOrWhiteSpace(entrada.Enlace))
+                                {
+                                    <a href="@entrada.Enlace" target="_blank" rel="noopener">🔗 @entrada.Enlace</a>
+                                }
+
+                                @if (entrada.TieneCaptura)
+                                {
+                                    @* Los bytes salen por la ruta que ya sirve esta imagen y que ya
+                                       comprueba quién puede verla; no hace falta una segunda. *@
+                                    <img src="@($"api/autocalificacion/entradas/{entrada.Id}/captura")"
+                                         alt="Captura que respalda la actividad"
+                                         style="max-width:100%;max-height:420px;border:1px solid var(--rz-border-color)" />
+                                }
+
+                                @if (!string.IsNullOrWhiteSpace(entrada.HistorialDeRevision))
+                                {
+                                    <RadzenFieldset Text="Historial de la revisión" AllowCollapse="true">
+                                        <div style="white-space:pre-wrap">@entrada.HistorialDeRevision</div>
+                                    </RadzenFieldset>
+                                }
+                            </RadzenStack>
+                        }
+                    </RadzenCard>
+                </RadzenStack>
+            </RadzenTabsItem>
+        </Tabs>
+    </RadzenTabs>
+</RadzenStack>
+
+@code {
+    private static readonly OpcionDeMes[] Meses =
+    [
+        new(1, "Enero"), new(2, "Febrero"), new(3, "Marzo"), new(4, "Abril"),
+        new(5, "Mayo"), new(6, "Junio"), new(7, "Julio"), new(8, "Agosto"),
+        new(9, "Septiembre"), new(10, "Octubre"), new(11, "Noviembre"), new(12, "Diciembre")
+    ];
+
+    private record OpcionDeMes(int Id, string Texto);
+
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private int _anio = DateTime.Today.Year;
+    private int _mes = DateTime.Today.Month;
+    private bool _incluirNivelLead;
+    private bool _ocupado;
+    private DesempenoAdminDto? _datos;
+
+    // Cola de revisión.
+    private List<PuntoPendienteDto> _pendientes = [];
+    private IList<PuntoPendienteDto>? _marcadas;
+    private int? _abiertaId;
+
+    /// <summary>
+    /// Lo marcado en la rejilla. Siempre es una <c>List</c> porque la selección se normaliza al
+    /// recibirla; así esto se lee sin copiar en cada repintado y sin depender de qué tipo concreto
+    /// entregue la rejilla.
+    /// </summary>
+    private IReadOnlyList<PuntoPendienteDto> Marcadas => (List<PuntoPendienteDto>?)_marcadas ?? [];
+
+    /// <summary>
+    /// La entrada cuya evidencia se está mirando. Se resuelve por id y no guardando el objeto:
+    /// cada recarga trae instancias nuevas y la ficha se quedaría enseñando una copia vieja.
+    /// </summary>
+    private PuntoPendienteDto? Abierta =>
+        _abiertaId is int id ? _pendientes.FirstOrDefault(p => p.Id == id) : null;
+
+    protected override Task OnInitializedAsync() => Cargar();
+
+    private async Task Cargar()
+    {
+        await CargarRanking();
+        await CargarPendientes();
+    }
+
+    private async Task CargarRanking()
+    {
+        _ocupado = true;
+        try
+        {
+            var ruta = $"api/desempeno/ranking?anio={_anio}&mes={_mes}" +
+                       $"&incluirNivelLead={(_incluirNivelLead ? "true" : "false")}";
+            _datos = await Api.LeerAsync<DesempenoAdminDto>(ruta, _cancelacion.Token);
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    private async Task CargarPendientes()
+    {
+        _ocupado = true;
+        try
+        {
+            _pendientes = await Api.LeerAsync<List<PuntoPendienteDto>>(
+                "api/desempeno/pendientes", _cancelacion.Token) ?? [];
+
+            // Lo que ya se resolvió deja de estar marcado y deja de enseñarse: una ficha de algo ya
+            // decidido hace creer que sigue esperando respuesta.
+            var siguen = _pendientes.Select(p => p.Id).ToHashSet();
+            _marcadas = Marcadas.Where(p => siguen.Contains(p.Id)).ToList();
+            if (_abiertaId is int id && !siguen.Contains(id)) _abiertaId = null;
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    private void Marcar(IList<PuntoPendienteDto>? seleccion)
+    {
+        // Se copia a una lista propia: la que entrega la rejilla es suya y la sigue mutando.
+        _marcadas = seleccion?.ToList();
+        // La ficha enseña la ÚLTIMA marcada: con varias marcadas para aprobar en tanda, la que se
+        // acaba de tocar es la que se está mirando.
+        _abiertaId = seleccion?.LastOrDefault()?.Id;
+    }
+
+    // ── Revisión ─────────────────────────────────────────────────────────────
+
+    private async Task Aprobar()
+    {
+        var elegidas = Marcadas;
+        if (elegidas.Count == 0) return;
+
+        int puntos = elegidas.Sum(p => p.Puntos);
+        if (!await Avisos.ConfirmarAsync(
+            $"¿Aprobar {elegidas.Count} actividad(es)? Se abonan {ConSigno(puntos)} puntos y cuentan " +
+            "de inmediato en el ranking del mes.",
+            "Aprobar actividades", "Sí, aprobarlas"))
+            return;
+
+        await Enviar("api/desempeno/pendientes/aprobar",
+            new AprobarPuntosRequest(elegidas.Select(p => p.Id).ToList()));
+    }
+
+    private async Task Rechazar()
+    {
+        var elegidas = Marcadas;
+        if (elegidas.Count == 0) return;
+
+        var motivo = await Avisos.PedirTextoAsync(
+            $"¿Qué falta en {(elegidas.Count == 1 ? "esta actividad" : $"estas {elegidas.Count} actividades")}? " +
+            "Es lo que va a leer para corregirlo.",
+            "Rechazar actividades");
+
+        // Vacío también cancela: el motivo es obligatorio y mandarlo en blanco solo serviría para que
+        // el servidor conteste lo que ya se sabe aquí.
+        if (string.IsNullOrWhiteSpace(motivo)) return;
+
+        await Enviar("api/desempeno/pendientes/rechazar",
+            new RechazarPuntosRequest(elegidas.Select(p => p.Id).ToList(), motivo));
+    }
+
+    private async Task AjustarPuntos()
+    {
+        if (Marcadas.Count != 1) return;
+        var entrada = Marcadas[0];
+
+        var texto = await Avisos.PedirTextoAsync(
+            $"Criterio: {entrada.Criterio}\nActual: {entrada.Puntos} pts\n\n" +
+            "Nuevo puntaje (puede ser negativo). La actividad seguirá pendiente de aprobación:",
+            "Ajustar puntos");
+
+        if (string.IsNullOrWhiteSpace(texto)) return;
+        if (!int.TryParse(texto.Trim(), out int nuevos))
+        {
+            Avisos.Aviso("Escribe un número entero.");
+            return;
+        }
+
+        await Enviar($"api/desempeno/pendientes/{entrada.Id}/puntos", new AjustarPuntosRequest(nuevos));
+    }
+
+    /// <summary>
+    /// El envío que comparten las tres acciones. El mensaje del servidor se enseña TAL CUAL: dice
+    /// cuántas se resolvieron y cuántas se omitieron porque alguien se adelantó, y cambiarlo por un
+    /// «listo» genérico tiraría lo que el escritorio hacía bien.
+    /// </summary>
+    private async Task Enviar<T>(string ruta, T cuerpo)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, r) = await Api.EnviarAsync<T, ResultadoDto>(ruta, cuerpo, _cancelacion.Token);
+            if (ok && r is not null) Avisos.Exito(r.Mensaje);
+            // El ranking se recarga también cuando se rechaza: la entrada pudo haber estado aprobada
+            // en otra pestaña, y de todas formas es más barato que dejar dos vistas discrepando.
+            if (ok) await Cargar();
+        }
+        finally { _ocupado = false; }
+    }
+
+    private string TituloDePendientes() =>
+        _pendientes.Count == 0 ? "⏳ Pendientes de aprobación" : $"⏳ Pendientes de aprobación ({_pendientes.Count})";
+
+    /// <summary>
+    /// Una entrada en discusión se marca ENTERA, igual que en el escritorio: es una decisión que ya
+    /// se tomó y se está rebatiendo, no una propuesta nueva.
+    /// </summary>
+    private void ResaltarLasReplicas(RowRenderEventArgs<PuntoPendienteDto> args)
+    {
+        if (args.Data.EsReplica) args.Attributes["style"] = "background-color:#fff8dc";
+    }
+
+    /// <summary>Podio resaltado como en el escritorio. Un Lead no lo recibe: no está compitiendo.</summary>
+    private void ResaltarPodio(RowRenderEventArgs<RankingIndividualFilaDto> args)
+    {
+        var f = args.Data;
+        if (f.EsNivelLead || f.Total <= 0 || f.Posicion is < 1 or > 3) return;
+
+        var fondo = f.Posicion switch
+        {
+            1 => "#fff8dc",
+            2 => "#f0f8ff",
+            _ => "#f0fff0"
+        };
+        args.Attributes["style"] = $"background-color:{fondo}";
+    }
+
+    private static string ConSigno(int puntos) => puntos >= 0 ? $"+{puntos}" : puntos.ToString();
+
+    private static string EstiloDeTotal(int total) =>
+        total > 0 ? "color:var(--rz-success)" : total < 0 ? "color:var(--rz-danger)" : "";
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

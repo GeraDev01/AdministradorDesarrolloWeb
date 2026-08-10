@@ -1,0 +1,478 @@
+@page "/correo"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Shared.Dtos.Correo
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+
+@*
+    El correo del área, en las tres cosas que hacía el escritorio y una más:
+
+     · 📥 Bandeja  — mirar una carpeta del buzón, convertir un mensaje en requerimiento e importar
+                     de golpe todo lo que esté sin procesar (era EmailControl).
+     · ✉ Redactar  — mandar un correo desde la cuenta de la aplicación (era EmailComposeForm).
+     · 📊 Resumen  — ver el resumen del equipo tal como saldría y mandarlo sin esperar. Esto en el
+                     escritorio no se podía mirar: salía solo o no salía, y cuando no llegaba no
+                     había forma de saber si era que no había nada que reportar o que algo falló.
+
+    ── EL CUERPO DE UN CORREO SE PINTA COMO TEXTO, SIEMPRE ────────────────────────────────────────
+
+    Lo escribe gente de FUERA de la organización: un cliente, un proveedor, quien sea que mande algo
+    a ese buzón. Se emite con @@, que Blazor escapa, y no hay un solo MarkupString en esta pantalla.
+    Con MarkupString, cualquiera que supiera la dirección del buzón podría ejecutar su código dentro
+    de la sesión del líder con solo mandar un correo — es el XSS de manual. El servidor además ya
+    manda el cuerpo sin etiquetas; esto es la segunda barrera, y las dos se quedan.
+
+    ── LA CONTRASEÑA NO ESTÁ AQUÍ ─────────────────────────────────────────────────────────────────
+
+    Esta pantalla no captura ni enseña la contraseña de aplicación: eso se hace en Configuración y el
+    valor no vuelve nunca al navegador. De aquí solo se sabe si el correo quedó utilizable y, si no,
+    qué falta. El botón de «probar conexión» es lo que sustituye a mirar la contraseña para saber si
+    sigue sirviendo.
+
+    ── LO QUE DECIDE ESTÁ EN EL SERVIDOR ──────────────────────────────────────────────────────────
+
+    Convertir un mensaje manda la CARPETA y el UID, no el texto: el servidor relee el correo del
+    buzón. Si el título y el cuerpo viajaran desde aquí, el requerimiento guardaría lo que escribió
+    quien hizo la petición y dejaría de ser evidencia de nada.
+*@
+
+<PageTitle>Correo</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Correo</RadzenText>
+        <RadzenButton Text="🔄 Recargar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                      Disabled="@_ocupado" Click="@CargarEstadoAsync" />
+        <RadzenButton Text="🔌 Probar conexión" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                      Disabled="@_ocupado" Click="@ProbarAsync" />
+    </RadzenStack>
+
+    @if (_estado is { } estado)
+    {
+        @if (!estado.Configurado)
+        {
+            @* El texto viene del servidor tal cual: distingue «está apagado» de «faltan datos», que
+               son dos arreglos distintos en la misma pantalla de Configuración. *@
+            <RadzenAlert AlertStyle="AlertStyle.Warning" AllowClose="false">
+                @estado.Diagnostico
+            </RadzenAlert>
+        }
+        else
+        {
+            <RadzenCard>
+                <RadzenStack Gap="0.25rem">
+                    <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                        Cuenta: <b>@estado.Direccion</b> · carpeta que se ingiere:
+                        <b>@estado.CarpetaDeIngesta</b>
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                        Resumen del equipo: @(estado.ResumenActivo
+                            ? $"activo, cada {estado.ResumenCadaDias} día(s)"
+                            : "desactivado") ·
+                        último envío: @(estado.UltimoResumenUtc is { } u
+                            ? u.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                            : "nunca")
+                    </RadzenText>
+                </RadzenStack>
+            </RadzenCard>
+
+            <RadzenTabs>
+                <Tabs>
+
+                    @* ── Bandeja ─────────────────────────────────────────────────── *@
+                    <RadzenTabsItem Text="📥  Bandeja">
+                        <RadzenStack Gap="0.75rem">
+                            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                         Wrap="FlexWrap.Wrap" Gap="0.75rem">
+                                <RadzenLabel Text="Carpeta:" Component="carpeta" />
+                                <RadzenDropDown TValue="string" Name="carpeta" Data="@_carpetas"
+                                                Value="@_carpeta" ValueChanged="@ElegirCarpetaAsync"
+                                                Disabled="@_ocupado" Style="width:18rem" />
+
+                                <RadzenButton Text="🔄 Cargar" ButtonStyle="ButtonStyle.Primary"
+                                              Size="ButtonSize.Small" Disabled="@_ocupado"
+                                              Click="@CargarBandejaAsync" />
+
+                                <RadzenButton Text="📥 Importar sin procesar" ButtonStyle="ButtonStyle.Light"
+                                              Size="ButtonSize.Small" Disabled="@_ocupado"
+                                              Click="@IngerirAsync" />
+
+                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@_estadoBandeja</RadzenText>
+                            </RadzenStack>
+
+                            <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false">
+                                «Importar sin procesar» crea un requerimiento por cada correo que siga
+                                <b>sin leer</b> en la carpeta y lo marca como leído: esa marca es lo único que
+                                evita que se vuelva a importar. Si marcas correos a mano en tu cliente de
+                                correo, estás decidiendo qué se importa y qué no.
+                            </RadzenAlert>
+
+                            <RadzenDataGrid TItem="MensajeDeCorreoDto" Data="@_mensajes" IsLoading="@_ocupado"
+                                            AllowPaging="true" PageSize="15" AllowColumnResize="true"
+                                            EmptyText="No hay mensajes en esta carpeta.">
+                                <Columns>
+                                    <RadzenDataGridColumn TItem="MensajeDeCorreoDto" Title="Fecha" Width="130px" Sortable="false">
+                                        <Template Context="m">@m.FechaUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</Template>
+                                    </RadzenDataGridColumn>
+
+                                    <RadzenDataGridColumn TItem="MensajeDeCorreoDto" Property="De" Title="De" Width="220px" Sortable="false" />
+
+                                    <RadzenDataGridColumn TItem="MensajeDeCorreoDto" Title="Asunto" Sortable="false">
+                                        <Template Context="m">
+                                            <RadzenStack Gap="0.15rem">
+                                                <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0"
+                                                            Style="overflow-wrap:anywhere">@m.Asunto</RadzenText>
+                                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                                                            Style="overflow-wrap:anywhere">@m.Vista</RadzenText>
+                                            </RadzenStack>
+                                        </Template>
+                                    </RadzenDataGridColumn>
+
+                                    <RadzenDataGridColumn TItem="MensajeDeCorreoDto" Title="" Width="230px" Sortable="false">
+                                        <Template Context="m">
+                                            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.4rem" Wrap="FlexWrap.Wrap">
+                                                <RadzenButton Text="👁 Ver" ButtonStyle="ButtonStyle.Light"
+                                                              Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                              Click="@(() => _abierto = m)" />
+                                                <RadzenButton Text="➡ Requerimiento" ButtonStyle="ButtonStyle.Light"
+                                                              Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                              Click="@(() => ConvertirAsync(m))" />
+                                            </RadzenStack>
+                                        </Template>
+                                    </RadzenDataGridColumn>
+                                </Columns>
+                            </RadzenDataGrid>
+
+                            @if (_abierto is { } mensaje)
+                            {
+                                <RadzenCard>
+                                    <RadzenStack Gap="0.35rem">
+                                        <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0"
+                                                    Style="overflow-wrap:anywhere">@mensaje.Asunto</RadzenText>
+                                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                                                    Style="overflow-wrap:anywhere">
+                                            De: @mensaje.De · @mensaje.FechaUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                                        </RadzenText>
+
+                                        @* Texto plano y escapado. Aquí NO puede entrar MarkupString. *@
+                                        <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0"
+                                                    Style="white-space:pre-wrap;overflow-wrap:anywhere">@mensaje.Cuerpo</RadzenText>
+
+                                        <div>
+                                            <RadzenButton Text="Cerrar" ButtonStyle="ButtonStyle.Light"
+                                                          Size="ButtonSize.ExtraSmall"
+                                                          Click="@(() => _abierto = null)" />
+                                        </div>
+                                    </RadzenStack>
+                                </RadzenCard>
+                            }
+                        </RadzenStack>
+                    </RadzenTabsItem>
+
+                    @* ── Redactar ────────────────────────────────────────────────── *@
+                    <RadzenTabsItem Text="✉  Redactar">
+                        <RadzenStack Gap="0.6rem">
+                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                Sale desde <b>@estado.Direccion</b>. Varios destinatarios, separados por coma o
+                                punto y coma.
+                            </RadzenText>
+
+                            <RadzenTextBox @bind-Value="_destinatarios" Style="width:100%"
+                                           Placeholder="Para" aria-label="Destinatarios" />
+
+                            <RadzenTextBox @bind-Value="_asunto" MaxLength="200" Style="width:100%"
+                                           Placeholder="Asunto" aria-label="Asunto" />
+
+                            <RadzenTextArea @bind-Value="_cuerpo" Rows="10" Style="width:100%"
+                                            Placeholder="Mensaje" aria-label="Mensaje" />
+
+                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                El correo se manda como texto plano y desde aquí no se adjunta nada: lo que se
+                                adjuntaba en el escritorio era un archivo de la máquina de quien escribía, y aquí
+                                no existe tal cosa en el servidor. Lo que sí puede ir adjunto es lo que el propio
+                                servidor genera — un reporte se manda con su hoja de cálculo desde Reportes.
+                            </RadzenText>
+
+                            <div>
+                                <RadzenButton Text="Enviar" ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small"
+                                              Disabled="@_ocupado" Click="@EnviarAsync" />
+                            </div>
+                        </RadzenStack>
+                    </RadzenTabsItem>
+
+                    @* ── Resumen ─────────────────────────────────────────────────── *@
+                    <RadzenTabsItem Text="📊  Resumen del equipo">
+                        <RadzenStack Gap="0.75rem">
+                            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                         Wrap="FlexWrap.Wrap" Gap="0.75rem">
+                                <RadzenButton Text="👁 Ver cómo saldría" ButtonStyle="ButtonStyle.Light"
+                                              Size="ButtonSize.Small" Disabled="@_ocupado"
+                                              Click="@CargarResumenAsync" />
+                                <RadzenButton Text="📤 Enviar ahora" ButtonStyle="ButtonStyle.Primary"
+                                              Size="ButtonSize.Small" Disabled="@_ocupado"
+                                              Click="@EnviarResumenAsync" />
+                            </RadzenStack>
+
+                            @if (!estado.ResumenActivo)
+                            {
+                                <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+                                    El envío automático está apagado (clave <b>DigestEnabled</b> en Configuración).
+                                    Desde aquí se puede mandar a mano de todos modos.
+                                </RadzenAlert>
+                            }
+
+                            @if (_resumen is { } resumen)
+                            {
+                                <RadzenCard>
+                                    <RadzenStack Gap="0.4rem">
+                                        <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">@resumen.Asunto</RadzenText>
+
+                                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                            Para: @(resumen.Destinatarios.Count == 0
+                                                ? "(nadie configurado)"
+                                                : string.Join("; ", resumen.Destinatarios))
+                                        </RadzenText>
+
+                                        @if (!resumen.HayAlgoQueReportar)
+                                        {
+                                            <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false">
+                                                Todas las cifras están en cero, así que el envío automático se salta
+                                                este período: no se manda un correo vacío.
+                                            </RadzenAlert>
+                                        }
+
+                                        <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0"
+                                                    Style="white-space:pre-wrap;overflow-wrap:anywhere">@resumen.Cuerpo</RadzenText>
+                                    </RadzenStack>
+                                </RadzenCard>
+                            }
+                        </RadzenStack>
+                    </RadzenTabsItem>
+
+                </Tabs>
+            </RadzenTabs>
+        }
+    }
+</RadzenStack>
+
+@code {
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private EstadoDeCorreoDto? _estado;
+    private bool _ocupado;
+
+    // Bandeja.
+    private IReadOnlyList<string> _carpetas = [];
+    private IReadOnlyList<MensajeDeCorreoDto> _mensajes = [];
+    private string? _carpeta;
+    private string _estadoBandeja = "";
+    private MensajeDeCorreoDto? _abierto;
+
+    // Redacción.
+    private string _destinatarios = "", _asunto = "", _cuerpo = "";
+
+    // Resumen.
+    private VistaPreviaDelResumenDto? _resumen;
+
+    protected override Task OnInitializedAsync() => CargarEstadoAsync();
+
+    // ── Estado ───────────────────────────────────────────────────────────────
+
+    private async Task CargarEstadoAsync()
+    {
+        _ocupado = true;
+        try
+        {
+            var estado = await Api.LeerAsync<EstadoDeCorreoDto>("api/correo/estado", _cancelacion.Token);
+
+            // null = el error ya se mostró; se deja lo que hubiera en pantalla en vez de vaciarla.
+            if (estado == null) return;
+
+            _estado = estado;
+
+            // La carpeta que se abre por omisión es la que se ingiere: es la que interesa mirar, y
+            // es la que el escritorio preseleccionaba.
+            _carpeta ??= estado.CarpetaDeIngesta;
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+
+        if (_estado?.Configurado == true && _mensajes.Count == 0) await CargarBandejaAsync();
+    }
+
+    private async Task ProbarAsync()
+    {
+        _ocupado = true;
+        try
+        {
+            // El mensaje del servicio se enseña tal cual: dice si el rechazo fue de la cuenta, del
+            // puerto o de la red, y cada uno se arregla en un sitio distinto.
+            var (ok, resultado) = await Api.EnviarAsync<object?, ResultadoDto>(
+                "api/correo/probar", null, _cancelacion.Token);
+
+            if (ok && resultado != null) Avisos.Exito(resultado.Mensaje);
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    // ── Bandeja ──────────────────────────────────────────────────────────────
+
+    private async Task ElegirCarpetaAsync(string carpeta)
+    {
+        _carpeta = carpeta;
+        await CargarBandejaAsync();
+    }
+
+    private async Task CargarBandejaAsync()
+    {
+        _ocupado = true;
+        _abierto = null;
+        try
+        {
+            var ruta = "api/correo/bandeja"
+                     + (string.IsNullOrWhiteSpace(_carpeta) ? "" : $"?carpeta={Uri.EscapeDataString(_carpeta)}");
+
+            var bandeja = await Api.LeerAsync<BandejaDeCorreoDto>(ruta, _cancelacion.Token);
+            if (bandeja == null)
+            {
+                _estadoBandeja = "";
+                return;
+            }
+
+            _carpetas = bandeja.Carpetas;
+            _carpeta = bandeja.Carpeta;
+            _mensajes = bandeja.Mensajes;
+            _estadoBandeja = $"{_mensajes.Count} mensaje(s).";
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    private async Task IngerirAsync()
+    {
+        if (!await Avisos.ConfirmarAsync(
+            $"Se creará un requerimiento por cada correo sin leer de «{_carpeta}», y quedarán marcados "
+            + "como leídos para no volver a importarlos. ¿Continuar?",
+            "Importar correos", "Sí, importar"))
+            return;
+
+        _ocupado = true;
+        try
+        {
+            var (ok, resultado) = await Api.EnviarAsync<IngerirCorreoRequest, ResultadoDeIngestaDto>(
+                "api/correo/ingerir", new IngerirCorreoRequest(_carpeta), _cancelacion.Token);
+
+            if (!ok) return;
+            if (resultado != null) Avisos.Exito(resultado.Mensaje);
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+
+        // Se recarga porque los correos importados ya están leídos: la bandeja de antes mentiría
+        // sobre qué queda pendiente.
+        await CargarBandejaAsync();
+    }
+
+    private async Task ConvertirAsync(MensajeDeCorreoDto mensaje)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, resultado) = await Api.EnviarAsync<ConvertirEnRequerimientoRequest, ResultadoDto>(
+                "api/correo/convertir",
+                new ConvertirEnRequerimientoRequest(_carpeta, mensaje.Identificador), _cancelacion.Token);
+
+            if (!ok) return;
+            if (resultado != null) Avisos.Exito(resultado.Mensaje);
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+
+        await CargarBandejaAsync();
+    }
+
+    // ── Redacción ────────────────────────────────────────────────────────────
+
+    private async Task EnviarAsync()
+    {
+        _ocupado = true;
+        try
+        {
+            // Las validaciones —sin destinatarios, sin asunto, dirección mal escrita— las hace el
+            // servidor y su mensaje se enseña tal cual: repetirlas aquí crearía un segundo sitio
+            // donde desincronizarse.
+            var (ok, resultado) = await Api.EnviarAsync<EnviarCorreoRequest, ResultadoDto>(
+                "api/correo/enviar",
+                new EnviarCorreoRequest(_destinatarios, _asunto, _cuerpo), _cancelacion.Token);
+
+            if (!ok) return;
+
+            if (resultado != null) Avisos.Exito(resultado.Mensaje);
+            _destinatarios = "";
+            _asunto = "";
+            _cuerpo = "";
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    // ── Resumen ──────────────────────────────────────────────────────────────
+
+    private async Task CargarResumenAsync()
+    {
+        _ocupado = true;
+        try
+        {
+            var resumen = await Api.LeerAsync<VistaPreviaDelResumenDto>("api/correo/resumen", _cancelacion.Token);
+            if (resumen != null) _resumen = resumen;
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    private async Task EnviarResumenAsync()
+    {
+        if (!await Avisos.ConfirmarAsync(
+            "Se enviará el resumen del equipo ahora mismo y contará como el de este período. ¿Continuar?",
+            "Enviar resumen", "Sí, enviar"))
+            return;
+
+        _ocupado = true;
+        try
+        {
+            var (ok, resultado) = await Api.EnviarAsync<object?, ResultadoDto>(
+                "api/correo/resumen/enviar", null, _cancelacion.Token);
+
+            if (ok && resultado != null) Avisos.Exito(resultado.Mensaje);
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+
+        // El «último envío» de la cabecera acaba de cambiar.
+        await CargarEstadoAsync();
+    }
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

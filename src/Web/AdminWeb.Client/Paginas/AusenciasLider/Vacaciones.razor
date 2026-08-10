@@ -1,0 +1,431 @@
+@page "/vacaciones"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Shared.Dtos.AusenciasLider
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+@inject Descargas Descargas
+
+@*
+    Vacaciones, del lado del líder: resolver lo que el equipo pide y emitir el documento que se
+    archiva en su expediente.
+
+    Decisiones del escritorio que se conservan:
+
+      · El DOCUMENTO se puede emitir en los dos momentos: como borrador sin firmar —la solicitud
+        existe desde que se pide, y el papel se lleva a firmar precisamente para resolverla— y ya
+        firmado una vez resuelta. Las dos casillas, autorizada y rechazada, se imprimen siempre y
+        solo se marca la que toca, porque así es el papel que se firma a mano.
+      · La FIRMA es reutilizable: se traza una vez y se guarda, en lugar de volver a dibujarla en
+        cada solicitud. Es lo que hacía el gestor de firmas del escritorio.
+      · RECHAZAR exige motivo. Lo comprueba el servidor, y su mensaje es el que se enseña.
+      · La exportación a Excel baja LO QUE EL FILTRO ESTÁ ENSEÑANDO, igual que en minutas: el botón
+        está junto a los desplegables de persona y de estado, y bajar el histórico completo sorprende
+        a quien acaba de acotar.
+
+    La pestaña de FIRMAS es el mismo componente que la pantalla «Firmas» de Administración, donde
+    viven de verdad: se queda aquí porque cuando alguien descubre que le falta una firma es justo
+    mientras va a firmar, y mandarlo a otra pantalla en ese momento le costaría la solicitud abierta.
+
+    Lo que cambia: el trazo ya no es de ratón sino de PUNTERO (dedo, lápiz o ratón), que es como se
+    firma de verdad — ver FirmaEnLienzo. Y el visor de PDF deja de ser un componente incrustado: el
+    documento se abre en otra pestaña con el visor del propio navegador, que ya sabe hacer eso mejor
+    que nadie y no obliga a instalar nada en el servidor.
+
+    Las «Notas y pendientes» que el escritorio tenía en la segunda pestaña de esta misma pantalla NO
+    están aquí: son otro módulo (Note) y no pertenecen a las ausencias. Se portan por su cuenta.
+*@
+
+<PageTitle>Vacaciones del equipo</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Vacaciones del equipo</RadzenText>
+        <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
+    </RadzenStack>
+
+    @if (_datos is { } d)
+    {
+        @* El contador se cuenta sobre TODAS y no sobre lo filtrado: es el número que dice si queda
+           trabajo, y esconderlo al filtrar haría creer que no hay nada que resolver. *@
+        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                    Style="@(d.Pendientes > 0 ? "color:var(--rz-warning)" : "")">
+            @(d.Pendientes == 0
+                ? "No hay solicitudes esperando respuesta."
+                : $"⏳ {d.Pendientes} solicitud(es) esperando tu respuesta.")
+        </RadzenText>
+
+        <RadzenTabs>
+            <Tabs>
+                <RadzenTabsItem Text="🏖 Solicitudes">
+                    <RadzenStack Gap="0.75rem">
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                     Gap="1rem" Wrap="FlexWrap.Wrap">
+                            <RadzenLabel Text="Desarrollador:" Component="dev" />
+                            <RadzenDropDown TValue="int?" @bind-Value="_developerId" Name="dev"
+                                            Data="@d.Desarrolladores" TextProperty="Texto" ValueProperty="Valor"
+                                            AllowClear="true" Placeholder="Todos" Disabled="@_ocupado"
+                                            Change="@(_ => Cargar())" Style="min-width:14rem" />
+
+                            <RadzenLabel Text="Estado:" Component="estado" />
+                            <RadzenDropDown TValue="VacationStatus?" @bind-Value="_estado" Name="estado"
+                                            Data="@d.Estados" TextProperty="Texto" ValueProperty="Valor"
+                                            AllowClear="true" Placeholder="Todos" Disabled="@_ocupado"
+                                            Change="@(_ => Cargar())" Style="min-width:14rem" />
+
+                            @* Pegado a los filtros a propósito: es lo que hace evidente que baja lo
+                               que están enseñando y no la tabla entera. *@
+                            <RadzenButton Text="📊 Excel" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+                                          Style="margin-left:auto"
+                                          Click="@(() => Descargas.DesdeApiAsync(RutaDelFiltro("/excel")))" />
+                        </RadzenStack>
+
+                        @if (_documento is { } sel)
+                        {
+                            <RadzenCard>
+                                <RadzenStack Gap="0.75rem">
+                                    <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                                        📄 Documento — @sel.Desarrollador
+                                        (@sel.Inicio.ToString("dd/MM/yyyy") al @sel.Fin.ToString("dd/MM/yyyy"))
+                                    </RadzenText>
+
+                                    @if (sel.Estado == VacationStatus.Pendiente)
+                                    {
+                                        <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false">
+                                            La solicitud sigue pendiente: el borrador sale con las dos casillas en
+                                            blanco. Para archivarlo firmado hay que resolverla antes.
+                                        </RadzenAlert>
+                                    }
+
+                                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                                 Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                                        <RadzenLabel Text="Firma:" Component="firma" />
+                                        <RadzenDropDown TValue="int?" @bind-Value="_firmaId" Name="firma"
+                                                        Data="@d.Firmas" TextProperty="Nombre" ValueProperty="Id"
+                                                        AllowClear="true" Placeholder="Sin firmar"
+                                                        Disabled="@_ocupado" Style="min-width:14rem" />
+
+                                        <RadzenButton Text="Ver borrador" Icon="visibility"
+                                                      ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                                      Disabled="@_ocupado" Click="@(() => VerDocumento(sel, null))" />
+                                        <RadzenButton Text="Ver con la firma" Icon="draw"
+                                                      ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                                      Disabled="@(_ocupado || _firmaId is null)"
+                                                      Click="@(() => VerDocumento(sel, _firmaId))" />
+                                        <RadzenButton Text="Firmar y archivar" Icon="verified"
+                                                      ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small"
+                                                      Disabled="@(_ocupado || _firmaId is null)"
+                                                      Click="@(() => Firmar(sel))" />
+                                        @if (sel.DocumentoFirmado)
+                                        {
+                                            <RadzenButton Text="Abrir el firmado" Icon="task"
+                                                          ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                                          Disabled="@_ocupado" Click="@(() => VerFirmado(sel))" />
+                                        }
+                                        <RadzenButton Text="Cerrar" ButtonStyle="ButtonStyle.Light"
+                                                      Size="ButtonSize.Small" Click="@(() => _documento = null)" />
+                                    </RadzenStack>
+
+                                    @if (d.Firmas.Count == 0)
+                                    {
+                                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                            Todavía no hay ninguna firma guardada. Traza una en la pestaña «Firmas».
+                                        </RadzenText>
+                                    }
+                                </RadzenStack>
+                            </RadzenCard>
+                        }
+
+                        <RadzenDataGrid TItem="SolicitudDeVacacionesDelLiderDto" Data="@d.Solicitudes"
+                                        IsLoading="@_ocupado" AllowSorting="true" AllowPaging="true" PageSize="15"
+                                        EmptyText="No hay solicitudes que cumplan el filtro.">
+                            <Columns>
+                                <RadzenDataGridColumn TItem="SolicitudDeVacacionesDelLiderDto" Title="Desarrollador"
+                                                      Property="Desarrollador" Width="180px" />
+                                <RadzenDataGridColumn TItem="SolicitudDeVacacionesDelLiderDto" Title="Inicio"
+                                                      Property="Inicio" Width="110px">
+                                    <Template Context="v">@v.Inicio.ToString("dd/MM/yyyy")</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="SolicitudDeVacacionesDelLiderDto" Title="Fin"
+                                                      Property="Fin" Width="110px">
+                                    <Template Context="v">@v.Fin.ToString("dd/MM/yyyy")</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="SolicitudDeVacacionesDelLiderDto" Title="Días"
+                                                      Property="Dias" Width="80px" />
+                                <RadzenDataGridColumn TItem="SolicitudDeVacacionesDelLiderDto" Title="Estado"
+                                                      Property="Estado" Width="130px">
+                                    <Template Context="v">
+                                        <b style="@($"color:{Color(v.Estado)}")">@v.EtiquetaEstado</b>
+                                    </Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="SolicitudDeVacacionesDelLiderDto" Title="Respaldo"
+                                                      Width="100px" Sortable="false">
+                                    <Template Context="v">
+                                        @if (v.TieneRespaldo)
+                                        {
+                                            <RadzenButton Text="📎 Abrir" ButtonStyle="ButtonStyle.Light"
+                                                          Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                          Click="@(() => VerRespaldo(v))" />
+                                        }
+                                        else
+                                        {
+                                            <span>—</span>
+                                        }
+                                    </Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="SolicitudDeVacacionesDelLiderDto" Title="Comentario"
+                                                      Property="Comentario">
+                                    <Template Context="v">@(v.Comentario ?? "—")</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="SolicitudDeVacacionesDelLiderDto" Title="Mi respuesta"
+                                                      Property="RespuestaDelLider">
+                                    <Template Context="v">@(v.RespuestaDelLider ?? "—")</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="SolicitudDeVacacionesDelLiderDto" Title="Documento"
+                                                      Width="130px" Sortable="false">
+                                    <Template Context="v">
+                                        @if (v.DocumentoFirmado)
+                                        {
+                                            <RadzenBadge BadgeStyle="BadgeStyle.Success" Text="✍ Firmado"
+                                                         title="@($"Firmado el {v.FirmadoUtc?.ToLocalTime():dd/MM/yyyy HH:mm}")" />
+                                        }
+                                        else
+                                        {
+                                            <span>—</span>
+                                        }
+                                    </Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="SolicitudDeVacacionesDelLiderDto" Title=""
+                                                      Width="300px" Sortable="false">
+                                    <Template Context="v">
+                                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem"
+                                                     Wrap="FlexWrap.Wrap">
+                                            @* Los botones aparecen según lo que responde el SERVIDOR
+                                               (SePuedeResolver): así el botón que se ve y la operación que se
+                                               permite no pueden discrepar. *@
+                                            @if (v.SePuedeResolver)
+                                            {
+                                                <RadzenButton Text="Aprobar" ButtonStyle="ButtonStyle.Success"
+                                                              Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                              Click="@(() => Resolver(v, VacationStatus.Aprobada))" />
+                                                <RadzenButton Text="Rechazar" ButtonStyle="ButtonStyle.Danger"
+                                                              Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                              Click="@(() => Resolver(v, VacationStatus.Rechazada))" />
+                                            }
+                                            @* Cancelar alcanza también a lo ya aprobado: unas
+                                               vacaciones concedidas que al final no se toman se
+                                               cancelan, no se rechazan. *@
+                                            @if (v.SePuedeCancelar)
+                                            {
+                                                <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                                                              Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                              Click="@(() => Resolver(v, VacationStatus.Cancelada))" />
+                                            }
+                                            <RadzenButton Text="Documento" ButtonStyle="ButtonStyle.Light"
+                                                          Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                          Click="@(() => AbrirDocumento(v))" />
+                                        </RadzenStack>
+                                    </Template>
+                                </RadzenDataGridColumn>
+                            </Columns>
+                        </RadzenDataGrid>
+                    </RadzenStack>
+                </RadzenTabsItem>
+
+                <RadzenTabsItem Text="🖊 Firmas">
+                    @* El mismo componente que la pantalla «Firmas» de Administración. Al cambiar algo
+                       se recarga esta pantalla, porque el desplegable del documento —que vive fuera
+                       del componente— seguiría ofreciendo una firma recién borrada. *@
+                    <GestorDeFirmas OnCambio="@Cargar" />
+                </RadzenTabsItem>
+            </Tabs>
+        </RadzenTabs>
+    }
+</RadzenStack>
+
+@code {
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private VacacionesDelLiderDto? _datos;
+    private bool _ocupado;
+
+    // ── Filtros ──────────────────────────────────────────────────────────────
+    private int? _developerId;
+    private VacationStatus? _estado;
+
+    // ── Panel del documento ──────────────────────────────────────────────────
+    private SolicitudDeVacacionesDelLiderDto? _documento;
+    private int? _firmaId;
+
+    protected override Task OnInitializedAsync() => Cargar();
+
+    /// <summary>
+    /// La dirección de la lista con sus filtros; el sufijo la convierte en la exportación. Es una
+    /// sola función para que la hoja de cálculo no pueda salir con un filtro distinto del que se ve.
+    /// </summary>
+    private string RutaDelFiltro(string sufijo = "")
+    {
+        var ruta = $"api/ausencias-lider/vacaciones{sufijo}";
+        var filtros = new List<string>();
+        if (_developerId is int dev) filtros.Add($"developerId={dev}");
+        if (_estado is VacationStatus e) filtros.Add($"estado={(int)e}");
+        return filtros.Count > 0 ? ruta + "?" + string.Join("&", filtros) : ruta;
+    }
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            _datos = await Api.LeerAsync<VacacionesDelLiderDto>(RutaDelFiltro(), _cancelacion.Token);
+
+            // La firma que se ofrece por omisión es la predeterminada, igual que en el escritorio:
+            // así firmar es un clic y no una elección que se repite cada vez.
+            _firmaId ??= _datos?.Firmas.FirstOrDefault(f => f.Predeterminada)?.Id
+                      ?? _datos?.Firmas.FirstOrDefault()?.Id;
+
+            // Una firma borrada desde el gestor deja de existir: si era la que estaba elegida, se
+            // suelta para que la siguiente carga vuelva a proponer la predeterminada.
+            if (_firmaId is int elegida && _datos?.Firmas.Any(f => f.Id == elegida) == false)
+                _firmaId = _datos.Firmas.FirstOrDefault(f => f.Predeterminada)?.Id
+                        ?? _datos.Firmas.FirstOrDefault()?.Id;
+
+            // La fila del panel abierto se vuelve a leer del resultado: si se acaba de resolver o de
+            // firmar, el panel tiene que enseñar el estado nuevo y no el que había al abrirlo.
+            if (_documento is { } abierto)
+                _documento = _datos?.Solicitudes.FirstOrDefault(s => s.Id == abierto.Id);
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    // ── Resolver ─────────────────────────────────────────────────────────────
+
+    private async Task Resolver(SolicitudDeVacacionesDelLiderDto v, VacationStatus destino)
+    {
+        var verbo = destino switch
+        {
+            VacationStatus.Aprobada => "aprobar",
+            VacationStatus.Rechazada => "rechazar",
+            _ => "cancelar"
+        };
+
+        // El aviso de la aprobada viene de «Mis vacaciones» y aquí vale igual: cancelar algo
+        // pendiente solo retira una petición; cancelar algo aprobado devuelve días que la persona ya
+        // tenía apartados y probablemente planeados.
+        var aviso = destino == VacationStatus.Cancelada && v.Estado == VacationStatus.Aprobada
+            ? "Esta solicitud YA FUE APROBADA. Al cancelarla, esos días dejan de estar tomados.\n\n"
+            : "";
+
+        if (!await Avisos.ConfirmarAsync(
+            $"{aviso}¿{char.ToUpper(verbo[0])}{verbo[1..]} la solicitud de {v.Desarrollador} " +
+            $"del {v.Inicio:dd/MM/yyyy} al {v.Fin:dd/MM/yyyy}?",
+            "Confirmar", $"Sí, {verbo}"))
+            return;
+
+        var texto = destino == VacationStatus.Rechazada
+            ? "Motivo del rechazo (obligatorio):"
+            : "Comentario para el solicitante (opcional):";
+
+        var comentario = await Avisos.PedirTextoAsync(texto, "Resolver solicitud");
+        // Null es «cancelé el diálogo»; vacío es «acepté sin escribir nada» y sí se manda: al
+        // rechazar, el mensaje que explica por qué hace falta el motivo lo escribe el servicio.
+        if (comentario is null) return;
+
+        await Enviar($"api/ausencias-lider/vacaciones/{v.Id}/resolucion",
+            new ResolucionDeVacacionesRequest(destino, comentario));
+    }
+
+    /// <summary>
+    /// Abre el documento que adjuntó quien pidió las vacaciones, por la ruta común a todos los
+    /// adjuntos guardados en la base: es la MISMA que usa el desarrollador para ver el suyo, y su
+    /// guarda deja pasar al dueño y al líder. Una ruta propia del líder para los mismos bytes sería
+    /// un segundo sitio donde equivocarse con el permiso.
+    ///
+    /// Se descarga en vez de abrirse en otra pestaña —al revés que el PDF del documento— porque un
+    /// respaldo puede ser un .docx, y una pestaña que solo sirve para disparar una descarga se queda
+    /// en blanco. Con esta vía el navegador previsualiza lo que sabe y descarga lo demás.
+    /// </summary>
+    private Task VerRespaldo(SolicitudDeVacacionesDelLiderDto v) =>
+        Descargas.DesdeApiAsync($"api/adjuntos/vacaciones/{v.Id}").AsTask();
+
+    // ── El documento ─────────────────────────────────────────────────────────
+
+    private void AbrirDocumento(SolicitudDeVacacionesDelLiderDto v) => _documento = v;
+
+    /// <summary>
+    /// Abre el PDF en otra pestaña. Sustituye al visor incrustado del escritorio: el del navegador
+    /// ya sabe enseñar un PDF, permite guardarlo e imprimirlo, y no obliga a instalar nada.
+    /// </summary>
+    private Task VerDocumento(SolicitudDeVacacionesDelLiderDto v, int? firmaId)
+    {
+        var ruta = $"api/ausencias-lider/vacaciones/{v.Id}/documento";
+        if (firmaId is int id) ruta += $"?firmaId={id}";
+        return Descargas.AbrirEnOtraPestanaAsync(ruta).AsTask();
+    }
+
+    private Task VerFirmado(SolicitudDeVacacionesDelLiderDto v) =>
+        Descargas.AbrirEnOtraPestanaAsync($"api/ausencias-lider/vacaciones/{v.Id}/documento/firmado").AsTask();
+
+    private async Task Firmar(SolicitudDeVacacionesDelLiderDto v)
+    {
+        if (_firmaId is not int firmaId) return;
+
+        var aviso = v.DocumentoFirmado
+            ? "Ya hay un documento firmado archivado para esta solicitud y quedará reemplazado.\n\n"
+            : "";
+
+        if (!await Avisos.ConfirmarAsync(
+            $"{aviso}¿Firmar el documento de {v.Desarrollador} y archivarlo?",
+            "Firmar documento", "Sí, firmar"))
+            return;
+
+        await Enviar($"api/ausencias-lider/vacaciones/{v.Id}/documento/firma",
+            new FirmarDocumentoRequest(firmaId));
+    }
+
+    // ── Apoyo ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// El envío que comparten las acciones. El mensaje del servidor se enseña TAL CUAL: explica el
+    /// motivo en concreto —«Resuelve la solicitud antes de firmarla»— y cambiarlo por un «no se
+    /// pudo» genérico tiraría justo lo que el escritorio hacía bien.
+    /// </summary>
+    private async Task Enviar<T>(string ruta, T cuerpo)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, respuesta) = await Api.EnviarAsync<T, ResultadoDto>(ruta, cuerpo, _cancelacion.Token);
+            if (ok && respuesta is not null) Avisos.Exito(respuesta.Mensaje);
+            if (!ok) return;
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+
+        await Cargar();
+    }
+
+    /// <summary>
+    /// El color del estado lo pone la pantalla, no el servicio: un servicio no debe saber del tema
+    /// visual. Son los mismos criterios del escritorio.
+    /// </summary>
+    private static string Color(VacationStatus estado) => estado switch
+    {
+        VacationStatus.Aprobada => "var(--rz-success)",
+        VacationStatus.Rechazada => "var(--rz-danger)",
+        VacationStatus.Cancelada => "var(--rz-warning)",
+        _ => "var(--rz-text-secondary-color)"
+    };
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

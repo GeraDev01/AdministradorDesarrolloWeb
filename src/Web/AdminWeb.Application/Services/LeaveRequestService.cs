@@ -1,0 +1,437 @@
+using AdminWeb.Domain.Entities;
+using AdminWeb.Domain.Security;
+using AdminWeb.Infrastructure.Data;
+using AdminWeb.Shared.Enums;
+using Microsoft.EntityFrameworkCore;
+
+namespace AdminWeb.Application.Services;
+
+/// <summary>
+/// Permisos: el desarrollador los SOLICITA y el administrador los RESUELVE.
+///
+/// Antes esta pantalla era la libreta del administrador —él capturaba el permiso ya concedido— y
+/// el desarrollador ni la veía. El trámite ocurría por fuera (un mensaje, un pasillo) y lo único
+/// que quedaba era el apunte de quien lo anotó. Ahora la solicitud y su respuesta viven aquí, que
+/// es lo que permite responder «¿pedí eso?, ¿qué me contestaron?» sin buscar en un chat.
+///
+/// Las reglas viven en el servicio y no en la UI, igual que en <see cref="VacationRequestService"/>:
+/// una pantalla que decide por su cuenta acaba enseñando un botón que el servicio luego rechaza.
+/// </summary>
+public class LeaveRequestService(AppDbContext db, ICurrentUser currentUser, AuditService audit)
+{
+    /// <summary>Tope del justificante. Mismo criterio que el resto de adjuntos de la aplicación.</summary>
+    public const int MaxAdjuntoBytes = 15 * 1024 * 1024;
+
+    public const int MaxDias = 365;
+
+    /// <summary>Se puede cancelar mientras siga viva: pendiente, o aprobada pero ya no se va a tomar.</summary>
+    public static bool PuedeCancelar(LeaveStatus estado) =>
+        estado is LeaveStatus.Pendiente or LeaveStatus.Aprobada;
+
+    /// <summary>El desarrollador solo corrige lo que aún no ha sido resuelto.</summary>
+    public static bool PuedeEditar(LeaveStatus estado) => estado == LeaveStatus.Pendiente;
+
+    /// <summary>
+    /// Solo se borra lo que nunca llegó a ser una decisión. Una aprobada o rechazada es historial:
+    /// se cancela, no se borra. (El administrador sí puede depurar cualquier fila; ver Eliminar.)
+    /// </summary>
+    public static bool PuedeEliminarElDesarrollador(LeaveStatus estado) =>
+        estado is LeaveStatus.Pendiente or LeaveStatus.Cancelada;
+
+    // ── Lectura ──────────────────────────────────────────────────────────────
+
+    /// <summary>Los permisos de un desarrollador. Suyos o de quien administre.</summary>
+    public async Task<List<LeaveRequest>> DeDesarrolladorAsync(int developerId, CancellationToken ct = default)
+    {
+        AuthorizationGuard.RequireOwnershipOrAdmin(currentUser, developerId);
+        return await db.LeaveRequests
+            .Include(l => l.Developer)
+            .Where(l => l.DeveloperId == developerId)
+            .OrderByDescending(l => l.Date).ThenByDescending(l => l.Id)
+            .AsNoTracking()
+            .ToListAsync(ct);
+    }
+
+    /// <summary>Todos los permisos del equipo, para la pantalla del administrador.</summary>
+    public async Task<List<LeaveRequest>> TodasAsync(int? developerId = null, LeaveStatus? estado = null,
+        CancellationToken ct = default)
+    {
+        AuthorizationGuard.RequireAdmin(currentUser);
+
+        var q = db.LeaveRequests.Include(l => l.Developer).AsQueryable();
+        if (developerId is int dev) q = q.Where(l => l.DeveloperId == dev);
+        if (estado is LeaveStatus e) q = q.Where(l => l.Status == e);
+
+        // Las pendientes primero: son las únicas que piden una acción del administrador.
+        return await q.OrderByDescending(l => l.Status == LeaveStatus.Pendiente)
+                      .ThenByDescending(l => l.Date).ThenByDescending(l => l.Id)
+                      .AsNoTracking()
+                      .ToListAsync(ct);
+    }
+
+    /// <summary>Cuántas esperan respuesta. Para el contador del menú.</summary>
+    public Task<int> PendientesCountAsync(CancellationToken ct = default) =>
+        currentUser.IsAdmin
+            ? db.LeaveRequests.CountAsync(l => l.Status == LeaveStatus.Pendiente, ct)
+            : Task.FromResult(0);
+
+    /// <summary>El justificante de un permiso. Vacío si no tiene o si no hay derecho a verlo.</summary>
+    public async Task<(byte[] bytes, string nombre)> AdjuntoAsync(int requestId, CancellationToken ct = default)
+    {
+        var l = await db.LeaveRequests.AsNoTracking().FirstOrDefaultAsync(x => x.Id == requestId, ct);
+        if (l == null) return ([], "");
+        AuthorizationGuard.RequireOwnershipOrAdmin(currentUser, l.DeveloperId);
+        return l.AttachmentBytes is { Length: > 0 }
+            ? (l.AttachmentBytes, NombreSeguro(l.AttachmentFileName))
+            : ([], "");
+    }
+
+    // ── Alta ─────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// El desarrollador pide un permiso para sí mismo. Nace Pendiente: nadie se autoriza solo.
+    /// </summary>
+    public async Task<(bool ok, string mensaje, LeaveRequest? solicitud)> SolicitarAsync(
+        LeaveRequest borrador, CancellationToken ct = default)
+    {
+        AuthorizationGuard.RequireLoggedIn(currentUser);
+        AuthorizationGuard.RequireOwnershipOrAdmin(currentUser, borrador.DeveloperId);
+
+        var (valido, error) = Validar(borrador, exigirMotivo: true);
+        if (!valido) return (false, error, null);
+
+        borrador.Status = LeaveStatus.Pendiente;
+        borrador.RequestedByDeveloperId = borrador.DeveloperId;
+        borrador.ApprovedBy = null;
+        borrador.ReviewedById = null;
+        borrador.ReviewedAt = null;
+        borrador.ReviewComment = null;
+        borrador.CreatedAt = DateTime.UtcNow;
+
+        db.LeaveRequests.Add(borrador);
+        await db.SaveChangesAsync(ct);
+
+        await audit.RecordAsync(AuditAction.Create, "LeaveRequest", borrador.Id.ToString(),
+            $"Permiso solicitado: {Describir(borrador)}", ct);
+        return (true, "Solicitud enviada. Queda pendiente de que el líder la resuelva.", borrador);
+    }
+
+    /// <summary>
+    /// El administrador captura un permiso ya concedido (el trámite ocurrió fuera de la app). Nace
+    /// Aprobada porque el acto de registrarlo ES la aprobación: dejarlo Pendiente le crearía a él
+    /// mismo un trámite que ya resolvió.
+    /// </summary>
+    public async Task<(bool ok, string mensaje, LeaveRequest? solicitud)> RegistrarPorAdministradorAsync(
+        LeaveRequest borrador, CancellationToken ct = default)
+    {
+        AuthorizationGuard.RequireAdmin(currentUser);
+
+        var (valido, error) = Validar(borrador, exigirMotivo: false);
+        if (!valido) return (false, error, null);
+
+        borrador.Status = LeaveStatus.Aprobada;
+        borrador.RequestedByDeveloperId = null;
+        borrador.ReviewedById = currentUser.UserId;
+        borrador.ReviewedAt = DateTime.UtcNow;
+        borrador.CreatedAt = DateTime.UtcNow;
+        if (string.IsNullOrWhiteSpace(borrador.ApprovedBy)) borrador.ApprovedBy = currentUser.Username;
+
+        db.LeaveRequests.Add(borrador);
+        await db.SaveChangesAsync(ct);
+
+        await audit.RecordAsync(AuditAction.Create, "LeaveRequest", borrador.Id.ToString(),
+            $"Permiso registrado por el líder: {Describir(borrador)}", ct);
+        return (true, "Permiso registrado.", borrador);
+    }
+
+    // ── Edición y cancelación (del solicitante) ──────────────────────────────
+
+    public async Task<(bool ok, string mensaje)> EditarAsync(int requestId, LeaveRequest cambios,
+        CancellationToken ct = default)
+    {
+        var (l, error) = await ObtenerPropiaAsync(requestId, ct);
+        if (l == null) return (false, error!);
+
+        if (!PuedeEditar(l.Status))
+            return (false, $"No se puede modificar una solicitud «{Etiqueta(l.Status)}». " +
+                           "Si necesitas cambiarla, cancélala y crea otra.");
+
+        cambios.DeveloperId = l.DeveloperId;   // nunca cambia de dueño
+        var (valido, errorVal) = Validar(cambios, exigirMotivo: l.EsSolicitudDelDesarrollador);
+        if (!valido) return (false, errorVal);
+
+        l.Type = cambios.Type;
+        l.Date = cambios.Date.Date;
+        l.DaysCount = cambios.DaysCount;
+        l.Reason = Limpiar(cambios.Reason);
+        l.Notes = Limpiar(cambios.Notes);
+        l.AttachmentBytes = cambios.AttachmentBytes;
+        l.AttachmentFileName = Limpiar(cambios.AttachmentFileName);
+
+        await db.SaveChangesAsync(ct);
+        await audit.RecordAsync(AuditAction.Update, "LeaveRequest", l.Id.ToString(),
+            $"Permiso actualizado: {Describir(l)}", ct);
+        return (true, "Solicitud actualizada.");
+    }
+
+    /// <summary>
+    /// Corrige los campos capturados de una solicitud pendiente <b>sin tocar el justificante</b>.
+    /// </summary>
+    /// <remarks>
+    /// <para>Existe aparte de <see cref="EditarAsync"/> por un motivo concreto: aquel reemplaza la
+    /// solicitud ENTERA con lo que llegue, adjunto incluido. Sirve para «Mis permisos», donde el
+    /// formulario vuelve a subir el archivo si lo hay; usarlo desde una pantalla que no sube archivos
+    /// —la del líder— borraría el justificante de quien pidió el permiso al corregirle una palabra
+    /// del motivo. Por eso aquí los parámetros son los campos, uno a uno, y no una solicitud
+    /// completa: no hay forma de pasar un adjunto ni de olvidarse de él.</para>
+    ///
+    /// <para><b>Las columnas del adjunto ni se leen ni se escriben.</b> Se comprueba con una
+    /// proyección —de quién es y en qué estado está— y se escribe con una actualización directa de
+    /// las cinco columnas que cambian. Cargar la entidad habría traído los 15 MB del justificante a
+    /// la memoria del servidor para acabar cambiando una frase.</para>
+    ///
+    /// <para>El precio de escribir así es que se pierde el sello de concurrencia
+    /// (<c>RowVersion</c>), que solo actúa al guardar una entidad rastreada. A cambio, la condición
+    /// «sigue pendiente» viaja dentro del propio <c>UPDATE</c>: lo que protege ese sello aquí es que
+    /// nadie corrija por detrás una solicitud que el líder acaba de resolver, y eso lo cubre el
+    /// filtro. Dos correcciones simultáneas del mismo texto siguen ganándolas la última, que es lo
+    /// mismo que pasaba en el escritorio.</para>
+    /// </remarks>
+    public async Task<(bool ok, string mensaje)> CorregirPendienteAsync(
+        int requestId, LeaveType tipo, DateTime fecha, int dias, string? motivo, string? notas,
+        CancellationToken ct = default)
+    {
+        AuthorizationGuard.RequireLoggedIn(currentUser);
+
+        // Proyección y no la entidad: aquí solo hace falta saber de quién es, en qué estado está y si
+        // la pidió el desarrollador (que es lo que decide si el motivo es obligatorio).
+        var ficha = await db.LeaveRequests.AsNoTracking()
+            .Where(x => x.Id == requestId)
+            .Select(x => new { x.DeveloperId, x.Status, x.RequestedByDeveloperId })
+            .FirstOrDefaultAsync(ct);
+
+        if (ficha == null) return (false, "La solicitud ya no existe. Actualiza la lista.");
+
+        AuthorizationGuard.RequireOwnershipOrAdmin(currentUser, ficha.DeveloperId);
+
+        if (!PuedeEditar(ficha.Status))
+            return (false, $"No se puede modificar una solicitud «{Etiqueta(ficha.Status)}». " +
+                           "Si necesitas cambiarla, cancélala y crea otra.");
+
+        // Se valida con las MISMAS reglas del alta, sobre un borrador de usar y tirar. Repetirlas
+        // aquí dejaría dos listas de topes que se desincronizan a la primera.
+        var borrador = new LeaveRequest
+        {
+            DeveloperId = ficha.DeveloperId,
+            Type = tipo,
+            Date = fecha,
+            DaysCount = dias,
+            Reason = motivo,
+            Notes = notas
+        };
+
+        var (valido, error) = ValidarDatos(borrador, exigirMotivo: ficha.RequestedByDeveloperId != null);
+        if (!valido) return (false, error);
+
+        int filas = await db.LeaveRequests
+            .Where(x => x.Id == requestId && x.Status == LeaveStatus.Pendiente)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(x => x.Type, borrador.Type)
+                .SetProperty(x => x.Date, borrador.Date)
+                .SetProperty(x => x.DaysCount, borrador.DaysCount)
+                .SetProperty(x => x.Reason, borrador.Reason)
+                .SetProperty(x => x.Notes, borrador.Notes), ct);
+
+        if (filas == 0)
+            return (false, "Esa solicitud dejó de estar pendiente mientras la corregías; no se cambió nada. "
+                         + "Actualiza la lista.");
+
+        await audit.RecordAsync(AuditAction.Update, "LeaveRequest", requestId.ToString(),
+            $"Permiso corregido sin tocar el justificante: {Describir(borrador)}", ct);
+        return (true, "Solicitud corregida. El justificante sigue como estaba.");
+    }
+
+    public async Task<(bool ok, string mensaje)> CancelarAsync(int requestId, string? motivo = null,
+        CancellationToken ct = default)
+    {
+        var (l, error) = await ObtenerPropiaAsync(requestId, ct);
+        if (l == null) return (false, error!);
+
+        if (!PuedeCancelar(l.Status))
+            return (false, $"No se puede cancelar una solicitud «{Etiqueta(l.Status)}».");
+
+        l.Status = LeaveStatus.Cancelada;
+
+        // Se anota en ReviewComment y NO en ReviewedById/ReviewedAt: esos campos significan «quién
+        // la resolvió» y llenarlos aquí haría pasar una cancelación propia por una decisión del jefe.
+        var quien = currentUser.Username ?? "el solicitante";
+        var nota = $"Cancelada por {quien} el {DateTime.Now:dd/MM/yyyy HH:mm}"
+                 + (string.IsNullOrWhiteSpace(motivo) ? "." : $": {motivo.Trim()}");
+        l.ReviewComment = string.IsNullOrWhiteSpace(l.ReviewComment) ? nota : $"{nota}\n{l.ReviewComment}";
+
+        await db.SaveChangesAsync(ct);
+        await audit.RecordAsync(AuditAction.Update, "LeaveRequest", l.Id.ToString(),
+            $"Permiso cancelado: {Describir(l)}", ct);
+        return (true, "Solicitud cancelada.");
+    }
+
+    /// <summary>
+    /// Elimina la solicitud. Al desarrollador solo se le permite sobre lo que nunca fue una
+    /// decisión; el administrador puede depurar cualquier fila (es quien mantiene el registro).
+    /// </summary>
+    public async Task<(bool ok, string mensaje)> EliminarAsync(int requestId, CancellationToken ct = default)
+    {
+        var (l, error) = await ObtenerPropiaAsync(requestId, ct);
+        if (l == null) return (false, error!);
+
+        if (!currentUser.IsAdmin && !PuedeEliminarElDesarrollador(l.Status))
+            return (false,
+                $"No se puede eliminar una solicitud «{Etiqueta(l.Status)}»: es parte del historial. " +
+                "Si ya no la vas a tomar, cancélala.");
+
+        var descripcion = Describir(l);
+        db.LeaveRequests.Remove(l);
+        await db.SaveChangesAsync(ct);
+
+        await audit.RecordAsync(AuditAction.Delete, "LeaveRequest", requestId.ToString(),
+            $"Permiso eliminado: {descripcion}", ct);
+        return (true, "Solicitud eliminada.");
+    }
+
+    // ── Resolución (del administrador) ───────────────────────────────────────
+
+    public Task<(bool ok, string mensaje)> AprobarAsync(int requestId, string? comentario = null,
+        CancellationToken ct = default) =>
+        ResolverAsync(requestId, LeaveStatus.Aprobada, comentario, ct);
+
+    public Task<(bool ok, string mensaje)> RechazarAsync(int requestId, string? motivo, CancellationToken ct = default)
+    {
+        // Un rechazo sin motivo deja al solicitante sin nada que hacer con la respuesta.
+        if (string.IsNullOrWhiteSpace(motivo))
+            return Task.FromResult((false, "Escribe el motivo del rechazo: es lo único que el solicitante va a leer."));
+        return ResolverAsync(requestId, LeaveStatus.Rechazada, motivo, ct);
+    }
+
+    private async Task<(bool ok, string mensaje)> ResolverAsync(int requestId, LeaveStatus destino,
+        string? comentario, CancellationToken ct)
+    {
+        AuthorizationGuard.RequireAdmin(currentUser);
+
+        var l = await db.LeaveRequests.Include(x => x.Developer).FirstOrDefaultAsync(x => x.Id == requestId, ct);
+        if (l == null) return (false, "La solicitud ya no existe. Actualiza la lista.");
+
+        // La comprobación sigue haciendo falta aunque lo leído sea fresco: el solicitante pudo
+        // cancelarla mientras esta pantalla estaba abierta, y resolver algo ya resuelto sería
+        // pisar su decisión.
+        if (l.Status != LeaveStatus.Pendiente)
+            return (false, $"Esa solicitud ya está «{Etiqueta(l.Status)}»; no hay nada que resolver.");
+
+        l.Status = destino;
+        l.ReviewedById = currentUser.UserId;
+        l.ReviewedAt = DateTime.UtcNow;
+        l.ReviewComment = Limpiar(comentario);
+        if (destino == LeaveStatus.Aprobada && string.IsNullOrWhiteSpace(l.ApprovedBy))
+            l.ApprovedBy = currentUser.Username;
+
+        await db.SaveChangesAsync(ct);
+        await audit.RecordAsync(AuditAction.Update, "LeaveRequest", l.Id.ToString(),
+            $"Permiso {Etiqueta(destino).ToLowerInvariant()}: {Describir(l)}", ct);
+
+        return (true, destino == LeaveStatus.Aprobada ? "Permiso aprobado." : "Permiso rechazado.");
+    }
+
+    // ── Apoyo ────────────────────────────────────────────────────────────────
+
+    private async Task<(LeaveRequest? l, string? error)> ObtenerPropiaAsync(int requestId, CancellationToken ct)
+    {
+        AuthorizationGuard.RequireLoggedIn(currentUser);
+
+        var l = await db.LeaveRequests.FirstOrDefaultAsync(x => x.Id == requestId, ct);
+        if (l == null) return (null, "La solicitud ya no existe. Actualiza la lista.");
+
+        AuthorizationGuard.RequireOwnershipOrAdmin(currentUser, l.DeveloperId);
+        return (l, null);
+    }
+
+    /// <summary>
+    /// Las reglas de los campos capturados, sin mirar el adjunto.
+    ///
+    /// Está separado de <see cref="Validar"/> porque <see cref="CorregirPendienteAsync"/> no tiene
+    /// adjunto que validar —ni debe tocarlo— y aun así tiene que aplicar exactamente los mismos topes
+    /// que el alta. Copiarlos allí dejaría dos listas que se desincronizarían.
+    /// </summary>
+    private static (bool ok, string error) ValidarDatos(LeaveRequest l, bool exigirMotivo)
+    {
+        if (l.DeveloperId <= 0) return (false, "Falta indicar de quién es el permiso.");
+        if (l.DaysCount < 1) return (false, "El permiso tiene que ser de al menos un día.");
+        if (l.DaysCount > MaxDias) return (false, $"El permiso no puede pasar de {MaxDias} días.");
+        if (l.Date == default) return (false, "Indica la fecha de inicio.");
+
+        if (exigirMotivo && string.IsNullOrWhiteSpace(l.Reason))
+            return (false, "Escribe el motivo: es lo que el líder va a leer para decidir.");
+
+        l.Reason = Limpiar(l.Reason);
+        l.Notes = Limpiar(l.Notes);
+        l.Date = l.Date.Date;
+        return (true, "");
+    }
+
+    private (bool ok, string error) Validar(LeaveRequest l, bool exigirMotivo)
+    {
+        var (ok, error) = ValidarDatos(l, exigirMotivo);
+        if (!ok) return (false, error);
+
+        if (l.AttachmentBytes is { Length: > 0 })
+        {
+            if (l.AttachmentBytes.Length > MaxAdjuntoBytes)
+                return (false, $"El justificante supera {MaxAdjuntoBytes / (1024 * 1024)} MB.");
+            if (string.IsNullOrWhiteSpace(l.AttachmentFileName))
+                l.AttachmentFileName = "justificante";
+        }
+        else
+        {
+            // Sin bytes no debe quedar un nombre suelto: la pantalla mostraría un adjunto que no existe.
+            l.AttachmentBytes = null;
+            l.AttachmentFileName = null;
+        }
+
+        return (true, "");
+    }
+
+    private static string? Limpiar(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+
+    /// <summary>
+    /// El nombre lo eligió quien subió el archivo: se limpia antes de que viaje en la cabecera
+    /// <c>Content-Disposition</c> y acabe en el disco de quien lo descarga. La limpieza es la de
+    /// <see cref="ArchivosSubidos.NombreSeguro"/>, común a todo lo que se sube.
+    /// </summary>
+    public static string NombreSeguro(string? nombre)
+    {
+        var n = ArchivosSubidos.NombreSeguro(nombre);
+        return n.Length == 0 ? "justificante" : n;
+    }
+
+    private static string Describir(LeaveRequest l) =>
+        $"{EtiquetaTipo(l.Type)} {l.Date:dd/MM/yyyy} ({l.DaysCount} día(s))";
+
+    public static string Etiqueta(LeaveStatus s) => s switch
+    {
+        LeaveStatus.Pendiente => "⏳ Pendiente",
+        LeaveStatus.Aprobada  => "✅ Aprobada",
+        LeaveStatus.Rechazada => "❌ Rechazada",
+        _                     => "🚫 Cancelada"
+    };
+
+    // El color de cada estado lo pone la UI (ver LeaveStatusUi): un servicio no debe depender del
+    // tema visual, y con esto sigue siendo utilizable desde el futuro portal web.
+
+    public static string EtiquetaTipo(LeaveType t) => t switch
+    {
+        LeaveType.PermisoPersonal => "🙋 Permiso personal",
+        LeaveType.Incapacidad     => "🏥 Incapacidad",
+        LeaveType.CitaMedica      => "🩺 Cita médica",
+        LeaveType.AsuntoFamiliar  => "👨‍👩‍👧 Asunto familiar",
+        LeaveType.Capacitacion    => "📚 Capacitación",
+        _                         => "📋 Otro"
+    };
+}

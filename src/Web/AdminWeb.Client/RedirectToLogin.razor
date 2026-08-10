@@ -1,0 +1,17 @@
+@*
+    Manda a la pantalla de acceso conservando a dónde se quería ir, para volver ahí después de
+    entrar. Sin eso, un enlace compartido a una pantalla concreta acaba siempre en el inicio.
+*@
+@inject NavigationManager Navegacion
+
+@code {
+    protected override void OnInitialized()
+    {
+        var destino = Navegacion.ToBaseRelativePath(Navegacion.Uri);
+        var query = string.IsNullOrWhiteSpace(destino) || destino.StartsWith("acceso")
+            ? ""
+            : $"?volverA={Uri.EscapeDataString(destino)}";
+
+        Navegacion.NavigateTo($"acceso{query}", replace: true);
+    }
+}

@@ -1,0 +1,124 @@
+@implements IDisposable
+@using AdminWeb.Shared.Dtos.Busqueda
+@inject ClienteApi Api
+@inject NavigationManager Navegacion
+
+@*
+    La búsqueda global de la barra superior.
+
+    <b>El atajo NO es Ctrl+K.</b> Ese lo reserva el navegador y no se le puede quitar de forma
+    fiable; interceptarlo daría un atajo que funciona en un navegador y en otro no, que es peor que
+    no tenerlo. Aquí se abre con «/» —la convención de GitHub y de casi todo lo que se usa dentro de
+    un navegador— y con Ctrl+Shift+K para quien venga del escritorio con el dedo hecho. Escape lo
+    cierra.
+
+    La barra solo la ve el administrador, igual que en el escritorio: la búsqueda cruza
+    requerimientos, tickets y fichas de personas, y el endpoint es SoloAdmin.
+*@
+
+<div class="busqueda-global">
+    <input @ref="_caja" class="busqueda-caja" type="search" placeholder="Buscar…  /"
+           value="@_texto" @oninput="AlEscribir" @onkeydown="AlTeclear" @onfocus="() => _abierta = true" />
+
+    @if (_abierta && (_resultados.Count > 0 || _buscando || _sinNada))
+    {
+        <div class="busqueda-lista">
+            @if (_buscando)
+            {
+                <div class="busqueda-vacio">Buscando…</div>
+            }
+            else if (_sinNada)
+            {
+                <div class="busqueda-vacio">Nada que coincida con «@_texto».</div>
+            }
+            else
+            {
+                @foreach (var r in _resultados)
+                {
+                    <button type="button" class="busqueda-fila" @onclick="() => Ir(r)">
+                        <span class="busqueda-tipo">@r.Tipo</span>
+                        <span class="busqueda-texto">@r.Texto</span>
+                    </button>
+                }
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private ElementReference _caja;
+    private CancellationTokenSource? _enCurso;
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private string _texto = "";
+    private List<ResultadoDeBusquedaDto> _resultados = [];
+    private bool _abierta, _buscando, _sinNada;
+
+    // El atajo lo pone un escucha de teclado en adminweb.js y no un [JSInvokable] de aquí: enfocar
+    // una caja es una línea de JavaScript, y hacerla pasar por el puente de interoperabilidad
+    // obligaría a registrar y liberar una referencia del componente para no ganar nada.
+
+    private async Task AlEscribir(ChangeEventArgs e)
+    {
+        _texto = e.Value?.ToString() ?? "";
+        _sinNada = false;
+
+        // Se cancela la consulta anterior en cada tecla. Sin esto, escribir «requerimiento» lanzaría
+        // trece búsquedas y la que llegara ÚLTIMA pintaría la lista — que no tiene por qué ser la
+        // del texto actual.
+        _enCurso?.Cancel();
+        _enCurso?.Dispose();
+        _enCurso = null;
+
+        if (_texto.Trim().Length < 2)
+        {
+            _resultados = [];
+            return;
+        }
+
+        var mio = CancellationTokenSource.CreateLinkedTokenSource(_cancelacion.Token);
+        _enCurso = mio;
+
+        try
+        {
+            // Un respiro antes de preguntar: quien escribe rápido no debería provocar una consulta
+            // por letra contra la base.
+            await Task.Delay(250, mio.Token);
+
+            _buscando = true;
+            var hits = await Api.LeerAsync<List<ResultadoDeBusquedaDto>>(
+                $"api/busqueda?q={Uri.EscapeDataString(_texto.Trim())}", mio.Token);
+
+            if (mio.IsCancellationRequested) return;
+
+            _resultados = hits ?? [];
+            _sinNada = _resultados.Count == 0;
+            _abierta = true;
+        }
+        catch (OperationCanceledException) { /* llegó otra tecla; la siguiente manda */ }
+        finally
+        {
+            if (!mio.IsCancellationRequested) _buscando = false;
+        }
+    }
+
+    private void AlTeclear(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") { _abierta = false; _resultados = []; }
+    }
+
+    private void Ir(ResultadoDeBusquedaDto r)
+    {
+        _abierta = false;
+        _texto = "";
+        _resultados = [];
+        Navegacion.NavigateTo(r.Ruta);
+    }
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+        _enCurso?.Dispose();
+    }
+}

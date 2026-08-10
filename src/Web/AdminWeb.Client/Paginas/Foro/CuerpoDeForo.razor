@@ -1,0 +1,43 @@
+@using AdminWeb.Shared.Dtos.Foro
+
+@*
+    Pinta el cuerpo de una entrada del foro con sus enlaces pulsables.
+
+    ── POR QUÉ ESTO NO ES UN <div> CON EL TEXTO Y YA ──────────────────────────────────────────────
+
+    El cuerpo de una publicación lo escribe cualquiera con sesión y lo leen todos los demás: es el
+    vector clásico de XSS almacenado. En el escritorio el riesgo del mismo dato era otro —un enlace
+    acababa en Process.Start, así que validar el esquema evitaba convertir una publicación en un
+    lanzador de programas—; aquí acaba en el navegador de quien lee, con su sesión.
+
+    Tres reglas, y ninguna es opcional:
+
+      1. El texto se emite como TEXTO. Nada de MarkupString ni de innerHTML sobre contenido de
+         usuario: Blazor escapa lo que se emite con @@, y ahí está toda la protección.
+      2. Los enlaces NO se buscan aquí. Llegan ya troceados y validados desde el servidor
+         (ForumRichText: solo http/https; javascript: y data: se quedan como texto llano). El
+         cliente corre en la máquina de quien lee y se puede manipular, así que decidir aquí qué es
+         un enlace no valdría como defensa.
+      3. Cada ancla lleva rel="noopener noreferrer" y target="_blank": sin noopener, la página que se
+         abre puede redirigir la nuestra desde window.opener.
+
+    El tooltip enseña la dirección de verdad, igual que en el escritorio. Importa cuando el enlace
+    lleva etiqueta —[el ticket](https://…)—, porque ahí lo que se lee y lo que se abre no tienen por
+    qué coincidir, y quien lee merece poder comprobarlo antes de pulsar.
+
+    Y un detalle de formato: el marcado va TODO en una línea a propósito. El contenedor usa
+    white-space:pre-wrap para conservar los saltos de línea de quien escribió, y con eso cualquier
+    salto o sangría que dejáramos aquí se colaría como espacio de más dentro de su texto.
+*@
+
+<span style="white-space:pre-wrap;overflow-wrap:anywhere;@Estilo">@foreach (var s in Segmentos){if (s.Url is null){@s.Texto}else{<a href="@s.Url" target="_blank" rel="noopener noreferrer" title="@($"{s.Url} (se abre en otra pestaña)")">@s.Texto</a>}}</span>
+
+@code {
+    /// <summary>El cuerpo ya analizado por el servidor. Vacío en una entrada sin texto (solo imágenes).</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<ForoSegmentoDto> Segmentos { get; set; } = [];
+
+    /// <summary>Estilo extra del contenedor; lo usa el hilo para apagar el texto de lo retirado.</summary>
+    [Parameter]
+    public string? Estilo { get; set; }
+}

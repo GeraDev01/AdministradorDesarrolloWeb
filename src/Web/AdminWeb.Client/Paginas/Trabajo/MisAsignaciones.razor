@@ -1,0 +1,387 @@
+@page "/mis-asignaciones"
+@attribute [Authorize(Policy = "AdminUDesarrollador")]
+@using AdminWeb.Shared.Dtos.Jornada
+@using AdminWeb.Shared.Dtos.Trabajo
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+@inject ConexionEnVivo EnVivo
+
+@*
+    Mis asignaciones: los requerimientos que tengo, con el cronómetro de cada uno.
+
+    Decisiones del escritorio que se conservan:
+
+      · Arrancar el cronómetro sobre algo que todavía está antes de «En desarrollo» LO MUEVE a En
+        desarrollo, en la misma operación. Empezar a medir tiempo ES empezar a desarrollar, y pedir
+        además que alguien cambie el estado a mano garantizaba que el tablero mintiera. Lo hace el
+        servicio (StartOrResumeAsync), de forma atómica; aquí solo se avisa de que va a pasar.
+      · Un solo cronómetro a la vez por persona: arrancar uno pausa el que estuviera corriendo, sea
+        de otro requerimiento o de una actividad del pool. Si no, el mismo rato se contaría dos veces.
+      · Lo VENCIDO —compromiso pasado y sin entregar— va en rojo en toda la fila.
+
+    Lo que cambia respecto al escritorio:
+
+      · No hay fila seleccionada ni panel con los tres botones abajo: cada fila lleva los suyos. El
+        control del escritorio arrastraba una complicación entera para mantener sincronizada la
+        selección lógica con la visual mientras se repintaba la rejilla (un comentario suyo lo
+        explica); sin selección, ese problema no existe.
+      · El contador se cuenta desde la hora del SERVIDOR y no desde el reloj del navegador, igual que
+        en «Mi jornada»: un equipo desajustado enseñaría tiempo que nadie trabajó.
+      · Cerrar la pestaña ya no detiene nada. Mientras esta pantalla esté abierta, la conexión en
+        vivo late por el cronómetro; si el latido se corta, el servidor consolida el tiempo hasta el
+        último que recibió en vez de regalar las horas que la pestaña pasó cerrada.
+
+      · «Traer mis tickets DevOps» da de alta como requerimientos los work items abiertos que están a
+        tu nombre y te los asigna, para poder cronometrarlos. Trabaja sobre lo ya sincronizado, así
+        que es instantáneo; para traer novedades de DevOps está «Mis tickets».
+      · Al DETENER, el servidor registra el tiempo en el ticket de DevOps si el líder activó el
+        reporte. Lo dice el mensaje de la propia operación: si la integración falla, el cronómetro se
+        detiene igual y el tiempo queda guardado aquí.
+
+    Lo que NO está y no es un olvido: el desglose «Tiempo por día», que en la web ya se ve en «Mi
+    jornada», día por día y junto a lo marcado.
+*@
+
+<PageTitle>Mis asignaciones</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Mis asignaciones</RadzenText>
+        <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
+        <RadzenButton Text="🔄 Traer mis tickets DevOps" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@TraerDeDevOps" Disabled="@_ocupado"
+                      title="Da de alta como requerimientos los work items abiertos que están a tu nombre en Azure DevOps." />
+
+        @if (!EnVivo.Conectado)
+        {
+            <RadzenBadge BadgeStyle="BadgeStyle.Warning"
+                         Text="@(EnVivo.Reconectando ? "Reconectando…" : "Sin conexión en vivo")"
+                         title="Mientras no haya conexión, el cronómetro no manda señales. El tiempo se consolidará hasta la última que llegó." />
+        }
+    </RadzenStack>
+
+    @if (_datos is { } d)
+    {
+        @if (!d.TieneFicha)
+        {
+            <RadzenCard>
+                <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0">
+                    Tu cuenta no está ligada a una ficha de desarrollador, así que no tiene
+                    asignaciones ni puede cronometrar trabajo: el tiempo se registra contra una ficha.
+                    Pídeselo al líder.
+                </RadzenText>
+            </RadzenCard>
+        }
+        else
+        {
+            @if (d.Cronometro is { } c)
+            {
+                <RadzenCard Style="border-left:5px solid var(--rz-info)">
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                 Gap="1rem" Wrap="FlexWrap.Wrap">
+                        <RadzenStack Gap="0.15rem">
+                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">Cronómetro en marcha</RadzenText>
+                            <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">@c.Titulo</RadzenText>
+                        </RadzenStack>
+                        <RadzenText TextStyle="TextStyle.H4" class="rz-mb-0"
+                                    Style="font-variant-numeric:tabular-nums">@_reloj</RadzenText>
+                        <RadzenButton Text="Pausar" Icon="pause" ButtonStyle="ButtonStyle.Light"
+                                      Disabled="@_ocupado" Click="@(() => Parar("pausar", c.RequerimientoId, c.ActividadId))" />
+                        <RadzenButton Text="Detener" Icon="stop" ButtonStyle="ButtonStyle.Secondary"
+                                      Disabled="@_ocupado" Click="@(() => Parar("detener", c.RequerimientoId, c.ActividadId))" />
+                        @if (c.RequerimientoId is null)
+                        {
+                            @* El cronómetro puede venir de una actividad del pool: decirlo evita que
+                               alguien lo busque en esta tabla y no lo encuentre. *@
+                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                Es una actividad del pool, no un requerimiento de esta lista.
+                            </RadzenText>
+                        }
+                    </RadzenStack>
+                </RadzenCard>
+            }
+
+            <RadzenCard>
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                             Gap="1rem" Wrap="FlexWrap.Wrap">
+                    <RadzenLabel Text="Estado:" Component="estado" />
+                    <RadzenDropDown TValue="RequirementStatus?" @bind-Value="_estado" Name="estado"
+                                    Data="@Estados" TextProperty="Texto" ValueProperty="Valor"
+                                    AllowClear="true" Placeholder="Todos" Disabled="@_ocupado"
+                                    Change="@(_ => Cargar())" Style="min-width:11rem" />
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                        Arranca el cronómetro del requerimiento en el que estés trabajando.
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0" Style="margin-left:auto">
+                        @Resumen()
+                    </RadzenText>
+                </RadzenStack>
+            </RadzenCard>
+
+            <RadzenDataGrid TItem="MiAsignacionDto" Data="@d.Filas" IsLoading="@_ocupado"
+                            AllowSorting="true" AllowPaging="true" PageSize="20"
+                            RowRender="@PintarVencidos"
+                            EmptyText="No tienes requerimientos asignados que cumplan el filtro.">
+                <Columns>
+                    <RadzenDataGridColumn TItem="MiAsignacionDto" Property="Id" Title="ID" Width="70px" />
+                    <RadzenDataGridColumn TItem="MiAsignacionDto" Property="Titulo" Title="Título" />
+                    <RadzenDataGridColumn TItem="MiAsignacionDto" Property="EstadoTexto" Title="Estado" Width="130px">
+                        <Template Context="r">
+                            <b style="@($"color:{EtiquetasDeTrabajo.ColorDeEstado(r.Estado)}")">@r.EstadoTexto</b>
+                        </Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="MiAsignacionDto" Property="PrioridadTexto"
+                                          Title="Prioridad" Width="110px" />
+                    <RadzenDataGridColumn TItem="MiAsignacionDto" Property="HorasEstimadas"
+                                          Title="Hrs Estimadas" Width="130px" TextAlign="TextAlign.Right">
+                        <Template Context="r">@(r.HorasEstimadas?.ToString("0.#") ?? "—")</Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="MiAsignacionDto" Property="FechaCompromiso"
+                                          Title="F. Compromiso" Width="130px">
+                        <Template Context="r">@(r.FechaCompromiso?.ToString("dd/MM/yyyy") ?? "—")</Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="MiAsignacionDto" Property="AvancePct" Title="Avance"
+                                          Width="90px" TextAlign="TextAlign.Right">
+                        <Template Context="r">@(r.AvancePct)%</Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="MiAsignacionDto" Property="SegundosDedicados"
+                                          Title="⏱ Tiempo dedicado" Width="160px">
+                        @* El de la fila que está corriendo se pinta con el contador vivo, para que no
+                           discrepe del reloj grande de arriba. *@
+                        <Template Context="r">
+                            @if (r.Cronometro == EstadoDelCronometro.Activo)
+                            {
+                                <b>@_reloj</b>
+                            }
+                            else
+                            {
+                                @r.TiempoTexto
+                            }
+                        </Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="MiAsignacionDto" Title="" Width="210px" Sortable="false">
+                        <Template Context="r">
+                            @if (r.Cronometro == EstadoDelCronometro.Activo)
+                            {
+                                <RadzenButton Text="⏸ Pausar" ButtonStyle="ButtonStyle.Light"
+                                              Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                              Click="@(() => Parar("pausar", r.Id, null))" />
+                                <RadzenButton Text="⏹ Detener" ButtonStyle="ButtonStyle.Light"
+                                              Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                              Click="@(() => Parar("detener", r.Id, null))" />
+                            }
+                            else
+                            {
+                                <RadzenButton Text="@(r.Cronometro == EstadoDelCronometro.Pausado ? "▶ Reanudar" : "▶ Iniciar")"
+                                              Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                              Click="@(() => Iniciar(r))" />
+                                @if (r.Cronometro == EstadoDelCronometro.Pausado)
+                                {
+                                    <RadzenButton Text="⏹ Detener" ButtonStyle="ButtonStyle.Light"
+                                                  Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                  Click="@(() => Parar("detener", r.Id, null))" />
+                                }
+                            }
+                        </Template>
+                    </RadzenDataGridColumn>
+                </Columns>
+            </RadzenDataGrid>
+        }
+    }
+</RadzenStack>
+
+@code {
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private MisAsignacionesDto? _datos;
+    private bool _ocupado;
+    private RequirementStatus? _estado;
+
+    /// <summary>El contador que corre en pantalla, ya formateado.</summary>
+    private string _reloj = "0:00:00";
+
+    /// <summary>
+    /// Cuánto se desvía el reloj de este equipo del servidor. Todo lo que se pinta se corrige con
+    /// esto, así que un navegador con la hora mal puesta enseña igualmente el tiempo correcto.
+    /// </summary>
+    private TimeSpan _desfase = TimeSpan.Zero;
+
+    private Timer? _tic;
+    private bool _estabaConectado;
+
+    private static readonly IReadOnlyList<OpcionDeEstado> Estados =
+        Enum.GetValues<RequirementStatus>()
+            .Select(e => new OpcionDeEstado(e, EtiquetasDeTrabajo.Estado(e)))
+            .ToList();
+
+    /// <summary>Opción del filtro. El valor va nulable porque el desplegable ofrece «todos».</summary>
+    private record OpcionDeEstado(RequirementStatus? Valor, string Texto);
+
+    protected override async Task OnInitializedAsync()
+    {
+        EnVivo.EstadoCambio += AlCambiarLaConexion;
+        await Cargar();
+
+        // Un tic por segundo solo para repintar el contador. No consulta nada: los datos que necesita
+        // ya están, y pedirlos cada segundo sería una petición por segundo y por persona.
+        _tic = new Timer(_ => InvokeAsync(ActualizarReloj), null, TimeSpan.Zero, TimeSpan.FromSeconds(1));
+    }
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            var ruta = "api/trabajo/mis-asignaciones" + (_estado is { } e ? $"?estado={e}" : "");
+            _datos = await Api.LeerAsync<MisAsignacionesDto>(ruta, _cancelacion.Token);
+
+            if (_datos?.Cronometro is { } c)
+            {
+                _desfase = c.AhoraUtc - DateTime.UtcNow;
+                EnVivo.SeguirCronometro(c.RequerimientoId, c.ActividadId);
+            }
+            else
+            {
+                EnVivo.OlvidarCronometro();
+            }
+
+            ActualizarReloj();
+        }
+        finally { _ocupado = false; }
+    }
+
+    private void ActualizarReloj()
+    {
+        if (_datos?.Cronometro is not { } c) return;
+
+        var ahora = DateTime.UtcNow + _desfase;
+        var segundos = c.SegundosAcumulados + (int)(ahora - c.InicioTramoUtc).TotalSeconds;
+        _reloj = Reloj(Math.Max(0, segundos));
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Al recuperar la conexión hay que RECARGAR, no solo repintar.
+    ///
+    /// Si el corte duró más que la tolerancia sin latido, el servidor ya consolidó el cronómetro
+    /// hasta el último latido y la sesión quedó pausada. Sin recargar, la pantalla seguiría contando
+    /// segundos contra algo que ya no está corriendo, y la persona creería estar registrando tiempo
+    /// que no se está registrando.
+    /// </summary>
+    private void AlCambiarLaConexion()
+    {
+        bool volvio = EnVivo.Conectado && !_estabaConectado;
+        _estabaConectado = EnVivo.Conectado;
+
+        InvokeAsync(volvio ? Cargar : () => { StateHasChanged(); return Task.CompletedTask; });
+    }
+
+    // ── Tickets de DevOps ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Baja a esta lista los work items abiertos que están a nombre de quien mira.
+    ///
+    /// No se hace solo al abrir la pantalla, a diferencia del escritorio: allí era un método local
+    /// contra la base de al lado y aquí es una escritura del servidor que da de alta requerimientos y
+    /// puede crear compromisos de SLA. Que la provoque un botón deja claro quién la pidió.
+    /// </summary>
+    private async Task TraerDeDevOps()
+    {
+        _ocupado = true;
+        try
+        {
+            // El mensaje del servicio se enseña TAL CUAL: distingue «no tienes ficha» de «no hay
+            // nada sincronizado a tu nombre» y de «se trajeron N», que llevan a acciones distintas.
+            var (ok, resultado) = await Api.EnviarAsync<object?, ResultadoDto>(
+                "api/devops/mis-tickets/materializar", null, _cancelacion.Token);
+
+            if (!ok || resultado is null) return;
+            Avisos.Exito(resultado.Mensaje);
+        }
+        finally { _ocupado = false; }
+
+        await Cargar();
+    }
+
+    // ── Cronómetro ───────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Arranca o reanuda el cronómetro del requerimiento.
+    ///
+    /// Se avisa ANTES de lo que va a pasar cuando el requerimiento todavía está antes de «En
+    /// desarrollo»: el servicio lo moverá ahí en la misma operación. Es una decisión del escritorio y
+    /// no una consecuencia que convenga descubrir después, mirando el tablero.
+    /// </summary>
+    private async Task Iniciar(MiAsignacionDto r)
+    {
+        if (r.Estado is RequirementStatus.PorEstimar or RequirementStatus.Estimado
+            && !await Avisos.ConfirmarAsync(
+                $"«{r.Titulo}» está en «{r.EstadoTexto}». Al arrancar el cronómetro pasa a «En " +
+                "desarrollo», porque empezar a medir tiempo es empezar a desarrollarlo. ¿Sigo?",
+                "Iniciar cronómetro", "Sí, iniciar"))
+            return;
+
+        _ocupado = true;
+        try
+        {
+            // Este endpoint devuelve el cronómetro recién arrancado, no un resultado: es lo que
+            // permite empezar a contar sin esperar a la recarga.
+            var (ok, _) = await Api.EnviarAsync<CronometroRequest, CronometroDto>(
+                "api/jornada/cronometro/iniciar", new CronometroRequest(r.Id, null), _cancelacion.Token);
+            if (!ok) return;
+        }
+        finally { _ocupado = false; }
+
+        await Cargar();
+    }
+
+    private async Task Parar(string accion, int? requerimientoId, int? actividadId)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, r) = await Api.EnviarAsync<CronometroRequest, ResultadoDto>(
+                $"api/jornada/cronometro/{accion}",
+                new CronometroRequest(requerimientoId, actividadId), _cancelacion.Token);
+
+            if (!ok) return;
+
+            EnVivo.OlvidarCronometro();
+
+            // Al detener, el mensaje trae además cómo fue el reporte del tiempo a DevOps. Se enseña
+            // entero y como éxito porque lo que la persona pidió —parar y consolidar— sí se hizo.
+            if (r is not null) Avisos.Exito(r.Mensaje);
+        }
+        finally { _ocupado = false; }
+
+        await Cargar();
+    }
+
+    // ── Textos y pintado ─────────────────────────────────────────────────────
+
+    private static string Reloj(int segundos) =>
+        $"{segundos / 3600}:{segundos / 60 % 60:00}:{segundos % 60:00}";
+
+    private string Resumen()
+    {
+        var filas = _datos?.Filas ?? [];
+        int vencidos = filas.Count(r => r.Vencido);
+        return $"{filas.Count} requerimiento(s)." +
+               (vencidos > 0 ? $"  ⚠ {vencidos} con el compromiso vencido." : "");
+    }
+
+    private void PintarVencidos(RowRenderEventArgs<MiAsignacionDto> args)
+    {
+        if (args.Data.Vencido) args.Attributes["style"] = "color:#DC2626";
+    }
+
+    public void Dispose()
+    {
+        EnVivo.EstadoCambio -= AlCambiarLaConexion;
+        _tic?.Dispose();
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

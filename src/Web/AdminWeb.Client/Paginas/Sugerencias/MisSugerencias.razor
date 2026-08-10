@@ -1,0 +1,397 @@
+@page "/mis-sugerencias"
+@attribute [Authorize]
+@using AdminWeb.Shared.Dtos.Sugerencias
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+
+@*
+    Sugerencias, en las dos pestañas del escritorio y con el mismo reparto:
+
+     · 💡 Mis sugerencias    — enviar una y dar seguimiento a las propias, con la respuesta del líder.
+     · 👍 Propuestas del equipo — las públicas de todos, ordenadas por más apoyadas, para votarlas.
+
+    ── LO QUE NO PUEDE FALLAR: EL ANONIMATO ───────────────────────────────────────────────────────
+
+    Una sugerencia anónima llega al navegador SIN autor. No es que esta pantalla lo esconda: es que
+    el servidor no lo manda (véase SugerenciasEndpoints). La diferencia importa porque cualquiera
+    puede mirar la respuesta de la API desde las herramientas de su propio navegador; si el nombre
+    viajara, esconderlo aquí no serviría de nada. Lo que se pinta en la columna «De» es «Anónima»
+    porque no hay otra cosa que pintar.
+
+    ── LOS TEXTOS SE PINTAN COMO TEXTO ────────────────────────────────────────────────────────────
+
+    El título y el cuerpo los escribe una persona y los leen todas las demás. Se emiten con @@, que
+    Blazor escapa: nada de MarkupString aquí, o sería un XSS almacenado para el equipo entero — la
+    misma razón por la que el cuerpo del foro viaja troceado.
+
+    Lo que decide de verdad quién puede qué está en el servidor: eliminar solo mientras la sugerencia
+    siga «Nueva», y votar solo lo que su autor abrió a votación. Aquí los botones se apagan por
+    comodidad, con lo que dice el DTO.
+*@
+
+<PageTitle>Sugerencias</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Sugerencias</RadzenText>
+
+    <RadzenTabs>
+        <Tabs>
+            <RadzenTabsItem Text="💡  Mis sugerencias">
+                <RadzenStack Gap="0.75rem">
+
+                    @* ── Enviar ──────────────────────────────────────────────────────────── *@
+                    <RadzenCard>
+                        <RadzenStack Gap="0.6rem">
+                            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                         Wrap="FlexWrap.Wrap" Gap="0.75rem">
+                                <RadzenButton Text="@(_enviandoFormulario ? "✖  Cancelar" : "➕  Nueva sugerencia")"
+                                              ButtonStyle="@(_enviandoFormulario ? ButtonStyle.Light : ButtonStyle.Primary)"
+                                              Size="ButtonSize.Small" Disabled="@_ocupado"
+                                              Click="@AlternarFormulario" />
+                                <RadzenButton Text="🔄 Recargar" ButtonStyle="ButtonStyle.Light"
+                                              Size="ButtonSize.Small" Disabled="@_ocupado"
+                                              Click="@CargarAsync" />
+                            </RadzenStack>
+
+                            @if (_enviandoFormulario)
+                            {
+                                <RadzenTextBox @bind-Value="_titulo" MaxLength="150" Style="width:100%"
+                                               Placeholder="Título" aria-label="Título de la sugerencia" />
+
+                                <RadzenTextArea @bind-Value="_cuerpo" Rows="5" MaxLength="4000" Style="width:100%"
+                                                aria-label="Descripción de la sugerencia"
+                                                Placeholder="Cuéntalo con detalle: qué mejorarías y por qué." />
+
+                                <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap"
+                                             AlignItems="AlignItems.Center" Gap="0.75rem">
+                                    <RadzenDropDown TValue="int" Data="@_categorias" TextProperty="Texto" ValueProperty="Id"
+                                                    @bind-Value="_categoria" aria-label="Categoría" Style="width:200px" />
+
+                                    <RadzenDropDown TValue="int" Data="@_visibilidades" TextProperty="Texto" ValueProperty="Id"
+                                                    @bind-Value="_visibilidad" aria-label="Quién la ve" Style="width:250px"
+                                                    Change="@(_ => AlCambiarVisibilidad())" />
+
+                                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.4rem">
+                                        <RadzenCheckBox @bind-Value="_anonima" Name="anonima" />
+                                        <RadzenLabel Text="Enviarla sin mi nombre" Component="anonima" />
+                                    </RadzenStack>
+
+                                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.4rem">
+                                        @* Lo que solo ve el líder no se puede votar, así que la casilla
+                                           se apaga sola: dejarla encendida daría a entender que hay una
+                                           votación que el equipo ni siquiera puede mirar. *@
+                                        <RadzenCheckBox @bind-Value="_abiertaAVotacion" Name="votacion"
+                                                        Disabled="@(!EsPublica)" />
+                                        <RadzenLabel Text="Que el equipo pueda apoyarla" Component="votacion" />
+                                    </RadzenStack>
+                                </RadzenStack>
+
+                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                    Anónima significa que <b>ni el líder</b> ve quién la mandó. Se te sigue avisando
+                                    cuando la contesten: el aviso es privado, para ti.
+                                </RadzenText>
+
+                                <div>
+                                    <RadzenButton Text="Enviar" ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small"
+                                                  Disabled="@_ocupado" Click="@EnviarAsync" />
+                                </div>
+                            }
+                        </RadzenStack>
+                    </RadzenCard>
+
+                    @* ── Las mías ────────────────────────────────────────────────────────── *@
+                    <RadzenDataGrid TItem="MiSugerenciaDto" Data="@_mias" IsLoading="@_ocupado"
+                                    AllowPaging="true" PageSize="15" AllowColumnResize="true"
+                                    EmptyText="Todavía no has enviado sugerencias.">
+                        <Columns>
+                            <RadzenDataGridColumn TItem="MiSugerenciaDto" Title="Fecha" Width="110px" Sortable="false">
+                                <Template Context="s">@s.CreadaUtc.ToLocalTime().ToString("dd/MM/yyyy")</Template>
+                            </RadzenDataGridColumn>
+
+                            <RadzenDataGridColumn TItem="MiSugerenciaDto" Property="CategoriaEtiqueta"
+                                                  Title="Categoría" Width="130px" Sortable="false" />
+
+                            <RadzenDataGridColumn TItem="MiSugerenciaDto" Title="Título" Sortable="false">
+                                <Template Context="s">
+                                    <RadzenStack Gap="0.15rem">
+                                        <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">@s.Titulo</RadzenText>
+                                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                                                    Style="white-space:pre-wrap;overflow-wrap:anywhere">@s.Cuerpo</RadzenText>
+                                    </RadzenStack>
+                                </Template>
+                            </RadzenDataGridColumn>
+
+                            <RadzenDataGridColumn TItem="MiSugerenciaDto" Title="Quién la ve" Width="180px" Sortable="false">
+                                <Template Context="s">
+                                    @s.Alcance
+                                    @if (s.Anonima)
+                                    {
+                                        <text> · 🕶 anónima</text>
+                                    }
+                                </Template>
+                            </RadzenDataGridColumn>
+
+                            <RadzenDataGridColumn TItem="MiSugerenciaDto" Title="👍" Width="70px" Sortable="false">
+                                @* Un guion y no un 0: «nadie la ha apoyado» y «nadie puede apoyarla» no
+                                   pueden leerse igual. Es la decisión del escritorio. *@
+                                <Template Context="s">@(s.SePuedeVotar ? s.Votos.ToString() : "—")</Template>
+                            </RadzenDataGridColumn>
+
+                            <RadzenDataGridColumn TItem="MiSugerenciaDto" Title="Estado" Width="130px" Sortable="false">
+                                <Template Context="s">
+                                    <RadzenBadge BadgeStyle="@EstiloDeEstado(s.Estado)" Text="@s.EstadoEtiqueta" />
+                                </Template>
+                            </RadzenDataGridColumn>
+
+                            <RadzenDataGridColumn TItem="MiSugerenciaDto" Title="Respuesta" Width="220px" Sortable="false">
+                                <Template Context="s">
+                                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                                                Style="white-space:pre-wrap;overflow-wrap:anywhere">
+                                        @(string.IsNullOrWhiteSpace(s.RespuestaDelLider)
+                                            ? "(sin respuesta todavía)"
+                                            : s.RespuestaDelLider)
+                                    </RadzenText>
+                                </Template>
+                            </RadzenDataGridColumn>
+
+                            <RadzenDataGridColumn TItem="MiSugerenciaDto" Title="" Width="110px" Sortable="false">
+                                <Template Context="s">
+                                    @if (s.SePuedeEliminar)
+                                    {
+                                        <RadzenButton Text="🗑 Eliminar" ButtonStyle="ButtonStyle.Light"
+                                                      Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                      Click="@(() => EliminarAsync(s))" />
+                                    }
+                                    else
+                                    {
+                                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                                                    title="El líder ya empezó a atenderla: borrarla dejaría su respuesta colgando de algo que ya no existe.">
+                                            —
+                                        </RadzenText>
+                                    }
+                                </Template>
+                            </RadzenDataGridColumn>
+                        </Columns>
+                    </RadzenDataGrid>
+                </RadzenStack>
+            </RadzenTabsItem>
+
+            <RadzenTabsItem Text="👍  Propuestas del equipo">
+                <RadzenStack Gap="0.75rem">
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                        Las propuestas públicas del equipo, de la más apoyada a la menos. Las que su autor dejó
+                        fuera de votación se leen, pero no se apoyan.
+                    </RadzenText>
+
+                    <RadzenDataGrid TItem="PropuestaDelEquipoDto" Data="@_equipo" IsLoading="@_ocupado"
+                                    AllowPaging="true" PageSize="15" AllowColumnResize="true"
+                                    EmptyText="No hay propuestas todavía.">
+                        <Columns>
+                            <RadzenDataGridColumn TItem="PropuestaDelEquipoDto" Title="👍" Width="80px" Sortable="false">
+                                <Template Context="p">@(p.SePuedeVotar ? p.Votos.ToString() : "—")</Template>
+                            </RadzenDataGridColumn>
+
+                            <RadzenDataGridColumn TItem="PropuestaDelEquipoDto" Property="CategoriaEtiqueta"
+                                                  Title="Categoría" Width="130px" Sortable="false" />
+
+                            <RadzenDataGridColumn TItem="PropuestaDelEquipoDto" Title="Título" Sortable="false">
+                                <Template Context="p">
+                                    <RadzenStack Gap="0.15rem">
+                                        <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">@p.Titulo</RadzenText>
+                                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                                                    Style="white-space:pre-wrap;overflow-wrap:anywhere">@p.Cuerpo</RadzenText>
+                                        @if (!string.IsNullOrWhiteSpace(p.RespuestaDelLider))
+                                        {
+                                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                                                        Style="white-space:pre-wrap;overflow-wrap:anywhere">
+                                                🗣 @p.RespuestaDelLider
+                                            </RadzenText>
+                                        }
+                                    </RadzenStack>
+                                </Template>
+                            </RadzenDataGridColumn>
+
+                            <RadzenDataGridColumn TItem="PropuestaDelEquipoDto" Title="Estado" Width="130px" Sortable="false">
+                                <Template Context="p">
+                                    <RadzenBadge BadgeStyle="@EstiloDeEstado(p.Estado)" Text="@p.EstadoEtiqueta" />
+                                </Template>
+                            </RadzenDataGridColumn>
+
+                            <RadzenDataGridColumn TItem="PropuestaDelEquipoDto" Title="De" Width="170px" Sortable="false">
+                                @* «Anónima» no es que se oculte aquí: es que el autor no viene en la
+                                   respuesta. El servidor no lo manda cuando la sugerencia es anónima. *@
+                                <Template Context="p">@(p.Anonima ? "🕶 Anónima" : p.Autor ?? "—")</Template>
+                            </RadzenDataGridColumn>
+
+                            <RadzenDataGridColumn TItem="PropuestaDelEquipoDto" Title="" Width="140px" Sortable="false">
+                                <Template Context="p">
+                                    @if (p.SePuedeVotar)
+                                    {
+                                        <RadzenButton Text="@(p.YoVote ? "✓ Quitar apoyo" : "👍 Apoyar")"
+                                                      ButtonStyle="@(p.YoVote ? ButtonStyle.Success : ButtonStyle.Light)"
+                                                      Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                      Click="@(() => VotarAsync(p))" />
+                                    }
+                                </Template>
+                            </RadzenDataGridColumn>
+                        </Columns>
+                    </RadzenDataGrid>
+                </RadzenStack>
+            </RadzenTabsItem>
+        </Tabs>
+    </RadzenTabs>
+</RadzenStack>
+
+@code {
+    private IReadOnlyList<MiSugerenciaDto> _mias = [];
+    private IReadOnlyList<PropuestaDelEquipoDto> _equipo = [];
+    private IReadOnlyList<OpcionDto> _categorias = [];
+    private IReadOnlyList<OpcionDto> _visibilidades = [];
+
+    private bool _ocupado, _enviandoFormulario;
+
+    // El formulario de envío.
+    private string _titulo = "", _cuerpo = "";
+    private int _categoria = (int)SuggestionCategory.Producto;
+    private int _visibilidad = (int)SuggestionVisibility.Publica;
+    private bool _anonima;
+    private bool _abiertaAVotacion = true;
+
+    private bool EsPublica => _visibilidad == (int)SuggestionVisibility.Publica;
+
+    protected override Task OnInitializedAsync() => CargarAsync();
+
+    private async Task CargarAsync()
+    {
+        _ocupado = true;
+        try
+        {
+            var datos = await Api.LeerAsync<SugerenciasDto>("api/sugerencias/mias");
+
+            // null = el error ya se mostró; se deja lo que hubiera en pantalla en vez de vaciarla.
+            if (datos == null) return;
+
+            _mias = datos.Mias;
+            _equipo = datos.DelEquipo;
+            _categorias = datos.Categorias;
+            _visibilidades = datos.Visibilidades;
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    // ── Enviar ───────────────────────────────────────────────────────────────
+
+    private void AlternarFormulario()
+    {
+        _enviandoFormulario = !_enviandoFormulario;
+        if (!_enviandoFormulario) LimpiarFormulario();
+    }
+
+    /// <summary>
+    /// Al pasar a «solo el líder» se apaga la votación. El servidor hace lo mismo por su cuenta —es
+    /// suya la decisión—, pero si la casilla se quedara encendida en pantalla, quien envía creería
+    /// que su propuesta se está votando cuando nadie más puede ni verla.
+    /// </summary>
+    private void AlCambiarVisibilidad()
+    {
+        if (!EsPublica) _abiertaAVotacion = false;
+    }
+
+    private async Task EnviarAsync()
+    {
+        _ocupado = true;
+        try
+        {
+            // Las validaciones —título corto, descripción vacía— las hace el servicio y su mensaje se
+            // enseña TAL CUAL: repetirlas aquí crearía un segundo sitio donde desincronizarse.
+            var (ok, resultado) = await Api.EnviarAsync<NuevaSugerenciaRequest, ResultadoDto>(
+                "api/sugerencias/nueva",
+                new NuevaSugerenciaRequest(
+                    (SuggestionCategory)_categoria, _titulo, _cuerpo, _anonima,
+                    (SuggestionVisibility)_visibilidad, _abiertaAVotacion));
+
+            if (!ok) return;
+
+            if (resultado != null) Avisos.Exito(resultado.Mensaje);
+            LimpiarFormulario();
+            _enviandoFormulario = false;
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+
+        await CargarAsync();
+    }
+
+    private void LimpiarFormulario()
+    {
+        _titulo = "";
+        _cuerpo = "";
+        _categoria = (int)SuggestionCategory.Producto;
+        _visibilidad = (int)SuggestionVisibility.Publica;
+        _anonima = false;
+        _abiertaAVotacion = true;
+    }
+
+    // ── Seguimiento y apoyo ──────────────────────────────────────────────────
+
+    private async Task EliminarAsync(MiSugerenciaDto sugerencia)
+    {
+        if (!await Avisos.ConfirmarAsync(
+            $"¿Eliminar tu sugerencia «{sugerencia.Titulo}»?", "Eliminar", "Sí, eliminar"))
+            return;
+
+        _ocupado = true;
+        try
+        {
+            var (ok, resultado) = await Api.EnviarAsync<object?, ResultadoDto>(
+                $"api/sugerencias/{sugerencia.Id}/eliminar", null);
+            if (!ok) return;
+
+            if (resultado != null) Avisos.Exito(resultado.Mensaje);
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+
+        await CargarAsync();
+    }
+
+    /// <summary>
+    /// Vota o retira el voto y recarga.
+    ///
+    /// Se recarga en lugar de retocar la fila porque el tablero está ORDENADO POR VOTOS: al cambiar
+    /// el número, la propuesta cambia de sitio, y una lista que solo actualiza el contador dejaría
+    /// un orden que ya no es el que dice la cabecera.
+    /// </summary>
+    private async Task VotarAsync(PropuestaDelEquipoDto propuesta)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, _) = await Api.EnviarAsync<object?, VotoDto>(
+                $"api/sugerencias/{propuesta.Id}/voto", null);
+            if (!ok) return;
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+
+        await CargarAsync();
+    }
+
+    /// <summary>El mismo código de colores del escritorio, para que el estado se lea de un vistazo.</summary>
+    private static BadgeStyle EstiloDeEstado(SuggestionStatus estado) => estado switch
+    {
+        SuggestionStatus.Aceptada or SuggestionStatus.Implementada => BadgeStyle.Success,
+        SuggestionStatus.Rechazada => BadgeStyle.Danger,
+        SuggestionStatus.EnRevision => BadgeStyle.Warning,
+        _ => BadgeStyle.Light
+    };
+}

@@ -1,0 +1,158 @@
+@page "/cumplimiento-sla"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Shared.Dtos.Sla
+@implements IDisposable
+@inject ClienteApi Api
+
+@*
+    Cumplimiento de SLA (clave del escritorio: «sla-compliance»), en solo lectura.
+
+    De los compromisos con fecha límite dentro del período: cuántos se cumplieron a tiempo y cuántos
+    se vencieron, global y desglosado. Dos reglas que se conservan del escritorio y que explican los
+    números que se ven:
+
+      · El «% de cumplimiento» se mide SOLO sobre lo ya resuelto (cumplidos + vencidos). Sin nada
+        resuelto se muestra «—» y no un 0%, que se leería como «cumplió el 0%».
+      · Un compromiso activo cuya fecha ya pasó cuenta como vencido aunque nadie lo haya cerrado: se
+        mide el plazo, no la etiqueta.
+*@
+
+<PageTitle>Cumplimiento SLA</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Cumplimiento de SLA</RadzenText>
+
+    <RadzenCard>
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                     Gap="0.75rem" Wrap="FlexWrap.Wrap">
+            <RadzenLabel Text="Desde:" Component="desde" />
+            <RadzenDatePicker @bind-Value="_desde" Name="desde" DateFormat="dd/MM/yyyy" ShowTime="false"
+                              Style="width:150px" Change="@(_ => Cargar())" Disabled="@_ocupado" />
+
+            <RadzenLabel Text="Hasta:" Component="hasta" />
+            <RadzenDatePicker @bind-Value="_hasta" Name="hasta" DateFormat="dd/MM/yyyy" ShowTime="false"
+                              Style="width:150px" Change="@(_ => Cargar())" Disabled="@_ocupado" />
+
+            <RadzenLabel Text="Agrupar por:" Component="agrupar" />
+            <RadzenDropDown @bind-Value="_agrupacion" Data="@Agrupaciones" TextProperty="Texto" ValueProperty="Id"
+                            Name="agrupar" Style="width:180px" Change="@(_ => Cargar())" Disabled="@_ocupado" />
+
+            <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                          Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
+        </RadzenStack>
+    </RadzenCard>
+
+    @if (_datos is { } d)
+    {
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
+            @Tarjeta("% Cumplimiento", TextoDePorcentaje(d.Resumen.PorcentajeCumplimiento),
+                     ColorDePorcentaje(d.Resumen.PorcentajeCumplimiento))
+            @Tarjeta("✓ Cumplidos", d.Resumen.Cumplidos.ToString(), "var(--rz-success)")
+            @Tarjeta("⚠ Vencidos", d.Resumen.Vencidos.ToString(), "var(--rz-danger)")
+            @Tarjeta("● En curso", d.Resumen.EnCurso.ToString(), "var(--rz-warning)")
+            @Tarjeta("Cancelados", d.Resumen.Cancelados.ToString(), "var(--rz-text-secondary-color)")
+            @Tarjeta("Total", d.Resumen.Total.ToString(), "var(--rz-info)")
+        </RadzenStack>
+
+        <RadzenText TextStyle="TextStyle.Caption">@d.Mensaje</RadzenText>
+
+        <RadzenDataGrid TItem="SlaCumplimientoFilaDto" Data="@d.Filas" IsLoading="@_ocupado"
+                        AllowSorting="true" AllowColumnResize="true" AllowPaging="true" PageSize="25"
+                        EmptyText="No hay compromisos de SLA con fecha límite en el período elegido.">
+            <Columns>
+                <RadzenDataGridColumn TItem="SlaCumplimientoFilaDto" Property="Grupo" Title="Grupo" />
+                <RadzenDataGridColumn TItem="SlaCumplimientoFilaDto" Property="Cumplidos" Title="✓ Cumplidos"
+                                      Width="130px" TextAlign="TextAlign.Right" />
+                <RadzenDataGridColumn TItem="SlaCumplimientoFilaDto" Property="Vencidos" Title="⚠ Vencidos"
+                                      Width="130px" TextAlign="TextAlign.Right">
+                    <Template Context="fila">
+                        <span style="@(fila.Vencidos > 0 ? "color:var(--rz-danger)" : "")">@fila.Vencidos</span>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="SlaCumplimientoFilaDto" Property="EnCurso" Title="● En curso"
+                                      Width="120px" TextAlign="TextAlign.Right" />
+                <RadzenDataGridColumn TItem="SlaCumplimientoFilaDto" Property="Cancelados" Title="Cancelados"
+                                      Width="130px" TextAlign="TextAlign.Right" />
+                <RadzenDataGridColumn TItem="SlaCumplimientoFilaDto" Property="Total" Title="Total"
+                                      Width="100px" TextAlign="TextAlign.Right" />
+                <RadzenDataGridColumn TItem="SlaCumplimientoFilaDto" Property="PorcentajeCumplimiento"
+                                      Title="% Cumplimiento" Width="160px" TextAlign="TextAlign.Right">
+                    <Template Context="fila">
+                        <b style="@($"color:{ColorDePorcentaje(fila.PorcentajeCumplimiento)}")">
+                            @TextoDePorcentaje(fila.PorcentajeCumplimiento)
+                        </b>
+                    </Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
+    }
+</RadzenStack>
+
+@code {
+    private static readonly OpcionDeAgrupacion[] Agrupaciones =
+    [
+        new(AgrupacionSla.Desarrollador, "Desarrollador"),
+        new(AgrupacionSla.Prioridad, "Prioridad"),
+        new(AgrupacionSla.Tag, "Cliente (tag)"),
+        new(AgrupacionSla.Mes, "Mes")
+    ];
+
+    private record OpcionDeAgrupacion(AgrupacionSla Id, string Texto);
+
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private DateTime _desde = new(DateTime.Today.Year, DateTime.Today.Month, 1);
+    private DateTime _hasta = DateTime.Today;
+    private AgrupacionSla _agrupacion = AgrupacionSla.Desarrollador;
+    private bool _ocupado;
+    private SlaCumplimientoDto? _datos;
+
+    protected override Task OnInitializedAsync() => Cargar();
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            // Las fechas viajan como día suelto (sin hora ni zona): el servidor las interpreta en UTC,
+            // que es la escala en la que están guardados los vencimientos.
+            var ruta = $"api/cumplimiento-sla/reporte?desde={_desde:yyyy-MM-dd}&hasta={_hasta:yyyy-MM-dd}" +
+                       $"&agrupacion={_agrupacion}";
+
+            // Un período al revés lo rechaza el servidor con su motivo, y el ClienteApi ya lo muestra;
+            // los datos anteriores se descartan para no dejar en pantalla un reporte que ya no
+            // corresponde a lo que dicen los filtros.
+            _datos = await Api.LeerAsync<SlaCumplimientoDto>(ruta, _cancelacion.Token);
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    private RenderFragment Tarjeta(string titulo, string valor, string color) => __builder =>
+    {
+        <RadzenCard Style="@($"min-width:160px;border-left:5px solid {color}")">
+            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-1">@titulo</RadzenText>
+            <RadzenText TextStyle="TextStyle.H6" Style="@($"margin:0;color:{color}")">@valor</RadzenText>
+        </RadzenCard>
+    };
+
+    /// <summary>Sin nada resuelto no hay porcentaje que dar: «—» y no un 0 que engañaría.</summary>
+    private static string TextoDePorcentaje(double? porcentaje) =>
+        porcentaje is double p ? $"{p:0.#}%" : "—";
+
+    private static string ColorDePorcentaje(double? porcentaje) => porcentaje switch
+    {
+        null => "var(--rz-text-secondary-color)",
+        >= 90 => "var(--rz-success)",
+        >= 70 => "var(--rz-warning)",
+        _ => "var(--rz-danger)"
+    };
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

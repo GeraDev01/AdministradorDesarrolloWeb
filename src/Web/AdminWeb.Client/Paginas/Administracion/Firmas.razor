@@ -1,0 +1,36 @@
+@page "/firmas"
+@attribute [Authorize(Policy = "SoloAdmin")]
+
+@*
+    El gestor de firmas del líder, con pantalla propia.
+
+    POR QUÉ AQUÍ. En el escritorio las firmas tenían su propio gestor (SignatureCaptureControl); al
+    portar, lo único que quedó fue una pestaña dentro de «Vacaciones del equipo», y eso dejó una
+    firma —que es un activo del área, reutilizable y con vida propia— alcanzable únicamente entrando
+    a una pantalla que trata de la solicitud de otra persona. Preparar la firma del jefe antes de que
+    llegue la primera solicitud, o retirar la de quien ya no autoriza, no son cosas que se hagan «de
+    paso mientras se resuelven vacaciones».
+
+    Va en Administración, junto a Plantillas, porque es exactamente el mismo tipo de cosa: material
+    que la aplicación reutiliza al generar documentos y que solo el líder mantiene. No va en Equipo
+    —no es una persona— ni en Vacaciones —hoy solo las usa ese documento, pero cualquier documento
+    que se firme en adelante usará estas mismas—.
+
+    La pestaña de «Vacaciones del equipo» NO se quita: cuando alguien descubre que le falta una firma
+    es justo mientras va a firmar, y mandarlo aquí en ese momento le costaría la solicitud que tenía
+    abierta. Las dos pintan el MISMO componente, así que no hay dos versiones que se separen.
+*@
+
+<PageTitle>Firmas</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Firmas</RadzenText>
+
+    <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false">
+        Estas firmas son COMPARTIDAS: son las del jefe, las que se estampan en los documentos que él
+        autoriza. Borrar una no cambia los documentos ya firmados con ella — la imagen va dentro del
+        PDF archivado, que es la prueba.
+    </RadzenAlert>
+
+    <GestorDeFirmas />
+</RadzenStack>

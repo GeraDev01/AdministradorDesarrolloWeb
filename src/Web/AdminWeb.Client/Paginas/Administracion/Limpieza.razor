@@ -1,0 +1,239 @@
+@page "/limpieza"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Shared.Dtos.Administracion
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+
+@*
+    Limpieza de datos: borrar de un tirón los registros de prueba que se van acumulando en cada
+    apartado mientras se prepara la aplicación.
+
+    La alternativa era ir pantalla por pantalla borrando de a uno —cuando la pantalla tiene botón de
+    borrar, que no siempre— y descubrir a medias que una fila no se va porque otra tabla la
+    referencia, sin que nada diga cuál. Aquí cada apartado sabe qué arrastra y en qué orden.
+
+    LA PANTALLA ESTÁ CONSTRUIDA PARA QUE SEA DIFÍCIL EQUIVOCARSE, igual que en el escritorio: se ve
+    el recuento antes de marcar, lo que cada apartado se lleva por delante está escrito en su
+    renglón, lo que ya está vacío no se puede marcar, y confirmar exige escribir una palabra. Nada de
+    esto sobra en una pantalla cuya operación no tiene deshacer.
+
+    Y una barrera más que el escritorio no necesitaba: HAY QUE ESCRIBIR LA CONTRASEÑA. Allí la
+    aplicación corría en la máquina de esa persona y a esta pantalla no se llegaba de otro modo; aquí
+    se llega por una dirección que alguien pudo compartir, o desde una sesión que quedó abierta en un
+    equipo prestado. La contraseña la comprueba el SERVIDOR antes de borrar nada — hacerlo solo aquí
+    no valdría, porque a la API se la puede llamar sin pasar por esta pantalla.
+
+    La configuración y los secretos NO están en la lista, y eso también viene del escritorio: no son
+    registros que se acumulen probando, y sin ellos la aplicación se queda sin conexión ni
+    credenciales.
+*@
+
+<PageTitle>Limpieza de datos</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Limpieza de datos</RadzenText>
+
+    <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false">
+        Borra TODOS los registros de los apartados que marques — no solo los de prueba.
+        No hay deshacer ni papelera.
+    </RadzenAlert>
+
+    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+        No se incluyen la configuración ni los secretos guardados: no son registros que se acumulen
+        probando, y sin ellos la aplicación se queda sin conexión ni credenciales.
+    </RadzenText>
+
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.75rem" Wrap="FlexWrap.Wrap">
+        <RadzenButton Text="🔄 Recontar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                      Click="@Cargar" Disabled="@_ocupado" />
+        <RadzenButton Text="Marcar lo que tenga datos" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                      Click="@(() => Marcar(true))" Disabled="@_ocupado" />
+        <RadzenButton Text="Desmarcar todo" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                      Click="@(() => Marcar(false))" Disabled="@_ocupado" />
+        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@Resumen()</RadzenText>
+    </RadzenStack>
+
+    @if (_datos is { } datos)
+    {
+        @foreach (var grupo in datos.Areas.GroupBy(a => a.Grupo))
+        {
+            <RadzenCard>
+                <RadzenStack Gap="0.5rem">
+                    <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">@grupo.Key</RadzenText>
+
+                    @foreach (var area in grupo)
+                    {
+                        <div style="display:flex;gap:.6rem;align-items:flex-start;
+                                    @(Vacia(area) ? "opacity:.55" : "")">
+                            @* Lo que ya está vacío no se puede marcar: un apartado en cero no tiene
+                               nada que borrar, y dejarlo marcable solo sirve para inflar el recuento
+                               de la confirmación. *@
+                            <RadzenCheckBox TValue="bool" Value="@_marcadas.Contains(area.Clave)"
+                                            ValueChanged="@(v => Alternar(area, v))"
+                                            Disabled="@(_ocupado || Vacia(area))" />
+
+                            <div style="flex:1 1 auto;min-width:0">
+                                <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0"
+                                            Style="@(area.Advertencia is null ? "" : "color:var(--rz-danger);font-weight:600")">
+                                    @area.Nombre
+                                    <span style="opacity:.75">— @Registros(area)</span>
+                                </RadzenText>
+                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                    Además se lleva: @area.Arrastra
+                                </RadzenText>
+                                @if (area.Advertencia is { } aviso)
+                                {
+                                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                                                Style="color:var(--rz-danger)">⚠ @aviso</RadzenText>
+                                }
+                            </div>
+                        </div>
+                    }
+                </RadzenStack>
+            </RadzenCard>
+        }
+
+        <RadzenCard Style="border:1px solid var(--rz-danger)">
+            <RadzenStack Gap="0.75rem">
+                <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">Confirmar el borrado</RadzenText>
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                    Escribe tu contraseña. El servidor la comprueba antes de borrar nada: no basta con
+                    tener la sesión abierta.
+                </RadzenText>
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem"
+                             AlignItems="AlignItems.Center" Wrap="FlexWrap.Wrap">
+                    <RadzenPassword @bind-Value="_contrasena" Placeholder="Tu contraseña"
+                                    Disabled="@_ocupado" Style="flex:0 1 18rem"
+                                    aria-label="Tu contraseña" />
+                    <RadzenButton Text="🧹 Borrar lo seleccionado" ButtonStyle="ButtonStyle.Danger"
+                                  Click="@Borrar"
+                                  Disabled="@(_ocupado || _marcadas.Count == 0 || string.IsNullOrEmpty(_contrasena))" />
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    }
+
+    @if (_resultado is { } resultado)
+    {
+        <RadzenCard>
+            <RadzenStack Gap="0.25rem">
+                <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">@resultado.Mensaje</RadzenText>
+                @foreach (var area in resultado.Areas)
+                {
+                    <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0"
+                                Style="@(area.Ok ? "" : "color:var(--rz-danger)")">
+                        @if (area.Ok)
+                        {
+                            <text>✓ @area.Nombre: @area.Habia registro(s), @area.Filas fila(s) borradas.</text>
+                        }
+                        else
+                        {
+                            <text>✗ @area.Nombre: @area.Error</text>
+                        }
+                    </RadzenText>
+                }
+            </RadzenStack>
+        </RadzenCard>
+    }
+</RadzenStack>
+
+@code {
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private LimpiezaDto? _datos;
+    private readonly HashSet<string> _marcadas = [];
+    private string _contrasena = "";
+    private ResultadoDeLimpiezaDto? _resultado;
+    private bool _ocupado;
+
+    protected override async Task OnInitializedAsync() => await Cargar();
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            _datos = await Api.LeerAsync<LimpiezaDto>("api/administracion/limpieza", _cancelacion.Token);
+
+            // Lo que quedó vacío deja de poderse marcar; conservar la marca dejaría el botón activo
+            // para borrar algo que ya no existe.
+            _marcadas.RemoveWhere(c => _datos?.Areas.FirstOrDefault(a => a.Clave == c) is not { Registros: > 0 });
+        }
+        finally { _ocupado = false; }
+    }
+
+    private static bool Vacia(AreaDeLimpiezaDto a) => a.Registros == 0;
+
+    /// <summary>Un área que no se pudo contar se enseña como desconocida, no como vacía.</summary>
+    private static string Registros(AreaDeLimpiezaDto a) =>
+        a.Registros < 0 ? "? registros" : $"{a.Registros:N0} registro(s)";
+
+    private void Alternar(AreaDeLimpiezaDto area, bool marcada)
+    {
+        if (marcada) _marcadas.Add(area.Clave);
+        else _marcadas.Remove(area.Clave);
+    }
+
+    private void Marcar(bool marcar)
+    {
+        _marcadas.Clear();
+        if (!marcar || _datos is null) return;
+
+        foreach (var area in _datos.Areas.Where(a => a.Registros != 0))
+            _marcadas.Add(area.Clave);
+    }
+
+    private string Resumen()
+    {
+        if (_datos is null) return "";
+        if (_marcadas.Count == 0) return "Nada seleccionado.";
+
+        int registros = _datos.Areas.Where(a => _marcadas.Contains(a.Clave)).Sum(a => Math.Max(0, a.Registros));
+        return $"{_marcadas.Count} apartado(s) seleccionado(s) — {registros:N0} registro(s).";
+    }
+
+    private async Task Borrar()
+    {
+        if (_datos is not { } datos || _marcadas.Count == 0) return;
+
+        var nombres = datos.Areas.Where(a => _marcadas.Contains(a.Clave)).Select(a => a.Nombre).ToList();
+
+        // La palabra se teclea mirando. Es la misma barrera del escritorio y no sobra: el botón está
+        // a un clic de distancia de la lista, y aquí se llega además por una dirección compartible.
+        if (!await Avisos.ConfirmarEscribiendoAsync(
+                $"Se van a borrar {nombres.Count} apartado(s):\n· {string.Join("\n· ", nombres)}\n\n"
+                + "No hay deshacer ni papelera.",
+                datos.FraseConfirmacion, "Borrar datos"))
+            return;
+
+        _ocupado = true;
+        try
+        {
+            var peticion = new LimpiarRequest([.. _marcadas], datos.FraseConfirmacion, _contrasena);
+
+            var (ok, respuesta) = await Api.EnviarAsync<LimpiarRequest, ResultadoDeLimpiezaDto>(
+                "api/administracion/limpieza", peticion, _cancelacion.Token);
+
+            // El fallo ya se mostró con el texto del servidor, que dice si fue la contraseña o la
+            // confirmación. La contraseña se borra en los dos casos: no tiene por qué quedarse
+            // escrita en una pantalla que alguien puede dejar abierta.
+            _contrasena = "";
+            if (!ok || respuesta is null) return;
+
+            _resultado = respuesta;
+            _marcadas.Clear();
+            Avisos.Resultado(respuesta.Areas.All(a => a.Ok), respuesta.Mensaje);
+        }
+        finally { _ocupado = false; }
+
+        await Cargar();
+    }
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

@@ -1,0 +1,26 @@
+# Lo que NO entra en el contexto de construcción.
+#
+# Importa por dos motivos. El primero es la velocidad: sin esto, Docker empaqueta y manda al demonio
+# los bin/ y obj/ de todos los proyectos, que son cientos de megas. El segundo importa más: un
+# bin/ traído del anfitrión dentro de la imagen produce mezclas de binarios viejos y nuevos que se
+# comportan de formas imposibles de diagnosticar.
+
+**/bin/
+**/obj/
+**/.vs/
+**/TestResults/
+dist/
+
+# La aplicación de escritorio no entra: es net10.0-windows y no compila en Linux. Se excluye entera
+# salvo un archivo — el protector de secretos compartido, que una prueba lee para comprobar que la
+# semilla de cifrado de la web coincide byte por byte con la suya. Sin él esa prueba no puede correr
+# dentro del contenedor.
+Administrador_Desarrollo_Web/**
+!Administrador_Desarrollo_Web/Security/SharedSecretProtector.cs
+Administrador_Desarrollo_Web.Tests/**
+ResetAdminPassword/**
+
+Docs/
+.git/
+.github/
+*.md

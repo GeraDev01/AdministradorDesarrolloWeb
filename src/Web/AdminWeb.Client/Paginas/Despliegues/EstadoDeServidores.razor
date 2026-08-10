@@ -1,0 +1,180 @@
+@page "/estado-de-servidores"
+@attribute [Authorize(Policy = "AdminUOperaciones")]
+@using AdminWeb.Shared.Dtos.Programados
+@implements IDisposable
+@inject ClienteApi Api
+@inject Descargas Descargas
+
+@*
+    Qué versión tiene hoy cada servidor, quién se la puso y cuándo.
+
+    El historial contesta «¿qué se desplegó?», ordenado por despliegue. Esta pantalla contesta la
+    otra mitad, que es la que se pregunta en caliente: «¿qué hay AHORA en cada servidor y a cuál le
+    falta?». Reconstruirlo desde el historial obliga a leerlo entero hacia atrás y cruzar perfiles, y
+    con selección directa de servidores ni siquiera basta con eso.
+
+    Decisiones del escritorio que se conservan:
+
+      · «Atrasado» significa que el servidor tiene una versión y NO es la última publicada de su
+        sistema. Es la pregunta que de verdad se hace alguien mirando esto.
+      · La última publicada se decide por FECHA DE ALTA y no comparando el texto de la versión:
+        «1.10» es posterior a «1.9» pero menor alfabéticamente, y no todos los sistemas numeran igual.
+      · Los servidores dados de baja se ven apagados, no escondidos.
+      · Un servidor sin registro de QUIÉN lo desplegó se enseña en gris: son los despliegues
+        anteriores a que eso se guardara, y la ausencia tiene que leerse como «no se registró» y no
+        como un descuido.
+
+    La exportación a Excel baja LO QUE EL FILTRO ESTÁ ENSEÑANDO —los DOS interruptores, incluido
+    «solo atrasados»—, que es la decisión que ya se tomó en minutas. Aquí importa especialmente:
+    quien marca «solo atrasados» y exporta viene a mandarle a alguien la lista corta de máquinas por
+    actualizar, no el inventario entero.
+
+    No la escribe esta pantalla: la arma el servidor con el mismo escritor de hojas de cálculo que
+    los reportes y las minutas, así que sigue habiendo un solo formato del mismo dato.
+*@
+
+<PageTitle>Estado de los servidores</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Estado de los servidores</RadzenText>
+        <RadzenButton Text="Actualizar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
+
+        <RadzenCheckBox TValue="bool" @bind-Value="_soloAtrasados" Name="soloAtrasados" />
+        <RadzenLabel Text="Solo atrasados" Component="soloAtrasados" />
+
+        <RadzenCheckBox TValue="bool" @bind-Value="_incluirDadosDeBaja" Name="incluirBajas"
+                        Change="@(_ => Cargar())" Disabled="@_ocupado" />
+        <RadzenLabel Text="Incluir dados de baja" Component="incluirBajas" />
+
+        @* Pegado a los interruptores a propósito: es lo que hace evidente que baja lo que están
+           enseñando y no el inventario entero. *@
+        <RadzenButton Text="📊 Excel" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                      Disabled="@_ocupado" Style="margin-left:auto"
+                      Click="@(() => Descargas.DesdeApiAsync(RutaDelFiltro("/excel")))" />
+    </RadzenStack>
+
+    @if (_datos is { } d)
+    {
+        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+            @d.Resumen@(_soloAtrasados ? $"      (mostrando {Filtrados.Count()})" : "")
+        </RadzenText>
+
+        <RadzenDataGrid TItem="EstadoDeServidorDto" Data="@Filtrados" IsLoading="@_ocupado"
+                        AllowSorting="true" AllowPaging="true" PageSize="25"
+                        RowRender="@ApagarLosDadosDeBaja"
+                        EmptyText="No hay servidores que cumplan el filtro.">
+            <Columns>
+                <RadzenDataGridColumn TItem="EstadoDeServidorDto" Property="Servidor" Title="Servidor" Width="180px" />
+                <RadzenDataGridColumn TItem="EstadoDeServidorDto" Property="Sistema" Title="Sistema" Width="150px">
+                    <Template Context="s">@(s.Sistema ?? "—")</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="EstadoDeServidorDto" Property="Version"
+                                      Title="Versión desplegada" Width="150px">
+                    <Template Context="s">@(s.Version ?? "—")</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="EstadoDeServidorDto" Property="UltimaVersionDelSistema"
+                                      Title="Última publicada" Width="140px">
+                    <Template Context="s">@(s.UltimaVersionDelSistema ?? "—")</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="EstadoDeServidorDto" Property="EstadoTexto" Title="Estado" Width="130px">
+                    <Template Context="s"><b style="@ColorDelEstado(s)">@s.EstadoTexto</b></Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="EstadoDeServidorDto" Property="DesplegadoUtc"
+                                      Title="Últ. actualización" Width="150px">
+                    <Template Context="s">
+                        @(s.DesplegadoUtc?.ToLocalTime().ToString("dd/MM/yyyy HH:mm") ?? "Nunca")
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="EstadoDeServidorDto" Property="Antiguedad" Title="Hace" Width="110px" />
+                <RadzenDataGridColumn TItem="EstadoDeServidorDto" Property="Quien"
+                                      Title="Quién lo desplegó" Width="180px">
+                    <Template Context="s">
+                        @if (s.Quien is { } quien)
+                        {
+                            @quien
+                        }
+                        else
+                        {
+                            @* Gris a propósito: la ausencia se lee como «no se registró». *@
+                            <span style="opacity:.6">—</span>
+                        }
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="EstadoDeServidorDto" Property="DespliegueId"
+                                      Title="Despliegue #" Width="120px" TextAlign="TextAlign.Right">
+                    <Template Context="s">@(s.DespliegueId?.ToString() ?? "—")</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="EstadoDeServidorDto" Title="" Width="90px" Sortable="false">
+                    <Template Context="s">
+                        @if (!string.IsNullOrWhiteSpace(s.Url))
+                        {
+                            @* rel="noopener": sin eso, el sitio que se abre puede reescribir la
+                               pestaña de la aplicación desde la suya. *@
+                            <a href="@s.Url" target="_blank" rel="noopener" title="Abrir el sitio">🌍 Abrir</a>
+                        }
+                    </Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
+    }
+</RadzenStack>
+
+@code {
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private EstadoDeServidoresDto? _datos;
+    private bool _ocupado;
+    private bool _soloAtrasados;
+    private bool _incluirDadosDeBaja;
+
+    /// <summary>
+    /// «Solo atrasados» filtra en el navegador y no vuelve a consultar: el resumen tiene que seguir
+    /// contando el total —«3 de 24 atrasados» es el dato útil— y con una consulta filtrada se perdería.
+    /// </summary>
+    private IEnumerable<EstadoDeServidorDto> Filtrados =>
+        _datos is null ? [] : _soloAtrasados ? _datos.Servidores.Where(s => s.Atrasado) : _datos.Servidores;
+
+    protected override async Task OnInitializedAsync() => await Cargar();
+
+    /// <summary>
+    /// La dirección de la consulta con sus filtros; el sufijo la convierte en la exportación.
+    ///
+    /// «Solo atrasados» viaja aunque la consulta lo ignore —ahí filtra el navegador, para que el
+    /// resumen siga contando el total—, porque la exportación sí tiene que respetarlo: es la mitad
+    /// de lo que el filtro está enseñando.
+    /// </summary>
+    private string RutaDelFiltro(string sufijo = "") =>
+        $"api/programados/estado-de-servidores{sufijo}" +
+        $"?incluirDadosDeBaja={_incluirDadosDeBaja.ToString().ToLowerInvariant()}" +
+        $"&soloAtrasados={_soloAtrasados.ToString().ToLowerInvariant()}";
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            _datos = await Api.LeerAsync<EstadoDeServidoresDto>(RutaDelFiltro(), _cancelacion.Token);
+        }
+        finally { _ocupado = false; }
+    }
+
+    private static string ColorDelEstado(EstadoDeServidorDto s)
+    {
+        if (s.NuncaDesplegado) return "opacity:.7";
+        if (s.Atrasado) return "color:var(--rz-warning)";
+        return s.UltimaVersionDelSistema == null ? "" : "color:var(--rz-success)";
+    }
+
+    private void ApagarLosDadosDeBaja(RowRenderEventArgs<EstadoDeServidorDto> args)
+    {
+        if (!args.Data.Activo) args.Attributes["style"] = "opacity:.55";
+    }
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

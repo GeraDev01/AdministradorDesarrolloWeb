@@ -1,0 +1,498 @@
+@page "/mis-vacaciones"
+@attribute [Authorize(Policy = "AdminUDesarrollador")]
+@using AdminWeb.Shared.Dtos.Ausencias
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+@inject Descargas Descargas
+
+@*
+    Mis vacaciones: el saldo del año, las solicitudes propias y lo que se puede hacer con ellas.
+
+    Del escritorio se conservan cuatro decisiones que no son detalles de pintado:
+
+      · El SALDO se enseña pero NO bloquea. Son los días de la ficha menos los aprobados del año;
+        sirve para que la persona decida, no para negarle nada. Quien concede es el líder, y hay
+        casos que la ficha no conoce (días arrastrados, acuerdos particulares).
+      · Cancelar una solicitud YA APROBADA avisa de que dejará de tomar esos días. Cancelar una
+        pendiente no necesita ese aviso: no había nada apartado.
+      · Eliminar dice cuántos documentos generados se van con ella. Caen en cascada y no vuelven.
+      · El DOCUMENTO DE RESPALDO es opcional y se elige al pedir las vacaciones, igual que en
+        MyVacationRequestForm. Puede ser un PDF, un .docx o una imagen, así que se elige con un
+        selector de archivos y no con el componente de pegar imágenes.
+
+    El respaldo SUBE por /api/ausencias y BAJA por /api/adjuntos/vacaciones/{id}, que es la ruta
+    común a todos los adjuntos guardados en la base y la misma que usa el líder al resolver. Los
+    bytes nunca viajan en la lista: se piden cuando alguien pulsa.
+
+    Los botones aparecen según lo que responde el SERVIDOR (SePuedeCancelar / SePuedeAdjuntar /
+    SePuedeEliminar), que es lo que decide el propio servicio. Una solicitud rechazada no ofrece
+    ninguno: es historial, y enseñar un botón que la API va a rechazar es peor que no enseñarlo.
+*@
+
+<PageTitle>Mis vacaciones</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Mis vacaciones</RadzenText>
+
+    @if (_datos is { } d)
+    {
+        @if (!d.Saldo.TieneFicha)
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+                Tu cuenta no está vinculada a una ficha de desarrollador, así que no tienes saldo de
+                vacaciones ni puedes pedirlas desde aquí. Contacta al líder si esto no es correcto.
+            </RadzenAlert>
+        }
+        else
+        {
+            <RadzenCard Style="@($"border-left:5px solid {ColorDelSaldo(d.Saldo.Disponibles)}")">
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-1">Días de vacaciones disponibles</RadzenText>
+                <RadzenText TextStyle="TextStyle.H4"
+                            Style="@($"margin:0;color:{ColorDelSaldo(d.Saldo.Disponibles)}")">
+                    @d.Saldo.Disponibles
+                </RadzenText>
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                    De @d.Saldo.Asignados asignado(s) · @d.Saldo.TomadosEsteAnio tomado(s) este año ·
+                    @d.Saldo.PendientesDeAprobacion pendiente(s) de aprobación
+                    @if (d.Saldo.FechaDeIngreso is DateTime ingreso)
+                    {
+                        <span> · Ingreso: @ingreso.ToString("dd/MM/yyyy")</span>
+                    }
+                </RadzenText>
+            </RadzenCard>
+
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+                <RadzenButton Text="Nueva solicitud" Icon="add" ButtonStyle="ButtonStyle.Primary"
+                              Click="@AbrirFormulario" Disabled="@(_ocupado || _pidiendo)" />
+                <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                              Click="@Cargar" Disabled="@_ocupado" />
+            </RadzenStack>
+        }
+
+        @if (_pidiendo)
+        {
+            <RadzenCard>
+                <RadzenStack Gap="0.75rem">
+                    <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">Nueva solicitud de vacaciones</RadzenText>
+
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem"
+                                 AlignItems="AlignItems.End" Wrap="FlexWrap.Wrap">
+                        <RadzenStack Gap="0.25rem">
+                            <RadzenLabel Text="Inicio" Component="inicio" />
+                            <RadzenDatePicker TValue="DateTime" @bind-Value="_inicio" Name="inicio"
+                                              DateFormat="dd/MM/yyyy" ShowTime="false" Style="width:170px" />
+                        </RadzenStack>
+                        <RadzenStack Gap="0.25rem">
+                            <RadzenLabel Text="Fin" Component="fin" />
+                            <RadzenDatePicker TValue="DateTime" @bind-Value="_fin" Name="fin"
+                                              DateFormat="dd/MM/yyyy" ShowTime="false" Style="width:170px" />
+                        </RadzenStack>
+                        @* El rango en días, a la vista mientras se eligen las fechas: contar a mano
+                           entre dos fechas es donde se cuela el error de un día. *@
+                        <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0"
+                                    Style="@(RangoValido ? "" : "color:var(--rz-danger)")">
+                            <b>@(RangoValido ? $"{DiasPedidos} día(s)" : "La fecha de fin es anterior a la de inicio")</b>
+                        </RadzenText>
+                    </RadzenStack>
+
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Comentario (opcional)" Component="comentario" />
+                        <RadzenTextArea @bind-Value="_comentario" Name="comentario" Rows="3"
+                                        MaxLength="1000" Style="width:100%"
+                                        Placeholder="Lo que quieras que el líder tenga en cuenta." />
+                    </RadzenStack>
+
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Documento de respaldo (opcional)" />
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                            Constancia, comprobante del viaje, correo que lo autoriza… Hasta @Megas(d) MB.
+                        </RadzenText>
+                        <InputFile OnChange="@(e => ElegirParaElAlta(e, d))" />
+                        @if (_archivoDelAlta is { } elegido)
+                        {
+                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                                        Style="color:var(--rz-success)">
+                                📎 @elegido.Nombre (@(elegido.Contenido.Length / 1024) KB)
+                            </RadzenText>
+                        }
+                    </RadzenStack>
+
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                        <RadzenButton Text="Solicitar" Icon="send" ButtonStyle="ButtonStyle.Primary"
+                                      Click="@Solicitar" Disabled="@(_ocupado || !RangoValido)" />
+                        <RadzenButton Text="Descartar" ButtonStyle="ButtonStyle.Light"
+                                      Click="@(() => _pidiendo = false)" Disabled="@_ocupado" />
+                    </RadzenStack>
+                </RadzenStack>
+            </RadzenCard>
+        }
+
+        @if (_adjuntandoEn is int solicitudId)
+        {
+            <RadzenCard Style="border-left:5px solid var(--rz-info)">
+                <RadzenStack Gap="0.5rem">
+                    <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">
+                        📎 Respaldo de la solicitud del @_adjuntandoDescripcion
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                        Hasta @Megas(d) MB. Si ya había uno, este lo reemplaza.
+                    </RadzenText>
+                    <InputFile OnChange="@(e => AdjuntarAExistente(e, solicitudId, d))" />
+                    <div>
+                        <RadzenButton Text="Cerrar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                      Click="@(() => _adjuntandoEn = null)" Disabled="@_ocupado" />
+                    </div>
+                </RadzenStack>
+            </RadzenCard>
+        }
+
+        <RadzenDataGrid TItem="SolicitudDeVacacionesDto" Data="@d.Solicitudes" IsLoading="@_ocupado"
+                        AllowSorting="true" AllowPaging="true" PageSize="15"
+                        EmptyText="Todavía no has pedido vacaciones.">
+            <Columns>
+                <RadzenDataGridColumn TItem="SolicitudDeVacacionesDto" Title="Inicio" Property="Inicio" Width="110px">
+                    <Template Context="v">@v.Inicio.ToString("dd/MM/yyyy")</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="SolicitudDeVacacionesDto" Title="Fin" Property="Fin" Width="110px">
+                    <Template Context="v">@v.Fin.ToString("dd/MM/yyyy")</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="SolicitudDeVacacionesDto" Title="Días" Property="Dias" Width="80px" />
+                <RadzenDataGridColumn TItem="SolicitudDeVacacionesDto" Title="Estado" Property="Estado" Width="130px">
+                    <Template Context="v">
+                        <b style="@($"color:{Color(v.Estado)}")">@v.EtiquetaEstado</b>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="SolicitudDeVacacionesDto" Title="Respaldo" Width="180px" Sortable="false">
+                    <Template Context="v">
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" Wrap="FlexWrap.Wrap">
+                            @if (v.TieneRespaldo)
+                            {
+                                <RadzenButton Text="📎 Ver" ButtonStyle="ButtonStyle.Light"
+                                              Size="ButtonSize.ExtraSmall"
+                                              title="Abre el documento que subiste."
+                                              Click="@(() => VerRespaldo(v))" />
+                            }
+                            @if (v.SePuedeAdjuntar)
+                            {
+                                <RadzenButton Text="@(v.TieneRespaldo ? "Cambiar" : "📎 Adjuntar")"
+                                              ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                              Disabled="@_ocupado" Click="@(() => AbrirAdjunto(v))" />
+                            }
+                            @if (!v.TieneRespaldo && !v.SePuedeAdjuntar)
+                            {
+                                <span>—</span>
+                            }
+                        </RadzenStack>
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="SolicitudDeVacacionesDto" Title="Mi comentario" Property="Comentario">
+                    <Template Context="v">@(v.Comentario ?? "—")</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="SolicitudDeVacacionesDto" Title="Respuesta del líder"
+                                      Property="RespuestaDelLider">
+                    <Template Context="v">
+                        @* Un rechazo sin explicación deja al solicitante sin nada que hacer con la
+                           respuesta; se dice que falta en vez de dejar la celda en blanco. *@
+                        @if (!string.IsNullOrWhiteSpace(v.RespuestaDelLider))
+                        {
+                            <span style="@(v.Estado == VacationStatus.Rechazada ? "color:var(--rz-danger)" : "")">
+                                @v.RespuestaDelLider
+                            </span>
+                        }
+                        else if (v.Estado == VacationStatus.Rechazada)
+                        {
+                            <span style="color:var(--rz-danger)">(sin motivo registrado)</span>
+                        }
+                        else
+                        {
+                            <span>—</span>
+                        }
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="SolicitudDeVacacionesDto" Title="" Width="200px" Sortable="false">
+                    <Template Context="v">
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" Wrap="FlexWrap.Wrap">
+                            @if (v.SePuedeCancelar)
+                            {
+                                <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                                              Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                              Click="@(() => CancelarSolicitud(v))" />
+                            }
+                            @if (v.SePuedeEliminar)
+                            {
+                                <RadzenButton Text="Eliminar" ButtonStyle="ButtonStyle.Danger"
+                                              Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                              Click="@(() => EliminarSolicitud(v))" />
+                            }
+                            @if (!v.SePuedeCancelar && !v.SePuedeEliminar)
+                            {
+                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                                            title="Ya está resuelta: forma parte del historial y no se toca.">
+                                    Sin acciones
+                                </RadzenText>
+                            }
+                        </RadzenStack>
+                    </Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
+    }
+</RadzenStack>
+
+@code {
+    /// <summary>Un archivo ya leído en el navegador, a la espera de que se envíe con el formulario.</summary>
+    private record ArchivoElegido(string Nombre, byte[] Contenido);
+
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private MisVacacionesDto? _datos;
+    private bool _ocupado;
+
+    // ── Formulario de alta ───────────────────────────────────────────────────
+    private bool _pidiendo;
+    private DateTime _inicio = DateTime.Today;
+    private DateTime _fin = DateTime.Today;
+    private string? _comentario;
+    private ArchivoElegido? _archivoDelAlta;
+
+    // ── Respaldo de una solicitud ya existente ───────────────────────────────
+    private int? _adjuntandoEn;
+    private string _adjuntandoDescripcion = "";
+
+    private bool RangoValido => _fin.Date >= _inicio.Date;
+    private int DiasPedidos => (_fin.Date - _inicio.Date).Days + 1;
+
+    protected override Task OnInitializedAsync() => Cargar();
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            _datos = await Api.LeerAsync<MisVacacionesDto>("api/ausencias/vacaciones/mias", _cancelacion.Token);
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    private void AbrirFormulario()
+    {
+        _inicio = _fin = DateTime.Today;
+        _comentario = null;
+        _archivoDelAlta = null;
+        _adjuntandoEn = null;
+        _pidiendo = true;
+    }
+
+    // ── Acciones ─────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Pide las vacaciones y, si se eligió respaldo, lo sube después contra la solicitud recién
+    /// creada.
+    ///
+    /// Son dos peticiones y no una porque el archivo viaja como multipart mientras que el resto del
+    /// formulario es JSON, como toda la escritura de esta API. La ventaja es que un rechazo del alta
+    /// —un rango al revés, una cuenta sin ficha— se responde sin haber empujado el archivo por la
+    /// red. Si el alta pasa y la subida falla, la solicitud queda enviada y sin respaldo, y eso se
+    /// dice: se puede volver a adjuntar desde la lista mientras siga pendiente.
+    /// </summary>
+    private async Task Solicitar()
+    {
+        _ocupado = true;
+        int id;
+        try
+        {
+            var (ok, respuesta) = await Api.EnviarAsync<NuevaSolicitudDeVacacionesRequest, SolicitudCreadaDto>(
+                "api/ausencias/vacaciones",
+                new NuevaSolicitudDeVacacionesRequest(_inicio, _fin, _comentario), _cancelacion.Token);
+
+            if (!ok || respuesta is null) return;
+
+            Avisos.Exito(respuesta.Mensaje);
+            id = respuesta.Id;
+            _pidiendo = false;
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+
+        if (_archivoDelAlta is { } archivo)
+        {
+            await Subir(id, archivo);
+            _archivoDelAlta = null;
+        }
+
+        await Cargar();
+    }
+
+    // ── Documento de respaldo ────────────────────────────────────────────────
+
+    private void AbrirAdjunto(SolicitudDeVacacionesDto v)
+    {
+        _adjuntandoEn = v.Id;
+        _adjuntandoDescripcion = $"{v.Inicio:dd/MM/yyyy} al {v.Fin:dd/MM/yyyy}";
+    }
+
+    private async Task ElegirParaElAlta(InputFileChangeEventArgs e, MisVacacionesDto d)
+    {
+        _archivoDelAlta = await Leer(e.File, d.MaxRespaldoBytes);
+    }
+
+    private async Task AdjuntarAExistente(InputFileChangeEventArgs e, int solicitudId, MisVacacionesDto d)
+    {
+        if (await Leer(e.File, d.MaxRespaldoBytes) is not { } archivo) return;
+
+        _ocupado = true;
+        try
+        {
+            if (!await Subir(solicitudId, archivo)) return;
+            _adjuntandoEn = null;
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+
+        await Cargar();
+    }
+
+    /// <summary>
+    /// Abre el respaldo por la ruta común a todos los adjuntos: decide el tipo por los BYTES, manda
+    /// <c>nosniff</c> y limpia el nombre. El navegador lo previsualiza si sabe (PDF, imágenes) y si
+    /// no lo descarga; ya no hay que volcarlo a una carpeta temporal como hacía el escritorio.
+    /// </summary>
+    private async Task VerRespaldo(SolicitudDeVacacionesDto v) =>
+        await Descargas.DesdeApiAsync($"api/adjuntos/vacaciones/{v.Id}");
+
+    /// <summary>
+    /// Lee el archivo en memoria. El tope se comprueba aquí solo para no empujar por la red algo que
+    /// va a rebotar; la comprobación que cuenta —tamaño, nombre y extensión— la hace el servidor,
+    /// porque a la API se la puede llamar sin pasar por esta página.
+    /// </summary>
+    private async Task<ArchivoElegido?> Leer(IBrowserFile archivo, long maxBytes)
+    {
+        if (archivo.Size > maxBytes)
+        {
+            Avisos.Aviso($"«{archivo.Name}» pasa de {maxBytes / (1024 * 1024)} MB.");
+            return null;
+        }
+
+        try
+        {
+            using var origen = archivo.OpenReadStream(maxBytes);
+            using var memoria = new MemoryStream();
+            await origen.CopyToAsync(memoria);
+            return new ArchivoElegido(archivo.Name, memoria.ToArray());
+        }
+        catch (Exception ex)
+        {
+            Avisos.Error($"No se pudo leer «{archivo.Name}»: {ex.Message}");
+            return null;
+        }
+    }
+
+    private async Task<bool> Subir(int solicitudId, ArchivoElegido archivo)
+    {
+        // El MultipartFormDataContent lo cierra ClienteApi.SubirAsync cuando la petición termina, y
+        // es él quien adjunta el testigo antifalsificación que exige toda subida multipart.
+        var formulario = new MultipartFormDataContent
+        {
+            { new ByteArrayContent(archivo.Contenido), "archivo", archivo.Nombre }
+        };
+
+        var (ok, respuesta) = await Api.SubirAsync<ResultadoDto>(
+            $"api/ausencias/vacaciones/{solicitudId}/respaldo", formulario, _cancelacion.Token);
+
+        if (ok && respuesta is not null) Avisos.Exito(respuesta.Mensaje);
+        return ok;
+    }
+
+    private async Task CancelarSolicitud(SolicitudDeVacacionesDto v)
+    {
+        // El aviso de la aprobada es del escritorio y se conserva: cancelar algo pendiente solo
+        // retira una petición; cancelar algo aprobado devuelve días que ya estaban apartados.
+        var aviso = v.Estado == VacationStatus.Aprobada
+            ? "Esta solicitud YA FUE APROBADA. Al cancelarla dejarás de tomar esos días.\n\n"
+            : "";
+
+        if (!await Avisos.ConfirmarAsync(
+            $"{aviso}¿Cancelar la solicitud del {v.Inicio:dd/MM/yyyy} al {v.Fin:dd/MM/yyyy}?",
+            "Cancelar solicitud", "Sí, cancelar"))
+            return;
+
+        // El motivo no lo pedía el escritorio y aquí sí: queda anotado en la respuesta de la
+        // solicitud, y sin una línea el líder solo ve desaparecer unos días que tenía contados.
+        var motivo = await Avisos.PedirTextoAsync(
+            "¿Quieres decir por qué la cancelas? (opcional)", "Cancelar solicitud");
+
+        await Enviar($"api/ausencias/vacaciones/{v.Id}/cancelacion", new CancelacionRequest(motivo));
+    }
+
+    private async Task EliminarSolicitud(SolicitudDeVacacionesDto v)
+    {
+        var aviso = v.DocumentosGenerados > 0
+            ? $"\n\nSe eliminarán también {v.DocumentosGenerados} documento(s) generado(s) de esta solicitud."
+            : "";
+
+        if (!await Avisos.ConfirmarAsync(
+            $"¿Eliminar definitivamente la solicitud del {v.Inicio:dd/MM/yyyy} al {v.Fin:dd/MM/yyyy}?{aviso}" +
+            "\n\nEsta acción no se puede deshacer.",
+            "Eliminar solicitud", "Sí, eliminar"))
+            return;
+
+        await Enviar($"api/ausencias/vacaciones/{v.Id}/eliminacion", new CancelacionRequest(null));
+    }
+
+    /// <summary>
+    /// El envío que comparten las acciones. El mensaje del servidor se enseña TAL CUAL: explica el
+    /// motivo en concreto —«es parte del historial; si ya no la vas a tomar, cancélala»— y cambiarlo
+    /// por un «no se pudo» genérico tiraría justo lo que el escritorio hacía bien.
+    /// </summary>
+    private async Task Enviar<T>(string ruta, T cuerpo)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, respuesta) = await Api.EnviarAsync<T, ResultadoDto>(ruta, cuerpo, _cancelacion.Token);
+            if (ok && respuesta is not null) Avisos.Exito(respuesta.Mensaje);
+            if (!ok) return;
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+
+        await Cargar();
+    }
+
+    // ── Formato ──────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// El color del estado lo pone la pantalla, no el servicio: un servicio no debe saber del tema
+    /// visual. Son los mismos criterios del escritorio.
+    /// </summary>
+    private static string Color(VacationStatus estado) => estado switch
+    {
+        VacationStatus.Aprobada => "var(--rz-success)",
+        VacationStatus.Rechazada => "var(--rz-danger)",
+        VacationStatus.Cancelada => "var(--rz-warning)",
+        _ => "var(--rz-text-secondary-color)"
+    };
+
+    private static string ColorDelSaldo(int disponibles) =>
+        disponibles <= 0 ? "var(--rz-danger)"
+        : disponibles <= 3 ? "var(--rz-warning)"
+        : "var(--rz-success)";
+
+    private static long Megas(MisVacacionesDto d) => d.MaxRespaldoBytes / (1024 * 1024);
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

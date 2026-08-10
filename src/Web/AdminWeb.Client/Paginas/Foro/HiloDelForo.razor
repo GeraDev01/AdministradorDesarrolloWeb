@@ -1,0 +1,527 @@
+@page "/foro/{Id:int}"
+@using AdminWeb.Shared.Dtos.Foro
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+@inject EstadoSesion Sesion
+@inject NavigationManager Navegacion
+
+@*
+    Un hilo del foro: la publicación arriba y debajo sus comentarios anidados, cada uno sangrado
+    según a qué responde y los hermanos por fecha. Es lo que hace que una conversación se lea como
+    una conversación y no como una lista suelta de mensajes.
+
+    La sangría se corta a los cinco niveles —más allá se va al margen derecho y deja de leerse—, y el
+    corte lo aplica el servidor: aquí solo se multiplica el nivel que llega.
+
+    En el escritorio el hilo era un diálogo modal; aquí es una dirección propia (/foro/17), así que
+    se puede compartir el enlace de una conversación y funciona el botón de atrás.
+
+    ── LO QUE SE PUEDE HACER, Y DÓNDE SE DECIDE ───────────────────────────────────────────────────
+
+    Se responde a cualquier entrada viva, se pone y se quita el ❤, y sobre lo propio se puede editar
+    y retirar. Los botones aparecen o no según lo que llega en el DTO (EsMia, Retirada, Cerrada) y
+    según el rol leído de la sesión, pero eso es COMODIDAD: esta pantalla corre en la máquina de cada
+    quien y se puede manipular. Quien decide de verdad es ForumService, que vuelve a comprobar el
+    autor, el rol y si el hilo está cerrado contra la fila de la base.
+
+    ── EL CUERPO SE PINTA COMO TEXTO ──────────────────────────────────────────────────────────────
+
+    Lo escribe cualquiera con sesión y lo leen todos los demás. Se emite con CuerpoDeForo, que lo
+    saca como TEXTO y construye los enlaces desde los trozos que ya validó el servidor. Nada de
+    MarkupString ni de innerHTML aquí dentro: sería un XSS almacenado para todo el equipo.
+*@
+
+<PageTitle>@(_hilo?.Titulo is { Length: > 0 } t ? t : "Hilo del foro")</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <div>
+        <RadzenButton Text="← Volver al muro" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                      Click="@(() => Navegacion.NavigateTo("foro"))" />
+    </div>
+
+    @if (_cargando)
+    {
+        <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" />
+    }
+    else if (_hilo == null)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Warning" AllowClose="false">
+            Esa publicación ya no existe. Vuelve al muro y actualiza.
+        </RadzenAlert>
+    }
+    else
+    {
+        <RadzenText TextStyle="TextStyle.H5" Style="margin:0">
+            @_hilo.TemaIcono @(_hilo.Fijada ? "📌 " : "")@_hilo.Titulo
+        </RadzenText>
+
+        <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
+            @_hilo.TemaEtiqueta
+            &nbsp;·&nbsp; 💬 @_hilo.Comentarios comentario(s)
+            @if (_hilo.Cerrada)
+            {
+                <text>&nbsp;·&nbsp; 🔒 cerrado: el hilo se lee, pero ya no admite comentarios</text>
+            }
+            @if (!string.IsNullOrWhiteSpace(_hilo.Etiquetas))
+            {
+                <text>&nbsp;·&nbsp; @_hilo.Etiquetas</text>
+            }
+        </RadzenText>
+
+        @foreach (var e in _hilo.Entradas)
+        {
+            @* @key para que Blazor no reaproveche una tarjeta —ni el recuadro de pegar imágenes que
+               lleva dentro— entre entradas distintas al reordenarse el hilo. *@
+            @* La sangría por nivel es lo que enseña de qué cuelga cada respuesta. *@
+            <div @key="e.Id" style="@Sangria(e.Nivel)">
+                <RadzenCard Style="@(e.EsPublicacion ? "border-left:4px solid var(--rz-primary, #2563eb)" : null)">
+                    <RadzenStack Gap="0.35rem">
+                        <RadzenText TextStyle="TextStyle.Caption" Style="margin:0"
+                                    title="@TiempoDelForo.Fecha(e.CreadaUtc)">
+                            🧑 @e.Autor
+                            &nbsp;·&nbsp; @TiempoDelForo.HaceCuanto(e.CreadaUtc)
+                            @if (e.EditadaUtc != null)
+                            {
+                                @* Un foro auditable no edita en silencio: queda la marca. *@
+                                <text>&nbsp;·&nbsp; (editado)</text>
+                            }
+                            @if (e.Retirada)
+                            {
+                                <text>&nbsp;·&nbsp; 🗑 retirada</text>
+                            }
+                        </RadzenText>
+
+                        @if (_editando == e.Id)
+                        {
+                            @* ── Editar ───────────────────────────────────────────────── *@
+                            @if (e.EsPublicacion)
+                            {
+                                <RadzenTextBox @bind-Value="_tituloEdicion" MaxLength="200" Style="width:100%"
+                                               aria-label="Título" Placeholder="Título" />
+                            }
+
+                            <RadzenTextArea @bind-Value="_cuerpoEdicion" Rows="5" MaxLength="20000"
+                                            Style="width:100%" aria-label="Texto de la entrada" />
+
+                            @if (ImagenesDe(e.Id) is { Count: > 0 } actuales)
+                            {
+                                <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
+                                    Capturas que ya tiene — marca las que quieras quitar:
+                                </RadzenText>
+                                <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.5rem">
+                                    @foreach (var img in actuales)
+                                    {
+                                        <RadzenStack Gap="0.2rem" AlignItems="AlignItems.Center">
+                                            <img src="@Original(img)" alt="@img.Nombre" style="@EstiloMiniatura(img)" />
+                                            <RadzenStack Orientation="Orientation.Horizontal"
+                                                         AlignItems="AlignItems.Center" Gap="0.3rem">
+                                                <RadzenCheckBox TValue="bool" Name="@($"quitar_{img.Id}")"
+                                                                Value="@_quitarImagenes.Contains(img.Id)"
+                                                                ValueChanged="@((bool v) => MarcarParaQuitar(img.Id, v))" />
+                                                <RadzenLabel Text="Quitar" Component="@($"quitar_{img.Id}")" />
+                                            </RadzenStack>
+                                        </RadzenStack>
+                                    }
+                                </RadzenStack>
+                            }
+
+                            <PegarImagen @bind-Imagenes="_imagenesEdicion"
+                                         Maximo="@MaxImagenes" MaxBytes="@MaxBytesImagen" />
+
+                            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                                <RadzenButton Text="Guardar" ButtonStyle="ButtonStyle.Primary"
+                                              Size="ButtonSize.Small" Disabled="@_ocupado"
+                                              Click="@(() => GuardarEdicionAsync(e))" />
+                                <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                                              Size="ButtonSize.Small" Disabled="@_ocupado"
+                                              Click="@CancelarEdicion" />
+                            </RadzenStack>
+                        }
+                        else
+                        {
+                            @if (e.Cuerpo.Count > 0)
+                            {
+                                @* El cuerpo se pinta como TEXTO y los enlaces se construyen desde los
+                                   trozos que ya validó el servidor. Véase CuerpoDeForo: es el punto
+                                   donde se decide que una publicación no pueda ejecutar código en el
+                                   navegador de quien la lee. *@
+                                <CuerpoDeForo Segmentos="@e.Cuerpo"
+                                              Estilo="@(e.Retirada ? "font-style:italic;opacity:.7" : null)" />
+                            }
+
+                            @if (ImagenesDe(e.Id) is { Count: > 0 } capturas)
+                            {
+                                @* Los bytes NO viajan en el DTO del hilo: se piden a
+                                   /api/adjuntos/foro/{id}, que ya los sirve con el tipo deducido de
+                                   los propios bytes y con nosniff. Así el navegador las cachea en vez
+                                   de rebajárselas enteras cada vez que alguien comenta. *@
+                                <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.5rem">
+                                    @foreach (var img in capturas)
+                                    {
+                                        <a href="@Original(img)" target="_blank" rel="noopener noreferrer"
+                                           title="@Titulo(img)">
+                                            <img src="@Original(img)" alt="@img.Nombre" style="@EstiloMiniatura(img)" />
+                                        </a>
+                                    }
+                                </RadzenStack>
+                            }
+                        }
+
+                        @* ── Acciones ──────────────────────────────────────────────────── *@
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                     Wrap="FlexWrap.Wrap" Gap="0.4rem">
+                            <RadzenButton Text="@($"{(e.YoDiMeGusta ? "❤" : "♡")}  {e.MeGusta}")"
+                                          ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                          Disabled="@(_ocupado || e.Retirada)"
+                                          title="@(e.YoDiMeGusta ? "Quitar tu me gusta" : "Me gusta")"
+                                          Click="@(() => MeGustaAsync(e))" />
+
+                            @if (!e.Retirada && !_hilo.Cerrada && _editando != e.Id)
+                            {
+                                <RadzenButton Text="↩ Responder" ButtonStyle="ButtonStyle.Light"
+                                              Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                              Click="@(() => Responder(e.Id))" />
+                            }
+
+                            @if (e.EsMia && !e.Retirada && _editando != e.Id)
+                            {
+                                <RadzenButton Text="✏ Editar" ButtonStyle="ButtonStyle.Light"
+                                              Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                              Click="@(() => Editar(e))" />
+                            }
+
+                            @* El administrador puede retirar cualquier cosa: alguien tiene que poder
+                               parar un hilo que se descarrila. El botón se le enseña por comodidad;
+                               quien lo permite de verdad es el servicio. *@
+                            @if (!e.Retirada && (e.EsMia || _esAdmin))
+                            {
+                                <RadzenButton Text="🗑 Retirar" ButtonStyle="ButtonStyle.Light"
+                                              Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                              Click="@(() => RetirarAsync(e))" />
+                            }
+                        </RadzenStack>
+
+                        @* ── Responder a esta entrada ──────────────────────────────────── *@
+                        @if (_respondiendoA == e.Id)
+                        {
+                            <RadzenCard Style="background:var(--rz-base-background-color)">
+                                <RadzenStack Gap="0.5rem">
+                                    <RadzenTextArea @bind-Value="_textoComentario" Rows="4" MaxLength="20000"
+                                                    Style="width:100%" aria-label="Tu comentario"
+                                                    Placeholder="Tu respuesta. Una captura sola también vale." />
+
+                                    <PegarImagen @bind-Imagenes="_imagenesComentario"
+                                                 Maximo="@MaxImagenes" MaxBytes="@MaxBytesImagen" />
+
+                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                                        <RadzenButton Text="Comentar" ButtonStyle="ButtonStyle.Primary"
+                                                      Size="ButtonSize.Small" Disabled="@_ocupado"
+                                                      Click="@(() => ComentarAsync(e.Id))" />
+                                        <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                                                      Size="ButtonSize.Small" Disabled="@_ocupado"
+                                                      Click="@CancelarComentario" />
+                                    </RadzenStack>
+                                </RadzenStack>
+                            </RadzenCard>
+                        }
+                    </RadzenStack>
+                </RadzenCard>
+            </div>
+        }
+
+        @if (_hilo.Cerrada)
+        {
+            <RadzenAlert AlertStyle="AlertStyle.Info" AllowClose="false">
+                El hilo está cerrado: se lee, pero ya no admite comentarios.
+            </RadzenAlert>
+        }
+        else if (_respondiendoA == null)
+        {
+            <div>
+                <RadzenButton Text="↩  Comentar en el hilo" ButtonStyle="ButtonStyle.Primary"
+                              Size="ButtonSize.Small" Disabled="@(_ocupado || _hilo.Retirada)"
+                              Click="@(() => Responder(_hilo.Id))" />
+            </div>
+        }
+
+        <RadzenText TextStyle="TextStyle.Caption">
+            Nada se borra: una entrada retirada conserva su hueco en la conversación —si desapareciera, las
+            respuestas que le contestan dejarían de tener sentido—, pero su texto ya no se muestra.
+        </RadzenText>
+    }
+</RadzenStack>
+
+@code {
+    [Parameter]
+    public int Id { get; set; }
+
+    /// <summary>
+    /// Los topes de las imágenes, repetidos aquí porque el cliente no ve las constantes de
+    /// <c>ForumService</c> (el navegador solo referencia Shared, que no depende de nada). Sirven para
+    /// avisar ANTES de subir cinco megas para nada; el tope que cuenta lo aplica el servidor.
+    /// </summary>
+    private const int MaxImagenes = 6;
+    private const long MaxBytesImagen = 4L * 1024 * 1024;
+
+    private ForoHiloDto? _hilo;
+    private bool _cargando = true, _ocupado, _esAdmin;
+
+    /// <summary>Las capturas de todas las entradas del hilo, pedidas de una vez.</summary>
+    private IReadOnlyList<ForoImagenDto> _imagenes = [];
+
+    // Responder
+    private int? _respondiendoA;
+    private string _textoComentario = "";
+    private List<ImagenAdjunta> _imagenesComentario = [];
+
+    // Editar
+    private int? _editando;
+    private string _tituloEdicion = "", _cuerpoEdicion = "";
+    private List<ImagenAdjunta> _imagenesEdicion = [];
+    private readonly HashSet<int> _quitarImagenes = [];
+
+    /// <summary>
+    /// Cuánto se sangra una respuesta. En pantallas estrechas la sangría se queda corta a propósito:
+    /// mejor perder algo de jerarquía que empujar el texto fuera de la vista.
+    ///
+    /// La medida va en píxeles ENTEROS y no en rem con decimales por un motivo nada obvio: el
+    /// separador decimal lo pone la cultura del navegador, y en es-MX un «1,75rem» sería una regla
+    /// CSS inválida que el navegador tira sin avisar.
+    /// </summary>
+    private static string Sangria(int nivel) =>
+        nivel <= 0 ? "" : $"margin-left:min({nivel * 28}px, 30vw)";
+
+    /// <summary>
+    /// Se recarga en OnParametersSetAsync y no en OnInitializedAsync: navegar de un hilo a otro
+    /// reutiliza el componente, y con la inicialización se quedaría mostrando el hilo anterior.
+    /// </summary>
+    protected override async Task OnParametersSetAsync()
+    {
+        // Al entrar por una dirección compartida la sesión puede no estar leída todavía.
+        var usuario = Sesion.Usuario ?? await Sesion.RefrescarAsync();
+        _esAdmin = usuario?.Rol == UserRole.Admin;
+
+        _cargando = true;
+        CerrarFormularios();
+        await CargarAsync();
+        _cargando = false;
+    }
+
+    private async Task CargarAsync()
+    {
+        _hilo = await Api.LeerAsync<ForoHiloDto>($"api/foro/hilos/{Id}");
+        _imagenes = [];
+        if (_hilo == null) return;
+
+        // Una sola llamada para todo el hilo: una por entrada convertiría una conversación con diez
+        // capturas repartidas en diez peticiones más.
+        var conCapturas = _hilo.Entradas.Where(e => e.Imagenes > 0).Select(e => e.Id).ToList();
+        if (conCapturas.Count == 0) return;
+
+        _imagenes = await Api.LeerAsync<List<ForoImagenDto>>(
+            "api/foro/imagenes?entradas=" + string.Join(",", conCapturas)) ?? [];
+    }
+
+    private List<ForoImagenDto> ImagenesDe(int entradaId) =>
+        _imagenes.Where(i => i.EntradaId == entradaId).ToList();
+
+    // ── Acciones ─────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Pone o quita el ❤ y se queda con el total que devuelve el servidor, sin recargar el hilo: es
+    /// la acción que más se pulsa y volver a traer la conversación entera por un contador sería
+    /// mover mucho para cambiar un número.
+    ///
+    /// El total NO se suma en pantalla: se usa el que llega. Si dos personas pulsan a la vez, el
+    /// número calculado aquí quedaría distinto del real y ya no se corregiría solo.
+    /// </summary>
+    private async Task MeGustaAsync(ForoEntradaDto entrada)
+    {
+        if (_hilo == null) return;
+
+        _ocupado = true;
+        try
+        {
+            var (ok, voto) = await Api.EnviarAsync<object?, ForoMeGustaDto>(
+                $"api/foro/entradas/{entrada.Id}/me-gusta", null);
+            if (!ok || voto == null) return;
+
+            _hilo = _hilo with
+            {
+                Entradas = _hilo.Entradas
+                    .Select(x => x.Id == entrada.Id
+                        ? x with { MeGusta = voto.Total, YoDiMeGusta = voto.YoDiMeGusta }
+                        : x)
+                    .ToList()
+            };
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    private void Responder(int entradaId)
+    {
+        CerrarFormularios();
+        _respondiendoA = entradaId;
+    }
+
+    private void CancelarComentario() => CerrarFormularios();
+
+    private async Task ComentarAsync(int entradaId)
+    {
+        _ocupado = true;
+        try
+        {
+            var formulario = new MultipartFormDataContent
+            {
+                { new StringContent(_textoComentario), "cuerpo" }
+            };
+            EnvioDeImagenes.Adjuntar(formulario, _imagenesComentario);
+
+            var (ok, resultado) = await Api.SubirAsync<ResultadoDto>(
+                $"api/foro/entradas/{entradaId}/comentarios", formulario);
+            if (!ok) return;
+
+            if (resultado != null) Avisos.Exito(resultado.Mensaje);
+            CerrarFormularios();
+            await CargarAsync();
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    private void Editar(ForoEntradaDto entrada)
+    {
+        CerrarFormularios();
+        _editando = entrada.Id;
+        _tituloEdicion = entrada.Titulo ?? "";
+
+        // El cuerpo se rearma desde los trozos, que es lo único que llega: el original en crudo no
+        // sale del servidor. Un enlace con etiqueta se devuelve a su forma [texto](url) porque en el
+        // trozo solo viene el texto visible, y guardar eso tal cual perdería la dirección. Una
+        // dirección escrita a pelo se deja como está: envolverla la convertiría en [https://…](https://…).
+        _cuerpoEdicion = string.Concat(entrada.Cuerpo.Select(s =>
+            s.Url is null || EsUnaDireccion(s.Texto) ? s.Texto : $"[{s.Texto}]({s.Url})"));
+    }
+
+    /// <summary>¿El texto visible del trozo era ya la dirección, en vez de una etiqueta que la tapa?</summary>
+    private static bool EsUnaDireccion(string texto) =>
+        texto.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+        || texto.StartsWith("www.", StringComparison.OrdinalIgnoreCase);
+
+    private void CancelarEdicion() => CerrarFormularios();
+
+    private void MarcarParaQuitar(int imagenId, bool quitar)
+    {
+        if (quitar) _quitarImagenes.Add(imagenId);
+        else _quitarImagenes.Remove(imagenId);
+    }
+
+    private async Task GuardarEdicionAsync(ForoEntradaDto entrada)
+    {
+        _ocupado = true;
+        try
+        {
+            var formulario = new MultipartFormDataContent
+            {
+                { new StringContent(_tituloEdicion), "titulo" },
+                { new StringContent(_cuerpoEdicion), "cuerpo" },
+                { new StringContent(string.Join(",", _quitarImagenes)), "quitar" }
+            };
+            EnvioDeImagenes.Adjuntar(formulario, _imagenesEdicion);
+
+            var (ok, resultado) = await Api.SubirAsync<ResultadoDto>(
+                $"api/foro/entradas/{entrada.Id}/editar", formulario);
+            if (!ok) return;
+
+            if (resultado != null) Avisos.Exito(resultado.Mensaje);
+            CerrarFormularios();
+            await CargarAsync();
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    /// <summary>
+    /// Retirar pide confirmación y editar no, por la misma razón por la que la salida de la jornada
+    /// la pide y la entrada no: una edición se vuelve a editar, pero retirar sustituye el texto por
+    /// el aviso y ya no hay forma de recuperarlo desde la aplicación.
+    /// </summary>
+    private async Task RetirarAsync(ForoEntradaDto entrada)
+    {
+        if (!await Avisos.ConfirmarAsync(
+            entrada.EsPublicacion
+                ? "¿Retirar esta publicación? Su texto y sus capturas dejan de verse; el hilo conserva el hueco."
+                : "¿Retirar este comentario? Su texto y sus capturas dejan de verse; el hilo conserva el hueco.",
+            "Retirar", "Sí, retirar"))
+            return;
+
+        _ocupado = true;
+        try
+        {
+            var (ok, resultado) = await Api.EnviarAsync<object?, ResultadoDto>(
+                $"api/foro/entradas/{entrada.Id}/retirar", null);
+            if (!ok) return;
+
+            if (resultado != null) Avisos.Exito(resultado.Mensaje);
+            CerrarFormularios();
+            await CargarAsync();
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    /// <summary>
+    /// Deja la pantalla sin ningún formulario abierto. Se llama antes de abrir cualquiera para que no
+    /// queden dos a la vez: con el de responder y el de editar abiertos en entradas distintas, no
+    /// habría forma de saber a cuál de los dos pertenecen las imágenes que se acaban de pegar.
+    /// </summary>
+    private void CerrarFormularios()
+    {
+        _respondiendoA = null;
+        _textoComentario = "";
+        _imagenesComentario = [];
+
+        _editando = null;
+        _tituloEdicion = "";
+        _cuerpoEdicion = "";
+        _imagenesEdicion = [];
+        _quitarImagenes.Clear();
+    }
+
+    // ── Capturas ─────────────────────────────────────────────────────────────
+
+    private static string Original(ForoImagenDto imagen) => $"api/adjuntos/foro/{imagen.Id}";
+
+    private static string Titulo(ForoImagenDto imagen) =>
+        imagen.Ancho > 0 && imagen.Alto > 0
+            ? $"{imagen.Nombre} ({imagen.Ancho}×{imagen.Alto}) — se abre en otra pestaña"
+            : $"{imagen.Nombre} — se abre en otra pestaña";
+
+    /// <summary>
+    /// La captura recortada a un tamaño de vista previa. Las medidas reales van en
+    /// <c>aspect-ratio</c> para que el hueco esté reservado antes de que la imagen llegue: sin eso,
+    /// el hilo entero da un salto cuando termina de cargar y quien estaba leyendo pierde la línea.
+    ///
+    /// Los números se escriben con la cultura invariante: en es-MX el separador decimal es la coma y
+    /// una regla CSS con coma la descarta el navegador sin avisar.
+    /// </summary>
+    private static string EstiloMiniatura(ForoImagenDto imagen)
+    {
+        const string Base = "max-width:260px;max-height:220px;border-radius:4px;display:block";
+        return imagen.Ancho > 0 && imagen.Alto > 0
+            ? $"{Base};aspect-ratio:{Invariante(imagen.Ancho)}/{Invariante(imagen.Alto)};object-fit:contain"
+            : Base;
+    }
+
+    private static string Invariante(int valor) =>
+        valor.ToString(System.Globalization.CultureInfo.InvariantCulture);
+}

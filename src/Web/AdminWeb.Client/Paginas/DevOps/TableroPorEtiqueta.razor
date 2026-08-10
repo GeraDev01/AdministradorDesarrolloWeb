@@ -1,0 +1,215 @@
+@page "/devops-tags"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Shared.Dtos.DevOps
+@implements IDisposable
+@inject ClienteApi Api
+@inject Descargas Descargas
+
+@*
+    Tablero por ETIQUETA de los tickets de Azure DevOps: qué cliente o categoría acumula más bugs,
+    tareas y solicitudes.
+
+    Se apoya en las etiquetas del work item («Bepensa», «Bug», «Soporte»…) sobre lo YA sincronizado:
+    no habla con DevOps, así que abrir esta pantalla nunca depende de que la integración responda.
+
+    Lo que se conserva del escritorio:
+
+      · Se puede «entrar» a una etiqueta para ver el desglose DENTRO de ella. La etiqueta en la que
+        se entra no se lista a sí misma: dentro de «Bepensa» todos los tickets son de Bepensa y
+        contarlo no diría nada.
+      · Un ticket con tres etiquetas suma una fila en cada una —por eso la suma de la columna
+        «Tickets» puede pasar del total—, pero los indicadores de arriba cuentan por TICKET, que es
+        lo que se quiere saber cuando uno pregunta «¿cuántos bugs tiene este cliente?».
+      · Aquí «cerrado» incluye «resolved», a diferencia del resto de la aplicación: esta pantalla
+        cuenta trabajo pendiente de ATENDER, y algo resuelto ya no lo está.
+
+    Lo que cambia: la exportación va a hoja de cálculo en vez de a CSV, como el resto de la
+    aplicación; el navegador la descarga sin diálogo de «guardar como».
+*@
+
+<PageTitle>DevOps por etiqueta</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.75rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">DevOps por etiqueta</RadzenText>
+        <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
+        <RadzenButton Text="⬇ Exportar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                      Disabled="@_ocupado" Click="@(() => Descargas.DesdeApiAsync(RutaDeExportacion()))" />
+    </RadzenStack>
+
+    <RadzenCard>
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                     Gap="0.75rem" Wrap="FlexWrap.Wrap">
+            <RadzenLabel Text="Entrar a la etiqueta:" Component="etiqueta" />
+            <RadzenDropDown TValue="string" @bind-Value="_dentroDe" Name="etiqueta"
+                            Data="@Etiquetas" AllowClear="true" AllowFiltering="true"
+                            Placeholder="(todas las etiquetas)" Disabled="@_ocupado"
+                            Change="@(_ => Cargar())" Style="min-width:16rem" />
+
+            <RadzenCheckBox TValue="bool" @bind-Value="_soloAbiertos" Name="abiertos"
+                            Change="@(_ => Cargar())" Disabled="@_ocupado" />
+            <RadzenLabel Text="Solo abiertos" Component="abiertos" />
+
+            <RadzenLabel Text="Ordenar por:" Component="orden" />
+            <RadzenDropDown TValue="string" @bind-Value="_orden" Name="orden" Data="@Ordenes"
+                            Change="@(_ => RecalcularFilas())" Style="min-width:10rem" />
+
+            <RadzenTextBox @bind-Value="_buscar" Placeholder="Buscar etiqueta…"
+                           Change="@(_ => RecalcularFilas())" Style="min-width:12rem" />
+        </RadzenStack>
+    </RadzenCard>
+
+    @* Los indicadores cuentan por TICKET, no por etiqueta: es la única forma de que «bugs» signifique
+       lo que la gente entiende al preguntarlo. *@
+    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+        @foreach (var (etiqueta, valor, color) in Indicadores())
+        {
+            <RadzenCard Style="@($"min-width:9rem;border-left:4px solid {color}")">
+                <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0" Style="@($"color:{color}")">@valor</RadzenText>
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@etiqueta</RadzenText>
+            </RadzenCard>
+        }
+    </RadzenStack>
+
+    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@(_datos?.Resumen ?? "")</RadzenText>
+
+    <RadzenDataGrid TItem="FilaPorEtiquetaDto" Data="@_filas" IsLoading="@_ocupado"
+                    AllowSorting="true" AllowPaging="true" PageSize="25"
+                    EmptyText="No hay tickets sincronizados con etiquetas.">
+        <Columns>
+            <RadzenDataGridColumn TItem="FilaPorEtiquetaDto" Property="Etiqueta" Title="Etiqueta" Width="260px">
+                <Template Context="f">
+                    @* Pulsar la etiqueta es «entrar» a ella: es el gesto que la gente intenta primero,
+                       y el desplegable de arriba sigue estando para salir. *@
+                    <a href="" @onclick="@(() => Entrar(f.Etiqueta))" @onclick:preventDefault>@f.Etiqueta</a>
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="FilaPorEtiquetaDto" Property="Total" Title="Tickets"
+                                  Width="100px" TextAlign="TextAlign.Right" />
+            <RadzenDataGridColumn TItem="FilaPorEtiquetaDto" Property="Abiertos" Title="Abiertos"
+                                  Width="100px" TextAlign="TextAlign.Right" />
+            <RadzenDataGridColumn TItem="FilaPorEtiquetaDto" Property="Bugs" Title="Bugs"
+                                  Width="90px" TextAlign="TextAlign.Right">
+                <Template Context="f">
+                    <span style="@(f.Bugs > 0 ? "color:#DC2626" : "")">@f.Bugs</span>
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="FilaPorEtiquetaDto" Property="Tareas" Title="Tareas"
+                                  Width="90px" TextAlign="TextAlign.Right" />
+            <RadzenDataGridColumn TItem="FilaPorEtiquetaDto" Property="UserStories" Title="User Stories"
+                                  Width="120px" TextAlign="TextAlign.Right" />
+            <RadzenDataGridColumn TItem="FilaPorEtiquetaDto" Property="Otros" Title="Otros"
+                                  Width="90px" TextAlign="TextAlign.Right" />
+        </Columns>
+    </RadzenDataGrid>
+</RadzenStack>
+
+@code {
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private TableroPorEtiquetaDto? _datos;
+    private bool _ocupado;
+
+    private string? _dentroDe;
+    private bool _soloAbiertos;
+    private string _buscar = "";
+    private string _orden = "Total";
+
+    private static readonly IReadOnlyList<string> Ordenes =
+        ["Total", "Abiertos", "Bugs", "Tareas", "User Stories"];
+
+    private IReadOnlyList<string> Etiquetas => _datos?.Etiquetas ?? [];
+
+    /// <summary>
+    /// Lo que recibe la rejilla. La búsqueda y el orden se resuelven aquí y no en el servidor: se
+    /// aplican sobre unas decenas de filas ya calculadas, y hacer un viaje de red por cada letra
+    /// tecleada sería absurdo.
+    ///
+    /// Va en un campo y no en una propiedad porque la rejilla considera que le cambiaron los datos
+    /// cuando recibe otra LISTA: devolver una nueva en cada repintado le borraría el orden y la
+    /// página en la que estuviera cada vez que algo de la pantalla cambia.
+    /// </summary>
+    private IReadOnlyList<FilaPorEtiquetaDto> _filas = [];
+
+    private void RecalcularFilas()
+    {
+        IEnumerable<FilaPorEtiquetaDto> filas = _datos?.Filas ?? [];
+
+        var buscar = _buscar.Trim();
+        if (buscar.Length > 0)
+            filas = filas.Where(f => f.Etiqueta.Contains(buscar, StringComparison.CurrentCultureIgnoreCase));
+
+        // El desempate por nombre va aparte para que dos etiquetas con el mismo número no bailen de
+        // sitio entre repintados.
+        IOrderedEnumerable<FilaPorEtiquetaDto> ordenadas = _orden switch
+        {
+            "Abiertos" => filas.OrderByDescending(f => f.Abiertos),
+            "Bugs" => filas.OrderByDescending(f => f.Bugs),
+            "Tareas" => filas.OrderByDescending(f => f.Tareas),
+            "User Stories" => filas.OrderByDescending(f => f.UserStories),
+            _ => filas.OrderByDescending(f => f.Total)
+        };
+
+        _filas = ordenadas.ThenBy(f => f.Etiqueta, StringComparer.CurrentCultureIgnoreCase).ToList();
+    }
+
+    protected override async Task OnInitializedAsync() => await Cargar();
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            var filtros = new List<string> { $"soloAbiertos={_soloAbiertos.ToString().ToLowerInvariant()}" };
+            if (!string.IsNullOrWhiteSpace(_dentroDe))
+                filtros.Add($"dentroDe={Uri.EscapeDataString(_dentroDe)}");
+
+            _datos = await Api.LeerAsync<TableroPorEtiquetaDto>(
+                "api/devops/etiquetas?" + string.Join("&", filtros), _cancelacion.Token);
+
+            // El servidor manda cuál etiqueta quedó filtrada: si la que se pidió ya no existe (se
+            // renombró en DevOps y se re-sincronizó), la ignora, y la pantalla tiene que enterarse.
+            _dentroDe = _datos?.DentroDe;
+
+            RecalcularFilas();
+        }
+        finally { _ocupado = false; }
+    }
+
+    private Task Entrar(string etiqueta)
+    {
+        _dentroDe = etiqueta;
+        return Cargar();
+    }
+
+    private string RutaDeExportacion()
+    {
+        var filtros = new List<string> { $"soloAbiertos={_soloAbiertos.ToString().ToLowerInvariant()}" };
+        if (!string.IsNullOrWhiteSpace(_dentroDe))
+            filtros.Add($"dentroDe={Uri.EscapeDataString(_dentroDe)}");
+
+        return "api/devops/etiquetas/exportar?" + string.Join("&", filtros);
+    }
+
+    private IReadOnlyList<(string, string, string)> Indicadores()
+    {
+        var d = _datos;
+        var titulo = string.IsNullOrWhiteSpace(_dentroDe) ? "Tickets" : $"Tickets «{_dentroDe}»";
+
+        return
+        [
+            (titulo, (d?.TicketsDelSubconjunto ?? 0).ToString(), "#2563EB"),
+            ("Bugs", (d?.Bugs ?? 0).ToString(), "#DC2626"),
+            ("Tareas", (d?.Tareas ?? 0).ToString(), "#D97706"),
+            ("User Stories", (d?.UserStories ?? 0).ToString(), "#8B5CF6"),
+            ("Etiquetas distintas", _filas.Count.ToString(), "#64748B"),
+        ];
+    }
+
+    public void Dispose()
+    {
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

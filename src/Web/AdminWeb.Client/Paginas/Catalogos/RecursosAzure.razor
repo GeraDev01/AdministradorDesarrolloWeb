@@ -1,0 +1,337 @@
+@page "/recursos-azure"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Client.Componentes
+@using AdminWeb.Shared.Dtos
+@using AdminWeb.Shared.Dtos.Catalogos
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+
+@*
+    El inventario de recursos de Azure: alta y edición.
+
+    Es un inventario A MANO, no un espejo de la suscripción: dice lo que el área anotó, y por eso
+    conserva las notas y la estimación de costo tal cual se capturaron. La aplicación no consulta a
+    Azure ni presume de estar al día — y por eso mismo tiene sentido poder editarlo aquí.
+
+    No hay baja, igual que en el escritorio: un recurso que se dio por terminado se marca con el
+    estado que le corresponde y se queda, porque su costo pasado sigue explicando la factura.
+*@
+
+<PageTitle>Recursos Azure</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
+        <RadzenText TextStyle="TextStyle.H5" Style="margin:0">Recursos Azure</RadzenText>
+        @if (_costoTotal > 0)
+        {
+            <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
+                Costo mensual estimado de lo que se ve: @_costoTotal.ToString("C2")
+            </RadzenText>
+        }
+    </RadzenStack>
+
+    <RadzenCard>
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                     Gap="1rem" Wrap="FlexWrap.Wrap">
+            <RadzenTextBox @bind-Value="_texto" Placeholder="Buscar por nombre, grupo, notas o URL…"
+                           Change="@(_ => Buscar())" Style="min-width:20rem" />
+
+            <RadzenDropDown TValue="AzureResourceType?" @bind-Value="_tipo" Data="@Tipos"
+                            TextProperty="Texto" ValueProperty="Valor" AllowClear="true"
+                            Placeholder="Todos los tipos" Change="@(_ => Buscar())"
+                            Style="min-width:13rem" />
+
+            <RadzenDropDown TValue="AzureResourceStatus?" @bind-Value="_estado" Data="@Estados"
+                            TextProperty="Texto" ValueProperty="Valor" AllowClear="true"
+                            Placeholder="Todos los estados" Change="@(_ => Buscar())"
+                            Style="min-width:12rem" />
+
+            <RadzenDropDown TValue="AzureEnvironment?" @bind-Value="_ambiente" Data="@Ambientes"
+                            TextProperty="Texto" ValueProperty="Valor" AllowClear="true"
+                            Placeholder="Todos los ambientes" Change="@(_ => Buscar())"
+                            Style="min-width:12rem" />
+
+            <SelectorDeColumnas Clave="recursos-azure" Columnas="@TodasLasColumnas"
+                                OcultasCambiaron="@(o => _ocultas = o)" />
+
+            <RadzenText TextStyle="TextStyle.Caption" Style="margin:0 0 0 auto">
+                @_filas.Count recurso(s)
+            </RadzenText>
+        </RadzenStack>
+    </RadzenCard>
+
+    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+        <RadzenButton Text="➕ Nuevo" Disabled="@_ocupado" Click="@AbrirNuevo" />
+        <RadzenButton Text="✏ Editar" ButtonStyle="ButtonStyle.Light" Disabled="@(_ocupado || _elegido is null)"
+                      Click="@AbrirEdicion" />
+    </RadzenStack>
+
+    @if (_capturando)
+    {
+        <RadzenCard>
+            <RadzenStack Gap="0.75rem">
+                <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                    @(_id is null ? "Nuevo recurso" : $"Editar «{_nombreOriginal}»")
+                </RadzenText>
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap">
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Nombre" Component="nombreRec" />
+                        <RadzenTextBox @bind-Value="_nombre" Name="nombreRec" MaxLength="150"
+                                       Style="width:18rem" />
+                    </RadzenStack>
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Tipo" Component="tipoRec" />
+                        <RadzenDropDown TValue="AzureResourceType" @bind-Value="_tipoEdicion" Name="tipoRec"
+                                        Data="@TiposEdicion" TextProperty="Texto" ValueProperty="Valor"
+                                        Style="width:14rem" />
+                    </RadzenStack>
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Estado" Component="estRec" />
+                        <RadzenDropDown TValue="AzureResourceStatus" @bind-Value="_estEdicion" Name="estRec"
+                                        Data="@EstadosEdicion" TextProperty="Texto" ValueProperty="Valor"
+                                        Style="width:12rem" />
+                    </RadzenStack>
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Ambiente" Component="ambRec" />
+                        <RadzenDropDown TValue="AzureEnvironment" @bind-Value="_ambEdicion" Name="ambRec"
+                                        Data="@AmbientesEdicion" TextProperty="Texto" ValueProperty="Valor"
+                                        Style="width:12rem" />
+                    </RadzenStack>
+                </RadzenStack>
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap">
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Resource Group" Component="grupoRec" />
+                        <RadzenTextBox @bind-Value="_grupo" Name="grupoRec" MaxLength="120"
+                                       Style="width:15rem" />
+                    </RadzenStack>
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Suscripción" Component="susRec" />
+                        <RadzenTextBox @bind-Value="_suscripcion" Name="susRec" MaxLength="120"
+                                       Style="width:15rem" />
+                    </RadzenStack>
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Región" Component="regRec" />
+                        <RadzenTextBox @bind-Value="_region" Name="regRec" MaxLength="60"
+                                       Style="width:10rem" />
+                    </RadzenStack>
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Costo mensual estimado" Component="costoRec" />
+                        <RadzenNumeric TValue="decimal?" @bind-Value="_costo" Name="costoRec" Min="0"
+                                       Format="C2" Style="width:11rem" />
+                    </RadzenStack>
+                </RadzenStack>
+
+                <RadzenTextBox @bind-Value="_url" MaxLength="500" Style="width:100%"
+                               Placeholder="URL del recurso en el portal (opcional)" />
+                <RadzenTextArea @bind-Value="_notas" Rows="2" Style="width:100%"
+                                Placeholder="Notas (opcional)" />
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                    <RadzenButton Text="Guardar" Disabled="@_ocupado" Click="@Guardar" />
+                    <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+                                  Click="@(() => _capturando = false)" />
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    }
+
+    <RadzenDataGrid TItem="RecursoAzureDto" Data="@_filas" IsLoading="@_cargando"
+                    AllowSorting="true" AllowPaging="true" PageSize="25"
+                    SelectionMode="DataGridSelectionMode.Single" @bind-Value="@_seleccion"
+                    RowDoubleClick="@(_ => AbrirEdicion())"
+                    EmptyText="No hay recursos que cumplan el filtro.">
+        <Columns>
+            <RadzenDataGridColumn TItem="RecursoAzureDto" Property="Id" Title="ID" Width="70px"
+                                  Visible="@Ver("ID")" />
+            <RadzenDataGridColumn TItem="RecursoAzureDto" Property="Nombre" Title="Nombre" Width="220px"
+                                  Visible="@Ver("Nombre")">
+                <Template Context="r">
+                    @if (string.IsNullOrWhiteSpace(r.Url))
+                    {
+                        <span>@r.Nombre</span>
+                    }
+                    else
+                    {
+                        <a href="@r.Url" target="_blank" rel="noopener noreferrer">@r.Nombre</a>
+                    }
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="RecursoAzureDto" Property="TipoTexto" Title="Tipo" Width="170px"
+                                  Visible="@Ver("Tipo")" />
+            <RadzenDataGridColumn TItem="RecursoAzureDto" Property="EstadoTexto" Title="Estado" Width="130px"
+                                  Visible="@Ver("Estado")" />
+            <RadzenDataGridColumn TItem="RecursoAzureDto" Property="AmbienteTexto" Title="Ambiente" Width="140px"
+                                  Visible="@Ver("Ambiente")" />
+            <RadzenDataGridColumn TItem="RecursoAzureDto" Property="GrupoDeRecursos" Title="Resource Group" Width="180px"
+                                  Visible="@Ver("Resource Group")">
+                <Template Context="r">@(r.GrupoDeRecursos ?? "—")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="RecursoAzureDto" Property="Suscripcion" Title="Suscripción" Width="170px"
+                                  Visible="@Ver("Suscripción")">
+                <Template Context="r">@(r.Suscripcion ?? "—")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="RecursoAzureDto" Property="Region" Title="Región" Width="120px"
+                                  Visible="@Ver("Región")">
+                <Template Context="r">@(r.Region ?? "—")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="RecursoAzureDto" Property="CostoMensual" Title="Costo/mes" Width="120px"
+                                  TextAlign="TextAlign.Right" Visible="@Ver("Costo/mes")">
+                <Template Context="r">@(r.CostoMensual?.ToString("C2") ?? "—")</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="RecursoAzureDto" Property="Notas" Title="Notas" Width="240px"
+                                  Visible="@Ver("Notas")">
+                <Template Context="r">@(r.Notas ?? "—")</Template>
+            </RadzenDataGridColumn>
+        </Columns>
+    </RadzenDataGrid>
+</RadzenStack>
+
+@code {
+    private static readonly string[] TodasLasColumnas =
+    [
+        "ID", "Nombre", "Tipo", "Estado", "Ambiente", "Resource Group", "Suscripción",
+        "Región", "Costo/mes", "Notas"
+    ];
+
+    private record Opcion<T>(T Valor, string Texto);
+
+    private static readonly List<Opcion<AzureResourceType?>> Tipos =
+        Enum.GetValues<AzureResourceType>()
+            .Select(t => new Opcion<AzureResourceType?>(t, EtiquetasDeCatalogo.TipoDeRecurso(t)))
+            .ToList();
+
+    private static readonly List<Opcion<AzureResourceStatus?>> Estados =
+        Enum.GetValues<AzureResourceStatus>()
+            .Select(s => new Opcion<AzureResourceStatus?>(s, EtiquetasDeCatalogo.EstadoDeRecurso(s)))
+            .ToList();
+
+    private static readonly List<Opcion<AzureEnvironment?>> Ambientes =
+        Enum.GetValues<AzureEnvironment>()
+            .Select(a => new Opcion<AzureEnvironment?>(a, EtiquetasDeCatalogo.Ambiente(a)))
+            .ToList();
+
+    // Las de arriba son de los FILTROS y llevan tipo anulable, porque «sin filtro» es un valor
+    // legítimo. Éstas son del FORMULARIO, donde el campo siempre tiene uno.
+    private static readonly List<Opcion<AzureResourceType>> TiposEdicion =
+        [.. Enum.GetValues<AzureResourceType>()
+               .Select(t => new Opcion<AzureResourceType>(t, EtiquetasDeCatalogo.TipoDeRecurso(t)))];
+
+    private static readonly List<Opcion<AzureResourceStatus>> EstadosEdicion =
+        [.. Enum.GetValues<AzureResourceStatus>()
+               .Select(s => new Opcion<AzureResourceStatus>(s, EtiquetasDeCatalogo.EstadoDeRecurso(s)))];
+
+    private static readonly List<Opcion<AzureEnvironment>> AmbientesEdicion =
+        [.. Enum.GetValues<AzureEnvironment>()
+               .Select(a => new Opcion<AzureEnvironment>(a, EtiquetasDeCatalogo.Ambiente(a)))];
+
+    private List<RecursoAzureDto> _filas = [];
+    private HashSet<string> _ocultas = [];
+    private string _texto = "";
+    private AzureResourceType? _tipo;
+    private AzureResourceStatus? _estado;
+    private AzureEnvironment? _ambiente;
+    private bool _cargando = true;
+    private bool _ocupado;
+
+    private IList<RecursoAzureDto>? _seleccion;
+    private RecursoAzureDto? _elegido => _seleccion?.FirstOrDefault();
+
+    private bool _capturando;
+    private int? _id;
+    private string _nombreOriginal = "";
+    private string _nombre = "";
+    private AzureResourceType _tipoEdicion;
+    private AzureResourceStatus _estEdicion;
+    private AzureEnvironment _ambEdicion;
+    private string? _grupo, _suscripcion, _region, _url, _notas;
+    private decimal? _costo;
+
+    /// <summary>Suma de lo que se está viendo, no del inventario entero: si el filtro dice
+    /// «producción», el total tiene que ser el de producción o engaña.</summary>
+    private decimal _costoTotal;
+
+    private bool Ver(string columna) => !_ocultas.Contains(columna);
+
+    protected override Task OnInitializedAsync() => Buscar();
+
+    private async Task Buscar()
+    {
+        _cargando = true;
+        try
+        {
+            var ruta = $"api/catalogos/recursos-azure?texto={Uri.EscapeDataString(_texto ?? "")}";
+            if (_tipo is { } t) ruta += $"&tipo={t}";
+            if (_estado is { } e) ruta += $"&estado={e}";
+            if (_ambiente is { } a) ruta += $"&ambiente={a}";
+
+            _filas = await Api.LeerAsync<List<RecursoAzureDto>>(ruta) ?? [];
+            _costoTotal = _filas.Sum(r => r.CostoMensual ?? 0m);
+
+            var id = _elegido?.Id;
+            _seleccion = id is null ? null : [.. _filas.Where(r => r.Id == id)];
+        }
+        finally { _cargando = false; }
+    }
+
+    private void AbrirNuevo()
+    {
+        _id = null;
+        _nombreOriginal = "";
+        _nombre = "";
+        _tipoEdicion = default;
+        _estEdicion = default;
+        _ambEdicion = default;
+        _grupo = _suscripcion = _region = _url = _notas = null;
+        _costo = null;
+        _capturando = true;
+    }
+
+    private void AbrirEdicion()
+    {
+        if (_elegido is not { } r) return;
+
+        _id = r.Id;
+        _nombreOriginal = r.Nombre;
+        _nombre = r.Nombre;
+        _tipoEdicion = r.Tipo;
+        _estEdicion = r.Estado;
+        _ambEdicion = r.Ambiente;
+        _grupo = r.GrupoDeRecursos;
+        _suscripcion = r.Suscripcion;
+        _region = r.Region;
+        _costo = r.CostoMensual;
+        _url = r.Url;
+        _notas = r.Notas;
+        _capturando = true;
+    }
+
+    private async Task Guardar()
+    {
+        if (string.IsNullOrWhiteSpace(_nombre))
+        {
+            Avisos.Aviso("El nombre es obligatorio.");
+            return;
+        }
+
+        var cuerpo = new GuardarRecursoAzureRequest(
+            _id, _nombre, _tipoEdicion, _estEdicion, _ambEdicion, _grupo, _suscripcion, _region,
+            _costo, _url, _notas);
+
+        _ocupado = true;
+        try
+        {
+            // Solo se anuncia el ÉXITO: el fallo ya lo dijo el manejador de respuestas con el
+            // mensaje del servidor, y repetirlo resta credibilidad a los dos avisos.
+            var (ok, r) = await Api.EnviarAsync<GuardarRecursoAzureRequest, ResultadoDto>(
+                "api/catalogos/recursos-azure", cuerpo);
+            if (!ok) return;
+
+            if (r is not null) Avisos.Exito(r.Mensaje);
+            _capturando = false;
+            await Buscar();
+        }
+        finally { _ocupado = false; }
+    }
+}

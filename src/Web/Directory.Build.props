@@ -1,0 +1,56 @@
+<!--
+  Ajustes comunes a TODOS los proyectos de la solución web (src/Web/**).
+
+  Vive aquí y no en la raíz del repositorio a propósito: la aplicación de escritorio no debe verse
+  afectada por nada de esto. Es la misma razón por la que la web se construye en proyectos nuevos en
+  vez de refactorizar los existentes — el escritorio sigue en producción hasta el corte y no se toca.
+-->
+<Project>
+
+  <PropertyGroup>
+    <!-- net10.0 PURO (sin -windows): es lo que permite que el dominio y los servicios compilen para
+         Linux y, sobre todo, que las pruebas dejen de arrastrar WinForms. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+
+    <!-- El código se copia del escritorio, que ya trata las advertencias con criterio propio; se
+         mantiene el mismo listado para que la copia no se convierta en una cacería de warnings
+         ajenos al port. -->
+    <NoWarn>$(NoWarn);NU1603;NU1902;NU1903</NoWarn>
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1605</WarningsNotAsErrors>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Company>Soltum</Company>
+    <Authors>Soltum</Authors>
+    <Product>Administrador de Desarrollo (web)</Product>
+    <Copyright>© Soltum</Copyright>
+    <NeutralLanguage>es-MX</NeutralLanguage>
+  </PropertyGroup>
+
+  <!--
+    La VERSIÓN que la aplicación enseña de sí misma.
+
+    Al retirar Velopack la web se quedó sin decir en ninguna parte qué código está corriendo, y eso
+    convierte cualquier reporte de fallo en una adivinanza: «a mí no me pasa» puede significar que
+    no pasa, o que quien lo dice tiene otra versión delante.
+
+    Se compone de dos partes con orígenes distintos a propósito:
+
+      · Version — se toca a mano, y solo cuando hay algo que anunciar. Es lo que una persona dice
+        en voz alta («estamos en la 1.1»).
+      · SourceRevisionId — lo inyecta el pipeline con el SHA del commit
+        (dotnet publish -p:SourceRevisionId=$GITHUB_SHA). Es lo que identifica el código EXACTO, y
+        por eso no se teclea: un número que hay que acordarse de subir es un número que miente.
+
+    .NET los junta solo en InformationalVersion, que queda como «1.0.0+a305d69». Sin pipeline queda
+    «1.0.0» a secas, que sigue siendo cierto.
+  -->
+  <PropertyGroup>
+    <Version>1.0.0</Version>
+    <IncludeSourceRevisionInInformationalVersion>true</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+</Project>

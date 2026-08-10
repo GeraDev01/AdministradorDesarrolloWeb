@@ -1,0 +1,321 @@
+@page "/mi-jornada"
+@* Sin política de rol: la asistencia es de la CUENTA, no de la ficha de desarrollador. Hay cuentas
+   sin ficha —operaciones, por ejemplo— que también marcan entrada y salida. Lo único que se exige
+   es tener sesión. El cronómetro, que sí necesita ficha, se esconde solo cuando no la hay. *@
+@attribute [Authorize]
+@using AdminWeb.Shared.Dtos.Jornada
+@implements IDisposable
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+@inject ConexionEnVivo EnVivo
+
+@*
+    Mi jornada: marcar entrada y salida, ver el cronómetro y repasar los últimos treinta días.
+
+    Es la pantalla del check-in/check-out manual. Dos cosas que vienen del escritorio y se conservan
+    tal cual, porque son decisiones tomadas y no detalles de pintado:
+
+      · La SALIDA pide confirmación y la ENTRADA no. Entrar de más se arregla saliendo; salir de más
+        cierra la jornada y ya solo lo arregla el líder.
+      · Nadie edita sus propias horas. Si hay un error se pide corrección, con motivo, y queda
+        rastro. Un registro que su dueño puede reescribir no prueba nada.
+
+    Lo que sí cambia respecto al escritorio: el cronómetro se cuenta desde la hora del SERVIDOR. Si
+    contara desde el reloj del navegador, un equipo desajustado —y el de un portátil recién
+    despertado suele estarlo— enseñaría tiempo que nadie trabajó.
+*@
+
+<PageTitle>Mi jornada</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Mi jornada</RadzenText>
+
+    @if (_datos is { } d)
+    {
+        <RadzenCard>
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                         Gap="1rem" Wrap="FlexWrap.Wrap">
+                @if (d.EntradaUtc is DateTime entrada)
+                {
+                    <RadzenStack Gap="0.15rem">
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">Entrada marcada</RadzenText>
+                        <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">
+                            @entrada.ToLocalTime().ToString("HH:mm")
+                        </RadzenText>
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                            Llevas @Transcurrido(entrada)
+                        </RadzenText>
+                    </RadzenStack>
+
+                    <RadzenButton Text="Marcar salida" Icon="logout" ButtonStyle="ButtonStyle.Danger"
+                                  Click="@MarcarSalida" Disabled="@_ocupado" />
+                }
+                else if (d.PuedeMarcarEntrada)
+                {
+                    <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0">
+                        Aún no has marcado tu entrada de hoy.
+                    </RadzenText>
+                    <RadzenButton Text="Marcar entrada" Icon="login" ButtonStyle="ButtonStyle.Success"
+                                  Click="@MarcarEntrada" Disabled="@_ocupado" />
+                }
+                else
+                {
+                    <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0">
+                        Tu jornada de hoy ya está cerrada. Si hay un error, pide una corrección en la
+                        tabla de abajo.
+                    </RadzenText>
+                }
+
+                @if (!EnVivo.Conectado)
+                {
+                    <RadzenBadge BadgeStyle="BadgeStyle.Warning"
+                                 Text="@(EnVivo.Reconectando ? "Reconectando…" : "Sin conexión en vivo")"
+                                 title="Mientras no haya conexión, el cronómetro no manda señales. El tiempo se consolidará hasta la última que llegó." />
+                }
+            </RadzenStack>
+        </RadzenCard>
+
+        @if (d.Cronometro is { } c)
+        {
+            <RadzenCard Style="border-left:5px solid var(--rz-info)">
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                             Gap="1rem" Wrap="FlexWrap.Wrap">
+                    <RadzenStack Gap="0.15rem">
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">Cronómetro en marcha</RadzenText>
+                        <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">@c.Titulo</RadzenText>
+                    </RadzenStack>
+                    <RadzenText TextStyle="TextStyle.H4" class="rz-mb-0"
+                                Style="font-variant-numeric:tabular-nums">@_reloj</RadzenText>
+                    <RadzenButton Text="Pausar" Icon="pause" ButtonStyle="ButtonStyle.Light"
+                                  Click="@(() => PararCronometro("pausar"))" Disabled="@_ocupado" />
+                    <RadzenButton Text="Detener" Icon="stop" ButtonStyle="ButtonStyle.Secondary"
+                                  Click="@(() => PararCronometro("detener"))" Disabled="@_ocupado" />
+                </RadzenStack>
+            </RadzenCard>
+        }
+
+        <RadzenDataGrid TItem="DiaDeJornadaDto" Data="@d.Historial" IsLoading="@_ocupado"
+                        AllowSorting="true" AllowPaging="true" PageSize="15"
+                        EmptyText="Todavía no has marcado ninguna jornada.">
+            <Columns>
+                <RadzenDataGridColumn TItem="DiaDeJornadaDto" Title="Día" Width="120px">
+                    <Template Context="f">@f.EntradaUtc.ToLocalTime().ToString("ddd dd/MM")</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="DiaDeJornadaDto" Title="Entrada" Width="90px">
+                    <Template Context="f">@f.EntradaUtc.ToLocalTime().ToString("HH:mm")</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="DiaDeJornadaDto" Title="Salida" Width="90px">
+                    <Template Context="f">
+                        @(f.SalidaUtc?.ToLocalTime().ToString("HH:mm") ?? "—")
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="DiaDeJornadaDto" Title="Jornada" Width="100px">
+                    <Template Context="f">@Duracion(f)</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="DiaDeJornadaDto" Title="Cronómetro" Width="110px">
+                    @* Lo cronometrado junto a lo marcado: es el contraste que hace útil la tabla.
+                       No es un juicio —una jornada con poco cronómetro puede ser un día de reuniones—
+                       pero es lo que uno quiere ver ANTES de que se lo pregunten. *@
+                    <Template Context="f">@Reloj(f.SegundosCronometrados)</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="DiaDeJornadaDto" Property="Cierre" Title="Cierre" Width="170px" />
+                <RadzenDataGridColumn TItem="DiaDeJornadaDto" Title="" Width="150px" Sortable="false">
+                    <Template Context="f">
+                        @if (f.CorreccionSolicitada)
+                        {
+                            <RadzenBadge BadgeStyle="BadgeStyle.Info" Text="Corrección pedida"
+                                         title="@f.NotaCorreccion" />
+                        }
+                        else
+                        {
+                            <RadzenButton Text="Pedir corrección" ButtonStyle="ButtonStyle.Light"
+                                          Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                          Click="@(() => PedirCorreccion(f))" />
+                        }
+                    </Template>
+                </RadzenDataGridColumn>
+            </Columns>
+        </RadzenDataGrid>
+    }
+</RadzenStack>
+
+@code {
+    private readonly CancellationTokenSource _cancelacion = new();
+
+    private MiJornadaDto? _datos;
+    private bool _ocupado;
+
+    /// <summary>El contador que corre en pantalla, ya formateado.</summary>
+    private string _reloj = "0:00:00";
+
+    /// <summary>
+    /// Cuánto se desvía el reloj de este equipo del servidor. Todo lo que se pinta se corrige con
+    /// esto, así que un navegador con la hora mal puesta enseña igualmente el tiempo correcto.
+    /// </summary>
+    private TimeSpan _desfase = TimeSpan.Zero;
+
+    private Timer? _tic;
+
+    protected override async Task OnInitializedAsync()
+    {
+        EnVivo.EstadoCambio += AlCambiarLaConexion;
+        await Cargar();
+
+        // Un tic por segundo solo para repintar el contador. No consulta nada: los datos que necesita
+        // ya están, y pedirlos cada segundo sería una petición por segundo y por persona.
+        _tic = new Timer(_ => InvokeAsync(ActualizarReloj), null, TimeSpan.Zero, TimeSpan.FromSeconds(1));
+    }
+
+    private async Task Cargar()
+    {
+        _ocupado = true;
+        try
+        {
+            _datos = await Api.LeerAsync<MiJornadaDto>("api/jornada/mia", _cancelacion.Token);
+
+            if (_datos?.Cronometro is { } c)
+            {
+                _desfase = c.AhoraUtc - DateTime.UtcNow;
+                EnVivo.SeguirCronometro(c.RequerimientoId, c.ActividadId);
+            }
+            else
+            {
+                EnVivo.OlvidarCronometro();
+            }
+
+            ActualizarReloj();
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    private void ActualizarReloj()
+    {
+        if (_datos?.Cronometro is not { } c) return;
+
+        var ahora = DateTime.UtcNow + _desfase;
+        var segundos = c.SegundosAcumulados + (int)(ahora - c.InicioTramoUtc).TotalSeconds;
+        _reloj = Reloj(Math.Max(0, segundos));
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Al recuperar la conexión hay que RECARGAR, no solo repintar.
+    ///
+    /// Si el corte duró más que la tolerancia sin latido, el servidor ya consolidó el cronómetro
+    /// hasta el último latido y la sesión está cerrada. Sin recargar, la pantalla seguiría contando
+    /// segundos contra algo que ya no existe, y la persona creería estar registrando tiempo que no
+    /// se está registrando — que es justo lo contrario de lo que esta pantalla debe garantizar.
+    /// </summary>
+    private void AlCambiarLaConexion()
+    {
+        bool volvio = EnVivo.Conectado && !_estabaConectado;
+        _estabaConectado = EnVivo.Conectado;
+
+        InvokeAsync(volvio ? Cargar : () => { StateHasChanged(); return Task.CompletedTask; });
+    }
+
+    private bool _estabaConectado;
+
+    // ── Acciones ─────────────────────────────────────────────────────────────
+
+    private async Task MarcarEntrada()
+    {
+        // Sin confirmación, a propósito: entrar de más se arregla saliendo.
+        //
+        // La nota es opcional y la entrada se marca igual, se escriba o no. El texto lo dice porque
+        // aquí «Cancelar» y «Aceptar en blanco» hacen lo mismo, y sin avisarlo alguien pulsaría
+        // Cancelar creyendo que aborta el marcaje.
+        var nota = await Avisos.PedirTextoAsync(
+            "Nota para tu entrada (opcional). Tu entrada se marcará de todos modos.", "Marcar entrada");
+
+        await Enviar("api/jornada/entrada", new MarcajeRequest(nota));
+    }
+
+    private async Task MarcarSalida()
+    {
+        // Con confirmación: cerrar la jornada por error ya solo lo arregla el líder.
+        if (!await Avisos.ConfirmarAsync(
+            "¿Marcar tu salida ahora? Con esto se cierra tu jornada de hoy.",
+            "Marcar salida", "Sí, marcar salida"))
+            return;
+
+        var nota = await Avisos.PedirTextoAsync(
+            "Nota para tu salida (opcional). Ya confirmaste, así que la salida se marcará igualmente.",
+            "Marcar salida");
+
+        await Enviar("api/jornada/salida", new MarcajeRequest(nota));
+    }
+
+    private async Task PedirCorreccion(DiaDeJornadaDto dia)
+    {
+        var motivo = await Avisos.PedirTextoAsync(
+            $"¿Qué habría que corregir del {dia.EntradaUtc.ToLocalTime():dd/MM}? " +
+            "Esto es lo que va a leer el líder.", "Pedir corrección");
+
+        if (string.IsNullOrWhiteSpace(motivo)) return;   // null es cancelar; vacío, aceptar sin escribir
+
+        await Enviar($"api/jornada/registros/{dia.Id}/correccion", new CorreccionRequest(motivo));
+    }
+
+    private async Task PararCronometro(string accion)
+    {
+        if (_datos?.Cronometro is not { } c) return;
+
+        var (ok, r) = await Api.EnviarAsync<CronometroRequest, ResultadoDto>(
+            $"api/jornada/cronometro/{accion}",
+            new CronometroRequest(c.RequerimientoId, c.ActividadId), _cancelacion.Token);
+
+        if (!ok) return;
+
+        EnVivo.OlvidarCronometro();
+        if (r is not null) Avisos.Exito(r.Mensaje);
+        await Cargar();
+    }
+
+    /// <summary>
+    /// El envío que comparten todas las acciones. El mensaje del servidor se enseña TAL CUAL: explica
+    /// el motivo en concreto («ya marcaste tu entrada hoy a las 09:12»), y sustituirlo por un «no se
+    /// pudo» genérico tiraría justo lo que el escritorio hacía bien.
+    /// </summary>
+    private async Task Enviar<T>(string ruta, T cuerpo)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, r) = await Api.EnviarAsync<T, ResultadoDto>(ruta, cuerpo, _cancelacion.Token);
+            if (ok && r is not null) Avisos.Exito(r.Mensaje);
+            if (ok) await Cargar();
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    // ── Formato ──────────────────────────────────────────────────────────────
+
+    private static string Reloj(int segundos) =>
+        $"{segundos / 3600}:{segundos / 60 % 60:00}:{segundos % 60:00}";
+
+    private string Transcurrido(DateTime desdeUtc)
+    {
+        var t = DateTime.UtcNow + _desfase - desdeUtc;
+        return t < TimeSpan.Zero ? "un momento" : $"{(int)t.TotalHours} h {t.Minutes:00} min";
+    }
+
+    private static string Duracion(DiaDeJornadaDto f) =>
+        f.SalidaUtc is DateTime fin
+            ? $"{(int)(fin - f.EntradaUtc).TotalHours} h {(fin - f.EntradaUtc).Minutes:00} min"
+            : "—";
+
+    public void Dispose()
+    {
+        EnVivo.EstadoCambio -= AlCambiarLaConexion;
+        _tic?.Dispose();
+        _cancelacion.Cancel();
+        _cancelacion.Dispose();
+    }
+}

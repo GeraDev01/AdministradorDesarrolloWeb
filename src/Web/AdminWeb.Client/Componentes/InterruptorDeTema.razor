@@ -1,0 +1,82 @@
+@implements IDisposable
+@inject IJSRuntime Js
+
+@*
+    Claro / oscuro / el del sistema, en un solo botón que va rotando entre los tres.
+
+    Tres estados y no dos porque «el del sistema» es una opción de verdad: quien tiene el portátil
+    configurado para oscurecerse por la tarde espera que la aplicación le siga, y con un interruptor
+    de dos posiciones eso solo se consigue no tocándolo nunca — y entonces no se puede saber si está
+    así por elección o por descuido.
+
+    La preferencia se guarda en el navegador (localStorage) y NO en el servidor, al revés que la de
+    columnas. Es deliberado: el modo oscuro depende de la pantalla y de la luz que hay delante, no
+    de la persona. Quien usa un portátil en la calle y un monitor en la oficina quiere cosas
+    distintas en cada sitio, y una preferencia que le siguiera se equivocaría en uno de los dos.
+
+    El valor lo aplica un guion de index.html antes de que arranque el WebAssembly. Aquí solo se
+    LEE al montar y se ESCRIBE al pulsar: si esta clase fuera la que lo aplica al arrancar, cada
+    recarga enseñaría unos segundos de fondo blanco antes de oscurecerse.
+*@
+
+<button class="interruptor-tema" type="button" @onclick="Rotar"
+        title="@Titulo" aria-label="@Titulo">
+    @Icono
+</button>
+
+@code {
+    /// <summary>Los tres estados, en el orden en el que rota el botón.</summary>
+    private enum Modo { Sistema, Claro, Oscuro }
+
+    private Modo _modo = Modo.Sistema;
+    private bool _montado;
+
+    private string Icono => _modo switch
+    {
+        Modo.Claro  => "☀",
+        Modo.Oscuro => "☾",
+        _           => "◐"
+    };
+
+    private string Titulo => _modo switch
+    {
+        Modo.Claro  => "Tema claro. Pulsa para el oscuro.",
+        Modo.Oscuro => "Tema oscuro. Pulsa para seguir al sistema.",
+        _           => "Siguiendo al sistema. Pulsa para forzar el claro."
+    };
+
+    protected override async Task OnAfterRenderAsync(bool primeraVez)
+    {
+        if (!primeraVez) return;
+
+        // Se lee lo que dejó puesto el guion de arranque, para que el icono coincida con lo que se
+        // está viendo. Sin esto, el botón diría «sistema» aunque la persona hubiera elegido oscuro.
+        var guardado = await Js.InvokeAsync<string?>("adminweb.temaGuardado");
+        _modo = guardado switch
+        {
+            "claro"  => Modo.Claro,
+            "oscuro" => Modo.Oscuro,
+            _        => Modo.Sistema
+        };
+
+        _montado = true;
+        StateHasChanged();
+    }
+
+    private async Task Rotar()
+    {
+        if (!_montado) return;
+
+        _modo = _modo switch
+        {
+            Modo.Sistema => Modo.Claro,
+            Modo.Claro   => Modo.Oscuro,
+            _            => Modo.Sistema
+        };
+
+        await Js.InvokeVoidAsync("adminweb.aplicarTema",
+            _modo == Modo.Sistema ? null : _modo.ToString().ToLowerInvariant());
+    }
+
+    public void Dispose() { }
+}

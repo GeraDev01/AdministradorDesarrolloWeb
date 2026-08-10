@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Los servicios de negocio, copiados del escritorio y adaptados a scoped.
+
+    Depende de Infrastructure y no al revés: los servicios reciben el AppDbContext por constructor,
+    igual que hoy. Es una decisión consciente — abstraer 55 DbSets tras repositorios sería una
+    reescritura, y lo acordado es copiar y adaptar. La frontera que sí se respeta sin excepción es
+    la otra: nada de esto llega al navegador, que solo ve Shared.
+  -->
+
+  <!--
+    Sin DocumentFormat.OpenXml. Estaba para armar los documentos como DOCX y convertirlos a PDF con
+    LibreOffice instalado en la máquina; eso se descartó —obligaba a instalar un programa de
+    escritorio en el servidor— y ahora los tres documentos los maqueta QuestPDF desde Infrastructure,
+    detrás de IGeneradorDeDocumentos. Consecuencia aceptada: la plantilla .docx deja de ser editable
+    por Recursos Humanos.
+  -->
+
+  <ItemGroup>
+    <!--
+      Las hojas de cálculo de reportes y minutas. MISMA versión que el escritorio (0.104.1) a
+      propósito: los dos generan el mismo tipo de archivo y no hay motivo para que uno produzca algo
+      distinto durante el corte.
+
+      Es la única dependencia externa que entra aquí. Se aceptó en vez de escribir el .xlsx a mano
+      porque el formato es un ZIP con varios XML relacionados y hacerlo a mano sería reimplementar
+      media librería para producir archivos peores.
+    -->
+    <PackageReference Include="ClosedXML" Version="0.104.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AdminWeb.Infrastructure\AdminWeb.Infrastructure.csproj" />
+    <ProjectReference Include="..\AdminWeb.Shared\AdminWeb.Shared.csproj" />
+  </ItemGroup>
+
+</Project>
