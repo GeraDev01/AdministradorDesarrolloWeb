@@ -1,0 +1,142 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   Tipografía e iconos.
+
+   Va en su propio archivo, y DESPUÉS de tema.css y app.css, porque redefine dos
+   variables de Radzen que deciden con qué se dibuja todo lo demás:
+   --rz-text-font-family y --rz-icon-font-family.
+
+   ── POR QUÉ NO SE USA LA FUENTE DEL SISTEMA ──────────────────────────────────
+
+   «Segoe UI, system-ui» es la pila que trae cualquier plantilla, y se nota: la
+   aplicación acaba pareciendo el cuadro de diálogo de otra cosa. IBM Plex Sans
+   está dibujada para interfaces técnicas —números tabulares, cifras que no
+   bailan al actualizarse, y una «l» que no se confunde con un «1» en una tabla
+   de identificadores—, y tiene carácter propio sin llamar la atención.
+
+   IBM Plex Mono se reserva para el DATO TÉCNICO: identificadores, claves de
+   correlación, números de ticket, versiones. No es adorno: en una columna de
+   correlaciones, la anchura fija es lo que permite ver de un vistazo que dos
+   valores difieren, que con una proporcional hay que leerlos carácter a
+   carácter.
+
+   Las dos son de IBM con licencia OFL 1.1 —libres, también para uso comercial—
+   y viajan EN EL REPOSITORIO, no desde un CDN: la aplicación tiene que verse
+   igual en una red corporativa que corte fonts.googleapis.com, y una fuente que
+   tarda o no llega es un salto de composición en cada carga.
+
+   ── POR QUÉ OTROS ICONOS ────────────────────────────────────────────────────
+
+   Radzen trae Material Symbols «Outlined», que es LA fuente de iconos por
+   omisión de la web entera. Aquí se usa la variante «Sharp»: mismo repertorio y
+   mismos nombres —así que no hay que tocar ni una llamada—, pero de trazo
+   recto, que es lo que pega con las terminaciones cuadradas de Plex y lo que
+   distingue a una herramienta de trabajo de una aplicación de teléfono.
+
+   ⚠ EL ARCHIVO DE ICONOS ESTÁ RECORTADO. Solo lleva los iconos que se usan
+   (los de la aplicación y los que Radzen usa por dentro: flechas del paginador,
+   aspas de cerrar, ordenación…). El completo pesa 3,5 MB y el de Radzen 1 MB;
+   éste, 149 KB. El precio es que **un icono nuevo no aparecerá**: se verá su
+   nombre escrito tal cual, en letras. Falla a la vista, que es lo que se
+   quiere, pero hay que regenerar el archivo al añadir uno. Cómo, en
+   fuentes/LEEME.md.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* ── Texto ──────────────────────────────────────────────────────────────────── */
+
+@font-face {
+    font-family: 'IBM Plex Sans';
+    font-style: normal;
+    /* Variable: un solo archivo cubre de 400 a 700. Cuatro archivos estáticos
+       pesarían el triple y obligarían a elegir pesos de antemano. */
+    font-weight: 400 700;
+    font-display: swap;
+    src: url('../fuentes/PlexSans-latin.woff2') format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+                   U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122,
+                   U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+    font-family: 'IBM Plex Sans';
+    font-style: normal;
+    font-weight: 400 700;
+    font-display: swap;
+    src: url('../fuentes/PlexSans-latin-ext.woff2') format('woff2');
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+                   U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF,
+                   U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+    font-family: 'IBM Plex Mono';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('../fuentes/PlexMono-latin.woff2') format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+                   U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122,
+                   U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+    font-family: 'IBM Plex Mono';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('../fuentes/PlexMono-latin-ext.woff2') format('woff2');
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+                   U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF,
+                   U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* ── Iconos ─────────────────────────────────────────────────────────────────── */
+
+@font-face {
+    font-family: 'Material Symbols Sharp';
+    font-style: normal;
+    font-weight: 100 700;
+    /* Sin «swap»: mientras la fuente no está, una ligadura de icono se ve como
+       la palabra «settings» escrita en medio de un botón. Es mejor un hueco de
+       200 ms que un botón que dice «delete» y luego cambia. */
+    font-display: block;
+    src: url('../fuentes/MaterialSymbolsSharp.woff2') format('woff2 supports variations'),
+         url('../fuentes/MaterialSymbolsSharp.woff2') format('woff2-variations');
+}
+
+/* ── Las dos variables que lo cambian todo ──────────────────────────────────── */
+
+:root {
+    --rz-text-font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+    --rz-icon-font-family: 'Material Symbols Sharp';
+
+    /* Los ejes de la fuente variable de iconos. El peso 300 y el grado -25
+       adelgazan el trazo: al tamaño al que se usan aquí (20-24 px, junto a
+       texto de 14) el peso 400 de serie se ve emborronado y pesa más que la
+       palabra que acompaña, que es justo al revés de lo que debe pasar. */
+    --rz-icon-weight: 300;
+    --rz-icon-grade: -25;
+    --rz-icon-optical-size: 24;
+    --rz-icon-fill: 0;
+}
+
+html, body {
+    font-family: var(--rz-text-font-family);
+}
+
+/* ── El dato técnico ────────────────────────────────────────────────────────── */
+
+/* Identificadores, correlaciones, números de ticket, versiones, rutas. Ancho
+   fijo y cifras tabulares: es lo que permite comparar dos valores de un vistazo
+   en vez de leerlos carácter a carácter. */
+.dato-tecnico {
+    font-family: 'IBM Plex Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: .92em;
+    letter-spacing: -.01em;
+}
+
+/* Las cifras de las tablas se alinean aunque no lleven la clase: sin esto, una
+   columna de importes o de puntos baila de fila en fila al actualizarse. */
+.rz-grid-table td {
+    font-variant-numeric: tabular-nums;
+}

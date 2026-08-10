@@ -1,24 +1,66 @@
 /* ─────────────────────────────────────────────────────────────────────────────
-   Tema propio: azul pizarra, con modo claro y oscuro.
+   Tema propio: GRAFITO Y ÁMBAR, con modo claro y oscuro.
 
    Se monta ENCIMA del tema de Radzen redefiniendo sus variables, en vez de
    pelearse con sus reglas a golpe de selector. Radzen construye todo su aspecto
    a partir de estas variables, así que cambiarlas aquí cambia botones, rejillas,
    pestañas y diálogos a la vez y sin sorpresas al actualizar el paquete.
 
-   Tres decisiones que explican el resto:
+   Cinco decisiones que explican el resto:
 
-   1. UN SOLO acento. El tema de Radzen trae un morado de primario y un rosa de
-      secundario; aquí los dos son el mismo azul. Dos acentos compiten y ninguno
-      llega a significar «esto es lo importante».
+   1. LOS GRISES SON CÁLIDOS, y ése es el cambio que más se nota. La escala va
+      del marfil (#faf9f7) al grafito casi negro (#1a1714), y en TODOS los
+      neutros del tema se cumple R > G > B: del orden de dos puntos de
+      diferencia en los extremos y de veintidós en el centro de la escala. La
+      prueba es objetiva, así que úsala: si al añadir un tono el azul se le sube
+      por encima al verde, ese tono viene de otro tema y devuelve la aplicación
+      al gris azulado de plantilla del que veníamos huyendo.
 
-   2. Bordes finos en lugar de sombras. Una herramienta que se pasa el día
-      enseñando tablas se lee mejor con líneas que con relieve; las sombras de
-      Material están pensadas para tarjetas que flotan, y aquí casi nada flota.
+   2. UN SOLO acento, y es ÁMBAR QUEMADO. El tema de Radzen trae un morado de
+      primario y un rosa de secundario; aquí el secundario NO es un color, es el
+      gris cálido de la escala. Dos acentos compiten y ninguno llega a
+      significar «esto es lo importante».
 
-   3. El color se reserva para el estado. Verde, ámbar y rojo solo aparecen
-      cuando dicen algo (aprobado, por vencer, vencido). Si todo lleva color, el
-      color deja de avisar.
+   3. EL ACENTO Y EL AVISO SON LOS DOS ÁMBAR, Y POR ESO SE SEPARAN POR SITIO Y
+      POR TONO. Es lo primero que alguien va a querer «arreglar» sin entenderlo,
+      así que queda escrito aquí.
+
+      Por SITIO: el acento vive solo en el cromo interactivo —botón primario,
+      entrada de menú activa, anillo de foco, enlace— y NUNCA sobre un dato; el
+      aviso vive solo sobre datos —celda, etiqueta, banner, icono de fila— y
+      NUNCA en un control. Si algún día hace falta un botón que avise, se dice
+      con texto y no pintando el botón de --rz-warning: en cuanto el aviso toca
+      un control, el usuario deja de saber si el ámbar significa «pulsa aquí» o
+      «esto vence».
+
+      Por TONO: el acento es ROJIZO, oscuro y casi saturado del todo —hsl(21,
+      89%, 39%) en claro—; el aviso es AMARILLO, todavía más oscuro y bastante
+      más apagado —hsl(43, 67%, 24%)—. Son 22 grados de matiz, 22 puntos de
+      saturación y 11.4 de L* (ΔE Lab 45.1). En oscuro la separación es mayor y
+      va al revés, con el aviso MÁS CLARO que el acento (ΔL* 19.1, ΔE 48.4). Si
+      alguien aclara --rz-warning «para que se vea más ámbar», lo acerca al
+      acento y se pierde justo lo que costó conseguir.
+
+      Y ojo con dónde vive la identidad ámbar del aviso: está en
+      --rz-warning-light y --rz-warning-lighter, no en --rz-warning.
+      --rz-warning es el bronce oscuro y es oscuro porque tiene que cumplir 4.5
+      como texto sobre la tarjeta y a la vez quedar por debajo del acento. Lo
+      que hace que un aviso se lea «ámbar» a un metro de la pantalla es el
+      lavado de oro del fondo del chip, no el color de la letra.
+
+   4. Bordes finos en lugar de sombras. Una herramienta que se pasa el día
+      enseñando tablas se lee mejor con líneas que con relieve. En claro, además,
+      la tarjeta blanca sobre el fondo marfil ya es medio escalón de separación
+      por sí misma; en oscuro el reparto se invierte y la tarjeta es MÁS CLARA
+      que el fondo, que es como se lee la elevación cuando no hay sombras. Las
+      sombras quedan solo donde algo flota de verdad (diálogos, desplegables) y
+      van teñidas de grafito cálido, no de pizarra azul: una sombra azulada
+      sobre marfil se ve verdosa.
+
+   5. El color se reserva para el estado. Verde, oro y rojo solo aparecen cuando
+      dicen algo (aprobado, por vencer, vencido). --rz-info es el único frío del
+      tema y está permitido únicamente porque, como los demás estados, vive
+      sobre datos; usarlo de adorno devuelve la aplicación al azul corporativo.
 
    El modo lo decide, por este orden: lo que el usuario haya elegido
    (data-tema en <html>), y si no ha elegido, lo que diga su sistema operativo.
@@ -28,171 +70,342 @@
 
 :root,
 :root[data-tema="claro"] {
-    /* Escala de grises AZULADOS (slate), no neutros: es lo que da el aire sobrio
-       sin llegar a ser frío del todo. */
-    --rz-base:            #e2e8f0;
-    --rz-base-50:         #f8fafc;
-    --rz-base-100:        #f1f5f9;
-    --rz-base-200:        #e2e8f0;
-    --rz-base-300:        #cbd5e1;
-    --rz-base-400:        #94a3b8;
-    --rz-base-500:        #64748b;
-    --rz-base-600:        #475569;
-    --rz-base-700:        #334155;
-    --rz-base-800:        #1e293b;
-    --rz-base-900:        #0f172a;
-    --rz-base-light:      #f1f5f9;
+    /* Escala de grises CÁLIDOS (familia piedra), no azulados. El 500 es el que
+       manda: es el punto medio y lleva 21 puntos de diferencia entre su rojo y
+       su azul. Si ése se va al azul, se va toda la aplicación detrás. */
+    --rz-base:            #e8e3da;
+    --rz-base-50:         #faf9f7;
+    --rz-base-100:        #f5f2ee;
+    --rz-base-200:        #e8e3da;
+    --rz-base-300:        #d7d0c4;
+    --rz-base-400:        #b0a89a;
+    --rz-base-500:        #7d7568;
+    --rz-base-600:        #5c554a;
+    --rz-base-700:        #433d34;
+    --rz-base-800:        #2b2721;
+    --rz-base-900:        #1a1714;
+    --rz-base-light:      #f5f2ee;
     --rz-base-lighter:    #ffffff;
-    --rz-base-dark:       #475569;
-    --rz-base-darker:     #0f172a;
+    --rz-base-dark:       #5c554a;
+    --rz-base-darker:     #1a1714;
     --rz-base-background-color: #ffffff;
-    --rz-on-base:         #0f172a;
+    --rz-on-base:         #1a1714;
 
-    --rz-body-background-color: #f8fafc;
-    --rz-body-color:      #0f172a;
-    --rz-text-color:      #0f172a;
-    --rz-text-secondary-color: #64748b;
-    --rz-text-disabled-color:  #94a3b8;
+    /* El fondo de página es MARFIL, no blanco. El blanco puro se reserva para la
+       tarjeta, y ese escalón de 1.03 es el que la hace leerse como tarjeta sin
+       necesidad de sombra. Si igualas los dos, la aplicación se aplana. */
+    --rz-body-background-color: #faf9f7;
+    --rz-body-color:      #1a1714;
+    --rz-text-color:      #1a1714;
+    /* Elegido para cumplir 4.5 también sobre el marfil del fondo de página, no
+       solo sobre el blanco de la tarjeta. Aclararlo un paso lo saca de AA. */
+    --rz-text-secondary-color: #665e52;
+    /* Único color del tema que no cumple 4.5, y es correcto: WCAG exime al texto
+       deshabilitado. Si cumpliera, no parecería deshabilitado. */
+    --rz-text-disabled-color:  #a49a8c;
 
-    /* El acento único. */
-    --rz-primary:         #2563eb;
-    --rz-primary-dark:    #1d4ed8;
-    --rz-primary-darker:  #1e40af;
-    --rz-primary-light:   #3b82f6;
-    --rz-primary-lighter: rgba(37, 99, 235, .10);
+    /* El acento único: ÁMBAR QUEMADO. Es rojizo a propósito (matiz 21 grados);
+       es lo que lo separa del aviso, que es amarillo (matiz 43). No lo muevas
+       hacia el amarillo. Ver la decisión 3 de la cabecera. */
+    --rz-primary:         #ba490b;
+    --rz-primary-dark:    #9d3d09;
+    --rz-primary-darker:  #82320a;
+    /* Para el anillo de foco cuando cae SOBRE la barra grafito: ahí --rz-primary
+       se queda en 3.53 y éste sube a 4.71. Al revés sobre superficies claras:
+       sobre blanco da 3.72, así que NO vale como color de texto. */
+    --rz-primary-light:   #d75f1a;
+    /* Fondo de la entrada de menú activa. No subas el alfa: con .10 el acento
+       encima del lavado da 4.51, y a .12 ya baja de 4.5. */
+    --rz-primary-lighter: rgba(186, 73, 11, .10);
     --rz-on-primary:      #ffffff;
 
-    /* El secundario NO es otro color: es el mismo azul en un tono más apagado.
-       Así los botones «secundarios» se leen como lo que son —la opción menos
+    /* El secundario NO es otro color: es el gris cálido de la escala. Así los
+       botones «secundarios» se leen como lo que son —la opción menos
        importante— en vez de como una segunda llamada de atención. */
-    --rz-secondary:         #475569;
-    --rz-secondary-dark:    #334155;
-    --rz-secondary-darker:  #1e293b;
-    --rz-secondary-light:   #64748b;
-    --rz-secondary-lighter: rgba(71, 85, 105, .10);
+    --rz-secondary:         #5c554a;
+    --rz-secondary-dark:    #433d34;
+    --rz-secondary-darker:  #2b2721;
+    --rz-secondary-light:   #7d7568;
+    --rz-secondary-lighter: rgba(92, 85, 74, .10);
     --rz-on-secondary:      #ffffff;
 
     /* Estados. Menos saturados que los de Material: en una pantalla llena de
-       filas, el rojo de Material grita más de lo que un vencimiento merece. */
-    --rz-success:         #15803d;
-    --rz-success-light:   #22c55e;
-    --rz-success-lighter: rgba(21, 128, 61, .12);
-    --rz-warning:         #b45309;
-    --rz-warning-light:   #f59e0b;
-    --rz-warning-lighter: rgba(180, 83, 9, .12);
-    --rz-danger:          #b91c1c;
-    --rz-danger-light:    #ef4444;
-    --rz-danger-lighter:  rgba(185, 28, 28, .12);
-    --rz-info:            #0369a1;
-    --rz-info-light:      #0ea5e9;
-    --rz-info-lighter:    rgba(3, 105, 161, .12);
+       filas, el rojo de Material grita más de lo que un vencimiento merece. El
+       verde tira a cálido para no chirriar contra la escala de piedra, pero se
+       queda en matiz 125 —bien lejos del aviso, 43— para que un dato aprobado no
+       se confunda con uno por vencer. */
+    --rz-success:         #2f6b34;
+    --rz-success-light:   #4f9a55;
+    --rz-success-lighter: rgba(47, 107, 52, .12);
+    /* El bronce oscuro del aviso. Es la pieza clave del tema: va muy por debajo
+       del acento (L* 34.5 contra 45.9) y con 22 puntos menos de saturación.
+       Aclararlo lo acerca al acento y rompe la separación. */
+    --rz-warning:         #654e14;
+    /* El oro. Aquí vive la identidad ámbar del aviso. Es para iconos y bordes,
+       no para texto pequeño: sobre blanco da 3.41, que basta para elemento
+       grande pero no para párrafo. */
+    --rz-warning-light:   #b08416;
+    /* OJO: se construye desde el ORO (#b08416), no desde el bronce de arriba.
+       Derivado del bronce el lavado sale pardo y el aviso pasa a parecer texto
+       deshabilitado en vez de ámbar. */
+    --rz-warning-lighter: rgba(176, 132, 22, .18);
+    --rz-danger:          #a82f26;
+    --rz-danger-light:    #d4544a;
+    --rz-danger-lighter:  rgba(168, 47, 38, .12);
+    /* El único frío del tema, y desaturado a propósito. Un azul más vivo
+       devolvería el aire de plantilla corporativa. */
+    --rz-info:            #1c6076;
+    --rz-info-light:      #3a8aa6;
+    --rz-info-lighter:    rgba(28, 96, 118, .12);
 
-    /* La barra superior en pizarra oscura y no en el color de acento: el acento
-       tiene que poder destacar SOBRE ella, y no puede si es ella. */
-    --rz-header-background-color: #1e293b;
-    --rz-header-color:            #f1f5f9;
+    /* Radzen usa estas ocho para el hover y el pulsado de botones y etiquetas de
+       estado. Si no se redefinen, conservan los valores de Material —y
+       --rz-warning-dark de Material es #cc7a00, un naranja que asoma al pasar el
+       ratón y pisa justo la separación entre el ámbar del acento y el del aviso.
+       Derivadas de cada estado a ~84% y ~70% de luminosidad, igual que hace la
+       familia del acento. */
+    --rz-success-dark:    #285a2c;
+    --rz-success-darker:  #214b24;
+    --rz-warning-dark:    #554211;
+    --rz-warning-darker:  #47370e;
+    --rz-danger-dark:     #8d2720;
+    --rz-danger-darker:   #76211b;
+    --rz-info-dark:       #185163;
+    --rz-info-darker:     #144353;
+
+    /* La barra superior en grafito y no en el color de acento: el acento tiene
+       que poder destacar SOBRE ella, y no puede si es ella. */
+    --rz-header-background-color: #1a1714;
+    --rz-header-color:            #efebe4;
     --rz-header-shadow:           none;
-    --rz-header-border:           1px solid #334155;
+    /* Un escalón por encima del grafito de la barra: separa sin llegar a dibujar
+       una línea. */
+    --rz-header-border:           1px solid #2b2721;
 
     --rz-sidebar-background-color: #ffffff;
-    --rz-sidebar-border:           1px solid #e2e8f0;
-    --rz-sidebar-color:            #334155;
-    --rz-sidebar-width:            16rem;
+    --rz-sidebar-border:           1px solid #e8e3da;
+    --rz-sidebar-color:            #433d34;
 
     --rz-panel-background-color: #ffffff;
     --rz-card-background-color:  #ffffff;
-    --rz-border-color:           #e2e8f0;
+    /* Es la separación principal del tema, ya que aquí no hay sombras. Da 1.28
+       sobre la tarjeta en claro y 1.32 en oscuro: la misma relación en los dos
+       modos, a propósito. Es también el --rz-base-200 de la escala; la línea y
+       el escalón de superficie son el mismo tono queriendo. */
+    --rz-border-color:           #e8e3da;
 
+    /* EL BORDE DE UN CAMPO NO ES LA LÍNEA DE UNA TARJETA, y por eso lleva color
+       propio y más oscuro.
+
+       Radzen lo saca de --rz-base-400, que con esta escala da 2.36 sobre la
+       tarjeta: por debajo del 3:1 que la norma exige a lo que DELIMITA UN
+       CONTROL (WCAG 1.4.11). No es un capricho de auditoría — es la diferencia
+       entre ver dónde empieza la caja de texto y adivinarlo. La línea decorativa
+       que separa una tarjeta del fondo sí está exenta, y por eso --rz-border-color
+       puede ser tan suave: son dos cosas distintas que se parecían.
+
+       Este valor da 3.83 sobre tarjeta y 3.64 sobre el fondo de página, y sigue
+       la regla de la paleta (R > G > B). Se sobrescribe --rz-border-normal y NO
+       --rz-base-400: ese escalón lo usa Radzen para más cosas y moverlo
+       arrastraría media interfaz detrás. */
+    --rz-border-normal: 1px solid #8a8175;
+
+    /* Estas dos no dependen del modo, así que se declaran solo aquí: :root casa
+       igual con data-tema puesto que sin él, y los bloques oscuros de abajo las
+       heredan. Si algún día una de ellas pasa a depender del modo, hay que
+       repetirla en los TRES bloques. */
     --rz-border-radius: 6px;
+    --rz-sidebar-width: 16rem;
 
     /* Sombras casi apagadas: quedan solo donde algo flota de verdad (diálogos,
-       desplegables). Ver la decisión 2 de la cabecera. */
-    --rz-shadow-1: 0 1px 2px rgba(15, 23, 42, .05);
-    --rz-shadow-2: 0 1px 3px rgba(15, 23, 42, .07);
-    --rz-shadow-3: 0 2px 6px rgba(15, 23, 42, .08);
-    --rz-shadow-4: 0 4px 12px rgba(15, 23, 42, .10);
-    --rz-shadow-5: 0 8px 24px rgba(15, 23, 42, .12);
-    --rz-shadow-6: 0 12px 32px rgba(15, 23, 42, .14);
+       desplegables). Tiñen de grafito cálido, no de pizarra azul. Ver la
+       decisión 4 de la cabecera. */
+    --rz-shadow-1: 0 1px 2px rgba(26, 23, 20, .05);
+    --rz-shadow-2: 0 1px 3px rgba(26, 23, 20, .07);
+    --rz-shadow-3: 0 2px 6px rgba(26, 23, 20, .08);
+    --rz-shadow-4: 0 4px 12px rgba(26, 23, 20, .10);
+    --rz-shadow-5: 0 8px 24px rgba(26, 23, 20, .12);
+    --rz-shadow-6: 0 12px 32px rgba(26, 23, 20, .14);
 
-    --rz-grid-header-background-color: #f8fafc;
-    --rz-grid-stripe-background-color: #f8fafc;
+    /* La cabecera de rejilla sube un paso (al 100, antes iba al 50) porque hacía
+       falta: sobre el 50 el acento de una columna ordenable se quedaba en 4.49 y
+       sobre éste da 4.65. La franja de fila alterna sí es el marfil del fondo de
+       página: sobre la tarjeta blanca se nota lo justo para seguir la fila con
+       el ojo y no tanto como para parecer una selección. */
+    --rz-grid-header-background-color: #f5f2ee;
+    --rz-grid-stripe-background-color: #faf9f7;
 
-    --adminweb-acceso-fondo: linear-gradient(160deg, #f8fafc 0%, #e2e8f0 100%);
-    --adminweb-cargando-color: #64748b;
-    --adminweb-aviso-fondo: #fef3c7;
-    --adminweb-aviso-color: #78350f;
+    /* Los dos extremos del degradado son pasos de la escala (50 y 200), para que
+       no meta un tono que no exista en el resto del tema. */
+    --adminweb-acceso-fondo: linear-gradient(160deg, #faf9f7 0%, #e8e3da 100%);
+    --adminweb-cargando-color: #7d7568;
+    /* Oro pálido. Este banner es aviso sobre datos, así que va en la familia del
+       aviso y NUNCA en la del acento, por mucho que los dos sean ámbar; y su
+       color de texto es exactamente --rz-warning, porque el banner y la celda de
+       una rejilla que avisa tienen que ser el mismo color o el usuario acaba
+       aprendiendo dos códigos distintos. */
+    --adminweb-aviso-fondo: #f7edd0;
+    --adminweb-aviso-color: #654e14;
+
+    /* ── La consola de despliegue ────────────────────────────────────────────
+       Estos ocho NO se repiten en el bloque oscuro, y no es un olvido: una
+       terminal se ve igual a las tres de la tarde que a medianoche. Quien lee
+       una salida de despliegue está comparando contra la consola de su propia
+       máquina, y que aquí cambien los colores con el tema convierte «esto salió
+       en rojo» en una frase que no significa nada. Al declararlos solo aquí
+       —y :root casa siempre— valen en los tres modos sin duplicarse.
+
+       Por eso también son los únicos fríos del archivo: son la excepción
+       declarada a la escala cálida, no una que se coló. */
+    --adminweb-consola-fondo: #141821;
+    /* EL BORDE ES OBLIGATORIO, no es adorno, y lo pide justamente el tema oscuro. El fondo de la
+       consola (#141821) contra la tarjeta oscura (#1c1a18) da 1.02: sin una línea alrededor, el
+       recuadro de la terminal DESAPARECE y la salida del despliegue queda como texto suelto sobre la
+       tarjeta. En la pizarra azul de antes la tarjeta era #1e293b y el escalón daba 1.21 —flojo, pero
+       se veía—; al pasar la tarjeta a grafito cálido ese escalón se perdió. Éste da 1.78 contra las
+       dos superficies, y en claro es una línea oscura alrededor de una caja ya oscura. */
+    --adminweb-consola-borde: #39445a;
+    --adminweb-consola-texto: #dce6f0;
+    --adminweb-consola-tenue: #7d8ba0;
+    --adminweb-consola-exito: #86efac;
+    --adminweb-consola-aviso: #fde047;
+    --adminweb-consola-error: #fca5a5;
+    --adminweb-consola-dato:  #93c5fd;
+
+    /* ── Los puntos de presencia de la barra ─────────────────────────────────
+       Tampoco se repiten en oscuro, y por un motivo distinto: la barra superior
+       es GRAFITO en los dos temas (--rz-header-background-color es #1a1714 en
+       claro y #121110 en oscuro), así que el fondo bajo el punto no cambia y el
+       color tampoco tiene por qué. Si algún día la barra se aclara en el tema
+       claro, estos cinco hay que rehacerlos: están calculados contra grafito
+       (el más flojo, «ausente», da 5.71 sobre #1a1714).
+
+       NINGUNO sale del semáforo, y es la decisión importante: «Ocupado» en rojo
+       convierte a alguien concentrado en una alarma, y «Disponible» en verde
+       hace pensar en «correcto». Son cinco categorías, no cinco veredictos, así
+       que van en hues separados —verde, violeta, azul, oro y gris— y el único
+       desaturado es «ausente», que es el único que significa una ausencia.
+       Ninguno pisa el bronce del acento: el más cercano es el oro de «comida»,
+       a 20 grados de matiz, la misma separación que este archivo exige entre el
+       acento y el aviso. */
+    --adminweb-presencia-disponible: #45c08a;
+    --adminweb-presencia-ocupado:    #b98ae0;
+    --adminweb-presencia-reunion:    #5aa9e6;
+    --adminweb-presencia-comida:     #e8c46a;
+    --adminweb-presencia-ausente:    #9a938a;
+
+    /* El podio de Desempeño. Es un realce de fila, no un dato coloreado, así que
+       va del ACENTO y no del aviso: el oro del aviso diría que los tres primeros
+       tienen un problema. Alfas muy bajos a propósito, porque encima va texto
+       normal que tiene que seguir cumpliendo contraste. */
+    --adminweb-podio-1: rgba(186, 73, 11, .16);
+    --adminweb-podio-2: rgba(186, 73, 11, .10);
+    --adminweb-podio-3: rgba(186, 73, 11, .06);
+
+    /* Serie categórica para las tarjetas de resumen. Se usan como COLOR DE TEXTO
+       sobre la tarjeta, no como relleno, y de ahí que sean oscuros: el más flojo
+       da 5.72 sobre el marfil del fondo. No son estados —no hay uno mejor que
+       otro—, por eso no salen de success/warning/danger. */
+    --adminweb-serie-1: #1f6f5c;
+    --adminweb-serie-2: #574a9c;
+    --adminweb-serie-3: #8e3d6b;
 }
 
 /* ── Oscuro ─────────────────────────────────────────────────────────────────── */
 
 :root[data-tema="oscuro"] {
-    --rz-base:            #1e293b;
-    --rz-base-50:         #0f172a;
-    --rz-base-100:        #1e293b;
-    --rz-base-200:        #334155;
-    --rz-base-300:        #475569;
-    --rz-base-400:        #64748b;
-    --rz-base-500:        #94a3b8;
-    --rz-base-600:        #cbd5e1;
-    --rz-base-700:        #e2e8f0;
-    --rz-base-800:        #f1f5f9;
-    --rz-base-900:        #f8fafc;
-    --rz-base-light:      #334155;
-    --rz-base-lighter:    #1e293b;
-    --rz-base-dark:       #94a3b8;
-    --rz-base-darker:     #f1f5f9;
-    --rz-base-background-color: #1e293b;
-    --rz-on-base:         #f1f5f9;
+    --rz-base:            #1c1a18;
+    --rz-base-50:         #121110;
+    --rz-base-100:        #1c1a18;
+    --rz-base-200:        #33302a;
+    --rz-base-300:        #4a453c;
+    --rz-base-400:        #6b6255;
+    --rz-base-500:        #9b9285;
+    --rz-base-600:        #c4bcaf;
+    --rz-base-700:        #e0dad1;
+    --rz-base-800:        #efebe4;
+    --rz-base-900:        #faf9f7;
+    --rz-base-light:      #33302a;
+    --rz-base-lighter:    #1c1a18;
+    --rz-base-dark:       #9b9285;
+    --rz-base-darker:     #efebe4;
+    --rz-base-background-color: #1c1a18;
+    --rz-on-base:         #efebe4;
 
-    --rz-body-background-color: #0f172a;
-    --rz-body-color:      #e2e8f0;
-    --rz-text-color:      #e2e8f0;
-    --rz-text-secondary-color: #94a3b8;
-    --rz-text-disabled-color:  #64748b;
+    --rz-body-background-color: #121110;
+    --rz-body-color:      #e6e0d8;
+    /* NO es blanco puro: #e6e0d8 es marfil apagado. El blanco sobre grafito
+       vibra y cansa en una pantalla que se pasa el día enseñando tablas. */
+    --rz-text-color:      #e6e0d8;
+    --rz-text-secondary-color: #a8a094;
+    --rz-text-disabled-color:  #6b6255;
 
-    /* Un azul MÁS CLARO que en modo claro. El #2563eb sobre #0f172a no llega al
-       contraste mínimo para texto pequeño; éste sí. */
-    --rz-primary:         #60a5fa;
-    --rz-primary-dark:    #3b82f6;
-    --rz-primary-darker:  #2563eb;
-    --rz-primary-light:   #93c5fd;
-    --rz-primary-lighter: rgba(96, 165, 250, .16);
-    --rz-on-primary:      #0f172a;
+    /* El acento sube: un ámbar oscuro sobre grafito no se ve. Y como el botón
+       pasa a ser una superficie luminosa, --rz-on-primary baja a GRAFITO: el
+       blanco encima daría 1.7 y sería ilegible, mientras que el grafito da 5.96.
+       Fíjate en que --rz-primary-darker es exactamente el acento del modo claro,
+       así la familia sigue siendo una sola. */
+    --rz-primary:         #e8752e;
+    --rz-primary-dark:    #d4631f;
+    --rz-primary-darker:  #ba490b;
+    --rz-primary-light:   #f2955c;
+    --rz-primary-lighter: rgba(232, 117, 46, .16);
+    --rz-on-primary:      #1a1714;
 
-    --rz-secondary:         #94a3b8;
-    --rz-secondary-dark:    #64748b;
-    --rz-secondary-darker:  #475569;
-    --rz-secondary-light:   #cbd5e1;
-    --rz-secondary-lighter: rgba(148, 163, 184, .16);
-    --rz-on-secondary:      #0f172a;
+    --rz-secondary:         #a8a094;
+    --rz-secondary-dark:    #7d7568;
+    --rz-secondary-darker:  #5c554a;
+    --rz-secondary-light:   #c4bcaf;
+    --rz-secondary-lighter: rgba(168, 160, 148, .16);
+    --rz-on-secondary:      #1a1714;
 
     /* Los estados también suben de luminosidad: los tonos oscuros del modo claro
-       desaparecen sobre un fondo oscuro. */
-    --rz-success:         #4ade80;
-    --rz-success-light:   #86efac;
-    --rz-success-lighter: rgba(74, 222, 128, .16);
-    --rz-warning:         #fbbf24;
-    --rz-warning-light:   #fcd34d;
-    --rz-warning-lighter: rgba(251, 191, 36, .16);
-    --rz-danger:          #f87171;
-    --rz-danger-light:    #fca5a5;
-    --rz-danger-lighter:  rgba(248, 113, 113, .16);
-    --rz-info:            #38bdf8;
-    --rz-info-light:      #7dd3fc;
-    --rz-info-lighter:    rgba(56, 189, 248, .16);
+       desaparecen sobre un fondo oscuro. Aquí la separación entre el acento y el
+       aviso va AL REVÉS que en claro —el aviso es el más claro de los dos—, pero
+       sigue siendo la misma separación: 25 grados de matiz y ΔL* 19.1. */
+    --rz-success:         #63c26e;
+    --rz-success-light:   #92d99a;
+    --rz-success-lighter: rgba(99, 194, 110, .16);
+    --rz-warning:         #dfc86e;
+    --rz-warning-light:   #ecdda2;
+    --rz-warning-lighter: rgba(223, 200, 110, .16);
+    --rz-danger:          #f0736b;
+    --rz-danger-light:    #f7a39d;
+    --rz-danger-lighter:  rgba(240, 115, 107, .16);
+    --rz-info:            #5cb8e0;
+    --rz-info-light:      #8fd0ea;
+    --rz-info-lighter:    rgba(92, 184, 224, .16);
 
-    --rz-header-background-color: #0f172a;
-    --rz-header-color:            #e2e8f0;
+    /* Hover y pulsado de los estados; ver la nota del bloque claro. Aquí bajan de
+       luminosidad igual que hace la familia del acento en este modo. */
+    --rz-success-dark:    #56a960;
+    --rz-success-darker:  #4a9253;
+    --rz-warning-dark:    #c2ae60;
+    --rz-warning-darker:  #a79653;
+    --rz-danger-dark:     #d1645d;
+    --rz-danger-darker:   #b45650;
+    --rz-info-dark:       #50a0c3;
+    --rz-info-darker:     #458aa8;
+
+    --rz-header-background-color: #121110;
+    --rz-header-color:            #e6e0d8;
     --rz-header-shadow:           none;
-    --rz-header-border:           1px solid #1e293b;
+    --rz-header-border:           1px solid #2b2721;
 
-    --rz-sidebar-background-color: #0f172a;
-    --rz-sidebar-border:           1px solid #1e293b;
-    --rz-sidebar-color:            #cbd5e1;
+    --rz-sidebar-background-color: #121110;
+    --rz-sidebar-border:           1px solid #2b2721;
+    --rz-sidebar-color:            #c4bcaf;
 
-    --rz-panel-background-color: #1e293b;
-    --rz-card-background-color:  #1e293b;
-    --rz-border-color:           #334155;
+    /* MÁS CLARA que el fondo de página, al revés que en claro. Es como se lee la
+       elevación cuando no hay sombras. */
+    --rz-panel-background-color: #1c1a18;
+    --rz-card-background-color:  #1c1a18;
+    --rz-border-color:           #33302a;
+
+    /* Ver la nota del modo claro: el borde de un CONTROL necesita 3:1 y el de
+       una tarjeta no. Aquí sube en vez de bajar —sobre fondo oscuro lo legible
+       es lo claro— y da 3.77 sobre la tarjeta y 4.10 sobre el fondo de página. */
+    --rz-border-normal: 1px solid #7d7466;
 
     /* En oscuro las sombras casi no se ven: la separación la hace el borde. */
     --rz-shadow-1: 0 1px 2px rgba(0, 0, 0, .30);
@@ -202,13 +415,27 @@
     --rz-shadow-5: 0 8px 24px rgba(0, 0, 0, .50);
     --rz-shadow-6: 0 12px 32px rgba(0, 0, 0, .55);
 
-    --rz-grid-header-background-color: #172033;
-    --rz-grid-stripe-background-color: #172033;
+    --rz-grid-header-background-color: #211f1c;
+    --rz-grid-stripe-background-color: #211f1c;
 
-    --adminweb-acceso-fondo: linear-gradient(160deg, #0f172a 0%, #1e293b 100%);
-    --adminweb-cargando-color: #94a3b8;
-    --adminweb-aviso-fondo: #422006;
-    --adminweb-aviso-color: #fde68a;
+    --adminweb-acceso-fondo: linear-gradient(160deg, #121110 0%, #33302a 100%);
+    --adminweb-cargando-color: #a8a094;
+    --adminweb-aviso-fondo: #3b2d0d;
+    --adminweb-aviso-color: #f0dc9e;
+
+    /* Consola y puntos de presencia NO se redeclaran aquí: son iguales en los dos
+       temas y se quedan con el valor del bloque claro, que :root da siempre. Está
+       explicado arriba, donde se declaran. No los copies «por simetría»: entonces
+       sí habría dos sitios que mantener sincronizados.
+
+       Podio y serie sí, porque son los mismos colores medidos contra otro fondo. */
+    --adminweb-podio-1: rgba(232, 117, 46, .16);
+    --adminweb-podio-2: rgba(232, 117, 46, .10);
+    --adminweb-podio-3: rgba(232, 117, 46, .06);
+
+    --adminweb-serie-1: #63c9a8;
+    --adminweb-serie-2: #a99af0;
+    --adminweb-serie-3: #e084b4;
 
     color-scheme: dark;
 }
@@ -216,79 +443,118 @@
 /* Sin elección explícita, manda el sistema operativo. Va DESPUÉS de las dos
    definiciones y acotado a :root:not([data-tema]) para que elegir a mano siempre
    gane sobre la preferencia del sistema — que es lo que espera quien acaba de
-   pulsar el interruptor. */
+   pulsar el interruptor.
+
+   Sí, repite el bloque de arriba entero, y es a propósito: no hay forma de que
+   un selector herede de otro en CSS. Si tocas un valor del oscuro y te olvidas
+   de éste, quien no haya tocado nunca el interruptor verá el tema a medio
+   pintar. Los dos bloques se cambian SIEMPRE juntos. */
 @media (prefers-color-scheme: dark) {
     :root:not([data-tema]) {
-        --rz-base:            #1e293b;
-        --rz-base-50:         #0f172a;
-        --rz-base-100:        #1e293b;
-        --rz-base-200:        #334155;
-        --rz-base-300:        #475569;
-        --rz-base-400:        #64748b;
-        --rz-base-500:        #94a3b8;
-        --rz-base-600:        #cbd5e1;
-        --rz-base-700:        #e2e8f0;
-        --rz-base-800:        #f1f5f9;
-        --rz-base-900:        #f8fafc;
-        --rz-base-light:      #334155;
-        --rz-base-lighter:    #1e293b;
-        --rz-base-dark:       #94a3b8;
-        --rz-base-darker:     #f1f5f9;
-        --rz-base-background-color: #1e293b;
-        --rz-on-base:         #f1f5f9;
+        --rz-base:            #1c1a18;
+        --rz-base-50:         #121110;
+        --rz-base-100:        #1c1a18;
+        --rz-base-200:        #33302a;
+        --rz-base-300:        #4a453c;
+        --rz-base-400:        #6b6255;
+        --rz-base-500:        #9b9285;
+        --rz-base-600:        #c4bcaf;
+        --rz-base-700:        #e0dad1;
+        --rz-base-800:        #efebe4;
+        --rz-base-900:        #faf9f7;
+        --rz-base-light:      #33302a;
+        --rz-base-lighter:    #1c1a18;
+        --rz-base-dark:       #9b9285;
+        --rz-base-darker:     #efebe4;
+        --rz-base-background-color: #1c1a18;
+        --rz-on-base:         #efebe4;
 
-        --rz-body-background-color: #0f172a;
-        --rz-body-color:      #e2e8f0;
-        --rz-text-color:      #e2e8f0;
-        --rz-text-secondary-color: #94a3b8;
-        --rz-text-disabled-color:  #64748b;
+        --rz-body-background-color: #121110;
+        --rz-body-color:      #e6e0d8;
+        --rz-text-color:      #e6e0d8;
+        --rz-text-secondary-color: #a8a094;
+        --rz-text-disabled-color:  #6b6255;
 
-        --rz-primary:         #60a5fa;
-        --rz-primary-dark:    #3b82f6;
-        --rz-primary-darker:  #2563eb;
-        --rz-primary-light:   #93c5fd;
-        --rz-primary-lighter: rgba(96, 165, 250, .16);
-        --rz-on-primary:      #0f172a;
+        --rz-primary:         #e8752e;
+        --rz-primary-dark:    #d4631f;
+        --rz-primary-darker:  #ba490b;
+        --rz-primary-light:   #f2955c;
+        --rz-primary-lighter: rgba(232, 117, 46, .16);
+        --rz-on-primary:      #1a1714;
 
-        --rz-secondary:         #94a3b8;
-        --rz-secondary-dark:    #64748b;
-        --rz-secondary-darker:  #475569;
-        --rz-secondary-light:   #cbd5e1;
-        --rz-secondary-lighter: rgba(148, 163, 184, .16);
-        --rz-on-secondary:      #0f172a;
+        --rz-secondary:         #a8a094;
+        --rz-secondary-dark:    #7d7568;
+        --rz-secondary-darker:  #5c554a;
+        --rz-secondary-light:   #c4bcaf;
+        --rz-secondary-lighter: rgba(168, 160, 148, .16);
+        --rz-on-secondary:      #1a1714;
 
-        --rz-success:         #4ade80;
-        --rz-success-light:   #86efac;
-        --rz-success-lighter: rgba(74, 222, 128, .16);
-        --rz-warning:         #fbbf24;
-        --rz-warning-light:   #fcd34d;
-        --rz-warning-lighter: rgba(251, 191, 36, .16);
-        --rz-danger:          #f87171;
-        --rz-danger-light:    #fca5a5;
-        --rz-danger-lighter:  rgba(248, 113, 113, .16);
-        --rz-info:            #38bdf8;
-        --rz-info-light:      #7dd3fc;
-        --rz-info-lighter:    rgba(56, 189, 248, .16);
+        --rz-success:         #63c26e;
+        --rz-success-light:   #92d99a;
+        --rz-success-lighter: rgba(99, 194, 110, .16);
+        --rz-warning:         #dfc86e;
+        --rz-warning-light:   #ecdda2;
+        --rz-warning-lighter: rgba(223, 200, 110, .16);
+        --rz-danger:          #f0736b;
+        --rz-danger-light:    #f7a39d;
+        --rz-danger-lighter:  rgba(240, 115, 107, .16);
+        --rz-info:            #5cb8e0;
+        --rz-info-light:      #8fd0ea;
+        --rz-info-lighter:    rgba(92, 184, 224, .16);
 
-        --rz-header-background-color: #0f172a;
-        --rz-header-color:            #e2e8f0;
-        --rz-header-border:           1px solid #1e293b;
+        --rz-success-dark:    #56a960;
+        --rz-success-darker:  #4a9253;
+        --rz-warning-dark:    #c2ae60;
+        --rz-warning-darker:  #a79653;
+        --rz-danger-dark:     #d1645d;
+        --rz-danger-darker:   #b45650;
+        --rz-info-dark:       #50a0c3;
+        --rz-info-darker:     #458aa8;
 
-        --rz-sidebar-background-color: #0f172a;
-        --rz-sidebar-border:           1px solid #1e293b;
-        --rz-sidebar-color:            #cbd5e1;
+        --rz-header-background-color: #121110;
+        --rz-header-color:            #e6e0d8;
+        --rz-header-shadow:           none;
+        --rz-header-border:           1px solid #2b2721;
 
-        --rz-panel-background-color: #1e293b;
-        --rz-card-background-color:  #1e293b;
-        --rz-border-color:           #334155;
+        --rz-sidebar-background-color: #121110;
+        --rz-sidebar-border:           1px solid #2b2721;
+        --rz-sidebar-color:            #c4bcaf;
 
-        --rz-grid-header-background-color: #172033;
-        --rz-grid-stripe-background-color: #172033;
+        --rz-panel-background-color: #1c1a18;
+        --rz-card-background-color:  #1c1a18;
+        --rz-border-color:           #33302a;
 
-        --adminweb-acceso-fondo: linear-gradient(160deg, #0f172a 0%, #1e293b 100%);
-        --adminweb-cargando-color: #94a3b8;
-        --adminweb-aviso-fondo: #422006;
-        --adminweb-aviso-color: #fde68a;
+    /* Ver la nota del modo claro: el borde de un CONTROL necesita 3:1 y el de
+       una tarjeta no. Aquí sube en vez de bajar —sobre fondo oscuro lo legible
+       es lo claro— y da 3.77 sobre la tarjeta y 4.10 sobre el fondo de página. */
+    --rz-border-normal: 1px solid #7d7466;
+
+        /* Faltaban en este bloque: quien tenía el sistema en oscuro y no había
+           tocado el interruptor se quedaba con las sombras del modo claro, que
+           sobre grafito no separan nada. */
+        --rz-shadow-1: 0 1px 2px rgba(0, 0, 0, .30);
+        --rz-shadow-2: 0 1px 3px rgba(0, 0, 0, .35);
+        --rz-shadow-3: 0 2px 6px rgba(0, 0, 0, .40);
+        --rz-shadow-4: 0 4px 12px rgba(0, 0, 0, .45);
+        --rz-shadow-5: 0 8px 24px rgba(0, 0, 0, .50);
+        --rz-shadow-6: 0 12px 32px rgba(0, 0, 0, .55);
+
+        --rz-grid-header-background-color: #211f1c;
+        --rz-grid-stripe-background-color: #211f1c;
+
+        --adminweb-acceso-fondo: linear-gradient(160deg, #121110 0%, #33302a 100%);
+        --adminweb-cargando-color: #a8a094;
+        --adminweb-aviso-fondo: #3b2d0d;
+        --adminweb-aviso-color: #f0dc9e;
+
+        /* Igual que en el bloque de arriba: consola y presencia no van aquí. */
+        --adminweb-podio-1: rgba(232, 117, 46, .16);
+        --adminweb-podio-2: rgba(232, 117, 46, .10);
+        --adminweb-podio-3: rgba(232, 117, 46, .06);
+
+        --adminweb-serie-1: #63c9a8;
+        --adminweb-serie-2: #a99af0;
+        --adminweb-serie-3: #e084b4;
 
         color-scheme: dark;
     }
@@ -296,7 +562,49 @@
 
 /* ── Ajustes que las variables no alcanzan ──────────────────────────────────── */
 
-/* Las tarjetas se separan con una línea, no con relieve. */
+/* EL TEXTO DE LA BARRA SUPERIOR HEREDA EL COLOR DE LA BARRA, no el del cuerpo.
+
+   Sin esto no se ve, literalmente. Las clases tipográficas de Radzen
+   (.rz-text-h6, .rz-text-body2…) fijan `color: var(--rz-text-color)`, que es el
+   gris casi negro del texto normal; puestas dentro de la barra, eso cae sobre el
+   grafito y da CONTRASTE 1.00 — el mismo color exacto. Así estaban el nombre de
+   la aplicación y el del usuario conectado: presentes en el marcado, invisibles
+   en pantalla.
+
+   Va aquí y no en el layout a propósito: escrito allí arreglaría los dos textos
+   de hoy y le volvería a pasar al siguiente que alguien ponga en la barra. Se
+   acota a las clases de TEXTO para no pisar a los botones ni a los iconos, que
+   traen su propio color y sí lo necesitan (el acento sobre la barra, por
+   ejemplo, usa la variante clara y se calcula contra el grafito). */
+.rz-header [class*="rz-text-"] {
+    color: var(--rz-header-color);
+}
+
+/* EL SELECTOR DE ESTADO PROPIO VA SIN RELLENO.
+
+   Radzen pinta .rz-profile-menu con el color primario de serie, porque da por
+   hecho que es la ficha del usuario sobre una barra de color. Aquí el resultado
+   era una píldora ámbar maciza que se convertía en lo más llamativo de toda la
+   pantalla —por encima del botón de acción de la página que estuvieras mirando—
+   para decir «Disponible», que no le pide nada a nadie.
+
+   Contradice además la regla del propio tema: el acento vive en el cromo que
+   INVITA A ACTUAR, y esto es un indicador de estado. El color lo lleva el punto
+   de presencia, que es el único sitio donde significa algo. */
+.rz-header .rz-profile-menu {
+    background: transparent;
+}
+
+/* Que siga acusando el ratón: sin relleno de base, el realce del paso por encima
+   es lo único que dice que se puede pulsar. En blanco muy bajo porque va sobre el
+   grafito de la barra, igual que el interruptor de tema de app.css. */
+.rz-header .rz-profile-menu:hover {
+    background: rgba(255, 255, 255, .10);
+}
+
+/* Las tarjetas se separan con una línea, no con relieve. En claro la línea se
+   suma al escalón que ya hay entre el blanco de la tarjeta y el marfil del
+   fondo; en oscuro es casi toda la separación que hay. */
 .rz-card,
 .rz-panel,
 .rz-fieldset {
@@ -322,7 +630,9 @@
 }
 
 /* La entrada del menú activa se marca con una barra a la izquierda, además del
-   fondo: el fondo solo se distingue mal en pantallas con poco contraste. */
+   fondo: el fondo solo se distingue mal en pantallas con poco contraste. Ésta es
+   una de las cuatro apariciones legítimas del acento —cromo interactivo—, así
+   que va de --rz-primary y nunca de --rz-warning. */
 .rz-navigation-item-wrapper.rz-navigation-item-wrapper-active {
     border-inline-start: 3px solid var(--rz-primary);
     background: var(--rz-primary-lighter);
@@ -331,4 +641,33 @@
 /* Filas más aireadas: es lo que más se nota al pasar el día leyendo tablas. */
 .rz-grid-table td {
     padding-block: .55rem;
+}
+
+/* UN ICONO METIDO EN UN TEXTO SE MIDE CON ESE TEXTO, no con --rz-icon-size.
+   Radzen fija el icono en 1.5rem —24 px— pase lo que pase. Al cambiar los emojis
+   por iconos de la fuente, media aplicación quedó con <RadzenIcon> dentro de un
+   <RadzenText>, y ahí ese tamaño está mal por mucho: un Caption son 0,75rem, o
+   sea que el icono salía al DOBLE de alto que la palabra que acompaña, estirando
+   el renglón y quedándose con el protagonismo justo al revés de lo que se buscaba.
+   Con Body2 (0,875rem) y Subtitle (1rem) es lo mismo en menor grado.
+
+   Se arregla en un sitio y no rótulo a rótulo: cuatro sitios ya lo llevaban
+   resuelto a mano con un font-size en línea —y en línea siguen ganando, así que
+   esto no los toca— pero quedaban unos quince sin resolver, y el siguiente que
+   escriba un icono dentro de un texto tampoco tendría por qué acordarse.
+
+   Los TÍTULOS (h1…h6) quedan fuera a propósito: ahí el icono grande hace de
+   marcador del bloque y es la proporción que se quiere.
+
+   El em es la clave: se mide contra el texto que lo hospeda, así que la misma
+   regla vale para los tres tamaños. Y el vertical-align lo baja a la línea base,
+   porque .rzi es inline-block y sin esto se apoya en la línea y sube. */
+.rz-text-caption .rzi,
+.rz-text-body1 .rzi,
+.rz-text-body2 .rzi,
+.rz-text-subtitle1 .rzi,
+.rz-text-subtitle2 .rzi,
+.rz-text-overline .rzi {
+    font-size: 1.25em;
+    vertical-align: -.18em;
 }
