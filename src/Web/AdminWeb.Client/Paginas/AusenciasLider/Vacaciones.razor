@@ -113,6 +113,14 @@
                                                       ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                                                       Disabled="@(_ocupado || _firmaId is null)"
                                                       Click="@(() => VerDocumento(sel, _firmaId))" />
+                                        @* El MISMO documento en Word, sobre la plantilla que RH
+                                           mantiene. Se descarga en vez de abrirse en otra pestaña
+                                           —al revés que el PDF— porque el navegador no sabe enseñar
+                                           un .docx: abrirlo daría una pestaña en blanco. *@
+                                        <RadzenButton Text="Bajar en Word" Icon="description"
+                                                      ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                                      Disabled="@_ocupado"
+                                                      Click="@(() => BajarWord(sel, _firmaId))" />
                                         <RadzenButton Text="Firmar y archivar" Icon="verified"
                                                       ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small"
                                                       Disabled="@(_ocupado || _firmaId is null)"
@@ -365,6 +373,19 @@
         var ruta = $"api/ausencias-lider/vacaciones/{v.Id}/documento";
         if (firmaId is int id) ruta += $"?firmaId={id}";
         return Descargas.AbrirEnOtraPestanaAsync(ruta).AsTask();
+    }
+
+    /// <summary>
+    /// Baja la solicitud en Word, rellenada sobre la plantilla editable.
+    ///
+    /// Se DESCARGA y no se abre en otra pestaña, al revés que el PDF: el navegador no sabe enseñar
+    /// un .docx, así que abrirlo daría una pestaña en blanco o una descarga con nombre feo.
+    /// </summary>
+    private Task BajarWord(SolicitudDeVacacionesDelLiderDto v, int? firmaId)
+    {
+        var ruta = $"api/ausencias-lider/vacaciones/{v.Id}/documento/word";
+        if (firmaId is int id) ruta += $"?firmaId={id}";
+        return Descargas.DesdeApiAsync(ruta).AsTask();
     }
 
     private Task VerFirmado(SolicitudDeVacacionesDelLiderDto v) =>

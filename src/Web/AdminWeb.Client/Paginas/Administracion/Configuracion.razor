@@ -1,9 +1,12 @@
 @page "/configuracion"
 @attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Shared.Dtos
 @using AdminWeb.Shared.Dtos.Administracion
+@using AdminWeb.Shared.Dtos.AusenciasLider
 @implements IDisposable
 @inject ClienteApi Api
 @inject AvisosDeInterfaz Avisos
+@inject Descargas Descargas
 
 @*
     La configuración compartida: las claves que el líder ajusta sin recompilar y los secretos de las
@@ -194,6 +197,59 @@
             </RadzenCard>
         }
     }
+
+    @* ── La plantilla de Word de la solicitud de vacaciones ────────────────────
+       Va aquí y no en la pantalla de vacaciones porque es CONFIGURACIÓN: se toca una vez cada
+       mucho, la mantiene quien decide el formato, y no tiene nada que ver con resolver una
+       solicitud concreta. *@
+    <RadzenCard>
+        <RadzenStack Gap="0.75rem">
+            <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                📄 Plantilla de la solicitud de vacaciones
+            </RadzenText>
+
+            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                El documento en Word se rellena sobre esta plantilla, así que cambiar una palabra del
+                formato no exige recompilar nada. Descárgala, edítala en Word conservando los
+                marcadores <b>{{ASÍ}}</b>, y vuelve a subirla. Se comprueba que estén todos antes de
+                aceptarla. El PDF no depende de esto: ese lo maqueta el código.
+            </RadzenText>
+
+            <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                @if (_plantilla is null)
+                {
+                    <span>Consultando…</span>
+                }
+                else if (_plantilla.EsDeFabrica)
+                {
+                    <span>Se está usando la <b>plantilla de fábrica</b>, la que trae la aplicación.</span>
+                }
+                else
+                {
+                    <span>
+                        Plantilla propia, subida por <b>@(_plantilla.SubidaPor ?? "alguien")</b>
+                        el @_plantilla.SubidaEnUtc?.ToLocalTime().ToString("dd/MM/yyyy HH:mm").
+                    </span>
+                }
+            </RadzenText>
+
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem"
+                         AlignItems="AlignItems.Center" Wrap="FlexWrap.Wrap">
+                <RadzenButton Text="Descargar la actual" Icon="download" Size="ButtonSize.Small"
+                              ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+                              Click="@(() => Descargas.DesdeApiAsync("api/ausencias-lider/plantilla-vacaciones/descargar"))" />
+
+                <InputFile OnChange="@SubirPlantilla" accept=".docx" disabled="@_ocupado" />
+
+                @if (_plantilla is { EsDeFabrica: false })
+                {
+                    <RadzenButton Text="Volver a la de fábrica" Icon="restart_alt" Size="ButtonSize.Small"
+                                  ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+                                  Click="@RestablecerPlantilla" />
+                }
+            </RadzenStack>
+        </RadzenStack>
+    </RadzenCard>
 </RadzenStack>
 
 @code {
@@ -210,6 +266,9 @@
     private readonly Dictionary<string, string?> _editado = [];
 
     private List<ResultadoDeClaveDto> _resultados = [];
+
+    /// <summary>De dónde sale la plantilla de Word que se está usando.</summary>
+    private OrigenDePlantillaDto? _plantilla;
 
     /// <summary>
     /// El resultado de la última prueba de cada apartado, por su título.
@@ -228,9 +287,73 @@
         try
         {
             _datos = await Api.LeerAsync<ConfiguracionDto>("api/administracion/configuracion", _cancelacion.Token);
+            _plantilla = await Api.LeerAsync<OrigenDePlantillaDto>(
+                "api/ausencias-lider/plantilla-vacaciones", _cancelacion.Token);
             _editado.Clear();
         }
         finally { _ocupado = false; }
+    }
+
+    // ── La plantilla de Word ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// Sube una plantilla nueva. El servidor la RECHAZA si le faltan marcadores, y ese rechazo es lo
+    /// que importa: aceptarla sin mirar dejaría el fallo para el día en que alguien necesite el
+    /// documento, y el síntoma sería un papel oficial con «{{NOMBRE}}» impreso.
+    /// </summary>
+    private async Task SubirPlantilla(InputFileChangeEventArgs e)
+    {
+        var archivo = e.File;
+        if (archivo is null) return;
+
+        const long tope = 10 * 1024 * 1024;
+        if (archivo.Size > tope)
+        {
+            Avisos.Aviso($"La plantilla pesa {archivo.Size / 1024d / 1024d:0.0} MB y el tope son 10 MB.");
+            return;
+        }
+
+        _ocupado = true;
+        try
+        {
+            using var flujo = archivo.OpenReadStream(tope, _cancelacion.Token);
+            using var memoria = new MemoryStream();
+            await flujo.CopyToAsync(memoria, _cancelacion.Token);
+
+            var formulario = new MultipartFormDataContent
+            {
+                { new ByteArrayContent(memoria.ToArray()), "archivo", archivo.Name }
+            };
+
+            var (ok, r) = await Api.SubirAsync<ResultadoDto>(
+                "api/ausencias-lider/plantilla-vacaciones", formulario, _cancelacion.Token);
+
+            // El mensaje del rechazo lo enseña el manejador de respuestas y nombra los marcadores
+            // que faltan, así que aquí solo se anuncia el éxito.
+            if (ok && r is not null) Avisos.Exito(r.Mensaje);
+        }
+        finally { _ocupado = false; }
+
+        await Cargar();
+    }
+
+    private async Task RestablecerPlantilla()
+    {
+        if (!await Avisos.ConfirmarAsync(
+                "¿Volver a la plantilla que trae la aplicación? La que subiste se perderá; " +
+                "descárgala antes si la quieres conservar.", "Restablecer plantilla"))
+            return;
+
+        _ocupado = true;
+        try
+        {
+            var (ok, r) = await Api.EnviarAsync<object, ResultadoDto>(
+                "api/ausencias-lider/plantilla-vacaciones/restablecer", new { }, _cancelacion.Token);
+            if (ok && r is not null) Avisos.Exito(r.Mensaje);
+        }
+        finally { _ocupado = false; }
+
+        await Cargar();
     }
 
     // ── Probar conexión ──────────────────────────────────────────────────────
