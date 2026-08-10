@@ -1,33 +1,120 @@
 @page "/acceso"
 @layout Layout.LayoutVacio
 @attribute [AllowAnonymous]
+@using AdminWeb.Shared
 @inject EstadoSesion Sesion
 @inject NavigationManager Navegacion
 @inject AuthenticationStateProvider ProveedorAuth
 
 <PageTitle>Entrar · Administrador de Desarrollo</PageTitle>
 
+@*
+    Panel partido: a la izquierda quién es esta aplicación, a la derecha el formulario.
+
+    La tarjeta centrada de antes funcionaba, pero no se presentaba: podía ser el acceso de cualquier
+    cosa. Ésta es la única pantalla que ve alguien que todavía no ha entrado, así que es el único
+    sitio donde decir qué es esto sale gratis — dentro ya no hay hueco para nombre ni lema.
+
+    El reparto en dos mitades y el apilado en móvil los hace ENTERAMENTE acceso.css con una rejilla y
+    una consulta de medios. Aquí no hay ni una decisión de tamaño de pantalla: si la hubiera, habría
+    que arrastrar el ancho del navegador hasta C# y repintar en cada arrastre, que es mucho trabajo
+    para algo que el navegador ya sabe hacer solo.
+*@
+
 <div class="acceso-fondo">
-    <RadzenCard class="acceso-tarjeta">
-        <RadzenStack Gap="1rem">
-            <RadzenText TextStyle="TextStyle.H5">Administrador de Desarrollo</RadzenText>
+    <div class="acceso-panel">
 
-            <RadzenTextBox @bind-Value="_usuario" Placeholder="Usuario" aria-label="Usuario"
-                           @onkeydown="AlTeclear" Disabled="@_ocupado" />
-            <RadzenPassword @bind-Value="_contrasena" Placeholder="Contraseña" aria-label="Contraseña"
-                            @onkeydown="AlTeclear" Disabled="@_ocupado" />
+        @* La mitad de identidad. Es CROMO: va en grafito en los dos modos, igual que la barra
+           superior, y por eso se pinta con las variables de cabecera y no con las de tarjeta. *@
+        <section class="acceso-identidad">
+            <div class="acceso-marca">
+                @* El mismo trazo del favicon, en línea y sin colores propios: los pone acceso.css
+                   desde el tema. Va en línea y no como <img src="favicon.svg"> porque así hereda la
+                   paleta —un archivo suelto traería sus colores pintados dentro— y porque no cuesta
+                   una petición más ni depende de que la política de contenido la deje pasar.
 
-            @if (_error != null)
-            {
-                <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false">
-                    @_error
-                </RadzenAlert>
-            }
+                   aria-hidden: el nombre de la aplicación está aquí al lado en texto. Anunciarlo dos
+                   veces no informa de nada, solo alarga la lectura. *@
+                <svg class="acceso-marca-trazo" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+                    <rect width="32" height="32" rx="7" />
+                    <path d="M9 21.5V10.5h3.4l3.6 6.6 3.6-6.6H23v11h-2.7v-6.7l-3 5.4h-1.6l-3-5.4v6.7z" />
+                </svg>
 
+                @* El <br> con el espacio DETRÁS, no delante: cuando el corte se quita, el espacio
+                   sigue separando las dos palabras; al principio de una línea el navegador lo
+                   descarta él solo, así que sobra en el único caso en que estorbaría. *@
+                <h1 class="acceso-marca-nombre">Administrador<br /> de Desarrollo</h1>
+            </div>
+
+            <p class="acceso-lema">El trabajo del equipo, en un solo sitio.</p>
+
+            @* La versión, como en el pie del menú lateral: aquí se ve ANTES de entrar, que es justo
+               cuando sirve para situar un «no me deja entrar». Se enseña solo la parte corta y el
+               SHA se deja en el title; en el menú van los dos porque allí hay sitio y aquí la línea
+               tiene que pasar desapercibida.
+
+               Los paréntesis del @() NO son adorno: escrito «v@Version…», Razor ve una letra
+               seguida de arroba, cree que es una dirección de correo y lo imprime LITERAL. Compila
+               igual y solo se nota mirando la pantalla. *@
+            <p class="acceso-version dato-tecnico" title="@VersionDeLaAplicacion.Completa">
+                @($"v{VersionDeLaAplicacion.Corta}")
+            </p>
+        </section>
+
+        @* La mitad del formulario. Ésta sí cambia con el modo: es superficie, no cromo. *@
+        <section class="acceso-formulario">
+            <h2 class="acceso-titulo">Entrar</h2>
+
+            @* Etiqueta VISIBLE envolviendo al campo. Envolver en lugar de usar for/id evita tener
+               que adivinar el identificador que Radzen le genera al <input> por dentro: si algún día
+               lo cambia, un for="…" escrito a mano se quedaría apuntando a la nada y la etiqueta
+               dejaría de dar foco al campo sin que nadie se entere.
+
+               El aria-label se queda además de la etiqueta —dicen lo mismo y no compiten: el
+               aria-label es el que gana como nombre accesible—, porque es lo que había y quitarlo
+               sería confiar en que el envoltorio funciona en todos los lectores de pantalla. *@
+            <label class="acceso-campo">
+                <span class="acceso-etiqueta">Usuario</span>
+                @* AutoCompleteType y NO un autocomplete="username" suelto. El atributo suelto sí
+                   llegaría al <input> (estos componentes recogen los atributos que no reconocen),
+                   pero Radzen YA escribe su propio autocomplete —vale «on» mientras no se le diga
+                   otra cosa— y acabaría habiendo dos en el mismo elemento. Con el parámetro sale uno
+                   solo y con el valor exacto: comprobado que AutoCompleteType.Username se escribe
+                   «username» y CurrentPassword, «current-password». *@
+                <RadzenTextBox @ref="_campoUsuario" @bind-Value="_usuario" aria-label="Usuario"
+                               AutoCompleteType="AutoCompleteType.Username"
+                               @onkeydown="AlTeclear" Disabled="@_ocupado" />
+            </label>
+
+            <label class="acceso-campo">
+                <span class="acceso-etiqueta">Contraseña</span>
+                <RadzenPassword @bind-Value="_contrasena" aria-label="Contraseña"
+                                AutoCompleteType="AutoCompleteType.CurrentPassword"
+                                @onkeydown="AlTeclear" Disabled="@_ocupado" />
+            </label>
+
+            @* El hueco del aviso existe SIEMPRE, con error o sin él, y además VISIBLE: un
+               role="alert" que entra en el DOM —o que se enciende desde display:none— a la vez que
+               su texto no se anuncia de forma fiable, porque el lector de pantalla tiene que estar
+               ya vigilando ese hueco cuando el texto llega. Vacío no ocupa nada: acceso.css reparte
+               la separación del formulario con márgenes justo para que esto salga gratis. *@
+            <div class="acceso-aviso" role="alert">
+                @if (_error != null)
+                {
+                    <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false">
+                        @_error
+                    </RadzenAlert>
+                }
+            </div>
+
+            @* El width sigue en Style y no en la clase a propósito: en línea gana siempre, y las
+               reglas de Radzen para .rz-button traen su propia anchura con más peso del que tendría
+               una clase mía. *@
             <RadzenButton Text="@(_ocupado ? "Entrando…" : "Entrar")" Disabled="@_ocupado"
-                          Click="@Entrar" Style="width:100%" />
-        </RadzenStack>
-    </RadzenCard>
+                          Click="@Entrar" class="acceso-boton" Style="width:100%" />
+        </section>
+
+    </div>
 </div>
 
 @code {
@@ -36,6 +123,8 @@
     private string? _error;
     private bool _ocupado;
 
+    private RadzenTextBox? _campoUsuario;
+
     [SupplyParameterFromQuery(Name = "volverA")]
     private string? VolverA { get; set; }
 
@@ -43,6 +132,19 @@
     {
         // Si ya hay sesión (por ejemplo al recargar), no tiene sentido pedirla otra vez.
         if (await Sesion.RefrescarAsync() != null) Continuar();
+    }
+
+    /// <summary>
+    /// El foco entra solo en el usuario: quien abre esta pantalla viene a escribir, y el clic previo
+    /// es un paso de más en lo primero que se hace cada mañana.
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool primerRender)
+    {
+        // Va en el primer render y no en OnInitialized porque hasta que Radzen no ha pintado no hay
+        // <input> al que enfocar. Si OnInitialized ya redirigió —sesión viva o contraseña temporal—
+        // este método no llega a ejecutarse sobre un componente desmontado, pero la referencia se
+        // comprueba igual: cuesta nada y evita depender de ese detalle.
+        if (primerRender && _campoUsuario is not null) await _campoUsuario.FocusAsync();
     }
 
     private async Task AlTeclear(KeyboardEventArgs e)

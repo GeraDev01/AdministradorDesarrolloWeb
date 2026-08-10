@@ -1,0 +1,338 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   La pantalla de acceso: panel partido.
+
+   Dos mitades. La izquierda dice qué es esto (marca, lema, versión) y la derecha
+   pide usuario y contraseña. En pantalla estrecha se apila: identidad arriba,
+   compacta, y formulario debajo.
+
+   ── LAS DOS MITADES NO SON LO MISMO ──────────────────────────────────────────
+
+   La de identidad es CROMO: grafito en modo claro Y en modo oscuro, igual que la
+   barra superior de dentro de la aplicación. Por eso se pinta con
+   --rz-header-background-color y --rz-header-color y NO con las variables de
+   tarjeta: son las dos únicas que el tema garantiza oscuras en los dos modos, y
+   además hacen que esta pantalla y la barra de dentro sean el mismo gris sin que
+   nadie tenga que acordarse de sincronizar dos valores.
+
+   La del formulario es SUPERFICIE: cambia con el modo, y usa las variables de
+   tarjeta y de texto normales.
+
+   Consecuencia práctica: en la mitad de identidad, «claro» y «oscuro» no se
+   refieren al modo sino al grafito. Un texto secundario de ahí no puede usar
+   --rz-text-secondary-color —está calculado para leerse sobre marfil— y se
+   resuelve bajando la opacidad del color de cabecera, que es oscuro sobre claro
+   y claro sobre oscuro por definición.
+
+   ── NI UN COLOR ESCRITO A MANO ───────────────────────────────────────────────
+
+   Todo sale de variables del tema. Un literal aquí se ve bien en un modo y queda
+   ilegible en el otro, y nadie se entera hasta que alguien cambia de modo —que
+   puede ser semanas después—. Donde hace falta transparencia se usa color-mix()
+   sobre una variable en vez de un rgba() a mano; si algún navegador no lo
+   entendiera, la declaración entera se descarta y se queda el fondo liso, que es
+   una degradación aceptable porque solo afecta a la textura.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* ── El lienzo ──────────────────────────────────────────────────────────────── */
+
+/* .acceso-fondo la define app.css (centrado, alto de ventana y el degradado del
+   tema). Aquí solo se corrigen dos cosas que el panel partido necesita. */
+.acceso-fondo {
+    /* «safe» evita el clásico recorte por arriba: con align-items:center a secas,
+       si el panel llega a ser más alto que la ventana —portátil bajo, teléfono en
+       horizontal— el desbordamiento se va hacia arriba y esa parte NO se puede
+       desplazar, así que el campo de usuario queda fuera de alcance. Un navegador
+       que no conozca «safe» descarta la línea y se queda con el center de
+       app.css, que es exactamente lo que había. */
+    align-items: safe center;
+}
+
+.acceso-panel {
+    display: grid;
+    /* La identidad pesa un poco más que el formulario: es la que tiene que
+       sostener el aire, y el formulario son tres controles que no ganan nada por
+       ser más anchos. */
+    grid-template-columns: 1.1fr 1fr;
+    width: 100%;
+    max-width: 58rem;
+    min-height: 30rem;
+    /* Sin esto el grafito se sale por las esquinas: el fondo de la sección hija
+       es cuadrado y no lo redondea el borde del padre. */
+    overflow: hidden;
+    border: 1px solid var(--rz-border-color);
+    border-radius: calc(var(--rz-border-radius) * 2);
+    background: var(--rz-card-background-color);
+    box-shadow: var(--rz-shadow-5);
+}
+
+/* ── Mitad de identidad ─────────────────────────────────────────────────────── */
+
+.acceso-identidad {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 1.75rem;
+    padding: 3rem 2.75rem;
+    background: var(--rz-header-background-color);
+    color: var(--rz-header-color);
+
+    /* El acento SOBRE grafito usa la variante clara en los dos modos, que es para
+       lo que el tema la tiene: lo dice en tema.css junto a --rz-primary-light
+       —sobre la barra grafito el acento base se queda en 3.53 y éste sube a
+       4.71—. Ojo con la simetría, que es fácil de romper: esa misma variable NO
+       vale sobre superficie clara (da 3.72 sobre blanco), así que sirve aquí y no
+       en la mitad del formulario. Se declara una sola vez para revisarlo en un
+       sitio el día que haga falta. */
+    --acceso-acento: var(--rz-primary-light);
+}
+
+/* La textura. Dos capas muy flojas: un halo de acento que entra por el hombro
+   izquierdo y una trama diagonal de rayas de un píxel. Tiene que aguantar verse
+   todos los días, así que el listón es que no se note hasta que la buscas. */
+.acceso-identidad::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+        radial-gradient(115% 85% at 8% 0%,
+                        color-mix(in srgb, var(--rz-primary) 16%, transparent) 0%,
+                        transparent 58%),
+        repeating-linear-gradient(135deg,
+                                  color-mix(in srgb, var(--rz-header-color) 4%, transparent) 0 1px,
+                                  transparent 1px 10px);
+}
+
+/* El ::before está posicionado y los textos no, así que sin esto el navegador lo
+   pinta ENCIMA de ellos: lo posicionado va a una capa posterior a la del
+   contenido normal, por muy antes que esté en el marcado. Con position:relative
+   los hijos vuelven a quedar delante. */
+.acceso-identidad > * {
+    position: relative;
+}
+
+.acceso-marca {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1.1rem;
+}
+
+.acceso-marca-trazo {
+    width: 2.75rem;
+    height: 2.75rem;
+    flex: 0 0 auto;
+}
+
+/* Troquel: el cuadrado va en ámbar y la M se «recorta» dejando ver el grafito del
+   propio panel. Elegido así porque es legible por construcción en los dos modos
+   —el acento claro es claro y el grafito es oscuro, siempre— en vez de depender
+   de que dos colores concretos contrasten. */
+.acceso-marca-trazo rect { fill: var(--acceso-acento); }
+.acceso-marca-trazo path { fill: var(--rz-header-background-color); }
+
+.acceso-marca-nombre {
+    margin: 0;
+    font-size: 1.9rem;
+    font-weight: 600;
+    line-height: 1.15;
+    letter-spacing: -.015em;
+}
+
+.acceso-lema {
+    margin: 0;
+    max-width: 20ch;
+    font-size: 1.05rem;
+    line-height: 1.5;
+    /* Se apaga por COLOR y no con opacity, aunque opacity sea lo primero que uno
+       escribe. La opacidad se aplica al elemento entero, y este elemento lleva
+       colgado el filete de acento del ::before: apagarlo al 72% se lo llevaba por
+       delante y lo dejaba en 3.04 sobre el grafito, cuando a plena fuerza da
+       4.72. Tocando solo el color, el filete se queda como estaba.
+       Sobre grafito no vale --rz-text-secondary-color; ver la cabecera. */
+    color: color-mix(in srgb, var(--rz-header-color) 72%, transparent);
+}
+
+/* El único otro sitio donde aparece el acento en esta mitad. Un filete corto
+   basta para que el ámbar esté presente sin empapelar. */
+.acceso-lema::before {
+    content: "";
+    display: block;
+    width: 2.25rem;
+    height: 2px;
+    margin-bottom: 1.15rem;
+    background: var(--acceso-acento);
+}
+
+.acceso-version {
+    /* Al fondo del todo. El auto es lo que la empuja: es un dato de servicio, no
+       parte de la bienvenida, y arriba competiría con el lema. */
+    margin: auto 0 0;
+    font-size: .75rem;
+    /* .55 y no menos, que es además lo que usa el pie del menú lateral para esta
+       misma línea. Bajarla a .5 deja el texto en 4.43 sobre el grafito del modo
+       oscuro y se cae de AA; con .55 queda en 5.11. Es texto pequeño, así que el
+       listón son 4.5 y no 3. */
+    opacity: .55;
+}
+
+/* ── Mitad del formulario ───────────────────────────────────────────────────── */
+
+/* La separación va en MÁRGENES y no en un gap del flex, y no es capricho: el
+   hueco del aviso está siempre en el DOM (ver más abajo por qué) y con gap el
+   navegador reservaría su separación aunque estuviera vacío, dejando un salto
+   permanente entre la contraseña y el botón. Con márgenes, vacío ocupa cero. */
+.acceso-formulario {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 3rem 2.75rem;
+}
+
+.acceso-titulo {
+    margin: 0 0 1.5rem;
+    font-size: 1.5rem;
+    font-weight: 600;
+    letter-spacing: -.01em;
+    color: var(--rz-text-color);
+}
+
+.acceso-campo {
+    display: flex;
+    flex-direction: column;
+    gap: .4rem;
+    margin-bottom: 1.1rem;
+}
+
+.acceso-etiqueta {
+    font-size: .82rem;
+    font-weight: 500;
+    color: var(--rz-text-secondary-color);
+}
+
+/* Se apunta al <input> y no a .rz-textbox a propósito: el nombre de la clase es
+   un detalle interno de Radzen y el elemento no. Así el campo de contraseña y el
+   de texto se estilan con una sola regla aunque por dentro sean componentes
+   distintos, y una actualización del paquete no puede dejar esto a medias. */
+.acceso-campo input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: .65rem .8rem;
+    font-family: inherit;
+    font-size: .95rem;
+    color: var(--rz-text-color);
+    background: var(--rz-base-background-color);
+    /* NO --rz-border-color. Esa línea es la separación decorativa del tema y vale
+       1.28 sobre la tarjeta a propósito (lo explica tema.css); en un campo de
+       texto el borde no decora, es lo ÚNICO que dice dónde hay que escribir, y
+       para eso el mínimo son 3. El 400 de la escala se queda corto en los dos
+       modos —2.36 en claro y 2.85 en oscuro—, así que el primero que cumple es el
+       500: 4.55 y 5.65. Que valga en ambos no es suerte, la escala es simétrica. */
+    border: 1px solid var(--rz-base-500);
+    border-radius: var(--rz-border-radius);
+    transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.acceso-campo input:focus {
+    /* El contorno se quita porque lo sustituye el halo de abajo, no porque sobre:
+       sin uno de los dos, moverse con el tabulador se vuelve adivinar. */
+    outline: none;
+    border-color: var(--rz-primary);
+    /* --rz-primary-lighter ya viene translúcido del tema; es justo un halo. */
+    box-shadow: 0 0 0 3px var(--rz-primary-lighter);
+}
+
+.acceso-campo input:disabled {
+    opacity: .6;
+    cursor: not-allowed;
+}
+
+/* El hueco del aviso NO se esconde con display:none aunque esté vacío, y esto es
+   justo lo contrario de lo que pide el instinto. Un elemento en display:none no
+   está en el árbol de accesibilidad: encenderlo a la vez que le entra el texto es
+   para el lector de pantalla lo mismo que insertarlo de cero, que es exactamente
+   el caso en el que un role="alert" no se anuncia. Vacío y visible sí está,
+   escuchando, y el texto que entra después se lee solo.
+
+   Vacío no ocupa nada porque no hay gap que reservar (ver .acceso-formulario), y
+   está vacío DE VERDAD: Razor descarta los nodos que solo son espacios, así que
+   sin error dentro no queda ni un salto de línea que le dé altura. */
+.acceso-aviso:not(:empty) {
+    margin-bottom: 1.1rem;
+}
+
+.acceso-formulario .acceso-boton {
+    /* Dos clases para ganarle a .rz-button.rz-button-md, que trae su propia
+       altura con más peso del que tendría una clase suelta. */
+    margin-top: .4rem;
+    min-height: 2.7rem;
+    font-size: .95rem;
+    font-weight: 600;
+}
+
+/* ── Apilado ────────────────────────────────────────────────────────────────── */
+
+/* El corte es donde las dos columnas dejan de caber sin estrujar el formulario,
+   no en el ancho de ningún teléfono concreto. */
+@media (max-width: 48rem) {
+    .acceso-fondo {
+        /* A pantalla completa: en un teléfono el margen alrededor solo le quita
+           sitio al formulario, y el degradado del fondo no se ve igualmente. */
+        padding: 0;
+        align-items: stretch;
+        /* dvh descuenta la barra de direcciones; con 100vh a secas el panel queda
+           más alto que lo que se ve y la pantalla da un salto al desplazarse. Los
+           navegadores que no lo entiendan se quedan con el 100vh de app.css. */
+        min-height: 100dvh;
+    }
+
+    .acceso-panel {
+        grid-template-columns: 1fr;
+        max-width: none;
+        min-height: 0;
+        /* Ya no es una tarjeta sobre un fondo: es la pantalla. Sin borde ni
+           sombra ni esquinas, que a pantalla completa solo son ruido. */
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+    }
+
+    /* Compacta: la identidad se presenta y se aparta. La marca pasa a fila para
+       ahorrar la altura que el formulario necesita con el teclado abierto. */
+    .acceso-identidad {
+        gap: 1.1rem;
+        padding: 1.75rem 1.5rem 1.5rem;
+    }
+
+    .acceso-marca {
+        flex-direction: row;
+        align-items: center;
+        gap: .9rem;
+    }
+
+    .acceso-marca-trazo {
+        width: 2.25rem;
+        height: 2.25rem;
+    }
+
+    .acceso-marca-nombre { font-size: 1.35rem; }
+
+    .acceso-lema {
+        max-width: none;
+        font-size: .95rem;
+    }
+
+    .acceso-lema::before { margin-bottom: .85rem; }
+
+    .acceso-version { margin-top: .25rem; }
+
+    .acceso-formulario {
+        padding: 1.75rem 1.5rem 2.5rem;
+    }
+}
+
+/* Quien ha pedido menos movimiento no lo ha pedido solo para las animaciones
+   grandes: el degradado del borde al enfocar también cuenta. */
+@media (prefers-reduced-motion: reduce) {
+    .acceso-campo input { transition: none; }
+}
