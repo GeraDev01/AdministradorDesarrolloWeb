@@ -1,4 +1,5 @@
 using System.Data;
+using AdminWeb.Application.Demo;
 using AdminWeb.Application.Services;
 using AdminWeb.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -102,6 +103,7 @@ public static class PreparacionDeLaBase
                     "Entra con ella y cámbiala de inmediato; no vuelve a mostrarse.", temporal);
 
             await SembrarCatalogosAsync(db, log, ct);
+            await SembrarDemostracionAsync(alcance.ServiceProvider, db, log, ct);
         }
         finally
         {
@@ -149,6 +151,56 @@ public static class PreparacionDeLaBase
         catch (Exception ex)
         {
             log.LogError(ex, "No se pudo sembrar el catálogo inicial. La aplicación arranca igual.");
+        }
+    }
+
+    /// <summary>
+    /// Llena la base con datos de DEMOSTRACIÓN, si se pidió y si se puede.
+    ///
+    /// <para>Va dentro del candado, igual que la migración y los catálogos: dos instancias arrancando
+    /// a la vez sembrarían el juego de datos por duplicado y la aplicación se abriría con ocho
+    /// desarrolladores en vez de cuatro.</para>
+    ///
+    /// <para>Las tres condiciones —pedirlo, no estar en Production y que la base esté virgen— las
+    /// comprueba <see cref="DatosDeDemostracion.SePuedeAsync"/>; ahí está explicado por qué son tres
+    /// y no una. Aquí solo se decide con qué entorno se le pregunta.</para>
+    ///
+    /// <para>Un fallo NO tumba el arranque, por lo mismo que el de los catálogos: sin datos de
+    /// demostración la aplicación funciona perfectamente —solo se abre vacía—, y negarse a arrancar
+    /// por un dato de conveniencia sería desproporcionado. Queda en el registro.</para>
+    /// </summary>
+    private static async Task SembrarDemostracionAsync(
+        IServiceProvider servicios, AppDbContext db, ILogger log, CancellationToken ct)
+    {
+        var configuracion = servicios.GetRequiredService<IConfiguration>();
+        var entorno = servicios.GetRequiredService<IHostEnvironment>();
+
+        bool pedido = configuracion.GetValue(DatosDeDemostracion.Clave, false);
+        if (!await DatosDeDemostracion.SePuedeAsync(db, pedido, entorno.IsProduction(), ct))
+        {
+            // Si se pidió y aun así no se sembró, hay que decir por qué: en silencio parecería que
+            // la clave de configuración no funciona.
+            if (pedido)
+                log.LogWarning(
+                    "Se pidieron datos de demostración pero NO se sembraron: " +
+                    "{Motivo}. Es la guarda que impide llenar de datos falsos una base con contenido.",
+                    entorno.IsProduction()
+                        ? "el entorno es Production"
+                        : "la base ya tiene desarrolladores, así que no está vacía");
+            return;
+        }
+
+        try
+        {
+            var resumen = await DatosDeDemostracion.SembrarAsync(db, ct);
+            log.LogWarning(
+                "DATOS DE DEMOSTRACIÓN sembrados: {Resumen}. Todas las cuentas entran con la " +
+                "contraseña «{Contrasena}» — esto NO es una base de verdad.",
+                resumen, DatosDeDemostracion.Contrasena);
+        }
+        catch (Exception ex)
+        {
+            log.LogError(ex, "No se pudieron sembrar los datos de demostración. La aplicación arranca igual.");
         }
     }
 

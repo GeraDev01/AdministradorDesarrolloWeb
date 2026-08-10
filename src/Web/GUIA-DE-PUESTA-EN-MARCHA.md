@@ -29,13 +29,30 @@ docker compose up -d --build
 
 Arranca con SQL Server en un contenedor y una base **vacía y desechable**. No toca nada real.
 
-La primera vez siembra un administrador y **escribe su contraseña temporal en el registro**:
+Y no arranca vacía: se siembra **un equipo de demostración** —cuatro desarrolladores, dos equipos,
+requerimientos repartidos, pool con actividades, vacaciones, despliegues hechos, foro con
+conversaciones y bitácora—. Una aplicación en blanco no se puede juzgar: no se ve qué hace un
+ranking sin puntos ni cómo se lee un sprint sin requerimientos.
+
+Entra en <http://localhost:8080> con cualquiera de estas cuentas. **Todas usan `Demo.2026`**:
+
+| Cuenta | Rol | Para ver |
+|---|---|---|
+| `lider` | Administrador | Todo: pool, desempeño, bitácora, despliegues, configuración |
+| `ops` | Operaciones | La vista recortada de quien solo despliega |
+| `ana`, `beto`, `caro`, `dani` | Desarrollador | El autoservicio: mis asignaciones, mi pool, mi jornada |
+
+> **Los datos de demostración no pueden aparecer en producción.** Se siembran solo si se pide con
+> `AdminWeb__DatosDeDemostracion` (puesta a `true` únicamente en el `docker-compose.yml`), **y**
+> además el entorno no es `Production`, **y** además la base no tiene ni un desarrollador. Contra
+> cualquier base con contenido no hace nada y lo dice en el registro. Está en `DatosDeDemostracion`.
+
+También sigue existiendo el administrador de arranque, por si quieres probar el cambio de contraseña
+obligatorio del primer acceso. Su contraseña temporal se **escribe en el registro**:
 
 ```bash
 docker logs adminweb-api-1 | grep "contraseña temporal"
 ```
-
-Entra en <http://localhost:8080> con `admin` y esa contraseña. Te pedirá cambiarla.
 
 ### 0.3 Pasar la prueba de humo
 

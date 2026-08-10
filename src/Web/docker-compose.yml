@@ -68,6 +68,18 @@ services:
       # APAGADOS, igual que en producción hasta el corte. Encenderlos aquí llenaría la consola de
       # barridos y escalamientos sobre una base vacía y taparía lo que se quiere ver.
       AdminWeb__TrabajosDeFondoActivos: "false"
+
+      # DATOS DE DEMOSTRACIÓN: encendidos aquí y SOLO aquí.
+      #
+      # Sin esto la aplicación arranca con todas las pantallas en blanco, y una aplicación vacía no
+      # se puede probar: no se ve qué hace un ranking sin puntos ni cómo se lee un sprint sin
+      # requerimientos. Con esto se abre con un equipo de cuatro personas, trabajo repartido,
+      # despliegues hechos y conversaciones en el foro.
+      #
+      # Que esté aquí NO la vuelve peligrosa: el sembrador exige además no estar en Production y que
+      # la base no tenga ni un desarrollador. Contra cualquier base con contenido no hace nada y lo
+      # dice en el registro. Ver DatosDeDemostracion.
+      AdminWeb__DatosDeDemostracion: "true"
     ports:
       - "8080:8080"
     restart: "no"   # que un fallo de arranque se vea, en vez de reintentarse en bucle
