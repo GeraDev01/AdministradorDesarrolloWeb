@@ -103,6 +103,32 @@
          url('../fuentes/MaterialSymbolsSharp.woff2') format('woff2-variations');
 }
 
+/* Y la fuente VIEJA de Radzen se redirige a este mismo archivo.
+   ────────────────────────────────────────────────────────────────────────────
+   No es paranoia: se midió una carga en frío y el navegador seguía bajando
+   «MaterialSymbolsOutlined.woff2» de Radzen —3 MB, y encima SIN COMPRIMIR—
+   aunque la variable ya apunta a Sharp y no queda ni un elemento en la página
+   cuya familia calculada sea la vieja. O sea que algo la pide por un camino que
+   no se ve desde el DOM, y perseguirlo cuesta más de lo que vale.
+
+   Redeclarar la familia con el mismo nombre y apuntarla a nuestro archivo lo
+   zanja: la última declaración gana, así que quien la pida se lleva los 149 KB
+   recortados en vez de los 3 MB, y el archivo de Radzen no se descarga jamás.
+   Son tres megas menos en cada primera carga, que en una red normal es la
+   diferencia entre esperar y no esperar.
+
+   Efecto secundario buscado: si algún día se cuela un icono por la vía de
+   Radzen, saldrá con el mismo trazo recto que el resto. Antes habrían convivido
+   dos juegos de iconos distintos en la misma pantalla sin que nadie lo notara. */
+@font-face {
+    font-family: 'Material Symbols';
+    font-style: normal;
+    font-weight: 100 700;
+    font-display: block;
+    src: url('../fuentes/MaterialSymbolsSharp.woff2') format('woff2 supports variations'),
+         url('../fuentes/MaterialSymbolsSharp.woff2') format('woff2-variations');
+}
+
 /* ── Las dos variables que lo cambian todo ──────────────────────────────────── */
 
 :root {

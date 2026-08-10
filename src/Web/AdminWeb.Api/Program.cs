@@ -355,6 +355,32 @@ app.UseBlazorFrameworkFiles();
 // Lo de _framework/ NO pasa por aquí y no hace falta tocarlo: esos nombres SÍ llevan huella y los
 // gestiona UseBlazorFrameworkFiles, que ya los marca como inmutables. Ahí cachear para siempre es
 // correcto, porque un archivo distinto tiene un nombre distinto.
+// LA FUENTE DE ICONOS DE RADZEN NO SE SIRVE NUNCA: se responde la nuestra en su lugar.
+//
+// Radzen empaqueta «MaterialSymbolsOutlined.woff2», que pesa 3 MB. El tema ya no la usa —los iconos
+// salen de nuestro recorte de Material Symbols Sharp, 150 KB— pero el navegador la descargaba
+// IGUAL en cada primera carga. Se midió y se persiguió: la variable apunta a la nuestra, ninguna
+// regla de Radzen nombra la vieja salvo su propio @font-face, no queda ni un elemento en la página
+// cuya familia calculada sea ésa, y redeclarar la familia apuntando a nuestro archivo tampoco lo
+// evitó. El iniciador que reporta el navegador es el PARSER de material-base.css, así que la pide
+// al leer la hoja y no al pintar nada.
+//
+// Perseguirlo más cuesta más de lo que vale, y esto lo zanja sin depender de por qué: se reescribe
+// la ruta antes de que los archivos estáticos la atiendan, así que quien pida la de Radzen recibe
+// la nuestra. Son 3 MB menos en cada primera carga.
+//
+// Y si algún día un componente de Radzen pide un icono por esa vía, saldrá con el mismo trazo que
+// el resto: los nombres de las ligaduras son los mismos en las dos variantes. Antes habrían
+// convivido dos juegos de iconos distintos en la misma pantalla sin que nadie lo notara.
+app.Use(async (contexto, siguiente) =>
+{
+    if (contexto.Request.Path.Equals("/_content/Radzen.Blazor/fonts/MaterialSymbolsOutlined.woff2",
+                                     StringComparison.OrdinalIgnoreCase))
+        contexto.Request.Path = "/fuentes/MaterialSymbolsSharp.woff2";
+
+    await siguiente();
+});
+
 var archivosQueSeRevalidan = new StaticFileOptions
 {
     OnPrepareResponse = contexto =>
