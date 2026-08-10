@@ -112,6 +112,9 @@ public static class EtiquetasDeCatalogo
     /// inventario largo, qué NO se toca. Esa señal no se tira: la repone el punto de color de la
     /// columna Ambiente en <c>RecursosAzure.razor</c>, que además obedece al tema. El enum viaja en el
     /// DTO junto a este texto, así que la pantalla no tiene que releer la palabra para saber cuál es.
+    /// El color de ese punto es <see cref="ColoresDeEstado.ColorDeAmbiente"/>, que ya vive en este
+    /// mismo proyecto: la palabra y el color se deciden a un paso el uno del otro, no en dos capas
+    /// distintas.
     /// De paso se arregla una confusión vieja: ese rojo competía con el de «Redis Cache», que era el
     /// LOGOTIPO del producto y se leía como una alarma que nunca fue.
     /// </summary>

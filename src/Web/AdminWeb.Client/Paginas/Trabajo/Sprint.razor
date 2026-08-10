@@ -219,6 +219,21 @@
                         <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
                             <RadzenCard Style="min-width:12rem">
                                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">Estado del sprint</RadzenText>
+                                @* AQUÍ NO VA PUNTO DE COLOR, aunque la rejilla de abajo sí lo lleve, y
+                                   no es un olvido del lote que lo repartió. Dos motivos independientes.
+
+                                   Uno: el punto existe para BARRER una lista, y esto no es una lista.
+                                   Es el único dato de su tarjeta, escrito en H6 y ocupando media caja;
+                                   quien mira ya lo está mirando. Un punto delante no adelantaría nada
+                                   que la palabra no diga en el mismo golpe de vista.
+
+                                   Dos, el que de verdad manda: aquí NO HAY ENUM. El veredicto ES la
+                                   cadena que escribe SprintService.CalcularAvance, y ColorDeVeredicto
+                                   casa por igualdad contra ese literal —el ✓ incluido—. Ponerle un
+                                   punto invitaría a tocar el texto desde la pantalla, y el día que
+                                   alguien lo hiciera el switch dejaría de casar, el veredicto perdería
+                                   su color y no habría error ni prueba que lo delatara. Se queda el
+                                   color sobre la palabra, que degrada bien: sin casar, tinta normal. *@
                                 <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0"
                                             Style="@($"color:{EtiquetasDeTrabajo.ColorDeVeredicto(seg.Avance.Veredicto)}")">
                                     @seg.Avance.Veredicto
@@ -386,9 +401,29 @@
                                     <Template Context="r">@if (r.Mio) { <RadzenIcon Icon="person" title="Asignado a ti" /> }</Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="RequerimientoDeSprintDto" Property="EstadoTexto"
-                                                      Title="Estado" Width="130px">
+                                                      Title="Estado" Width="150px">
+                                    @* El mismo punto de estado que Requerimientos y Mis asignaciones.
+                                       Ésta es la TERCERA vista del mismo enum, y ahí está la razón: si
+                                       dos pantallas lo pintan y la otra no, quien se mueve entre ellas
+                                       deja de fiarse del punto en todas. En veinte filas paginadas el
+                                       color es lo que permite ver de un vistazo cuánto del sprint
+                                       sigue en desarrollo sin leer renglón por renglón.
+
+                                       El texto vuelve a TINTA NORMAL: el punto ya lo dice, y tenerlo
+                                       en los dos sitios solo añade un sitio donde puedan discrepar. El
+                                       color sale del ENUM y de la tabla única de EtiquetasDeTrabajo,
+                                       el borde gris deja el punto visible aunque falte la variable, y
+                                       la palabra va siempre al lado.
+
+                                       ResaltarLosMios no estorba: pinta la fila para decir «ésta es
+                                       tuya», que es otro eje —de quién, no en qué punto está—, y el
+                                       punto lleva su color en background, así que sobrevive al fondo
+                                       de la fila resaltada. *@
                                     <Template Context="r">
-                                        <b style="@($"color:{EtiquetasDeTrabajo.ColorDeEstado(r.Estado)}")">@r.EstadoTexto</b>
+                                        <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
+                                            <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@EtiquetasDeTrabajo.ColorDeEstado(r.Estado)"></span>
+                                            @r.EstadoTexto
+                                        </span>
                                     </Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="RequerimientoDeSprintDto" Property="Titulo" Title="Requerimiento" />
@@ -562,6 +597,16 @@
                                         </Template>
                                     </RadzenDataGridColumn>
                                     <RadzenDataGridColumn TItem="SprintResumenDto" Property="Cerrado" Title="Estado" Width="110px">
+                                        @* ESTE «Estado» SE QUEDA SIN PUNTO, y no por descuido: no es el
+                                           mismo dato que el estado de la rejilla de arriba. Aquí no hay
+                                           enum ni ciclo de vida, sino un booleano con dos valores, y
+                                           dos palabras no son una escala que haya que barrer.
+
+                                           Además el dato ya está dicho a la izquierda: la columna
+                                           «Cumplido» solo se colorea cuando el sprint cerró, así que el
+                                           color de esa celda distingue lo cerrado de lo que sigue
+                                           corriendo. Un punto aquí sería repetirlo con otras palabras
+                                           y abrir la puerta a que un día las dos señales discrepen. *@
                                         <Template Context="s">@(s.Cerrado ? "Cerrado" : "En curso")</Template>
                                     </RadzenDataGridColumn>
                                 </Columns>

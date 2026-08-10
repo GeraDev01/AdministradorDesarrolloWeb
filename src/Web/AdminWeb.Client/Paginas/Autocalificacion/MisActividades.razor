@@ -195,8 +195,33 @@
                         </Template>
                     </RadzenDataGridColumn>
                     <RadzenDataGridColumn TItem="AutocalificacionDto" Title="Estado" Width="130px">
+                        @* Tres palabras que pesan exactamente lo mismo en la vista —«Aprobado»,
+                           «Pendiente», «Rechazado»— en una lista que se recorre buscando UNA de las
+                           tres: la rechazada, que es la que hay que corregir. Es el mismo caso que la
+                           columna «Resultado» de la bitácora, y por eso lleva el mismo punto y la
+                           misma paleta: cómo acabó algo que se intentó.
+
+                           El texto vuelve a TINTA NORMAL. Iba coloreado dentro de un <b>, y tener el
+                           punto Y la palabra de color es decir el mismo dato dos veces; la negrita se
+                           va con él porque aquí solo servía para sostener el color.
+
+                           El color ya no lo decide esta pantalla: sale de ColoresDeEstado, en Shared,
+                           que devuelve la variable SOLA —la de aquí devolvía «color:var(--…)», que no
+                           vale para el background del punto— y cierra en neutro en vez de en cadena
+                           vacía, porque un punto sin relleno no se lee como «neutro» sino como que el
+                           pintado falló.
+
+                           El punto va DELANTE del texto y la pastilla de «vueltas» detrás, y no
+                           compiten: una dice en qué punto está la entrada y la otra cuántas veces ha
+                           ido y vuelto, que son dos datos distintos.
+
+                           Marcado copiado de Componentes/BotonDeEstado.razor: el borde gris mantiene
+                           el punto visible aunque falte la variable, y la palabra va siempre al lado. *@
                         <Template Context="e">
-                            <b style="@ColorDeEstado(e.Estado)">@Estado(e.Estado)</b>
+                            <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
+                                <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@ColoresDeEstado.ColorDeAprobacion(e.Estado)"></span>
+                                @Estado(e.Estado)
+                            </span>
                             @if (e.Vueltas > 0)
                             {
                                 @* RadzenBadge NO tiene parámetro Icon, así que el glifo entra por el
@@ -910,24 +935,21 @@
     private static string Tamano(long bytes) =>
         bytes >= 1024 * 1024 ? $"{bytes / (1024.0 * 1024.0):0.0} MB" : $"{Math.Max(1, bytes / 1024)} KB";
 
-    // Solo la palabra: esto devuelve una CADENA que se pinta dentro de un <b> al que ColorDeEstado
-    // (la función de aquí abajo) ya le pone el color del tema, así que el estado está dicho por algo
-    // que sí cambia con el modo oscuro. Las marcas que llevaban delante competían con ese color sin
-    // obedecerlo, y aquí no hay dónde colgar un <RadzenIcon>: es un string.
+    // Solo la palabra: esto devuelve una CADENA, y va acompañada por el punto de color que pinta la
+    // rejilla, así que el estado está dicho también por algo que obedece al tema. Las marcas que
+    // llevaba delante no lo hacían —las dibujaba el sistema operativo— y aquí no hay dónde colgar un
+    // <RadzenIcon>: es un string.
+    //
+    // El COLOR ya no está aquí. Vivía justo debajo, en una ColorDeEstado local que devolvía la
+    // declaración entera «color:var(--…)»; se fue a ColoresDeEstado.ColorDeAprobacion, en Shared,
+    // devolviendo la variable sola para que sirva de background del punto. No la repongas aquí: una
+    // copia local es como empiezan las tablas que un día dicen cosas distintas en dos pantallas.
     private static string Estado(PointApprovalStatus estado) => estado switch
     {
         PointApprovalStatus.Aprobado => "Aprobado",
         PointApprovalStatus.Pendiente => "Pendiente",
         PointApprovalStatus.Rechazado => "Rechazado",
         _ => estado.ToString()
-    };
-
-    private static string ColorDeEstado(PointApprovalStatus estado) => estado switch
-    {
-        PointApprovalStatus.Aprobado => "color:var(--rz-success)",
-        PointApprovalStatus.Pendiente => "color:var(--rz-warning)",
-        PointApprovalStatus.Rechazado => "color:var(--rz-danger)",
-        _ => ""
     };
 
     public void Dispose()

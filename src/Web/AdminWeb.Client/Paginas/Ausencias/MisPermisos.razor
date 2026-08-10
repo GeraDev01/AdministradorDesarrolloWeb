@@ -161,8 +161,27 @@
                         EmptyText="Todavía no has solicitado ningún permiso.">
             <Columns>
                 <RadzenDataGridColumn TItem="SolicitudDePermisoDto" Title="Estado" Property="Estado" Width="130px">
+                    @* AQUÍ FALTA EL PUNTO DE COLOR Y NO ES UN OLVIDO: está BLOQUEADO, y conviene saber
+                       por qué antes de «arreglarlo».
+
+                       Por criterio le tocaría —cuatro estados en una lista que se recorre buscando el
+                       rechazado—, pero EtiquetaEstado NO la escribe esta pantalla: llega hecha del
+                       servidor y viene CON EMOJI (LeaveRequestService.EtiquetaEstado: «⏳ Pendiente»,
+                       «✅ Aprobada», «❌ Rechazada», «🚫 Cancelada»). Poner el punto dejaría el punto
+                       pegado al emoji, o sea dos marcas para el mismo dato y una de ellas justo la que
+                       este trabajo vino a quitar: la que dibuja el sistema operativo, no obedece al
+                       tema oscuro y donde no hay fuente de emoji sale como un cuadro vacío.
+
+                       Para desbloquearlo hay que limpiar esa tabla del servidor, y entonces esta
+                       pantalla y la del líder (AusenciasLider/Permisos.razor) van A LA VEZ: el punto
+                       se copia del marcado de Componentes/BotonDeEstado.razor y el color ya está
+                       puesto. Mientras tanto, el color se queda sobre la palabra —pero saliendo YA de
+                       ColoresDeEstado.ColorDePermiso, en Shared, que es la única tabla y la que lee
+                       también la pantalla del líder—. Ese paso no había por qué esperarlo: la copia
+                       que había aquí y la de allá coincidían, que es justo como empiezan las que
+                       luego discrepan. *@
                     <Template Context="p">
-                        <b style="@($"color:{Color(p.Estado)}")">@p.EtiquetaEstado</b>
+                        <b style="@($"color:{ColoresDeEstado.ColorDePermiso(p.Estado)}")">@p.EtiquetaEstado</b>
                     </Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="SolicitudDePermisoDto" Title="Tipo" Property="EtiquetaTipo" Width="180px" />
@@ -481,17 +500,12 @@
         </RadzenCard>
     };
 
-    /// <summary>
-    /// El color del estado lo pone la pantalla y no el servicio, que ya lo dejó dicho: un servicio no
-    /// debe depender del tema visual.
-    /// </summary>
-    private static string Color(LeaveStatus estado) => estado switch
-    {
-        LeaveStatus.Aprobada => "var(--rz-success)",
-        LeaveStatus.Rechazada => "var(--rz-danger)",
-        LeaveStatus.Cancelada => "var(--rz-warning)",
-        _ => "var(--rz-text-secondary-color)"
-    };
+    // AQUÍ VIVÍA Color(LeaveStatus), y era la MISMA tabla que la de AusenciasLider/Permisos.razor
+    // —el mismo permiso visto por el otro lado— escrita dos veces. Ahora las dos leen de
+    // ColoresDeEstado.ColorDePermiso, en Shared, sin que haya cambiado ninguno de los cuatro valores.
+    // Sigue siendo cierto lo que decía esta nota y por eso se conserva: el color lo pone la interfaz
+    // y no el servicio, que solo da el texto —un servicio no debe depender del tema visual—. Lo que
+    // cambia es que ahora la interfaz lo pone en UN sitio.
 
     private static string Rango(SolicitudDePermisoDto p) =>
         p.Dias > 1 ? $"Del {p.Desde:dd/MM/yyyy} al {p.Hasta:dd/MM/yyyy}" : $"Solo el {p.Desde:dd/MM/yyyy}";

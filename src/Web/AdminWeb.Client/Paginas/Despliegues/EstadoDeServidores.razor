@@ -81,6 +81,25 @@
                     <Template Context="s">@(s.UltimaVersionDelSistema ?? "—")</Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="EstadoDeServidorDto" Property="EstadoTexto" Title="Estado" Width="130px">
+                    @* ESTA COLUMNA NO LLEVA PUNTO DE COLOR TODAVÍA, aunque este rack sea justo lo
+                       que se barre buscando los atrasados y aunque el historial de despliegues de
+                       la pantalla de al lado sí lo lleve. Hay dos cosas que lo impiden y las dos
+                       están fuera de este marcado.
+
+                       La primera es la etiqueta: la escribe el servidor CON EMOJI
+                       (EstadoDeServidoresService.Etiqueta devuelve «⚠ Atrasado», «✅ Al día», «○ Sin
+                       desplegar»), así que el punto quedaría pegado al símbolo que este trabajo vino
+                       a quitar.
+
+                       La segunda es ColorDelEstado, aquí abajo: mezcla tres cosas distintas en un
+                       mismo campo —«color:var(--…)», «opacity:.7» y la cadena vacía—, y eso no se
+                       puede meter en un background. Antes de poner el punto hay que partirla en un
+                       color y un apagado, que son dos ejes.
+
+                       Lo que NO es un impedimento es la falta de enum. El DTO no trae ninguno, pero
+                       trae los booleanos NuncaDesplegado y Atrasado, y el color ya sale de ellos y
+                       no de comparar la palabra, que es el fondo de la regla. Cuando se limpie el
+                       servidor, esta pantalla sí es candidata. *@
                     <Template Context="s"><b style="@ColorDelEstado(s)">@s.EstadoTexto</b></Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="EstadoDeServidorDto" Property="DesplegadoUtc"

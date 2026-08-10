@@ -364,6 +364,14 @@
                                 <RadzenDataGridColumn TItem="SistemaDto" Property="Versiones" Title="Versiones"
                                                       Width="110px" TextAlign="TextAlign.Right" />
                                 <RadzenDataGridColumn TItem="SistemaDto" Property="Activo" Title="Estado" Width="110px">
+                                    @* Esta columna NO lleva punto de color, aunque se llame «Estado»
+                                       igual que la del historial de aquí abajo, que sí lo lleva. No
+                                       es el mismo tipo de dato: aquí no hay ciclo de vida de nada,
+                                       hay un alta y una baja de catálogo, y con dos valores no hay
+                                       ninguna escala que barrer. Además ya está dicho de otra forma
+                                       —ApagarSistemasInactivos apaga la fila entera de lo que está
+                                       de baja—, así que un punto sería el mismo dato por segunda
+                                       vez. *@
                                     <Template Context="s">@(s.Activo ? "Activo" : "De baja")</Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="SistemaDto" Title="" Width="200px" Sortable="false">
@@ -643,8 +651,39 @@
                                 <RadzenDataGridColumn TItem="DespliegueDelHistorialDto" Property="Version" Title="Versión" Width="140px" />
                                 <RadzenDataGridColumn TItem="DespliegueDelHistorialDto" Property="Destino" Title="Destino" />
                                 <RadzenDataGridColumn TItem="DespliegueDelHistorialDto" Property="EstadoTexto" Title="Estado" Width="120px">
+                                    @* El punto de color de Componentes/BotonDeEstado. Éste es un
+                                       historial largo y paginado que se abre para una sola cosa:
+                                       buscar cuáles fallaron. Con la palabra sola hay que leer
+                                       quince renglones para encontrarlos; con el punto se ven sin
+                                       leer nada.
+
+                                       Y hay un motivo que las otras rejillas de este lote no
+                                       tienen: esta tabla tiene SELECCIÓN DE FILA, y sobre el fondo
+                                       de la fila seleccionada el color del texto se apaga —era
+                                       precisamente la fila que se acaba de elegir para mirarle el
+                                       log la que se quedaba sin decir cómo acabó—. El punto no
+                                       depende de eso: lleva su color en background.
+
+                                       El texto vuelve a TINTA NORMAL. Antes la palabra iba
+                                       coloreada; dejar el punto Y la palabra de color sería decir
+                                       el mismo dato dos veces y tener dos sitios donde puede
+                                       discrepar.
+
+                                       El color sale del ENUM (h.Estado, que el DTO trae junto al
+                                       texto) y de la tabla única de ColoresDeEstado, nunca de
+                                       comparar la etiqueta. La función local que había aquí
+                                       devolvía «color:var(--…)» —que no vale para un background— y
+                                       dejaba «Pendiente» y «En curso» sin color: en un punto, eso
+                                       no se habría leído como «neutro» sino como un fallo de
+                                       pintado. El borde gris deja el punto visible aunque un día
+                                       falte la variable, y la palabra va SIEMPRE al lado: seis
+                                       estados en cinco colores comparten tono a propósito, así que
+                                       el color agrupa y es el texto el que identifica. *@
                                     <Template Context="h">
-                                        <span style="@EstiloDeEstado(h.Estado)">@h.EstadoTexto</span>
+                                        <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
+                                            <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@ColoresDeEstado.ColorDeDespliegue(h.Estado)"></span>
+                                            @h.EstadoTexto
+                                        </span>
                                     </Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="DespliegueDelHistorialDto" Title="OK / Fall." Width="100px" Sortable="false">
@@ -1368,13 +1407,11 @@
         return plano.Length > 70 ? plano[..70] + "…" : plano;
     }
 
-    private static string EstiloDeEstado(JobStatus estado) => estado switch
-    {
-        JobStatus.Completado => "color:var(--rz-success)",
-        JobStatus.Fallido => "color:var(--rz-danger)",
-        JobStatus.Cancelado or JobStatus.Parcial => "color:var(--rz-warning)",
-        _ => ""
-    };
+    // AQUÍ VIVÍA EstiloDeEstado(JobStatus), y se fue a AdminWeb.Shared/Enums/ColoresDeEstado.cs como
+    // ColorDeDespliegue. No fue una mudanza de aseo: devolvía la declaración entera «color:var(--…)»,
+    // que sirve para teñir un texto pero NO para el background del punto, y cerraba con la cadena
+    // vacía, así que «Pendiente» y «En curso» —los dos estados de lo que está pasando ahora mismo— se
+    // quedaban sin color. La de Shared cubre los seis valores y cierra en el neutro.
 
     private void ApagarSistemasInactivos(RowRenderEventArgs<SistemaDto> args)
     {

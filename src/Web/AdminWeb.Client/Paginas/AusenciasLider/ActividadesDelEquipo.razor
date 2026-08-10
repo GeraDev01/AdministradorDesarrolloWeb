@@ -161,6 +161,19 @@
                                       Property="Desarrollador" Width="170px" />
                 <RadzenDataGridColumn TItem="ActividadDelEquipoDto" Title="Actividad" Property="Titulo" />
                 <RadzenDataGridColumn TItem="ActividadDelEquipoDto" Title="Estado" Property="Estado" Width="120px">
+                    @* AQUÍ NO VA PUNTO DE COLOR, y se deja escrito para que el próximo lote no lo
+                       «arregle» por parecerse a las otras rejillas. Dos motivos independientes.
+
+                       Uno: son DOS valores, «Abierta» y «Cerrada». El punto existe para barrer una
+                       escala de cinco o seis estados; con dos no hay nada que barrer, y la aplicación
+                       ya tomó esta misma decisión en el mismo caso —Autocalificacion/MisActividades,
+                       en su columna de actividades libres, deja las dos palabras solas y explica ahí
+                       por qué—. El color sobre la palabra basta y no repite nada.
+
+                       Dos: la etiqueta llega hecha del servidor y trae EMOJI (DevActivityService.
+                       Etiqueta: «🟢 Abierta» / «⚪ Cerrada»). Lo que hay que hacer con esa cadena es
+                       QUITARLE el símbolo, no añadirle un punto al lado; y no se puede reescribir
+                       desde aquí porque la comparten la rejilla y la exportación. *@
                     <Template Context="a">
                         <b style="@(a.Estado == DevActivityStatus.Abierta
                                       ? "color:var(--rz-success)" : "color:var(--rz-text-secondary-color)")">

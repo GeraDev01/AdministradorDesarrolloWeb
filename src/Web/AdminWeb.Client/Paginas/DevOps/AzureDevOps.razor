@@ -443,7 +443,16 @@
             <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Estado" Title="Estado" Width="115px">
                 @* El mapa de estados vive en EstadosDeDevOps y no aquí: era la MISMA tabla copiada en
                    esta pantalla y en «Mis tickets», y con dos copias se corregía una y se olvidaba la
-                   otra. *@
+                   otra.
+
+                   AQUÍ NO VA PUNTO DE COLOR, aunque las columnas «Estado» de Requerimientos, SLA,
+                   Freshdesk, Recursos Azure y Bitácora sí lo lleven ya. El estado de un work item es
+                   una CADENA que escribe DevOps y que su plantilla de proceso puede renombrar cuando
+                   quiera, así que el color sale de comparar texto ajeno; y el caso por defecto es
+                   «inherit», que sobre texto degrada bien —un estado desconocido se lee en tinta
+                   normal— pero como fondo pintaría un círculo del color de la letra, o sea una señal
+                   que no señala. El razonamiento largo está en EstadosDeDevOps; no lo «arregles» por
+                   parecerse a las otras rejillas. *@
                 <Template Context="t">
                     <b style="@($"color:{EstadosDeDevOps.Color(t.Estado)}")">@t.Estado</b>
                 </Template>

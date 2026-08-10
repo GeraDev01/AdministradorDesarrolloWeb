@@ -104,6 +104,24 @@
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="VinculoDto" Property="TipoDevOps" Title="Tipo" Width="100px" />
                                 <RadzenDataGridColumn TItem="VinculoDto" Property="TituloDevOps" Title="Work item" />
+                                @* NINGUNA de las cuatro columnas de estado de esta pantalla lleva punto
+                                   de color, ni ésta ni «Estado FD» de aquí abajo ni las dos de los
+                                   buscadores del diálogo. Se deja escrito porque las columnas «Estado»
+                                   de Freshdesk, SLA, Requerimientos o Recursos Azure sí lo llevan, y
+                                   la diferencia parece un olvido cuando no lo es.
+
+                                   Dos motivos, y cada uno basta. El primero es el de siempre: aquí el
+                                   estado es una CADENA PLANA del DTO (VinculoDto.EstadoDevOps y
+                                   .EstadoFreshdesk son string, sin enum ni código detrás), así que el
+                                   color solo podría salir de comparar texto y eso deja de funcionar
+                                   en silencio en cuanto alguien renombra una etiqueta —el de DevOps,
+                                   además, lo renombra su plantilla de proceso, no nosotros—.
+
+                                   El segundo es qué se hace en esta pantalla. Éstas no son rejillas
+                                   que se barran buscando estados: son tablas de apoyo para vincular,
+                                   y se recorren por NÚMERO o por asunto para encontrar una fila
+                                   concreta. El estado está aquí de contexto, para confirmar que es la
+                                   fila que se buscaba. Un punto no ahorraría ninguna lectura. *@
                                 <RadzenDataGridColumn TItem="VinculoDto" Property="EstadoDevOps" Title="Estado" Width="100px" />
                                 <RadzenDataGridColumn TItem="VinculoDto" Property="NumeroFreshdesk" Title="# FD" Width="90px">
                                     <Template Context="v">
@@ -199,6 +217,10 @@
                                                 <RadzenDataGridColumn TItem="WorkItemParaVincularDto" Property="Numero" Title="#" Width="80px" />
                                                 <RadzenDataGridColumn TItem="WorkItemParaVincularDto" Property="Tipo" Title="Tipo" Width="100px" />
                                                 <RadzenDataGridColumn TItem="WorkItemParaVincularDto" Property="Titulo" Title="Título" />
+                                                @* Sin punto de color, igual que las de la tabla de
+                                                   vínculos de arriba: cadena plana y tabla de apoyo
+                                                   que se busca por número. El motivo completo está
+                                                   allí. *@
                                                 <RadzenDataGridColumn TItem="WorkItemParaVincularDto" Property="Estado" Title="Estado" Width="100px" />
                                                 <RadzenDataGridColumn TItem="WorkItemParaVincularDto" Property="Asignado" Title="Asignado" Width="140px">
                                                     <Template Context="w">@(string.IsNullOrWhiteSpace(w.Asignado) ? "—" : w.Asignado)</Template>
@@ -280,6 +302,15 @@
                                             <Columns>
                                                 <RadzenDataGridColumn TItem="TicketParaVincularDto" Property="Numero" Title="#" Width="90px" />
                                                 <RadzenDataGridColumn TItem="TicketParaVincularDto" Property="Asunto" Title="Asunto" />
+                                                @* Sin punto de color, y ojo con este en concreto: la
+                                                   rejilla de Freshdesk SÍ lo lleva, pero allí el DTO
+                                                   trae el CÓDIGO numérico del estado y aquí
+                                                   TicketParaVincularDto.Estado es solo la palabra ya
+                                                   resuelta. Sin ese código no hay de dónde sacar el
+                                                   color más que comparando la cadena, que es justo lo
+                                                   que no se hace. Si algún día se quisiera, el paso
+                                                   previo es añadir el código al DTO —cambio de
+                                                   contrato, no de presentación—. *@
                                                 <RadzenDataGridColumn TItem="TicketParaVincularDto" Property="Estado" Title="Estado" Width="100px" />
                                                 <RadzenDataGridColumn TItem="TicketParaVincularDto" Property="Prioridad" Title="Prioridad" Width="100px" />
                                                 <RadzenDataGridColumn TItem="TicketParaVincularDto" Property="Agente" Title="Agente" Width="140px">

@@ -16,6 +16,29 @@ namespace AdminWeb.Client.Paginas.DevOps;
 /// atributo style y quien la resuelve es el navegador, así que sigue al tema claro o al oscuro sin
 /// que esta clase se entere. Si algún día hiciera falta el color de verdad —para un Excel o un PDF—,
 /// esto no sirve y habría que resolverlo del lado del servidor.</para>
+///
+/// <para><b>ESTE COLOR TIÑE EL TEXTO Y NO SE CONVIERTE EN UN PUNTO DE COLOR.</b> Se dice aquí porque
+/// las columnas de estado de media aplicación —Requerimientos, SLA, Freshdesk, Recursos Azure,
+/// Bitácora— sí llevan ya el circulito de <c>Componentes/BotonDeEstado.razor</c> delante de la
+/// palabra, y quien venga a igualar las dos pantallas de DevOps con las demás va a tropezar justo
+/// aquí. Hay dos motivos y cada uno basta por su cuenta.</para>
+///
+/// <para>El primero es que el estado de un work item es una CADENA LIBRE que escribe DevOps: la
+/// plantilla de proceso puede renombrarlo o añadir estados en cualquier momento, y este switch casa
+/// por igualdad de texto. Un punto de color es una señal que se mira sin leer, y una señal que sale
+/// de comparar una cadena ajena deja de funcionar EN SILENCIO en cuanto alguien toca la plantilla.
+/// Donde el color sale de un enum —o de un código estable, como el número de estado de Freshdesk— eso
+/// no puede pasar; aquí sí. La regla es: sin enum ni código, no se pinta un punto.</para>
+///
+/// <para>El segundo es el caso por defecto. <c>inherit</c> degrada perfectamente sobre TEXTO —un
+/// estado que no conocemos se lee en tinta normal, que es la verdad— pero en un <c>background</c>
+/// pintaría un círculo del mismo color que la letra de al lado: una marca que llama la atención y no
+/// dice nada. Para que esto pudiera ser un punto habría que cerrar el switch con una variable real, y
+/// entonces un estado desconocido se estaría presentando con un color inventado.</para>
+///
+/// <para>Así que las dos pantallas se quedan con la palabra coloreada, y se quedan LAS DOS: la del
+/// líder (AzureDevOps.razor) y la del desarrollador (MisTickets.razor) enseñan la misma columna del
+/// mismo dato.</para>
 /// </summary>
 public static class EstadosDeDevOps
 {

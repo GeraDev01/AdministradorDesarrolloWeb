@@ -32,6 +32,58 @@ public record SlaCompromisoDto(
     string? Notas);
 
 /// <summary>
+/// Cómo se lee y cómo se pinta el estado de un compromiso de SLA.
+///
+/// Van las DOS juntas y aquí, pegadas al DTO, porque ninguna de las dos sale del enum a secas: el
+/// estado que ve quien mira es <see cref="SlaCompromisoDto.Estado"/> MÁS las dos banderas que el
+/// servidor ya calculó contra el reloj. Separarlas es lo que pasó antes: cada pantalla de SLA se
+/// escribió su copia, y las copias YA DIVERGIERON —«Mis SLA» pintaba «Fuera de plazo» en rojo y
+/// conocía «Toca comentar»; «SLA y recordatorios» lo pintaba en ámbar y no conocía el otro—, o sea
+/// que el mismo compromiso se veía más grave o menos según por qué puerta se entrara.
+///
+/// <para>La versión que queda es la de «Mis SLA», que es la que distingue las dos cosas. El
+/// incumplimiento va al ROJO: ya se pasó el plazo y eso no es un aviso, es un hecho. «Toca comentar»
+/// va al ámbar porque el plazo sigue vivo y lo que falta es dejar constancia en el ticket.</para>
+///
+/// <para>La palabra y el color se tocan A LA VEZ o dejan de decir lo mismo. Por eso están en la misma
+/// clase y no cada una por su lado; el resto de colores de estado viven en <c>ColoresDeEstado</c>, y
+/// allí hay una nota que apunta hacia aquí.</para>
+///
+/// <para>El color devuelve la cadena «var(--…)» literal, no un color: se interpola dentro de un
+/// atributo <c>style</c> y lo resuelve el NAVEGADOR, que es lo que hace que se lea bien en los dos
+/// temas. Ojo con usarlo fuera de una pantalla —en un correo o un PDF <c>var()</c> no resuelve y el
+/// texto sale sin color, sin ningún error que lo delate—.</para>
+///
+/// <para>Que «En plazo» y «Cumplido» compartan el verde es correcto y deliberado: el color agrupa
+/// («esto va bien») y la palabra identifica. La palabra va SIEMPRE al lado del punto.</para>
+/// </summary>
+public static class EtiquetasDeSla
+{
+    /// <summary>
+    /// Un activo pasado de fecha se lee como «fuera de plazo» aunque su estado siga siendo Activo: se
+    /// mide el plazo, no la etiqueta. Es la misma regla que aplica el reporte de cumplimiento.
+    /// </summary>
+    public static string EtiquetaDeSla(SlaCompromisoDto s) => s.Estado switch
+    {
+        SlaStatus.Activo   => s.FueraDePlazo ? "Fuera de plazo"
+                            : s.TocaComentar ? "Toca comentar" : "En plazo",
+        SlaStatus.Cumplido => "Cumplido",
+        SlaStatus.Vencido  => "Vencido",
+        _                  => "Cancelado"
+    };
+
+    /// <summary>El color del punto que acompaña a <see cref="EtiquetaDeSla"/>, rama por rama.</summary>
+    public static string ColorDeSla(SlaCompromisoDto s) => s.Estado switch
+    {
+        SlaStatus.Activo   => s.FueraDePlazo ? "var(--rz-danger)"
+                            : s.TocaComentar ? "var(--rz-warning)" : "var(--rz-success)",
+        SlaStatus.Cumplido => "var(--rz-success)",
+        SlaStatus.Vencido  => "var(--rz-danger)",
+        _                  => "var(--rz-text-secondary-color)"   // Cancelado
+    };
+}
+
+/// <summary>
 /// Las tarjetas de la pantalla del líder.
 /// </summary>
 /// <param name="VencenEn24h">

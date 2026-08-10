@@ -143,8 +143,37 @@
                         </Template>
                     </RadzenDataGridColumn>
                     <RadzenDataGridColumn TItem="SlaCompromisoDto" Property="Estado" Title="Estado" Width="150px">
+                        @* El punto de color, con el marcado de Componentes/BotonDeEstado.razor copiado
+                           tal cual —mismas medidas, mismo hueco y mismo borde—, para que esta rejilla
+                           se lea igual que las demás de la aplicación.
+
+                           Si hay una lista donde el color hace falta es ésta: se entra a saber qué
+                           está fuera de plazo y qué está a punto, no a leer cinco palabras parecidas.
+
+                           El texto vuelve a TINTA NORMAL. Antes iba en negrita coloreada, y con el
+                           punto delante eso sería decir el mismo dato dos veces y dejar dos sitios
+                           donde puede discrepar. Tampoco choca con el tinte de la FILA que pone
+                           PintarUrgentes: la fila dice «esta reclama algo» y el punto dice qué es
+                           exactamente; y el punto lleva su color en background, así que sobrevive al
+                           fondo de la fila mejor de lo que sobrevivía el color del texto.
+
+                           El BORDE gris no es decoración: si un día falta la variable, el punto se
+                           queda sin relleno pero SE SIGUE VIENDO, en vez de desaparecer sin que nadie
+                           note que algo se rompió. Y la palabra va SIEMPRE al lado.
+
+                           El color sale del ENUM que el DTO ya trae (más los dos booleanos que el
+                           SERVIDOR ya resolvió), nunca de comparar la etiqueta. Y la palabra y el
+                           color salen del MISMO sitio, EtiquetasDeSla en Shared, que es la corrección
+                           de fondo de este cambio: hasta ahora esta pantalla y «SLA y recordatorios»
+                           tenían cada una su copia y YA HABÍAN DIVERGIDO —el mismo compromiso fuera de
+                           plazo salía rojo aquí y ámbar allá, y allá ni siquiera existía la palabra
+                           «Toca comentar»—. Con una sola tabla, el punto y la palabra no pueden
+                           contradecirse. No vuelvas a bajarla a la pantalla. *@
                         <Template Context="s">
-                            <b style="@($"color:{Color(s)}")">@Etiqueta(s)</b>
+                            <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
+                                <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@EtiquetasDeSla.ColorDeSla(s)"></span>
+                                @EtiquetasDeSla.EtiquetaDeSla(s)
+                            </span>
                         </Template>
                     </RadzenDataGridColumn>
                     <RadzenDataGridColumn TItem="SlaCompromisoDto" Property="Comentarios"
@@ -338,32 +367,11 @@
             fila.Attributes["style"] = "background-color: var(--rz-warning-lighter)";
     }
 
-    /// <summary>
-    /// «Toca comentar» es el estado que el escritorio pintaba en ámbar: el recordatorio ya venció, y
-    /// mientras no quede constancia en el ticket seguirá insistiendo.
-    /// <para>Solo palabras, sin marcas: es la copia de la función de SlaYRecordatorios con un estado
-    /// más, y como allí tiene su Color() justo debajo. Aquí sobra todavía más que allí, porque esta
-    /// rejilla ADEMÁS pinta la fila entera de ámbar o de rojo con RowRender: el estado estaba dicho
-    /// tres veces antes de llegar al emoji, y de las tres era la única que no obedecía al tema. Las
-    /// dos pantallas tienen que decirlo con las mismas palabras, así que se tocan juntas.</para>
-    /// </summary>
-    private static string Etiqueta(SlaCompromisoDto s) => s.Estado switch
-    {
-        SlaStatus.Activo => s.FueraDePlazo ? "Fuera de plazo"
-                          : s.TocaComentar ? "Toca comentar" : "En plazo",
-        SlaStatus.Cumplido => "Cumplido",
-        SlaStatus.Vencido => "Vencido",
-        _ => "Cancelado"
-    };
-
-    private static string Color(SlaCompromisoDto s) => s.Estado switch
-    {
-        SlaStatus.Activo => s.FueraDePlazo ? "var(--rz-danger)"
-                          : s.TocaComentar ? "var(--rz-warning)" : "var(--rz-success)",
-        SlaStatus.Cumplido => "var(--rz-success)",
-        SlaStatus.Vencido => "var(--rz-danger)",
-        _ => "var(--rz-text-secondary-color)"
-    };
+    // Aquí vivían Etiqueta(s) y Color(s), copiadas también en SlaYRecordatorios.razor. Las dos se
+    // fueron a EtiquetasDeSla, en Shared, y no se reponen: la palabra y el color del mismo estado
+    // tienen que salir del MISMO switch. Mientras estuvieron duplicadas ya se habían separado —«fuera
+    // de plazo» era rojo aquí y ámbar en la pantalla del líder, que además no conocía «Toca
+    // comentar»—, y ahora que el color pinta un punto una discrepancia así se ve todavía antes.
 
     public void Dispose()
     {

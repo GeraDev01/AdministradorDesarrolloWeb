@@ -130,9 +130,23 @@
                 <Columns>
                     <RadzenDataGridColumn TItem="MiAsignacionDto" Property="Id" Title="ID" Width="70px" />
                     <RadzenDataGridColumn TItem="MiAsignacionDto" Property="Titulo" Title="Título" />
-                    <RadzenDataGridColumn TItem="MiAsignacionDto" Property="EstadoTexto" Title="Estado" Width="130px">
+                    <RadzenDataGridColumn TItem="MiAsignacionDto" Property="EstadoTexto" Title="Estado" Width="150px">
+                        @* Vale aquí lo mismo que dice la columna Prioridad de abajo, y por el mismo
+                           motivo: es la misma columna del mismo dato vista por el otro lado, y que en
+                           Requerimientos se viera el punto y aquí no sería peor que no ponerlo en
+                           ninguna de las dos. Van juntas o no van.
+
+                           El texto vuelve a TINTA NORMAL: el punto ya lleva el color, y repetirlo en
+                           la palabra es decir el mismo dato dos veces y duplicar el sitio donde puede
+                           discrepar. El color sale del ENUM y de la tabla única de EtiquetasDeTrabajo,
+                           el borde gris deja el punto visible aunque falte la variable, y la palabra
+                           va siempre al lado —siete estados en cinco colores comparten tono a
+                           propósito: el color agrupa y el texto identifica—. *@
                         <Template Context="r">
-                            <b style="@($"color:{EtiquetasDeTrabajo.ColorDeEstado(r.Estado)}")">@r.EstadoTexto</b>
+                            <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
+                                <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@EtiquetasDeTrabajo.ColorDeEstado(r.Estado)"></span>
+                                @r.EstadoTexto
+                            </span>
                         </Template>
                     </RadzenDataGridColumn>
                     <RadzenDataGridColumn TItem="MiAsignacionDto" Property="PrioridadTexto"

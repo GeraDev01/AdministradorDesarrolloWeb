@@ -56,27 +56,52 @@
                                     AllowSorting="false" RowRender="@ApagarDesconectados"
                                     EmptyText="No hay cuentas activas.">
                         <Columns>
-                            <RadzenDataGridColumn TItem="PresenteDto" Title="" Width="52px" Sortable="false">
-                                @* Esta columna sigue siendo un emoji y NO se arregla desde aquí, por
-                                   mucho que sea el más visible de la pantalla: la cadena llega hecha
-                                   del servidor (PresenceService.Icono en AdminWeb.Application, y
-                                   PersonasQueryService pone «⚪» para los desconectados), así que
-                                   cambiar este marcado no la toca. Cuando se abra el lote que toque
-                                   el servidor, lo que hay que traer aquí es el punto de color de
-                                   Componentes/BotonDeEstado.razor, que ya resolvió este problema
-                                   exacto para el mismo enumerado: un punto pintado por nosotros
-                                   obedece al tema y el emoji ignora el color. Mientras tanto, el
-                                   color de verdad lo pone la columna «Estado». *@
-                                <Template Context="p">@p.Icono</Template>
-                            </RadzenDataGridColumn>
+                            @* AQUÍ HABÍA UNA COLUMNA DE 52 px QUE PINTABA p.Icono, y se quitó entera.
+                               Era el emoji (🟢🔴📅🍽☕⚪) que escribe el servidor, y el comentario que
+                               vivía en ella decía que «no se arregla desde aquí» porque la cadena
+                               llega hecha de PresenceService.Icono. Eso sigue siendo verdad para su
+                               CONTENIDO, pero no obligaba a seguir pintándola: la pantalla siempre
+                               pudo dejar de enseñar esa columna, y eso resuelve el problema sin
+                               tocar el servidor. El campo del DTO se queda donde está; lo que se va
+                               es la celda.
+
+                               No se pierde nada, porque la marca de color se mudó a la columna
+                               «Estado» de aquí al lado, con el punto de Componentes/BotonDeEstado.
+                               Dejar las dos sería marcar el mismo dato dos veces, y encima con dos
+                               paletas: la del sistema operativo en el emoji y la del tema en el
+                               punto —que es exactamente la discrepancia de la que se viene—. *@
                             <RadzenDataGridColumn TItem="PresenteDto" Property="Nombre" Title="Persona">
                                 <Template Context="p">
                                     <span style="@(p.Conectado ? "font-weight:600" : "")">@p.Nombre</span>
                                 </Template>
                             </RadzenDataGridColumn>
                             <RadzenDataGridColumn TItem="PresenteDto" Property="EstadoTexto" Title="Estado" Width="180px">
+                                @* El punto de color de Componentes/BotonDeEstado, que es el mismo
+                                   enumerado visto desde el otro lado: lo que uno elige en la barra
+                                   superior es lo que sale en esta fila, así que tiene que verse
+                                   igual. Ésta es además la columna que se barre —«¿quién está
+                                   disponible ahora mismo?»— entre todas las cuentas activas.
+
+                                   El texto vuelve a TINTA NORMAL: antes iba coloreado y en negrita,
+                                   y con el punto delante eso sería decir el mismo dato dos veces y
+                                   tener dos sitios donde puede discrepar. La negrita se va con el
+                                   color porque aquí solo servía para sostenerlo; la de la columna
+                                   «Persona» se queda, que ésa marca otra cosa (quién está
+                                   conectado). El opacity que llevaba el texto de los desconectados
+                                   también se va: la fila entera ya se apaga en ApagarDesconectados,
+                                   y encadenar los dos dejaba la celda al 42 % y casi ilegible.
+
+                                   El color sale del ENUM que el DTO trae junto al texto, nunca de
+                                   comparar la palabra, y el borde gris deja el punto visible aunque
+                                   un día falte la variable. La palabra va SIEMPRE al lado: un punto
+                                   de color solo no lo distingue quien no separa el rojo del verde,
+                                   y aquí además hay dos que comparten gris —«Descanso» y
+                                   «Desconectado»— que solo separa el texto. *@
                                 <Template Context="p">
-                                    <span style="@EstiloDeEstado(p)">@p.EstadoTexto</span>
+                                    <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
+                                        <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@ColorDePresencia(p)"></span>
+                                        @p.EstadoTexto
+                                    </span>
                                 </Template>
                             </RadzenDataGridColumn>
                             <RadzenDataGridColumn TItem="PresenteDto" Property="Nota" Title="Nota">
@@ -200,6 +225,16 @@
                                 <Template Context="f">@Hora(f.UltimaSenalUtc)</Template>
                             </RadzenDataGridColumn>
                             <RadzenDataGridColumn TItem="AsistenciaDelDiaDto" Property="EstadoTexto" Title="Estado" Width="220px">
+                                @* ESTA COLUMNA NO LLEVA PUNTO DE COLOR, y no es que se olvidara al
+                                   ponérselo a la pestaña de al lado. Aquí no hay un estado: hay
+                                   VARIOS a la vez. El texto lo compone el servidor concatenando lo
+                                   que haya pasado ese día («Pide corrección · Olvido (estimada)»),
+                                   y detrás no hay un enum sino cuatro booleanos independientes, así
+                                   que no existe un valor único al que asignarle un color —el punto
+                                   tendría que elegir uno de los tres y callarse los otros dos—.
+                                   El ámbar sobre el texto sí dice lo único binario que importa
+                                   aquí: esta fila reclama algo. Con eso se filtra a ojo, que es
+                                   para lo que se abre esta pestaña. *@
                                 <Template Context="f">
                                     <span style="@(f.Olvido || f.CorreccionSolicitada || f.SinMarcar ? Ambar : "")">
                                         @f.EstadoTexto
@@ -526,17 +561,27 @@
     }
 
     /// <summary>
-    /// El color del estado. Va en el texto y no en el icono a propósito: el emoji se dibuja con su
-    /// propia paleta e ignoraría el color, que es lo mismo que ya pasaba en el escritorio.
+    /// El color del punto de la columna «Estado». Lo único que decide esta pantalla es QUIÉN cuenta
+    /// como ausente; los cinco colores salen de <c>ColoresDeEstado.ColorDePresencia</c>, en Shared,
+    /// que es la misma tabla que pinta el botón de la barra superior. Y va así a propósito: lo que
+    /// alguien elige arriba es lo que los demás ven en esta fila, así que tiene que verse igual.
+    /// Antes había aquí una copia de esas cinco líneas y otra dentro de <c>BotonDeEstado.razor</c>;
+    /// coincidían, que es como empiezan las tablas que un día discrepan sin que nadie lo note. No
+    /// vuelvas a bajarla a la pantalla.
+    ///
+    /// <para>Antes de eso, esta pantalla usaba el SEMÁFORO —verde para «Disponible», rojo para
+    /// «Ocupado»— y eso decía algo que no es: estar concentrado no es un error ni estar libre un
+    /// logro, y el tablero parecía una alarma cada vez que alguien se ponía a trabajar.</para>
+    ///
+    /// <para>Quien no está conectado va al gris de «ausente» y no al color de su último estado: el
+    /// servidor le pone «Desconectado» de texto (<c>PersonasQueryService</c>), y un punto verde junto
+    /// a esa palabra sería el punto contradiciendo a la palabra. Esa decisión se queda AQUÍ y no en
+    /// la tabla común porque «estar conectado» no es un valor del enumerado, es un dato de este DTO
+    /// que la barra superior ni siquiera tiene: quien mira su propio estado está, por definición,
+    /// conectado.</para>
     /// </summary>
-    private static string EstiloDeEstado(PresenteDto p) => p.Conectado
-        ? p.Estado switch
-        {
-            PresenceState.Disponible => "color:var(--rz-success);font-weight:600",
-            PresenceState.Ocupado    => "color:var(--rz-danger);font-weight:600",
-            _                        => "color:var(--rz-warning);font-weight:600"
-        }
-        : "opacity:.7";
+    private static string ColorDePresencia(PresenteDto p) =>
+        ColoresDeEstado.ColorDePresencia(p.Conectado ? p.Estado : PresenceState.Ausente);
 
     private string ResumenDePresencia() => _tablero is not { } t
         ? ""

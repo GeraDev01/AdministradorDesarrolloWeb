@@ -195,15 +195,33 @@
                                     </Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="ActividadDelPoolDto" Property="EstadoTexto" Title="Estado" Width="160px">
+                                    @* Los SEIS estados hablan ahora, y antes hablaba uno solo. Aquí
+                                       había una pastilla verde para «Por verificar» y las otras cinco
+                                       filas en texto plano, que es lo contrario de poder barrer: una
+                                       marca suelta dice «éste es especial» y deja mudo todo lo demás,
+                                       así que para saber qué hay tomado, devuelto o retirado no
+                                       quedaba más remedio que leer renglón por renglón.
+
+                                       Y esa pastilla decía además algo que no era: verde es el color
+                                       de lo que salió bien, y «Por verificar» es trabajo PENDIENTE que
+                                       espera al líder —a quien mira esta pantalla, precisamente—. Con
+                                       la tabla de Shared se va al ámbar, que es lo que reclama.
+
+                                       Se sustituye por el punto y no se conserva la pastilla porque el
+                                       mismo enum se pinta en «Mi pool», y su color no puede vivir en
+                                       Shared si es un BadgeStyle —Shared no referencia Radzen—: eso
+                                       obligaría a mantener dos tablas a mano, que es exactamente cómo
+                                       se llegó a que cada pantalla resaltara un estado distinto.
+
+                                       Marcado copiado de Componentes/BotonDeEstado.razor: el borde
+                                       gris deja el punto visible aunque un día falte la variable, y la
+                                       palabra va SIEMPRE al lado. El color sale del ENUM (a.Estado,
+                                       que el DTO trae junto al texto), nunca de comparar la etiqueta. *@
                                     <Template Context="a">
-                                        @if (a.Estado == PoolActivityStatus.EnRevision)
-                                        {
-                                            <RadzenBadge BadgeStyle="BadgeStyle.Success" Text="@a.EstadoTexto" />
-                                        }
-                                        else
-                                        {
+                                        <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
+                                            <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@ColoresDeEstado.ColorDelPool(a.Estado)"></span>
                                             @a.EstadoTexto
-                                        }
+                                        </span>
                                     </Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="ActividadDelPoolDto" Property="QuienLaTiene"
@@ -526,6 +544,16 @@
                                     </RadzenDataGridColumn>
                                     <RadzenDataGridColumn TItem="PuntoDePlantillaDto" Property="Activo"
                                                           Title="Estado" Width="150px">
+                                        @* Este «Estado» NO lleva punto de color, y no hay que
+                                           confundirlo con el de la rejilla de actividades de más
+                                           arriba, que sí lo lleva: aquí no hay ciclo de vida ninguno,
+                                           hay un booleano de alta y baja de configuración con dos
+                                           valores. Dos palabras no son una escala que haya que barrer.
+
+                                           Además ya está dicho de otra forma: ApagarLosInactivos apaga
+                                           la fila entera de los puntos desactivados, y eso comunica
+                                           «esto ya no está vivo» sin gastar un segundo lenguaje de
+                                           color que un día podría discrepar del primero. *@
                                         <Template Context="p">@(p.Activo ? "Activo" : "Desactivado")</Template>
                                     </RadzenDataGridColumn>
                                     <RadzenDataGridColumn TItem="PuntoDePlantillaDto" Title="" Width="230px" Sortable="false">

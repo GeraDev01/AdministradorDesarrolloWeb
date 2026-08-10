@@ -166,7 +166,7 @@
                reponer uno solo la traería de vuelta. *@
             <RadzenDataGridColumn TItem="RecursoAzureDto" Property="TipoTexto" Title="Tipo" Width="170px"
                                   Visible="@Ver("Tipo")" />
-            <RadzenDataGridColumn TItem="RecursoAzureDto" Property="EstadoTexto" Title="Estado" Width="130px"
+            <RadzenDataGridColumn TItem="RecursoAzureDto" Property="EstadoTexto" Title="Estado" Width="150px"
                                   Visible="@Ver("Estado")">
                 @* Aquí lo que se separa es lo VIVO de lo muerto: «En uso» y «Sin usar» son las dos que
                    de verdad se contrastan cuando se revisa el gasto, y con los símbolos fuera (✅⬜🧪🗃)
@@ -179,7 +179,7 @@
                    que NO puede faltar es Ambiente. *@
                 <Template Context="r">
                     <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
-                        <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@ColorDeEstado(r.Estado)"></span>
+                        <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@ColoresDeEstado.ColorDeRecurso(r.Estado)"></span>
                         @r.EstadoTexto
                     </span>
                 </Template>
@@ -204,7 +204,7 @@
                    rejilla, que es lo que se recorre. *@
                 <Template Context="r">
                     <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
-                        <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@ColorDeAmbiente(r.Ambiente)"></span>
+                        <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@ColoresDeEstado.ColorDeAmbiente(r.Ambiente)"></span>
                         @r.AmbienteTexto
                     </span>
                 </Template>
@@ -301,41 +301,19 @@
 
     // ── Los colores de los dos puntos de la rejilla ──────────────────────────────
     //
-    // ATENCIÓN: los dos métodos de abajo DEVUELVEN CSS, NO COLORES. Devuelven la cadena «var(--…)»
-    // literal, que solo significa algo dentro de un atributo style de esta página: quien la resuelve
-    // es el NAVEGADOR, no .NET. Es lo que permite que el mismo recurso se lea bien en tema claro y en
-    // oscuro sin que esta pantalla sepa cuál está puesto. Un hex escrito a mano se vería bien en un
-    // modo e ilegible en el otro, y nadie se enteraría hasta cambiar de modo.
+    // AQUÍ VIVÍAN ColorDeEstado y ColorDeAmbiente, y ahora están en
+    // AdminWeb.Shared/Enums/ColoresDeEstado.cs como ColorDeRecurso y ColorDeAmbiente, sin que haya
+    // cambiado ni uno de los ocho valores. Lo que había escrito en este hueco era que se quedaban en
+    // la pantalla «mientras no los usara nadie más», y esa es una condición que caduca sola: en
+    // cuanto aparece una segunda vista de recursos se copian, y a partir de la copia empieza la
+    // divergencia sin que ninguna prueba la delate, porque cada pantalla se mira por separado. Las
+    // etiquetas de estas dos columnas (EtiquetasDeCatalogo.EstadoDeRecurso y .Ambiente) ya vivían
+    // allá, así que ahora la palabra y su color se deciden en el mismo proyecto.
     //
-    // Viven AQUÍ y no en EtiquetasDeCatalogo porque no los usa nadie más: esta es la única pantalla
-    // que pinta recursos de Azure, y aquel archivo es compartido con el servidor, donde var() no
-    // resuelve. Si mañana hace falta el mismo color en otro sitio, entonces sí conviene subirlos —con
-    // esta misma advertencia pegada.
-
-    /// <summary>
-    /// Color del estado del recurso. Es una escala de ESTADO, no de alarma: «Sin usar» no es un
-    /// error, es un recurso que se está pagando sin que nadie lo use —que es justo lo que hay que
-    /// mirar— y por eso va al ámbar y no al rojo. El rojo aquí está reservado a producción.
-    /// </summary>
-    private static string ColorDeEstado(AzureResourceStatus s) => s switch
-    {
-        AzureResourceStatus.EnUso    => "var(--rz-success)",
-        AzureResourceStatus.EnPrueba => "var(--rz-info)",
-        AzureResourceStatus.NoUsado  => "var(--rz-warning)",
-        _                            => "var(--rz-text-secondary-color)"   // Archivado
-    };
-
-    /// <summary>
-    /// Color del ambiente. Éste SÍ es el semáforo, y es la escala de riesgo de tocar el recurso:
-    /// producción reclama, staging avisa, compartido informa y desarrollo es donde no pasa nada.
-    /// </summary>
-    private static string ColorDeAmbiente(AzureEnvironment a) => a switch
-    {
-        AzureEnvironment.Produccion => "var(--rz-danger)",
-        AzureEnvironment.Staging    => "var(--rz-warning)",
-        AzureEnvironment.Compartido => "var(--rz-info)",
-        _                           => "var(--rz-success)"                 // Desarrollo
-    };
+    // Sigue en pie la advertencia que acompañaba a esos métodos, y viajó con ellos: DEVUELVEN CSS, NO
+    // COLORES. La cadena «var(--…)» solo significa algo dentro de un atributo style de una página,
+    // porque quien la resuelve es el NAVEGADOR y no .NET. Es lo que permite que el mismo recurso se
+    // lea bien en tema claro y en oscuro sin que esta pantalla sepa cuál está puesto.
 
     protected override Task OnInitializedAsync() => Buscar();
 

@@ -201,8 +201,21 @@
                         EmptyText="No hay permisos que cumplan el filtro.">
             <Columns>
                 <RadzenDataGridColumn TItem="PermisoDelLiderDto" Title="Estado" Property="Estado" Width="130px">
+                    @* SIN PUNTO DE COLOR A PROPÓSITO, por el mismo bloqueo que «Mis permisos»:
+                       EtiquetaEstado llega hecha del servidor y trae EMOJI
+                       (LeaveRequestService.EtiquetaEstado: «⏳ Pendiente», «✅ Aprobada»,
+                       «❌ Rechazada», «🚫 Cancelada»). El punto quedaría pegado a ese símbolo, que es
+                       justo la marca que se está retirando de la aplicación porque la dibuja el
+                       sistema operativo y no obedece al tema.
+
+                       Cuando se limpie esa tabla, esta pantalla y Ausencias/MisPermisos.razor se
+                       cambian A LA VEZ: es el mismo estado visto por los dos lados. El color ya no
+                       hay que unificarlo entonces, porque ya lo está: las dos leen de
+                       ColoresDeEstado.ColorDePermiso, en Shared. Antes cada una guardaba su copia de
+                       las cuatro líneas y coincidían, que es como empiezan las que luego discrepan
+                       sin que ninguna prueba lo delate. *@
                     <Template Context="l">
-                        <b style="@($"color:{Color(l.Estado)}")">@l.EtiquetaEstado</b>
+                        <b style="@($"color:{ColoresDeEstado.ColorDePermiso(l.Estado)}")">@l.EtiquetaEstado</b>
                     </Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="PermisoDelLiderDto" Title="Desarrollador"
@@ -483,14 +496,10 @@
         return true;
     }
 
-    /// <summary>El color del estado lo pone la pantalla; el servicio solo da el texto.</summary>
-    private static string Color(LeaveStatus estado) => estado switch
-    {
-        LeaveStatus.Aprobada => "var(--rz-success)",
-        LeaveStatus.Rechazada => "var(--rz-danger)",
-        LeaveStatus.Cancelada => "var(--rz-warning)",
-        _ => "var(--rz-text-secondary-color)"
-    };
+    // AQUÍ VIVÍA Color(LeaveStatus), copiada tal cual en Ausencias/MisPermisos.razor. Las dos leen
+    // ahora de ColoresDeEstado.ColorDePermiso, en Shared, con los mismos cuatro valores de siempre.
+    // Sigue en pie lo que decía la nota —el color lo pone la interfaz y el servicio solo da el
+    // texto—; lo que ya no está es la segunda copia, que es la que un día se habría quedado atrás.
 
     public void Dispose()
     {

@@ -161,8 +161,34 @@
                             </RadzenDataGridColumn>
 
                             <RadzenDataGridColumn TItem="MiSugerenciaDto" Title="Estado" Width="130px" Sortable="false">
+                                @* SE CAMBIA LA PASTILLA POR EL PUNTO DE COLOR, y como no es la
+                                   decisión evidente conviene dejar escrito por qué.
+
+                                   La pastilla no estaba mal en sí. El problema era que el MISMO
+                                   enumerado —SuggestionStatus— se pintaba con RadzenBadge en esta
+                                   pantalla y con texto de color en la del líder
+                                   (AusenciasLider/SugerenciasDelEquipo), y eso no se podía unificar
+                                   dejando el badge: su color es un BadgeStyle, un tipo de Radzen, y
+                                   Shared no referencia Radzen, así que la tabla de color no podía
+                                   vivir en un solo sitio. Mientras hubiera pastilla iban a seguir
+                                   siendo dos tablas mantenidas a mano, que es exactamente como se
+                                   acaba con dos colores para el mismo estado. Con el punto, las dos
+                                   pantallas leen de ColoresDeEstado.ColorDeSugerencia y ya no hay
+                                   dos. La alternativa honesta era poner pastilla también en la
+                                   pantalla del líder; lo que no podía quedarse era una de cada.
+
+                                   Marcado copiado de Componentes/BotonDeEstado.razor, sin retocar
+                                   medidas ni hueco ni borde. El borde gris deja el punto visible
+                                   aunque un día falte la variable, y la palabra —la que ya trae el
+                                   DTO, sin emoji— va SIEMPRE al lado.
+
+                                   El color sale del ENUM que el DTO trae junto al texto, nunca de
+                                   comparar la etiqueta. *@
                                 <Template Context="s">
-                                    <RadzenBadge BadgeStyle="@EstiloDeEstado(s.Estado)" Text="@s.EstadoEtiqueta" />
+                                    <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
+                                        <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@ColoresDeEstado.ColorDeSugerencia(s.Estado)"></span>
+                                        @s.EstadoEtiqueta
+                                    </span>
                                 </Template>
                             </RadzenDataGridColumn>
 
@@ -245,9 +271,17 @@
                                 </Template>
                             </RadzenDataGridColumn>
 
-                            <RadzenDataGridColumn TItem="PropuestaDelEquipoDto" Title="Estado" Width="130px" Sortable="false">
+                            <RadzenDataGridColumn TItem="PropuestaDelEquipoDto" Title="Estado" Width="150px" Sortable="false">
+                                @* El mismo punto y la misma función que en la rejilla de arriba: son
+                                   el mismo enumerado y las dos tablas se ven en la misma pantalla, así
+                                   que dejar una con pastilla y otra con punto haría creer que hablan
+                                   de cosas distintas. El razonamiento completo está en la columna
+                                   «Estado» de «Mis sugerencias». *@
                                 <Template Context="p">
-                                    <RadzenBadge BadgeStyle="@EstiloDeEstado(p.Estado)" Text="@p.EstadoEtiqueta" />
+                                    <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
+                                        <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@ColoresDeEstado.ColorDeSugerencia(p.Estado)"></span>
+                                        @p.EstadoEtiqueta
+                                    </span>
                                 </Template>
                             </RadzenDataGridColumn>
 
@@ -431,12 +465,8 @@
         await CargarAsync();
     }
 
-    /// <summary>El mismo código de colores del escritorio, para que el estado se lea de un vistazo.</summary>
-    private static BadgeStyle EstiloDeEstado(SuggestionStatus estado) => estado switch
-    {
-        SuggestionStatus.Aceptada or SuggestionStatus.Implementada => BadgeStyle.Success,
-        SuggestionStatus.Rechazada => BadgeStyle.Danger,
-        SuggestionStatus.EnRevision => BadgeStyle.Warning,
-        _ => BadgeStyle.Light
-    };
+    // Aquí estaba EstiloDeEstado(SuggestionStatus) devolviendo un BadgeStyle. No se sustituye por otra
+    // función local: el color del estado sale ahora de ColoresDeEstado.ColorDeSugerencia, en
+    // Shared, que es la única copia y la que consume también la pantalla del líder. Volver a poner una
+    // tabla aquí es reabrir el problema que este cambio cerró.
 }

@@ -59,6 +59,20 @@
                             <RadzenDataGridColumn TItem="MetricaDeRequerimientoDto" Property="Id"
                                                   Title="ID" Width="80px" TextAlign="TextAlign.Right" />
                             <RadzenDataGridColumn TItem="MetricaDeRequerimientoDto" Property="Titulo" Title="Título" />
+                            @* SIN PUNTO DE COLOR, y se dice el motivo para que nadie lo improvise: es
+                               el mismo estado de requerimiento que en Requerimientos y Mis
+                               asignaciones —donde SÍ lleva punto— pero MetricaDeRequerimientoDto trae
+                               solo el TEXTO, no el enum RequirementStatus. Sacar el color de comparar
+                               esa cadena es exactamente lo que deja de funcionar en silencio en
+                               cuanto alguien cambia una etiqueta.
+
+                               El paso previo, si algún día se quiere, es añadir el enum al DTO junto
+                               al texto, como ya se hizo con Prioridad en MiAsignacionDto. Eso es un
+                               cambio de CONTRATO y va en su propio lote, no en uno de presentación.
+
+                               Tampoco es la columna que esta pantalla viene a barrer: la que reclama
+                               aquí es «Días rest. / atraso», que ya se pinta y ya lleva su
+                               explicación justo debajo. *@
                             <RadzenDataGridColumn TItem="MetricaDeRequerimientoDto" Property="Estado"
                                                   Title="Estado" Width="140px" />
                             <RadzenDataGridColumn TItem="MetricaDeRequerimientoDto" Property="DiasVivo"

@@ -216,8 +216,22 @@
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="SolicitudDeVacacionesDto" Title="Días" Property="Dias" Width="80px" />
                 <RadzenDataGridColumn TItem="SolicitudDeVacacionesDto" Title="Estado" Property="Estado" Width="130px">
+                    @* SIN PUNTO DE COLOR, y está BLOQUEADO, no olvidado. Por criterio le tocaría igual
+                       que a los permisos, pero EtiquetaEstado llega hecha del servidor CON EMOJI
+                       (AusenciasService: «⏳ Pendiente», «✅ Aprobada», «❌ Rechazada»,
+                       «🚫 Cancelada»), y el punto quedaría pegado a él.
+
+                       Ojo con el alcance antes de ponerse a limpiarlo, porque no es una pantalla: esa
+                       tabla está DUPLICADA en el servidor (DocumentoDeVacacionesService tiene la suya)
+                       y una de las dos alimenta los documentos que se generan, así que quitarle el
+                       emoji cambia también lo que sale impreso en un papel firmado.
+
+                       Cuando se desbloquee, esta pantalla y AusenciasLider/Vacaciones.razor van a la
+                       vez. El color no hará falta unificarlo entonces porque ya lo está: las dos
+                       leen de ColoresDeEstado.ColorDeVacaciones, en Shared, en vez de guardar cada
+                       una su copia de las cuatro líneas. *@
                     <Template Context="v">
-                        <b style="@($"color:{Color(v.Estado)}")">@v.EtiquetaEstado</b>
+                        <b style="@($"color:{ColoresDeEstado.ColorDeVacaciones(v.Estado)}")">@v.EtiquetaEstado</b>
                     </Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="SolicitudDeVacacionesDto" Title="Respaldo" Width="180px" Sortable="false">
@@ -696,17 +710,11 @@
 
     // ── Formato ──────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// El color del estado lo pone la pantalla, no el servicio: un servicio no debe saber del tema
-    /// visual. Son los mismos criterios del escritorio.
-    /// </summary>
-    private static string Color(VacationStatus estado) => estado switch
-    {
-        VacationStatus.Aprobada => "var(--rz-success)",
-        VacationStatus.Rechazada => "var(--rz-danger)",
-        VacationStatus.Cancelada => "var(--rz-warning)",
-        _ => "var(--rz-text-secondary-color)"
-    };
+    // AQUÍ VIVÍA Color(VacationStatus), y era la MISMA tabla que la de AusenciasLider/Vacaciones.razor
+    // —las mismas vacaciones vistas por el otro lado— escrita dos veces. Ahora las dos leen de
+    // ColoresDeEstado.ColorDeVacaciones, en Shared, con los mismos cuatro criterios del escritorio.
+    // Sigue siendo verdad lo que decía la nota: el color lo pone la interfaz y no el servicio, que no
+    // debe saber del tema visual. Lo que se fue es la copia.
 
     private static string ColorDelSaldo(int disponibles) =>
         disponibles <= 0 ? "var(--rz-danger)"

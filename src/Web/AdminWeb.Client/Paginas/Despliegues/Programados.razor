@@ -173,6 +173,28 @@
                 <RadzenDataGridColumn TItem="DespliegueProgramadoDto" Property="Version" Title="Versión" Width="120px" />
                 <RadzenDataGridColumn TItem="DespliegueProgramadoDto" Property="Perfil" Title="Destino" Width="180px" />
                 <RadzenDataGridColumn TItem="DespliegueProgramadoDto" Property="EstadoTexto" Title="Estado" Width="140px">
+                    @* ESTA COLUMNA TODAVÍA NO LLEVA PUNTO DE COLOR, y no es que se pasara por alto
+                       cuando el historial de Despliegues.razor lo recibió: está BLOQUEADA, y lo que
+                       la bloquea no se arregla desde aquí.
+
+                       Le corresponde, y con motivo: son seis estados sin ninguna señal de color, y
+                       «Perdido» —la cita a la que se le pasó la hora sin que nadie la ejecutara— es
+                       justo el fallo silencioso que esta pantalla existe para enseñar. El color ya
+                       está esperando en ColoresDeEstado.ColorDeCitaDeDespliegue, y el DTO trae el
+                       enum al lado del texto.
+
+                       Lo que falta es la ETIQUETA: la escribe el servidor CON EMOJI
+                       (ProgramadosService.EtiquetaDeEstado devuelve «🕓 Programado», «✅ Completado»,
+                       «⚠ Perdido»…), así que el punto quedaría pegado al emoji, que es exactamente
+                       lo que este trabajo vino a quitar. Y esa cadena no es solo de pantalla: el
+                       propio servicio la interpola en los mensajes de rechazo y en la bitácora, o
+                       sea que limpiarla es un cambio con alcance propio y ya quedó escrito en
+                       asientos viejos. Cuando se limpie, aquí solo hay que copiar el marcado del
+                       historial de Despliegues.razor y quitar la negrita, que hoy es la única marca
+                       que tiene la columna.
+
+                       El opacity de ApagarLasCerradas no estorba ni cuenta como color de estado:
+                       apagar dice «esto ya no está vivo», no en qué punto de su vida está. *@
                     <Template Context="c"><b>@c.EstadoTexto</b></Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="DespliegueProgramadoDto" Property="ToleranciaMinutos"

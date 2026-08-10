@@ -71,15 +71,29 @@
                                     </Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="MiActividadDelPoolDto" Property="EstadoTexto" Title="Estado" Width="180px">
+                                    @* El mismo punto y la MISMA tabla de color que la pantalla del
+                                       líder, y va con ella o no va: es el mismo enum visto por el otro
+                                       lado. Hasta hoy cada una resaltaba con una pastilla un estado
+                                       DISTINTO —aquí «Devuelta» en ámbar, allá «En revisión» en
+                                       verde—, así que la misma actividad cambiaba de aspecto según
+                                       quién la mirara y ninguna de las dos pantallas dejaba ver el
+                                       resto de los estados. Con la tabla única de Shared eso deja de
+                                       poder pasar.
+
+                                       «Devuelta» no pierde fuerza al quedarse sin pastilla: en la
+                                       tabla común va al ROJO, que es lo que le toca —hay que
+                                       rehacerla y volver a entregarla—, y es de las pocas filas de
+                                       esta rejilla que reclaman algo.
+
+                                       Marcado copiado de Componentes/BotonDeEstado.razor: borde gris
+                                       para que el punto se siga viendo aunque falte la variable, y la
+                                       palabra siempre al lado. El color sale del ENUM, no de la
+                                       etiqueta, que la escribe el servidor. *@
                                     <Template Context="a">
-                                        @if (a.Estado == PoolActivityStatus.Devuelta)
-                                        {
-                                            <RadzenBadge BadgeStyle="BadgeStyle.Warning" Text="@a.EstadoTexto" />
-                                        }
-                                        else
-                                        {
+                                        <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
+                                            <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@ColoresDeEstado.ColorDelPool(a.Estado)"></span>
                                             @a.EstadoTexto
-                                        }
+                                        </span>
                                     </Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="MiActividadDelPoolDto" Property="LimiteUtc"

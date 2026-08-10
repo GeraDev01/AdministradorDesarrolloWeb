@@ -73,6 +73,16 @@
                                 <RadzenDataGridColumn TItem="FilaDeEstimacionDto" Property="RequerimientoId"
                                                       Title="ID" Width="80px" TextAlign="TextAlign.Right" />
                                 <RadzenDataGridColumn TItem="FilaDeEstimacionDto" Property="Titulo" Title="Título" />
+                                @* SIN PUNTO DE COLOR, por lo mismo que la columna «Estado» de la tabla
+                                   de métricas: FilaDeEstimacionDto.Estado es una CADENA, no el enum
+                                   RequirementStatus, y un color sacado de comparar el texto se rompe
+                                   sin avisar en cuanto se cambia una etiqueta. Añadir el enum al DTO
+                                   sería un cambio de contrato, no de presentación.
+
+                                   Y aquí hay además un motivo propio: lo que esta tabla contrasta es
+                                   la PRECISIÓN de la estimación, que ya viaja como Clasificacion más
+                                   el tono del indicador y ya se pinta en su columna. El estado es
+                                   contexto, no el dato que se viene a buscar. *@
                                 <RadzenDataGridColumn TItem="FilaDeEstimacionDto" Property="Estado"
                                                       Title="Estado" Width="140px" />
                                 <RadzenDataGridColumn TItem="FilaDeEstimacionDto" Property="HorasEstimadas"

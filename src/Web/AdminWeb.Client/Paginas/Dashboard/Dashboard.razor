@@ -1,5 +1,10 @@
 @page "/dashboard"
 @using AdminWeb.Shared.Dtos.Dashboard
+@* Se trae por EtiquetasDeTrabajo, que es la tabla ÚNICA de color de los estados de un requerimiento:
+   así la columna «Estado» de las próximas entregas se pinta con los mismos colores que
+   Requerimientos, Mis asignaciones y Sprint. Es el mismo enumerado y no puede leerse distinto según
+   por qué puerta se entre. *@
+@using AdminWeb.Shared.Dtos.Trabajo
 @* Roles y no política: el cliente registra AddAuthorizationCore sin ninguna política declarada, así
    que nombrar aquí «AdminUDesarrollador» reventaría al renderizar. La política de verdad —la que
    cuenta— está declarada en el endpoint; esto solo evita pintar una pantalla que llegaría vacía. *@
@@ -55,7 +60,37 @@ else
                                     Style="min-height:220px">
                         <Columns>
                             <RadzenDataGridColumn TItem="EntregaProximaDto" Property="Titulo" Title="Requerimiento" Width="52%" />
-                            <RadzenDataGridColumn TItem="EntregaProximaDto" Property="EstadoTexto" Title="Estado" Width="26%" />
+                            <RadzenDataGridColumn TItem="EntregaProximaDto" Property="EstadoTexto" Title="Estado" Width="26%">
+                                @* El mismo punto de color que la columna Estado de Requerimientos, y
+                                   pintado con la misma tabla: este panel es esa pantalla asomada al
+                                   Dashboard, así que un estado que allí es ámbar no puede ser aquí
+                                   otra cosa.
+
+                                   Aquí hay además una razón que las otras rejillas no tienen. Esta
+                                   tabla se tiñe ENTERA de rojo por filas cuando la entrega va
+                                   atrasada (PintarEntrega, más abajo), o sea que hasta ahora la
+                                   palabra del estado perdía su propia señal justo en las filas que
+                                   importan: «En pruebas» y «Por entregar» se leían del mismo rojo.
+                                   El punto sobrevive a ese tinte porque lleva su color en
+                                   background y no lo hereda del texto. Y no repite lo que dice la
+                                   fila: el rojo habla de la FECHA —el compromiso está vencido— y el
+                                   punto habla del ESTADO, que son dos ejes distintos.
+
+                                   El texto se queda como está, en tinta normal: quien pinta aquí es
+                                   la fila, y añadirle color a la palabra sería un tercer lenguaje
+                                   encima de otros dos. El color sale del ENUM (fila.Estado, que el
+                                   DTO trae junto al texto) y nunca de comparar la etiqueta. El
+                                   borde gris deja el punto visible aunque un día falte la variable,
+                                   y la palabra va SIEMPRE al lado: siete estados en cinco colores
+                                   comparten tono a propósito, así que el color agrupa y es el texto
+                                   el que identifica. *@
+                                <Template Context="fila">
+                                    <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
+                                        <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@EtiquetasDeTrabajo.ColorDeEstado(fila.Estado)"></span>
+                                        @fila.EstadoTexto
+                                    </span>
+                                </Template>
+                            </RadzenDataGridColumn>
                             <RadzenDataGridColumn TItem="EntregaProximaDto" Title="Fecha" Width="22%">
                                 <Template Context="fila">@Fecha(fila.FechaCompromiso)</Template>
                             </RadzenDataGridColumn>

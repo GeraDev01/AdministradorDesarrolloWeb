@@ -32,7 +32,7 @@
            punto se queda sin relleno pero SE SIGUE VIENDO, en vez de desaparecer sin que nadie note
            que se rompió algo. *@
         <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
-            <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@ColorDePresencia(_estado)"></span>
+            <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@ColoresDeEstado.ColorDePresencia(_estado)"></span>
             @Etiqueta(_estado)@(string.IsNullOrWhiteSpace(_nota) ? "" : $" · {_nota}")
         </span>
     </Template>
@@ -149,27 +149,12 @@
         _                        => "Ausente"
     };
 
-    /// <summary>
-    /// El color del punto de presencia. Devuelve la CADENA «var(--…)» y no un color de verdad: esto
-    /// se interpola dentro de un atributo <c>style</c> y lo resuelve el navegador, no .NET, así que
-    /// aquí no hay nada que convertir. Escribir el hex directamente sería atarlo a un solo tema.
-    ///
-    /// <para>Los cinco NO salen del semáforo, y es deliberado: «Ocupado» no es un error ni
-    /// «Disponible» un éxito. Si se pintaran de rojo y verde, la barra estaría gritando una alarma
-    /// cada vez que alguien está concentrado. Salen de la escala de series de la paleta, que es la
-    /// que existe justo para distinguir cosas que no están mejor ni peor unas que otras.</para>
-    ///
-    /// <para>DEPENDENCIA: estas cinco variables las declara <c>tema.css</c>, que es de otro. Mientras
-    /// no estén, los puntos se ven como un círculo con borde y sin relleno —feo pero legible, porque
-    /// el nombre del estado va siempre al lado—. No las sustituyas por hexes para «arreglarlo»: eso
-    /// rompería el tema oscuro, que es exactamente el defecto del que se viene.</para>
-    /// </summary>
-    private static string ColorDePresencia(PresenceState e) => e switch
-    {
-        PresenceState.Disponible => "var(--adminweb-presencia-disponible)",
-        PresenceState.Ocupado    => "var(--adminweb-presencia-ocupado)",
-        PresenceState.EnReunion  => "var(--adminweb-presencia-reunion)",
-        PresenceState.Comiendo   => "var(--adminweb-presencia-comida)",
-        _                        => "var(--adminweb-presencia-ausente)"
-    };
+    // AQUÍ VIVÍA ColorDePresencia, y se fue tal cual —sin cambiar ninguno de los cinco valores— a
+    // AdminWeb.Shared/Enums/ColoresDeEstado.cs, donde está también el razonamiento completo: por qué
+    // estos cinco NO salen del semáforo y de qué depende que se vean.
+    //
+    // Se mudó porque no era la única copia: la pantalla de Personas pinta el MISMO enumerado en su
+    // columna «Estado» —lo que uno elige aquí es lo que los demás ven allá— y tenía sus propias cinco
+    // líneas. Coincidían, que es justo como empiezan las tablas que un día dejan de coincidir sin que
+    // nadie se entere, porque cada pantalla se mira por separado. No la repongas aquí.
 }

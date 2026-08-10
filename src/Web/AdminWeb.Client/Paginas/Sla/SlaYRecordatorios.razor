@@ -172,8 +172,41 @@
                     <Template Context="s">@s.VenceUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="SlaCompromisoDto" Property="Estado" Title="Estado" Width="140px">
+                    @* El punto de color, con el marcado de Componentes/BotonDeEstado.razor copiado tal
+                       cual —mismas medidas, mismo hueco y mismo borde—. Va A LA VEZ que el de
+                       MisSla.razor y con la misma tabla: que en una pantalla se viera el color y en la
+                       otra no sería peor que no ponerlo en ninguna.
+
+                       Ésta es LITERALMENTE la rejilla de «cuáles están vencidos», así que el barrido
+                       por color es todo lo que se viene a hacer aquí.
+
+                       El texto vuelve a TINTA NORMAL: con el punto delante, colorear además la palabra
+                       sería decir el mismo dato dos veces y dejar dos sitios donde puede discrepar. El
+                       tinte de la FILA que pone PintarFueraDePlazo no estorba —dice «ésta reclama
+                       algo», no en qué estado está— y el punto lleva su color en background, así que
+                       se ve igual sobre el fondo teñido.
+
+                       El BORDE gris no es decoración: si un día falta la variable, el punto se queda
+                       sin relleno pero SE SIGUE VIENDO. Y la palabra va SIEMPRE al lado.
+
+                       El color sale del ENUM del DTO y de los dos booleanos que ya resolvió el
+                       servidor, nunca de comparar la etiqueta, y la palabra sale del MISMO sitio:
+                       EtiquetasDeSla, en Shared. Antes había una copia aquí y otra en MisSla y ya
+                       habían divergido —el mismo compromiso fuera de plazo salía ÁMBAR aquí y ROJO
+                       allá—, y aquí faltaba además la palabra «Toca comentar», que es el caso en que
+                       el recordatorio ya venció y todavía no hay constancia en el ticket. Ese estado
+                       se ve ahora también en esta pantalla, con su nombre: el líder ya lo tenía
+                       delante porque PintarFueraDePlazo le tiñe la fila de ámbar, pero sin decirle
+                       cuál era. No vuelvas a bajar la tabla a la pantalla.
+
+                       El DESPLEGABLE de estado del filtro se queda con la palabra sola: su
+                       TextProperty es una CADENA y no admite marcado, y en una lista de opciones no
+                       hay nada que barrer. *@
                     <Template Context="s">
-                        <b style="@($"color:{Color(s)}")">@Etiqueta(s)</b>
+                        <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
+                            <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@EtiquetasDeSla.ColorDeSla(s)"></span>
+                            @EtiquetasDeSla.EtiquetaDeSla(s)
+                        </span>
                     </Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="SlaCompromisoDto" Property="ProximoRecordatorioUtc"
@@ -486,31 +519,15 @@
         _ => "Cancelados"
     };
 
-    /// <summary>
-    /// Un activo pasado de fecha se enseña como «fuera de plazo» aunque su estado siga siendo Activo:
-    /// se mide el plazo, no la etiqueta. Es la misma regla que aplica el reporte de cumplimiento.
-    /// <para>Solo palabras, sin marcas delante: esto devuelve una CADENA y su hermana Color(), justo
-    /// debajo, devuelve la variable del tema con la que se pinta esa misma etiqueta. O sea que el
-    /// estado ya se distingue por palabra Y por color; el emoji era una tercera capa que no obedecía
-    /// a ninguna de las dos, y el «⚪» de Cancelado era además invisible en el tema claro, que es el
-    /// que se usa casi siempre. Si se toca una rama, tocar también la de MisSla.razor: las dos
-    /// pantallas tienen que decir el estado con las mismas palabras.</para>
-    /// </summary>
-    private static string Etiqueta(SlaCompromisoDto s) => s.Estado switch
-    {
-        SlaStatus.Activo => s.FueraDePlazo ? "Fuera de plazo" : "En plazo",
-        SlaStatus.Cumplido => "Cumplido",
-        SlaStatus.Vencido => "Vencido",
-        _ => "Cancelado"
-    };
-
-    private static string Color(SlaCompromisoDto s) => s.Estado switch
-    {
-        SlaStatus.Activo => s.FueraDePlazo ? "var(--rz-warning)" : "var(--rz-success)",
-        SlaStatus.Cumplido => "var(--rz-success)",
-        SlaStatus.Vencido => "var(--rz-danger)",
-        _ => "var(--rz-text-secondary-color)"
-    };
+    // Aquí vivían Etiqueta(s) y Color(s), copiadas también en MisSla.razor. Las dos se fueron a
+    // EtiquetasDeSla, en Shared, y no se reponen: la palabra y el color del mismo estado tienen que
+    // salir del MISMO switch, o el punto dice una cosa y el texto otra. Nótese que la versión que
+    // subió es la de MisSla, que distingue «Toca comentar»: ésta no lo hacía, así que esta pantalla
+    // gana un nombre para un caso que ya enseñaba —la fila teñida de ámbar por PintarFueraDePlazo—
+    // pero que no sabía llamar.
+    //
+    // Texto() de aquí arriba SÍ se queda: son los rótulos del desplegable de filtro («Activos»,
+    // «Cumplidos»…), que están en plural y no describen una fila, sino un conjunto.
 
     public void Dispose()
     {

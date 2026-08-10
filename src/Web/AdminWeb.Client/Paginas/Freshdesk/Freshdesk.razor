@@ -147,8 +147,39 @@
                 <RadzenDataGridColumn TItem="TicketDeFreshdeskDto" Property="Numero" Title="#" Width="90px" />
                 <RadzenDataGridColumn TItem="TicketDeFreshdeskDto" Property="Asunto" Title="Asunto" />
                 <RadzenDataGridColumn TItem="TicketDeFreshdeskDto" Property="EstadoTexto" Title="Estado" Width="110px">
+                    @* El punto de color, con el marcado de Componentes/BotonDeEstado.razor copiado tal
+                       cual —mismas medidas, mismo hueco y mismo borde—: si cada rejilla eligiera el
+                       suyo, la aplicación dejaría de leerse como una sola. Aquí gana lo de siempre:
+                       son veinte filas que se recorren buscando qué sigue pendiente y qué ya se
+                       resolvió, y cuatro palabras de largo parecido pesan igual hasta que se leen una
+                       por una.
+
+                       NO HAY ENUM DE C# DETRÁS y aun así se pinta; conviene decir por qué, porque la
+                       regla general es no pintar sin enum. El color no sale de comparar «Pendiente»
+                       con una cadena: sale del CÓDIGO NUMÉRICO de Freshdesk (2/3/4/5), que es lo que
+                       el desplegable de arriba manda al servidor para filtrar y lo que la API
+                       garantiza. Eso es tan estable como un enum, y es justo lo que la regla protege
+                       —que renombrar una etiqueta no apague el color en silencio—. Donde no hay ni
+                       enum ni código, como en los estados de Azure DevOps, no se pinta.
+
+                       El texto vuelve a TINTA NORMAL. Con el punto delante, colorear además la
+                       palabra sería decir el mismo dato dos veces y dejar dos sitios donde puede
+                       discrepar; es lo que ya hacen Bitácora y Recursos Azure.
+
+                       El BORDE gris no es decoración: si un día falta la variable, el punto se queda
+                       sin relleno pero SE SIGUE VIENDO, en vez de desaparecer sin que nadie note que
+                       algo se rompió. Y la palabra va SIEMPRE al lado, que es lo que salva a quien no
+                       separa el rojo del verde y a cualquiera que imprima o exporte la tabla.
+
+                       El DESPLEGABLE de estado de arriba se queda con la palabra sola y no es un
+                       olvido: su TextProperty es una CADENA y no admite marcado, y en una lista de
+                       cuatro opciones no hay nada que barrer. Mismo compromiso que ya aceptaron
+                       BotonDeEstado en su menú y Requerimientos en su filtro de prioridad. *@
                     <Template Context="t">
-                        <b style="@($"color:{ColorDeEstado(t.Estado)}")">@t.EstadoTexto</b>
+                        <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
+                            <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@ColorDeEstado(t.Estado)"></span>
+                            @t.EstadoTexto
+                        </span>
                     </Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="TicketDeFreshdeskDto" Property="PrioridadTexto" Title="Prioridad" Width="110px">
@@ -386,6 +417,23 @@
 
     private static string Vacio(string? valor) => string.IsNullOrWhiteSpace(valor) ? "—" : valor;
 
+    /// <summary>
+    /// El color del estado, sacado del CÓDIGO de Freshdesk y no de su etiqueta: el número es el que
+    /// viaja en el filtro y el que la API garantiza; la palabra la puede cambiar cualquiera.
+    ///
+    /// <para>Devuelve la variable SUELTA («var(--…)»), nunca la declaración entera «color:var(--…)»,
+    /// porque ya no solo tiñe texto: alimenta también el <c>background</c> del punto de color de la
+    /// rejilla, y ahí una declaración completa no sirve. Por lo mismo el switch CIERRA con una
+    /// variable real y no con «» ni con «inherit»: un fondo vacío deja un punto hueco que se lee como
+    /// un fallo de pintado, e «inherit» lo pintaría del color del texto, o sea una señal que no
+    /// señala. El caso por defecto cubre el 5 (Cerrado) y cualquier código nuevo, y el gris apagado
+    /// es lo correcto para los dos: nada que reclamar.</para>
+    ///
+    /// <para>Sigue viviendo en esta pantalla, y es deliberado mientras sea la única que lo use. Si
+    /// hiciera falta en un segundo sitio, su casa es junto a <c>FreshDeskTicket.StatusLabel</c>, que
+    /// es donde vive el mapa de códigos: dos copias es como se acaba con dos colores para el mismo
+    /// estado.</para>
+    /// </summary>
     private static string ColorDeEstado(int estado) => estado switch
     {
         2 => EnCurso,   // Abierto

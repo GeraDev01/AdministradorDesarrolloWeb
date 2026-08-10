@@ -356,7 +356,14 @@
             <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Estado" Title="Estado" Width="115px">
                 @* El mapa de estados vive en EstadosDeDevOps y no aquí: era la MISMA tabla copiada en
                    esta pantalla y en la del líder, y con dos copias se corregía una y se olvidaba la
-                   otra. *@
+                   otra.
+
+                   AQUÍ NO VA PUNTO DE COLOR, por lo mismo que en la pantalla del líder: el estado de
+                   un work item es una cadena libre que escribe DevOps —no un enum ni un código
+                   estable—, así que un punto sacado de comparar esa cadena dejaría de señalar en
+                   silencio en cuanto la plantilla de proceso renombre un estado. El motivo completo
+                   está en EstadosDeDevOps. Y si algún día se decidiera lo contrario, se cambian LAS
+                   DOS pantallas a la vez: es la misma columna del mismo dato. *@
                 <Template Context="t">
                     <b style="@($"color:{EstadosDeDevOps.Color(t.Estado)}")">@t.Estado</b>
                 </Template>

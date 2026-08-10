@@ -155,8 +155,32 @@
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="SugerenciaDelLiderDto" Title="Estado" Property="EstadoEtiqueta"
                                       Width="130px" Sortable="false">
+                    @* Ésta es una rejilla a la que el líder entra a buscar un estado concreto —las
+                       nuevas, las que dejó en revisión—, hasta el punto de que tiene un filtro para
+                       eso arriba. El punto devuelve ese barrido: con cinco estados en texto plano hay
+                       que leer la palabra de cada renglón para descartarlo.
+
+                       El texto vuelve a TINTA NORMAL: el punto ya lleva el color, y repetirlo en la
+                       palabra duplica el sitio donde puede discrepar. La negrita se va con él porque
+                       solo estaba para sostenerlo.
+
+                       El color ya no lo decide esta pantalla: sale de ColoresDeEstado, en Shared. La
+                       tabla local que había aquí decía lo mismo que la de «Mis sugerencias» pero en
+                       otro idioma —aquí variables del tema, allá un BadgeStyle de Radzen—, y un
+                       BadgeStyle no se puede compartir desde Shared, así que mientras hubiera pastilla
+                       iban a seguir siendo dos tablas mantenidas a mano. Con las dos pantallas en
+                       punto hay un solo origen de color.
+
+                       Marcado copiado de Componentes/BotonDeEstado.razor: el borde gris deja el punto
+                       visible aunque falte la variable, y la palabra va SIEMPRE al lado —«Aceptada» e
+                       «Implementada» comparten verde a propósito, y es el texto el que las
+                       distingue—. El color sale del ENUM, nunca de la etiqueta, que la escribe
+                       SuggestionService. *@
                     <Template Context="s">
-                        <b style="@($"color:{Color(s.Estado)}")">@s.EstadoEtiqueta</b>
+                        <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
+                            <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@ColoresDeEstado.ColorDeSugerencia(s.Estado)"></span>
+                            @s.EstadoEtiqueta
+                        </span>
                     </Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="SugerenciaDelLiderDto" Title="Mi respuesta" Property="Respuesta"
@@ -279,14 +303,11 @@
         await Cargar();
     }
 
-    /// <summary>El color del estado lo pone la pantalla; el servicio solo da el texto.</summary>
-    private static string Color(SuggestionStatus estado) => estado switch
-    {
-        SuggestionStatus.Aceptada or SuggestionStatus.Implementada => "var(--rz-success)",
-        SuggestionStatus.Rechazada => "var(--rz-danger)",
-        SuggestionStatus.EnRevision => "var(--rz-warning)",
-        _ => "var(--rz-text-secondary-color)"
-    };
+    // El color del estado ya no vive aquí: se fue tal cual a ColoresDeEstado.ColorDeSugerencia, en
+    // Shared, sin cambiarle ni un valor. El servicio sigue dando solo el texto —un servicio no debe
+    // saber del tema visual—, pero la tabla de color la comparten esta pantalla y «Mis sugerencias»,
+    // y mientras cada una guardaba la suya se pintaba el mismo estado de dos formas distintas. Si
+    // hace falta tocar un color, se toca allí y cambia en las dos.
 
     public void Dispose()
     {
