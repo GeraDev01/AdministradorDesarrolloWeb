@@ -191,6 +191,10 @@ builder.Services.AddScoped<EvaluacionesService>();
 builder.Services.AddScoped<SignatureService>();
 builder.Services.AddScoped<DocumentoDeVacacionesService>();
 
+// El saldo de vacaciones. Scoped como el resto: lee la ficha, las solicitudes y la configuración de
+// caducidad por petición, y no guarda nada entre llamadas — el saldo se calcula cada vez a propósito.
+builder.Services.AddScoped<SaldoDeVacacionesService>();
+
 // Consultas propias de la web: agrupan en una sola respuesta lo que una pantalla necesita, para no
 // obligar al navegador a encadenar cinco peticiones y armar el resultado por su cuenta.
 builder.Services.AddScoped<DashboardQueryService>();
@@ -205,6 +209,10 @@ builder.Services.AddScoped<JornadaQueryService>();
 builder.Services.AddScoped<PoolQueryService>();
 builder.Services.AddScoped<AutocalificacionQueryService>();
 builder.Services.AddScoped<AusenciasService>();
+
+// La única consulta de ausencias que mira lo AJENO: quién más del equipo estará fuera en unas
+// fechas. Va aparte de AusenciasService a propósito; el porqué está en su propia clase.
+builder.Services.AddScoped<AusenciasDelEquipoService>();
 builder.Services.AddScoped<TrabajoQueryService>();
 builder.Services.AddScoped<PersonasQueryService>();
 builder.Services.AddScoped<MetricasQueryService>();
@@ -420,6 +428,7 @@ app.MapJornadaEndpoints();
 app.MapPoolEndpoints();
 app.MapAutocalificacionEndpoints();
 app.MapAusenciasEndpoints();
+app.MapAusenciasDelEquipoEndpoints();
 app.MapSugerenciasEndpoints();
 
 // Administración (fase 3).

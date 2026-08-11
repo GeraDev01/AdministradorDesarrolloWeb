@@ -18,11 +18,22 @@ namespace AdminWeb.Shared.Dtos.Ausencias;
 /// si todavía vale. Viaja en la MISMA respuesta —y no en una segunda petición— porque la pantalla lo
 /// pinta a la vez que la lista, y en dos viajes habría un instante enseñando una solicitud firmada
 /// como si no lo estuviera. Puede venir nula: solo significa que quien respondió no la calculó.</param>
+/// <param name="SaldoAcumulado">El saldo DE VERDAD: el que sale de la antigüedad, con lo acumulado
+/// del año anterior, lo que ya caducó y el ajuste que capturó el líder. Lo añade el endpoint, por lo
+/// mismo que <paramref name="Firmas"/>: lo calcula <c>SaldoDeVacacionesService</c>, que es quien
+/// conoce la tabla de la ley y la ventana de caducidad configurada.
+///
+/// <para>Convive con <paramref name="Saldo"/> en vez de sustituirlo porque son dos cosas distintas:
+/// aquél enseña el número que RH tecleó en la ficha, que es lo que sale impreso en el documento de
+/// vacaciones y lo que el escritorio escribía; éste es el cálculo. Se añadió como opcional para que
+/// ninguna pantalla dejara de compilar de golpe; puede venir nulo, y entonces solo significa que
+/// quien respondió no lo calculó.</para></param>
 public record MisVacacionesDto(
     SaldoDeVacacionesDto Saldo,
     IReadOnlyList<SolicitudDeVacacionesDto> Solicitudes,
     long MaxRespaldoBytes,
-    IReadOnlyList<FirmaDeSolicitudDto>? Firmas = null);
+    IReadOnlyList<FirmaDeSolicitudDto>? Firmas = null,
+    SaldoAcumuladoDto? SaldoAcumulado = null);
 
 /// <summary>
 /// El estado de la firma de una solicitud, tal como la pantalla tiene que contarlo.
@@ -65,6 +76,110 @@ public record SaldoDeVacacionesDto(
     /// </summary>
     public int Disponibles => Asignados - TomadosEsteAnio;
 }
+
+/// <summary>
+/// El saldo de vacaciones CALCULADO: lo que la ley fue generando por antigüedad, menos lo gozado,
+/// menos lo que caducó sin gozarse, más la corrección que el líder capturó a mano.
+///
+/// <para><b>Nada de esto se guarda como número.</b> Se recalcula en cada consulta a partir de la
+/// fecha de ingreso y de las solicitudes, y el único dato almacenado es
+/// <paramref name="AjusteManual"/>, que es lo que un humano escribe. Un saldo guardado se
+/// desincroniza el primer día que alguien cancele unas vacaciones por otro camino.</para>
+///
+/// <para><b>La cuenta se puede comprobar a mano</b>, y eso es deliberado: quien reciba esta
+/// respuesta tiene que poder sumar los renglones y llegar al mismo número, o el saldo no se puede
+/// defender delante de quien reclama sus días.
+/// <code>
+///   DiasVigentes = DiasGenerados − DiasTomados − DiasCaducados
+///   Disponible   = DiasVigentes  − DiasComprometidos + AjusteManual
+/// </code></para>
+/// </summary>
+/// <param name="TieneFicha">Falso cuando la cuenta no está ligada a una ficha: no hay antigüedad
+/// que contar ni, por tanto, saldo del que hablar.</param>
+/// <param name="FechaDeIngreso">Sin ella no hay nada que calcular, y el mensaje lo dice: es el
+/// único caso en el que un cero significa «falta un dato» y no «no te toca nada».</param>
+/// <param name="AniosCumplidos">Aniversarios de ingreso completos. Es la entrada de la tabla de la
+/// ley: 1 → 12 días, 2 → 14, y así.</param>
+/// <param name="ProximoAniversario">Cuándo vuelve a subir el saldo. Va acompañado de
+/// <paramref name="DiasDelProximoPeriodo"/> porque un cero sin fecha parece un error del programa y
+/// no una regla — y en el primer año el saldo es cero de verdad.</param>
+/// <param name="VentanaDeCaducidadMeses">Cuántos meses se arrastran los días no gozados desde el
+/// cierre de su periodo. Viaja con la respuesta para que la pantalla pueda explicar POR QUÉ caducó
+/// algo sin tener que saberse la configuración de la empresa.</param>
+/// <param name="DiasGenerados">Todo lo que la ley ha ido dando desde el ingreso, periodo a periodo.
+/// Sin descontar nada: es el total histórico, no lo disponible.</param>
+/// <param name="DiasTomados">Días de solicitudes APROBADAS. Incluye los que se gozaron por encima
+/// de lo que había, que es lo que puede dejar el saldo en rojo.</param>
+/// <param name="DiasCaducados">Se generaron, nadie los gozó y se pasó la ventana. Se enseñan en vez
+/// de desaparecer callando: perder días es justo lo que la persona necesita ver a tiempo.</param>
+/// <param name="DiasVigentes">Lo generado que sigue vivo hoy.</param>
+/// <param name="DiasComprometidos">Días de solicitudes PENDIENTES de respuesta. No están gozados
+/// todavía, pero están apartados: sin restarlos, alguien podría pedir tres veces los mismos días y
+/// las tres solicitudes parecerían caber.</param>
+/// <param name="AjusteManual">La corrección del líder. Positiva o negativa.</param>
+/// <param name="NotaDelAjuste">Por qué. Sin nota no se guarda ajuste.</param>
+/// <param name="Periodos">El desglose año por año. Es lo que convierte el saldo en algo revisable:
+/// sin él, el número final hay que creérselo.</param>
+public record SaldoAcumuladoDto(
+    bool TieneFicha,
+    DateTime? FechaDeIngreso,
+    int AniosCumplidos,
+    DateTime? ProximoAniversario,
+    int DiasDelProximoPeriodo,
+    int VentanaDeCaducidadMeses,
+    int DiasGenerados,
+    int DiasTomados,
+    int DiasCaducados,
+    int DiasVigentes,
+    int DiasComprometidos,
+    int AjusteManual,
+    string? NotaDelAjuste,
+    string? AutorDelAjuste,
+    DateTime? FechaDelAjusteUtc,
+    string Mensaje,
+    IReadOnlyList<PeriodoDeVacacionesDto> Periodos)
+{
+    /// <summary>
+    /// Los días que hoy se pueden pedir. Puede salir NEGATIVO —se gozó de más, o el líder restó con
+    /// un ajuste— y se enseña tal cual: un cero de mentira esconde justo lo que hay que corregir.
+    /// </summary>
+    public int Disponible => DiasVigentes - DiasComprometidos + AjusteManual;
+}
+
+/// <summary>
+/// Un periodo anual de vacaciones: el año de servicio que va de un aniversario al siguiente.
+///
+/// <para>Los días se generan AL CERRARSE el periodo, no durante: hasta que no se cumple el año de
+/// servicio no hay derecho a esos días. Por eso <paramref name="Cierre"/> es también la fecha desde
+/// la que se pueden gozar, y desde la que empieza a correr la caducidad.</para>
+/// </summary>
+/// <param name="Anio">Año de servicio, 1 en adelante. Es la fila de la tabla de la ley.</param>
+/// <param name="Usados">Días de este periodo ya gozados. El reparto es por orden de antigüedad: lo
+/// que se toma se descuenta primero de los días más viejos, que son los que están a punto de
+/// caducar. Al revés se perderían días teniendo saldo de sobra.</param>
+/// <param name="Caducado">Ya pasó su ventana: lo que quede en <paramref name="Restantes"/> está
+/// perdido y no cuenta para el saldo.</param>
+public record PeriodoDeVacacionesDto(
+    int Anio,
+    DateTime Inicio,
+    DateTime Cierre,
+    DateTime Caduca,
+    int Dias,
+    int Usados,
+    int Restantes,
+    bool Caducado);
+
+/// <summary>
+/// La corrección del saldo que captura el líder.
+///
+/// <para>La NOTA es obligatoria y el servicio la exige: el ajuste existe porque el cálculo, sin
+/// histórico, sale muy alto, y un número corregido sin motivo escrito no se puede defender delante
+/// de quien reclama sus días. Queda en la bitácora junto con quién lo escribió.</para>
+///
+/// <para>El ajuste REEMPLAZA al anterior, no se suma: es «la corrección vigente de esta persona»,
+/// una sola. La historia de las correcciones es la bitácora.</para>
+/// </summary>
+public record AjusteDeSaldoRequest(int Dias, string? Nota);
 
 /// <summary>
 /// Una solicitud de vacaciones propia, ya lista para pintar.

@@ -58,6 +58,11 @@ public record VacacionesDelLiderDto(
 /// operación que se permite no puedan discrepar — pero <b>la barrera de verdad es la del servidor</b>,
 /// porque esta pantalla corre en la máquina de cada quien y un botón deshabilitado no es una regla.
 /// </param>
+/// <param name="SePuedeArchivarSinLaFirma">La otra salida del mismo bloqueo, y por eso viaja al lado:
+/// donde <paramref name="SePuedeArchivar"/> dice que no, éste dice por dónde. Sale del servidor por lo
+/// mismo que el anterior, y viene aparte en vez de deducirse de <c>DejoDeValer</c> para que el día que
+/// la regla cambie —por ejemplo, si se exigiera un permiso especial para renunciar a una firma— el
+/// botón se apague solo en lugar de quedarse encendido por una copia olvidada en la pantalla.</param>
 public record SolicitudDeVacacionesDelLiderDto(
     int Id,
     int DesarrolladorId,
@@ -75,7 +80,8 @@ public record SolicitudDeVacacionesDelLiderDto(
     bool DocumentoFirmado,
     DateTime? FirmadoUtc,
     FirmaDelColaboradorDto FirmaDelColaborador,
-    bool SePuedeArchivar);
+    bool SePuedeArchivar,
+    bool SePuedeArchivarSinLaFirma);
 
 /// <summary>
 /// La firma de quien pidió las vacaciones, vista por el líder.
@@ -94,9 +100,14 @@ public record SolicitudDeVacacionesDelLiderDto(
 /// <param name="DejoDeValer">Firmó, y lo que firmó ya no es lo que la solicitud dice ahora.</param>
 /// <param name="FirmadaUtc">Cuándo puso el trazo. Se manda aunque la firma haya dejado de valer: la
 /// fecha es la que permite entender qué pasó primero.</param>
-/// <param name="PuedeVolverAFirmar">Si hoy podría firmar. Lo decide el servicio con el estado de la
-/// solicitud —solo se firma la petición mientras espera respuesta—, y hace falta aquí porque pedirle
-/// una firma que no puede dar sería mandarlo a una pantalla sin botón.</param>
+/// <param name="PuedeVolverAFirmar">Si hoy podría firmar. Lo decide el servicio, y hace falta aquí
+/// porque pedirle una firma que no puede dar sería mandarlo a una pantalla sin botón.
+///
+/// <para>La regla ya no es solo «mientras espera respuesta»: <b>una firma que dejó de valer se puede
+/// reponer aunque la solicitud esté resuelta</b>. Sin eso, este campo venía apagado exactamente en el
+/// caso que bloquea el archivado —la firma se cae, el líder no puede emitir el papel y el único botón
+/// de salida está gris—, que era un callejón sin fondo. Lo único que sigue en falso es pedir una
+/// PRIMERA firma sobre algo ya resuelto: ahí no hay nada que reponer.</para></param>
 public record FirmaDelColaboradorDto(
     bool Firmada,
     bool DejoDeValer,
@@ -121,11 +132,28 @@ public record ResolucionDeVacacionesRequest(VacationStatus Estado, string? Comen
 public record FirmarDocumentoRequest(int FirmaId);
 
 /// <summary>
+/// Archivar el documento definitivo <b>reconociendo que va sin la firma del colaborador</b>. Es la
+/// SEGUNDA salida del bloqueo, la que no depende de que la persona esté y conteste.
+///
+/// <para><b>El motivo es obligatorio y lo exige el SERVICIO</b>, no la pantalla: acaba impreso en el
+/// papel que se archiva —con el nombre de quien lo decidió y la fecha— y es lo único que le explicará
+/// el hueco a quien abra ese expediente dentro de un año. Sin él, esta ruta sería otra vez lo que la
+/// aplicación hacía antes: emitir un documento al que le falta una firma sin decirlo.</para>
+///
+/// <para>La <see cref="FirmaId"/> es la del JEFE, la misma que en <see cref="FirmarDocumentoRequest"/>:
+/// lo que se está renunciando a esperar es la del colaborador. Un documento sin ninguna de las dos no
+/// sería un documento resuelto.</para>
+/// </summary>
+public record ArchivarSinLaFirmaRequest(int FirmaId, string? Motivo);
+
+/// <summary>
 /// Pedirle al colaborador que firme —o que vuelva a firmar— su solicitud.
 ///
-/// <para><b>Es la salida del bloqueo.</b> Sin ella, descubrir que la firma no vale dejaría al líder
-/// con un documento que no puede archivar y sin nada que hacer desde donde está, y un bloqueo sin
-/// salida molesta más de lo que protege.</para>
+/// <para><b>Es la PRIMERA salida del bloqueo</b>, y la buena: acaba con un papel que lleva las dos
+/// firmas. Sin ella, descubrir que la firma no vale dejaría al líder con un documento que no puede
+/// archivar y sin nada que hacer desde donde está, y un bloqueo sin salida molesta más de lo que
+/// protege. La otra —<see cref="ArchivarSinLaFirmaRequest"/>— renuncia a la firma y lo declara; ésta
+/// la consigue.</para>
 /// </summary>
 /// <param name="Nota">Lo que el líder quiera añadir al aviso («te cambié las fechas a la semana
 /// siguiente»). Es opcional porque el aviso ya explica solo lo que pasó; existe porque el motivo real

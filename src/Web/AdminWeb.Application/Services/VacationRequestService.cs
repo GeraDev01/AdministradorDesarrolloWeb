@@ -43,11 +43,39 @@ public class VacationRequestService(
     public static bool PuedeAdjuntar(VacationStatus estado) => estado == VacationStatus.Pendiente;
 
     /// <summary>
-    /// Se firma mientras la solicitud siga esperando respuesta, y por lo mismo que el respaldo: lo
-    /// que la persona firma es SU PETICIÓN, no la respuesta del jefe. Una vez resuelta ya no hay
-    /// petición que respaldar — hay una decisión, y ésa la firma quien la tomó.
+    /// Cuándo se admite la firma del colaborador.
+    ///
+    /// <para><b>El caso de siempre: mientras la solicitud espera respuesta</b>, y por lo mismo que el
+    /// respaldo — lo que la persona firma es SU PETICIÓN, no la respuesta del jefe.</para>
+    ///
+    /// <para><b>Y desde ahora, también para REPONER una firma que dejó de valer, aunque la solicitud
+    /// ya esté resuelta.</b> Aquí es donde esta regla decía lo contrario, y merece explicarse por qué
+    /// cambia en vez de borrarse. El argumento viejo era que una vez resuelta ya no hay petición que
+    /// respaldar, sino una decisión, y que ésa la firma quien la tomó. Suena bien y es falso en el
+    /// caso que importa: <b>la firma puede caerse sin que nadie toque la solicitud</b>. Se guarda como
+    /// un trazo del colaborador y aparece en el gestor de «Firmas»; quien la borre desde ahí deja el
+    /// enlace sin imagen —la clave foránea es SetNull— y a partir de ese momento se lee, con toda la
+    /// razón, como una firma que ya no vale. Si para entonces la solicitud estaba resuelta, el
+    /// documento definitivo NO SE PODÍA ARCHIVAR NUNCA MÁS: el líder tenía prohibido archivarlo con la
+    /// firma caída y la persona tenía prohibido reponerla. Las dos prohibiciones eran razonables por
+    /// separado y juntas dejaban un papel imposible.</para>
+    ///
+    /// <para><b>La puerta se abre solo ahí, y no de par en par.</b> Reponer es volver a firmar LA
+    /// MISMA PETICIÓN tal como está hoy —<see cref="FirmarAsync"/> recalcula la huella sobre los datos
+    /// del momento—, así que lo que sale no es una firma retroactiva sino una declaración de ahora. Lo
+    /// que sigue sin poder hacerse es firmar POR PRIMERA VEZ algo ya resuelto: ahí no hay ninguna
+    /// firma que reponer, y para ese papel la salida es la del líder —archivar sin ella, dejándolo
+    /// dicho en el documento y en la bitácora—.</para>
     /// </summary>
-    public static bool PuedeFirmar(VacationStatus estado) => estado == VacationStatus.Pendiente;
+    /// <param name="reponerUnaFirmaCaida">Que exista una firma suya guardada que HOY no vale. Lo
+    /// decide <see cref="PapelesDeAsync"/> comparando la huella, y llega como dato en vez de
+    /// calcularse aquí para que esta regla siga siendo pura y comprobable sin tocar la base.
+    ///
+    /// <para>Viene con valor por omisión <c>false</c> —la respuesta prudente— para que quien solo
+    /// tenga el estado a mano no se vea obligado a inventarse el segundo dato: en el peor caso ofrece
+    /// de menos, que es el lado seguro.</para></param>
+    public static bool PuedeFirmar(VacationStatus estado, bool reponerUnaFirmaCaida = false) =>
+        estado == VacationStatus.Pendiente || reponerUnaFirmaCaida;
 
     /// <summary>Cuántos documentos generados se perderían al eliminar (se borran en cascada).</summary>
     public Task<int> DocumentosAsociadosAsync(int requestId, CancellationToken ct = default) =>
@@ -236,6 +264,12 @@ public class VacationRequestService(
     /// <para>Volver a firmar reemplaza lo anterior: la firma vieja se borra en lugar de acumularse,
     /// porque la que vale es la última y guardar el histórico dejaría imágenes que ya no responden
     /// por nada.</para>
+    ///
+    /// <para><b>Y se puede volver a firmar una solicitud YA RESUELTA cuando la firma anterior dejó de
+    /// valer</b> (ver <see cref="PuedeFirmar"/>): es la salida del callejón en el que un documento se
+    /// quedaba sin poder archivarse para siempre. Lo que eso obliga a cuidar aquí lo explica la
+    /// relectura del cuerpo: la huella tiene que salir de los datos de AHORA, o la firma nueva nacería
+    /// inválida y la salida no sacaría a nadie de ninguna parte.</para>
     /// </summary>
     public async Task<(bool ok, string mensaje)> FirmarAsync(
         int requestId, byte[] png, int ancho, int alto, CancellationToken ct = default)
@@ -247,9 +281,24 @@ public class VacationRequestService(
             return (false, "Una solicitud la firma quien la pidió. Nadie puede firmar por otra persona, " +
                            "ni siquiera el líder: el papel dice que esa persona pidió esos días.");
 
-        if (!PuedeFirmar(v.Status))
+        // LA FILA SE RELEE ANTES DE DECIDIR Y ANTES DE CALCULAR LA HUELLA, y no es una precaución
+        // inventada. La huella que se guarda aquí es la que después se compara con la que se recalcula
+        // al LEER la firma, sobre una lectura fresca de la solicitud; si al firmar se usara una copia
+        // rastreada que ya no coincide con la base —el contexto pudo cargarla antes del cambio que
+        // tumbó la firma anterior—, la firma NUEVA nacería inválida: la persona firmaría, la pantalla
+        // le diría que sigue sin valer y no habría forma de salir de ahí. Reponer una firma caída es
+        // justamente el camino donde eso pasa, porque llega después de que algo cambiara.
+        await db.Entry(v).ReloadAsync(ct);
+
+        // ¿Hay una firma suya que dejó de valer? Es lo único que abre la puerta a firmar algo ya
+        // resuelto, y lo decide PapelesDeAsync —el mismo que responde por esa firma en toda la
+        // aplicación— para que no haya un segundo criterio que pueda discrepar del primero.
+        var papeles = (await PapelesDeAsync([v.Id], ct))[v.Id];
+        var reponerUnaFirmaCaida = papeles.Firmada && !papeles.SigueValiendo;
+
+        if (!PuedeFirmar(v.Status, reponerUnaFirmaCaida))
             return (false, $"No se puede firmar una solicitud «{v.Status}»: se firma la petición " +
-                           "mientras espera respuesta, no la decisión que ya se tomó.");
+                           "mientras espera respuesta, y aquí no hay ninguna firma tuya que reponer.");
 
         // Primero se retira la anterior. Si lo que viene después se rechaza (una imagen vacía, sin
         // medidas), la solicitud queda SIN firma en vez de con la vieja: es el lado seguro, porque
@@ -275,8 +324,14 @@ public class VacationRequestService(
         });
         await db.SaveChangesAsync(ct);
 
+        // La REPOSICIÓN se anota como tal y no como una firma más: es la que ocurre sobre una
+        // solicitud ya resuelta, la que antes era imposible, y quien lea la bitácora dentro de un año
+        // tiene que poder distinguir «firmó al pedirlo» de «volvió a firmar porque su firma se cayó».
         await audit.RecordAsync(AuditAction.Update, "VacationRequest", v.Id.ToString(),
-            $"Solicitud de vacaciones firmada por quien la pidió: " +
+            (reponerUnaFirmaCaida
+                ? "Solicitud de vacaciones vuelta a firmar por quien la pidió (su firma anterior había " +
+                  "dejado de valer): "
+                : "Solicitud de vacaciones firmada por quien la pidió: ") +
             $"{v.StartDate:dd/MM/yyyy} — {v.EndDate:dd/MM/yyyy}", ct);
 
         return (true, "Solicitud firmada. Tu firma sale ya en el documento; si cambian las fechas o " +

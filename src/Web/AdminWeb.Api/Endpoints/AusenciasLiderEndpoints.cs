@@ -171,9 +171,15 @@ public static class AusenciasLiderEndpoints
         })
         .WithSummary("Firma el documento con una firma guardada y lo archiva en la solicitud");
 
-        // La SALIDA del bloqueo anterior, y por eso vive al lado: si firmar el documento puede
-        // negarse porque la firma del colaborador se cayó, tiene que haber a un clic de distancia
-        // la forma de conseguir otra. Sin esto, el rechazo de arriba sería un callejón.
+        // LAS DOS SALIDAS del bloqueo anterior, y por eso viven aquí pegadas a él: si firmar el
+        // documento puede negarse porque la firma del colaborador se cayó, tienen que estar a un clic
+        // de distancia las dos formas de seguir. Sin ellas, el rechazo de arriba sería un callejón —y
+        // lo fue: la única que había exigía que la solicitud siguiera pendiente, que es justo lo que
+        // el caso bloqueado nunca cumple.
+        //
+        // Son DOS RUTAS y no una con un parámetro, porque son dos decisiones distintas: conseguir la
+        // firma que falta, o renunciar a ella dejándolo escrito. Quien elige tiene que saber cuál está
+        // eligiendo, y una ruta que hiciera las dos cosas según el cuerpo escondería la segunda.
         grupo.MapPost("/vacaciones/{id:int}/firma-del-colaborador/recordatorio", async (
             int id, RecordatorioDeFirmaRequest? cuerpo, DocumentoDeVacacionesService vacaciones,
             CancellationToken ct) =>
@@ -182,6 +188,19 @@ public static class AusenciasLiderEndpoints
             return Resultado(ok, mensaje);
         })
         .WithSummary("Le avisa al colaborador que firme —o que vuelva a firmar— su solicitud");
+
+        // El motivo VACÍO llega hasta el servicio a propósito, igual que el del rechazo: es él quien
+        // explica por qué hace falta —«va impreso en el documento»— y ese texto es el que se lee.
+        // Comprobarlo aquí además daría dos sitios donde decidir lo mismo, y el día que uno cambiara,
+        // el otro seguiría dejando pasar exactamente lo que el primero prohíbe.
+        grupo.MapPost("/vacaciones/{id:int}/documento/archivado-sin-firma", async (
+            int id, ArchivarSinLaFirmaRequest cuerpo, DocumentoDeVacacionesService vacaciones,
+            CancellationToken ct) =>
+        {
+            var (ok, mensaje) = await vacaciones.ArchivarSinLaFirmaAsync(id, cuerpo.FirmaId, cuerpo.Motivo, ct);
+            return Resultado(ok, mensaje);
+        })
+        .WithSummary("Archiva el documento sin la firma del colaborador; el motivo es obligatorio y sale impreso");
 
         grupo.MapGet("/vacaciones/{id:int}/documento/firmado", async (
             int id, HttpContext ctx, DocumentoDeVacacionesService vacaciones, CancellationToken ct) =>
@@ -490,7 +509,10 @@ public static class AusenciasLiderEndpoints
         // La regla la escribe el servicio, igual que SePuedeResolver: si mañana el bloqueo alcanzara
         // también a las que nadie firmó, el botón se apagaría solo en vez de quedarse encendido por
         // una copia olvidada aquí. Y es el MISMO método que aplica la barrera al archivar.
-        DocumentoDeVacacionesService.SePuedeArchivar(v.FirmaDelColaborador));
+        DocumentoDeVacacionesService.SePuedeArchivar(v.FirmaDelColaborador),
+        // Y su complemento, por lo mismo: donde el de arriba dice que no, éste dice si hay una segunda
+        // salida. Las dos preguntas se contestan en el servicio y ninguna se deduce aquí.
+        DocumentoDeVacacionesService.SePuedeArchivarSinLaFirma(v.FirmaDelColaborador));
 
     private static FirmaDelLiderDto AFirma(SignatureProfile f) => new(
         f.Id, f.DisplayName, f.IsDefault, f.WidthPx, f.HeightPx, f.CreatedAtUtc);

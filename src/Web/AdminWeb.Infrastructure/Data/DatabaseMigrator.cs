@@ -30,6 +30,7 @@ public static class DatabaseMigrator
         {
             db.Database.EnsureCreated();
             PatchSqlServer(db);
+            SembrarVentanaDeCaducidadDeVacaciones(db);
             // Después de los parches: necesita las columnas de horas ya creadas para poder rellenarlas.
             ConvertirPlazosDeDiasAHorasUnaVez(db);
             return;
@@ -192,6 +193,20 @@ public static class DatabaseMigrator
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Developers"" ADD COLUMN ""Address"" TEXT"); } catch { /* ya existe */ }
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Developers"" ADD COLUMN ""EquipmentSerial"" TEXT"); } catch { /* ya existe */ }
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Developers"" ADD COLUMN ""VacationDaysLeft"" INTEGER NOT NULL DEFAULT 15"); } catch { /* ya existe */ }
+
+        // ── Ajuste manual del saldo de vacaciones ─────────────────
+        //
+        // El saldo NO se guarda: se calcula desde HireDate y las solicitudes cada vez que se
+        // pregunta. Lo único que se guarda es esta corrección que escribe el líder, porque es el
+        // único dato del saldo que no se puede deducir de nada.
+        //
+        // DEFAULT 0 y NULLables: el histórico queda como «nunca ajustado», que es la verdad. Un
+        // valor distinto de cero por omisión movería de golpe el saldo de las once fichas que ya
+        // hay sin que nadie lo hubiera decidido.
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Developers"" ADD COLUMN ""VacationAdjustmentDays"" INTEGER NOT NULL DEFAULT 0"); } catch { /* ya existe */ }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Developers"" ADD COLUMN ""VacationAdjustmentNote"" TEXT"); } catch { /* ya existe */ }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Developers"" ADD COLUMN ""VacationAdjustmentBy"" TEXT"); } catch { /* ya existe */ }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Developers"" ADD COLUMN ""VacationAdjustmentAtUtc"" TEXT"); } catch { /* ya existe */ }
 
         db.Database.ExecuteSqlRaw(@"
             CREATE TABLE IF NOT EXISTS ""LeaveRequests"" (
@@ -1210,9 +1225,66 @@ public static class DatabaseMigrator
         // último momento en que sabemos que la persona seguía ahí.
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""WorkSessions"" ADD COLUMN ""LastHeartbeatUtc"" TEXT"); } catch { }
 
+        SembrarVentanaDeCaducidadDeVacaciones(db);
+
         // Al final de la rama, con todas las columnas de horas ya creadas: sin ellas no habría dónde
         // escribir la conversión.
         ConvertirPlazosDeDiasAHorasUnaVez(db);
+    }
+
+    /// <summary>
+    /// Deja escrita la ventana de caducidad de los días de vacaciones no gozados, con su valor por
+    /// omisión de 18 meses.
+    ///
+    /// <para><b>Por qué se siembra la fila en vez de dejar solo la constante del programa.</b> El
+    /// número es POLÍTICA DE LA EMPRESA, no una regla del código: quien decide cuánto tiempo se
+    /// arrastran los días es el líder, y tiene que poder cambiarlo sin recompilar. La pantalla de
+    /// Configuración lista lo que hay en <c>AppSettings</c>, así que una clave que nunca se ha
+    /// capturado no aparece por ningún lado y no habría dónde tocarla. Con la fila sembrada sale en
+    /// la pantalla desde el primer arranque, con su explicación al lado.</para>
+    ///
+    /// <para><b>De dónde sale el 18.</b> Es la suma de los seis meses que la ley da al patrón para
+    /// conceder las vacaciones ya generadas más el año de prescripción que corre después. Es el
+    /// valor POR OMISIÓN y una lectura razonable, <b>no una afirmación de que sea obligatorio</b>
+    /// ni una asesoría legal: si el área correspondiente decide otro plazo —o ninguno—, se cambia
+    /// aquí y el saldo se recalcula solo, porque no hay ningún número guardado que corregir.</para>
+    ///
+    /// <para>Idempotente y NO PISA lo capturado: el <c>WHERE NOT EXISTS</c> hace que el arranque
+    /// siguiente respete el valor que el líder haya puesto. Sin eso, cada reinicio le devolvería el
+    /// 18 y el cambio parecería «borrarse solo».</para>
+    /// </summary>
+    private static void SembrarVentanaDeCaducidadDeVacaciones(AppDbContext db)
+    {
+        // La descripción va con comillas angulares y sin apóstrofos a propósito: viaja dentro de un
+        // literal de SQL, y un apóstrofo suelto ahí lo parte en dos.
+        const string descripcion =
+            "Meses que se arrastran los dias de vacaciones no gozados antes de caducar, contados "
+            + "desde el cierre del periodo anual de cada persona. Por omision 18: seis meses para "
+            + "conceder mas un ano de prescripcion. Es politica de la empresa y se puede cambiar; "
+            + "el saldo se recalcula solo porque no se guarda en ninguna parte.";
+
+        try
+        {
+            // [Key] entre corchetes en T-SQL: KEY es palabra reservada. La forma
+            // «INSERT … SELECT … WHERE NOT EXISTS» la entienden los dos motores y resuelve en una
+            // sola sentencia el «solo si falta», sin necesidad de transacción.
+            if (db.Database.IsSqlite())
+                db.Database.ExecuteSqlRaw($@"
+                    INSERT INTO ""AppSettings"" (""Key"", ""Value"", ""IsSecret"", ""Description"")
+                    SELECT 'vacaciones.caducidad-meses', '18', 0, '{descripcion}'
+                    WHERE NOT EXISTS (SELECT 1 FROM ""AppSettings"" WHERE ""Key"" = 'vacaciones.caducidad-meses')");
+            else
+                db.Database.ExecuteSqlRaw($@"
+INSERT INTO [AppSettings] ([Key], [Value], [IsSecret], [Description])
+SELECT N'vacaciones.caducidad-meses', N'18', 0, N'{descripcion}'
+WHERE NOT EXISTS (SELECT 1 FROM [AppSettings] WHERE [Key] = N'vacaciones.caducidad-meses');");
+        }
+        catch
+        {
+            // Sin la fila el saldo sigue saliendo bien: el servicio cae a los 18 meses por omisión.
+            // Lo único que se pierde es poder cambiarlo desde la pantalla, y eso no justifica tumbar
+            // el arranque de la aplicación entera.
+        }
     }
 
     /// <summary>
@@ -1628,6 +1700,16 @@ CREATE TABLE [SlaCommitments] (
         Exec("IF COL_LENGTH('AppReleases','TargetFolder') IS NULL ALTER TABLE [AppReleases] ADD [TargetFolder] nvarchar(200) NULL;");
         Exec("IF COL_LENGTH('Developers','Phone') IS NULL ALTER TABLE [Developers] ADD [Phone] nvarchar(50) NULL;");
         Exec("IF COL_LENGTH('Developers','EquipmentSerial') IS NULL ALTER TABLE [Developers] ADD [EquipmentSerial] nvarchar(100) NULL;");
+
+        // Ajuste manual del saldo de vacaciones. Mismas cuatro columnas y mismos criterios que en la
+        // rama SQLite: el saldo se calcula y no se guarda, así que esto es lo único que un humano
+        // escribe. DEFAULT 0 y el resto NULL para que el histórico quede como «nunca ajustado».
+        // Las longitudes son las mismas que declara AppDbContext, o la columna saldría de un tipo en
+        // las bases nuevas (las crea EnsureCreated con el modelo) y de otro en las que ya existían.
+        Exec("IF COL_LENGTH('Developers','VacationAdjustmentDays') IS NULL ALTER TABLE [Developers] ADD [VacationAdjustmentDays] int NOT NULL DEFAULT 0;");
+        Exec("IF COL_LENGTH('Developers','VacationAdjustmentNote') IS NULL ALTER TABLE [Developers] ADD [VacationAdjustmentNote] nvarchar(500) NULL;");
+        Exec("IF COL_LENGTH('Developers','VacationAdjustmentBy') IS NULL ALTER TABLE [Developers] ADD [VacationAdjustmentBy] nvarchar(150) NULL;");
+        Exec("IF COL_LENGTH('Developers','VacationAdjustmentAtUtc') IS NULL ALTER TABLE [Developers] ADD [VacationAdjustmentAtUtc] datetime2 NULL;");
         Exec("IF COL_LENGTH('Requirements','DevOpsReportedSeconds') IS NULL ALTER TABLE [Requirements] ADD [DevOpsReportedSeconds] int NOT NULL DEFAULT 0;");
         Exec("IF COL_LENGTH('DevOpsTickets','AssignedToUniqueName') IS NULL ALTER TABLE [DevOpsTickets] ADD [AssignedToUniqueName] nvarchar(256) NULL;");
 

@@ -1,0 +1,254 @@
+@*
+    El armazón de los dos asistentes de ausencias: la tira de pasos, el encabezado del paso actual y
+    la botonera. El CONTENIDO de cada paso lo pinta quien lo usa; esto solo se ocupa de moverse entre
+    ellos, y de hacerlo bien.
+
+    ── POR QUÉ ESTO Y NO RadzenSteps ──────────────────────────────────────────────────────────────
+
+    Radzen trae un componente de pasos y encaja para un formulario corriente. Aquí hacían falta tres
+    cosas que no se pueden pedir desde fuera y que son justo lo que separa un asistente usable de uno
+    que la gente odia:
+
+      1. UN GANCHO AL SALIR DE UN PASO. El lienzo de la firma vive en el DOM: al cambiar de paso se
+         desmonta y el trazo se pierde sin que nada falle. Con AntesDeSalir la pantalla puede leerlo
+         a memoria justo antes, que es la única forma de que «volver atrás» no borre lo firmado.
+      2. UN GANCHO AL ENTRAR. El paso que dice quién más del equipo estará fuera tiene que consultar
+         al servidor con las fechas ya elegidas, y solo cuando de verdad se llega a él: consultarlo
+         en cada tecleo de una fecha serían decenas de viajes que nadie pidió.
+      3. EL FOCO Y EL RÓTULO. Al avanzar, el foco tiene que caer en el encabezado del paso nuevo —si
+         se queda en el botón «Siguiente», quien navega con teclado o lector de pantalla se queda en
+         la botonera sin enterarse de que la pantalla cambió—. Aquí el encabezado es un <h3> con
+         tabindex="-1" al que se le llama FocusAsync(), sin una línea de JavaScript.
+
+    Si algún día se cambia por el de la librería, hay que reponer las tres. La que más duele perder
+    es la primera, porque no se nota al probar: se firma, se avanza, se envía, y la solicitud llega
+    sin firma.
+
+    ── LA TIRA DE PASOS ───────────────────────────────────────────────────────────────────────────
+
+    Es una LISTA ORDENADA de verdad (<ol>), no una fila de <div>: quien la recorra con un lector oye
+    «lista de 5 elementos» y sabe cuánto falta. El paso actual lleva aria-current="step", que es lo
+    que anuncia «estás aquí» sin depender del color.
+
+    Los pasos YA RECORRIDOS son botones y se puede volver a ellos con un clic o con el tabulador: es
+    la forma rápida de corregir una fecha desde el resumen. Los que están POR VENIR van deshabilitados
+    —no se salta hacia adelante sin pasar la comprobación del paso en curso—, pero se pintan igual,
+    porque saber cuántos faltan es la mitad de la paciencia que la gente le tiene a un asistente.
+
+    Y el estado de cada paso NUNCA va solo por color: el número está siempre y el paso actual lleva
+    además su rótulo en negrita. Aquí no se usa relleno de color sino BORDE Y TINTA, y no es un gusto
+    estético: para pintar un círculo relleno haría falta un color de contraste por encima (blanco
+    sobre verde, por ejemplo) y el tema solo define --rz-on-primary; con borde y tinta, los tres
+    estados salen de variables que sí existen y funcionan igual en claro y en oscuro.
+*@
+
+<RadzenStack Gap="0.75rem">
+    <ol aria-label="Pasos" style="list-style:none;display:flex;flex-wrap:wrap;gap:.5rem;padding:0;margin:0">
+        @for (int i = 0; i < Titulos.Count; i++)
+        {
+            var indice = i;
+            var recorrido = indice < Paso;
+            var actual = indice == Paso;
+
+            <li>
+                <button type="button"
+                        disabled="@(Ocupado || indice >= Paso)"
+                        aria-current="@(actual ? "step" : null)"
+                        title="@(recorrido ? $"Volver al paso {indice + 1}: {Titulos[indice]}" : Titulos[indice])"
+                        @onclick="@(() => Ir(indice))"
+                        style="@EstiloDelPaso(actual, recorrido)">
+                    <span style="@EstiloDelNumero(actual, recorrido)">@(indice + 1)</span>
+                    <span>@Titulos[indice]</span>
+                </button>
+            </li>
+        }
+    </ol>
+
+    <RadzenCard>
+        <RadzenStack Gap="1rem">
+            <div>
+                @* El tabindex="-1" es lo que permite llevarle el foco desde el código sin meterlo en
+                   el recorrido del tabulador: el encabezado no es un control y no debe salir al
+                   tabular, pero sí tiene que poder recibir el foco al cambiar de paso. *@
+                <h3 @ref="_encabezado" tabindex="-1"
+                    class="rz-text-h6 rz-mb-0" style="outline:none">
+                    Paso @(Paso + 1) de @Titulos.Count · @Titulos[Paso]
+                </h3>
+                @if (!string.IsNullOrWhiteSpace(Ayuda))
+                {
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@Ayuda</RadzenText>
+                }
+            </div>
+
+            @Contenido
+
+            @* El motivo por el que no se puede avanzar va JUNTO a los botones y siempre visible, no
+               en un aviso que salta al pulsar. Un botón apagado sin explicación al lado es el defecto
+               clásico de los asistentes: la persona pulsa, no pasa nada, y no tiene forma de saber
+               qué falta. *@
+            @if (!PuedeAvanzar && !string.IsNullOrWhiteSpace(MotivoParaNoAvanzar))
+            {
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                            Style="color:var(--rz-danger)" role="alert">
+                    <RadzenIcon Icon="warning" /> @MotivoParaNoAvanzar
+                </RadzenText>
+            }
+
+            <nav aria-label="Navegación del asistente">
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+                    <RadzenButton Text="Atrás" Icon="navigate_before" ButtonStyle="ButtonStyle.Light"
+                                  Disabled="@(Paso == 0 || Ocupado)" Click="@Retroceder" />
+
+                    @if (Paso < Titulos.Count - 1)
+                    {
+                        <RadzenButton Text="Siguiente" Icon="navigate_next" ButtonStyle="ButtonStyle.Primary"
+                                      Disabled="@(!PuedeAvanzar || Ocupado)" Click="@Avanzar" />
+                    }
+                    else
+                    {
+                        @* IsBusy no es adorno: deshabilita el botón mientras dura el envío, que es la
+                           mitad de la defensa contra el doble clic. La otra mitad la pone quien lo
+                           usa, con una bandera que se levanta ANTES del primer await — sin ella, dos
+                           pulsaciones seguidas entran las dos antes de que nada se haya pintado. *@
+                        <RadzenButton Text="@TextoFinal" Icon="@IconoFinal" ButtonStyle="ButtonStyle.Primary"
+                                      IsBusy="@Ocupado" BusyText="Enviando…"
+                                      Disabled="@(!PuedeAvanzar)" Click="@Finalizar" />
+                    }
+
+                    <RadzenButton Text="Descartar" Icon="close" ButtonStyle="ButtonStyle.Light"
+                                  Disabled="@Ocupado" Click="@AlDescartar" />
+                </RadzenStack>
+            </nav>
+        </RadzenStack>
+    </RadzenCard>
+</RadzenStack>
+
+@code {
+    /// <summary>El rótulo de cada paso, en orden. Su cantidad es la cantidad de pasos.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<string> Titulos { get; set; } = [];
+
+    /// <summary>Paso visible, empezando en cero.</summary>
+    [Parameter] public int Paso { get; set; }
+
+    [Parameter] public EventCallback<int> PasoChanged { get; set; }
+
+    /// <summary>Lo que se pinta dentro del paso actual. Lo decide quien usa el asistente.</summary>
+    [Parameter] public RenderFragment? Contenido { get; set; }
+
+    /// <summary>Una línea bajo el encabezado que dice qué se decide en este paso.</summary>
+    [Parameter] public string? Ayuda { get; set; }
+
+    /// <summary>
+    /// Si el paso actual está completo. Falso apaga «Siguiente» (o el botón final).
+    /// </summary>
+    [Parameter] public bool PuedeAvanzar { get; set; } = true;
+
+    /// <summary>Qué falta, con todas las letras. Se enseña junto al botón apagado.</summary>
+    [Parameter] public string? MotivoParaNoAvanzar { get; set; }
+
+    [Parameter] public string TextoFinal { get; set; } = "Enviar";
+
+    /// <summary>Icono del botón final. Tiene que estar en fuentes/iconos.txt o saldrá la palabra.</summary>
+    [Parameter] public string IconoFinal { get; set; } = "send";
+
+    [Parameter] public EventCallback AlFinalizar { get; set; }
+
+    [Parameter] public EventCallback AlDescartar { get; set; }
+
+    /// <summary>
+    /// Una operación en curso: apaga toda la navegación. Es lo que impide que alguien retroceda
+    /// mientras se está enviando su solicitud.
+    /// </summary>
+    [Parameter] public bool Ocupado { get; set; }
+
+    /// <summary>
+    /// Se ejecuta con el paso que se ABANDONA, antes de cambiar. Aquí es donde la pantalla rescata
+    /// lo que vive en el DOM y se perdería al desmontarlo — el trazo de la firma, sin ir más lejos.
+    /// </summary>
+    /// <remarks>
+    /// Es un <see cref="EventCallback{T}"/> y no un <c>Func&lt;int, Task&gt;</c> a propósito, y no es
+    /// una preferencia de estilo: el EventCallback lleva dentro a QUIÉN pertenece el método, así que
+    /// al terminar repinta la PÁGINA que lo escribió. Con un delegado pelado solo se repintaría este
+    /// componente, y lo que estos ganchos cambian —el saldo consultado, el cruce con el equipo, la
+    /// firma rescatada— son campos de la página: se quedarían escritos y sin salir en pantalla hasta
+    /// que otra cosa provocara un repintado.
+    /// </remarks>
+    [Parameter] public EventCallback<int> AntesDeSalir { get; set; }
+
+    /// <summary>
+    /// Se ejecuta con el paso al que se LLEGA, después de cambiar. Aquí van las consultas que
+    /// dependen de lo elegido en los pasos anteriores, para hacerlas una vez y no en cada tecleo.
+    /// </summary>
+    [Parameter] public EventCallback<int> AlEntrar { get; set; }
+
+    private ElementReference _encabezado;
+
+    /// <summary>
+    /// El último paso al que ya se le llevó el foco. Sirve para llevarlo UNA vez por cambio: sin
+    /// esto, cualquier repintado —escribir en un campo, que llegue una respuesta— arrancaría el foco
+    /// del control en el que se está escribiendo y lo devolvería al encabezado.
+    /// </summary>
+    private int _pasoEnfocado = -1;
+
+    protected override async Task OnAfterRenderAsync(bool primeraVez)
+    {
+        if (_pasoEnfocado == Paso) return;
+        _pasoEnfocado = Paso;
+
+        // La primera vez TAMBIÉN se enfoca, y es deliberado: el asistente aparece al pulsar «Nueva
+        // solicitud», así que llevar el foco dentro es continuar el gesto que la persona acaba de
+        // hacer. Sin esto, quien navega con teclado se queda en el botón que abrió el panel y tiene
+        // que tabular a ciegas hasta encontrar el primer campo.
+        try { await _encabezado.FocusAsync(); }
+        catch (Exception) { /* el elemento pudo irse entre el render y esto; no vale romper por el foco */ }
+    }
+
+    private Task Retroceder() => Paso == 0 ? Task.CompletedTask : Ir(Paso - 1);
+
+    private Task Avanzar() => !PuedeAvanzar ? Task.CompletedTask : Ir(Paso + 1);
+
+    private Task Finalizar() => !PuedeAvanzar || Ocupado ? Task.CompletedTask : AlFinalizar.InvokeAsync();
+
+    /// <summary>
+    /// El cambio de paso, con sus dos ganchos. Hacia adelante solo se avanza de uno en uno (lo
+    /// gobierna «Siguiente»); hacia atrás se puede saltar a cualquier paso ya recorrido desde la
+    /// tira, y en los dos casos se pasa por AntesDeSalir — retroceder sin rescatar la firma la
+    /// perdería igual que avanzar.
+    /// </summary>
+    private async Task Ir(int destino)
+    {
+        if (Ocupado || destino == Paso || destino < 0 || destino >= Titulos.Count) return;
+
+        // InvokeAsync sobre un EventCallback sin delegado devuelve una tarea ya terminada, así que
+        // no hace falta preguntar si están puestos: quien no necesita ganchos no pone ninguno.
+        await AntesDeSalir.InvokeAsync(Paso);
+
+        await PasoChanged.InvokeAsync(destino);
+
+        await AlEntrar.InvokeAsync(destino);
+    }
+
+    // ── El aspecto de la tira ────────────────────────────────────────────────
+    //
+    // Los estilos van en línea y no en una hoja porque wwwroot/ no es de esta pantalla. Todos los
+    // colores salen de variables del tema: ninguno escrito a mano.
+
+    private static string EstiloDelPaso(bool actual, bool recorrido) =>
+        "display:inline-flex;align-items:center;gap:.4rem;padding:.35rem .7rem;border-radius:999px;" +
+        "background:transparent;font:inherit;line-height:1.2;" +
+        (recorrido ? "cursor:pointer;" : "cursor:default;") +
+        (actual
+            ? "border:2px solid var(--rz-primary);color:var(--rz-primary);font-weight:600;"
+            : recorrido
+                ? "border:1px solid var(--rz-success);color:var(--rz-success);"
+                : "border:1px solid var(--rz-border-color);color:var(--rz-text-secondary-color);");
+
+    private static string EstiloDelNumero(bool actual, bool recorrido) =>
+        "display:inline-flex;align-items:center;justify-content:center;width:1.4rem;height:1.4rem;" +
+        "flex:none;border-radius:50%;font-size:.75rem;font-weight:700;" +
+        (actual
+            ? "border:1px solid var(--rz-primary);"
+            : recorrido
+                ? "border:1px solid var(--rz-success);"
+                : "border:1px solid var(--rz-border-color);");
+}

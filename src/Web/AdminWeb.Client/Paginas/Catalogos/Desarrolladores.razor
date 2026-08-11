@@ -2,6 +2,7 @@
 @attribute [Authorize(Policy = "SoloAdmin")]
 @using AdminWeb.Client.Componentes
 @using AdminWeb.Shared.Dtos
+@using AdminWeb.Shared.Dtos.Ausencias
 @using AdminWeb.Shared.Dtos.Catalogos
 @inject ClienteApi Api
 @inject Descargas Descargas
@@ -20,6 +21,15 @@
 
       · «Calcular (LFT)» solo SUGIERE los días de vacaciones. Rellena el campo y el líder puede
         ajustarlo; el número lo da el servidor para que «hoy» sea el mismo día para todos.
+
+    Y una cosa que NO viene del escritorio: el botón «Saldo vacaciones».
+
+      El campo «Días de vacaciones» de la ficha es un número suelto que alguien teclea y que después
+      nadie mantiene. El SALDO de verdad no se guarda en ninguna parte: se calcula desde la fecha de
+      ingreso con la tabla de la ley, descontando lo aprobado y lo que caducó. Lo único que un humano
+      escribe de ese cálculo es el AJUSTE, y se captura aquí porque aquí es donde el líder ya está
+      mirando la ficha de esa persona. La nota es obligatoria —la exige el servidor— y queda en la
+      bitácora junto con quién la escribió.
 
       · «Acceso» crea la cuenta y enseña su contraseña temporal UNA vez. Si ya tiene cuenta, aquí
         se dice y ahí acaba: restablecer la contraseña de alguien es una decisión con consecuencia
@@ -67,6 +77,10 @@
                       Click="@CrearAcceso" />
         <RadzenButton Text="Correo" Icon="mail" ButtonStyle="ButtonStyle.Light"
                       Disabled="@(_ocupado || _elegido is null)" Click="@Escribir" />
+        @* «beach_access» es la sombrilla con la que el menú lateral y la pantalla del líder nombran
+           «Vacaciones»: la misma idea lleva el mismo dibujo. *@
+        <RadzenButton Text="Saldo vacaciones" Icon="beach_access" ButtonStyle="ButtonStyle.Light"
+                      Disabled="@(_ocupado || _elegido is null)" Click="@AbrirSaldo" />
         <RadzenButton Text="Desactivar" ButtonStyle="ButtonStyle.Light" Disabled="@(_ocupado || _elegido is null)"
                       Click="@Desactivar" />
         @* La exportación baja LO QUE EL FILTRO ESTÁ ENSEÑANDO, igual que en minutas y vacaciones. *@
@@ -149,6 +163,133 @@
                     <RadzenButton Text="Cancelar" Icon="close" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
                                   Click="@(() => _capturando = false)" />
                 </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    }
+
+    @if (_saldo is { } s)
+    {
+        @* El saldo se enseña ANTES del formulario del ajuste y con el desglose completo, y no como un
+           número solo: el ajuste existe para corregir este cálculo, y corregir a ciegas un número que
+           no se ve de dónde sale es adivinar. Los renglones por periodo son lo que permite señalar
+           «este año no lo gozó y ya caducó» al escribir la nota. *@
+        <RadzenCard>
+            <RadzenStack Gap="0.75rem">
+                <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                    <RadzenIcon Icon="beach_access" /> Saldo de vacaciones de «@_nombreDelSaldo»
+                </RadzenText>
+
+                <RadzenText TextStyle="TextStyle.Body2" Style="margin:0">@s.Mensaje</RadzenText>
+
+                @* Los seis números en fila, con el disponible destacado al final. Van con la misma
+                   cuenta que hace el servidor para que se pueda comprobar a mano:
+                   vigentes = generados − tomados − caducados, y disponible = vigentes − comprometidos
+                   + ajuste. Si algún día no cuadran, es que alguien duplicó el cálculo por su cuenta. *@
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="2rem" Wrap="FlexWrap.Wrap">
+                    <div>
+                        <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">Generados</RadzenText>
+                        <RadzenText TextStyle="TextStyle.H6" Style="margin:0">@s.DiasGenerados</RadzenText>
+                    </div>
+                    <div>
+                        <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">Gozados</RadzenText>
+                        <RadzenText TextStyle="TextStyle.H6" Style="margin:0">@s.DiasTomados</RadzenText>
+                    </div>
+                    <div>
+                        <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">Caducados</RadzenText>
+                        <RadzenText TextStyle="TextStyle.H6"
+                                    Style="@($"margin:0;{(s.DiasCaducados > 0 ? "color:var(--rz-warning)" : "")}")">
+                            @s.DiasCaducados
+                        </RadzenText>
+                    </div>
+                    <div>
+                        <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">Pendientes de aprobar</RadzenText>
+                        <RadzenText TextStyle="TextStyle.H6" Style="margin:0">@s.DiasComprometidos</RadzenText>
+                    </div>
+                    <div>
+                        <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">Ajuste vigente</RadzenText>
+                        <RadzenText TextStyle="TextStyle.H6" Style="margin:0">@s.AjusteManual</RadzenText>
+                    </div>
+                    <div>
+                        @* El disponible en rojo cuando es negativo, que es un estado real: se gozaron
+                           más días de los que había, o el líder restó de más. Se enseña tal cual en
+                           lugar de recortarlo a cero, igual que el saldo del año en «Mis vacaciones»:
+                           un cero de mentira esconde justo lo que hay que arreglar. *@
+                        <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">Disponible hoy</RadzenText>
+                        <RadzenText TextStyle="TextStyle.H5"
+                                    Style="@($"margin:0;color:{(s.Disponible < 0 ? "var(--rz-danger)" : "var(--rz-success)")}")">
+                            @s.Disponible
+                        </RadzenText>
+                    </div>
+                </RadzenStack>
+
+                @if (s.Periodos.Count > 0)
+                {
+                    <RadzenDataGrid TItem="PeriodoDeVacacionesDto" Data="@s.Periodos"
+                                    AllowSorting="false" AllowPaging="false"
+                                    EmptyText="Todavía no ha cerrado ningún periodo."
+                                    RowRender="@PintarPeriodo">
+                        <Columns>
+                            <RadzenDataGridColumn TItem="PeriodoDeVacacionesDto" Property="Anio" Title="Año" Width="70px" />
+                            <RadzenDataGridColumn TItem="PeriodoDeVacacionesDto" Property="Cierre" Title="Se generaron el" Width="140px">
+                                <Template Context="p">@p.Cierre.ToString("dd/MM/yyyy")</Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="PeriodoDeVacacionesDto" Property="Dias" Title="Días" Width="80px" />
+                            <RadzenDataGridColumn TItem="PeriodoDeVacacionesDto" Property="Usados" Title="Gozados" Width="90px" />
+                            <RadzenDataGridColumn TItem="PeriodoDeVacacionesDto" Property="Restantes" Title="Quedan" Width="90px" />
+                            @* 170 px y no 150, los mismos que en «Mis vacaciones»: es la MISMA celda
+                               —«01/07/2027 (ya caducó)»— y con 150 no cabe. La rejilla no envuelve el
+                               texto, lo recorta, así que lo que se perdía era justo el paréntesis: la
+                               fila se leería como un periodo vivo con días que caducan más adelante,
+                               que es lo contrario de lo que dice. *@
+                            <RadzenDataGridColumn TItem="PeriodoDeVacacionesDto" Property="Caduca" Title="Caducan el" Width="170px">
+                                <Template Context="p">
+                                    @p.Caduca.ToString("dd/MM/yyyy")
+                                    @if (p.Caducado) { <text> (ya caducó)</text> }
+                                </Template>
+                            </RadzenDataGridColumn>
+                        </Columns>
+                    </RadzenDataGrid>
+
+                    <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
+                        Los días no gozados se arrastran @s.VentanaDeCaducidadMeses meses desde el cierre
+                        de su periodo. Ese plazo es política de la empresa y se cambia en Configuración
+                        («vacaciones.caducidad-meses»); el saldo se recalcula solo.
+                    </RadzenText>
+                }
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap"
+                             AlignItems="AlignItems.End">
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Ajuste (días, puede ser negativo)" Component="ajusteDias" />
+                        <RadzenNumeric @bind-Value="_ajusteDias" Name="ajusteDias" Min="-365" Max="365"
+                                       Style="width:9rem" />
+                    </RadzenStack>
+                    <RadzenStack Gap="0.25rem" Style="flex:1;min-width:22rem">
+                        <RadzenLabel Text="Motivo del ajuste (obligatorio)" Component="ajusteNota" />
+                        <RadzenTextBox @bind-Value="_ajusteNota" Name="ajusteNota" MaxLength="500"
+                                       Placeholder="Por qué se corrige: días gozados antes de la web, acuerdo particular…"
+                                       Style="width:100%" />
+                    </RadzenStack>
+                    <RadzenButton Text="Guardar ajuste" Icon="save" Disabled="@_ocupado" Click="@GuardarAjuste" />
+                    <RadzenButton Text="Cerrar" Icon="close" ButtonStyle="ButtonStyle.Light"
+                                  Disabled="@_ocupado" Click="@CerrarSaldo" />
+                </RadzenStack>
+
+                @if (!string.IsNullOrWhiteSpace(s.NotaDelAjuste))
+                {
+                    <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
+                        Ajuste vigente: @s.AjusteManual día(s) — «@s.NotaDelAjuste»
+                        @if (!string.IsNullOrWhiteSpace(s.AutorDelAjuste))
+                        {
+                            <text> · lo capturó @s.AutorDelAjuste</text>
+                        }
+                        @if (s.FechaDelAjusteUtc is { } cuando)
+                        {
+                            <text> el @cuando.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</text>
+                        }
+                        . Guardar uno nuevo REEMPLAZA a éste; el anterior queda en la bitácora.
+                    </RadzenText>
+                }
             </RadzenStack>
         </RadzenCard>
     }
@@ -297,6 +438,33 @@
     private bool _activo = true;
     private string _notaLft = "";
 
+    // ── El saldo de vacaciones y su ajuste ───────────────────────────────────────
+    //
+    // El saldo NO se guarda en ninguna parte: se pide al servidor cada vez que se abre el panel y se
+    // vuelve a pedir después de guardar el ajuste. Guardarlo aquí en un campo y arreglarlo a mano
+    // tras el POST daría un número que en cuanto alguien apruebe unas vacaciones desde otra pantalla
+    // ya no sería el mismo que el servidor calcula, y la pantalla enseñaría con toda seguridad un
+    // dato que ya no es cierto.
+    private SaldoAcumuladoDto? _saldo;
+
+    /// <summary>
+    /// De QUIÉN es el saldo que hay en pantalla. Se guarda con el panel en vez de volver a leer
+    /// <see cref="_elegido"/> al guardar, y no es una comodidad: es lo que impide escribirle el ajuste
+    /// a la persona equivocada.
+    ///
+    /// <para>El panel se abre para la fila elegida pero NO se cierra al elegir otra —la rejilla sigue
+    /// viva debajo—, así que basta abrir el saldo de Ana, hacer clic en la fila de Beto para mirar su
+    /// correo y pulsar «Guardar ajuste» para que los días y la nota que hablan de Ana acaben en la
+    /// ficha de Beto. Nada avisaría: el panel seguiría enseñando el nombre y los números de Ana, y la
+    /// bitácora guardaría un ajuste perfectamente explicado sobre quien no era. Mientras el panel
+    /// esté abierto, TODO lo que hace habla de esta persona.</para>
+    /// </summary>
+    private int? _saldoDeId;
+
+    private string _nombreDelSaldo = "";
+    private int _ajusteDias;
+    private string? _ajusteNota;
+
     private bool Ver(string columna) => !_ocultas.Contains(columna);
 
     protected override Task OnInitializedAsync() => Buscar();
@@ -414,6 +582,100 @@
             _notaLft = sugerencia.Nota;
         }
         finally { _ocupado = false; }
+    }
+
+    // ── El saldo de vacaciones ───────────────────────────────────────────────────
+
+    /// <summary>
+    /// Abre el panel del saldo de la persona ELEGIDA EN LA REJILLA. Es el único sitio donde la
+    /// selección decide de quién se habla; a partir de aquí manda <see cref="_saldoDeId"/>.
+    /// </summary>
+    private Task AbrirSaldo() =>
+        _elegido is { } d ? CargarSaldo(d.Id, d.Nombre) : Task.CompletedTask;
+
+    /// <summary>
+    /// Pide el cálculo al servidor y deja el panel hablando de esa persona y solo de esa.
+    /// </summary>
+    private async Task CargarSaldo(int developerId, string nombre)
+    {
+        _ocupado = true;
+        try
+        {
+            var saldo = await Api.LeerAsync<SaldoAcumuladoDto>(
+                $"api/ausencias/vacaciones/saldo/{developerId}");
+            if (saldo is null) return;
+
+            _saldo = saldo;
+            _saldoDeId = developerId;
+            _nombreDelSaldo = nombre;
+
+            // El ajuste vigente se precarga en el campo, y el motivo NO: lo primero es lo que se está
+            // reemplazando y hay que verlo antes de tocarlo; lo segundo es la explicación de ESTE
+            // cambio y heredar la de la vez pasada haría muy fácil guardar una nota que ya no habla
+            // del número que se está poniendo.
+            _ajusteDias = saldo.AjusteManual;
+            _ajusteNota = null;
+        }
+        finally { _ocupado = false; }
+    }
+
+    /// <summary>
+    /// Guarda el ajuste y vuelve a PEDIR el saldo. No se recalcula en el cliente: el número que vale
+    /// es el del servidor, y sumarle aquí los días guardados sería una segunda cuenta que un día
+    /// diría otra cosa.
+    ///
+    /// <para>Escribe sobre <see cref="_saldoDeId"/> —de quién es el panel— y NO sobre la fila elegida
+    /// en la rejilla, que puede haber cambiado desde que se abrió. Ver el porqué en ese campo.</para>
+    /// </summary>
+    private async Task GuardarAjuste()
+    {
+        if (_saldo is null || _saldoDeId is not int developerId) return;
+
+        // Solo lo evidente se comprueba aquí; el servidor lo vuelve a exigir, que es donde la regla
+        // vale de verdad. Se avisa antes para no gastar un viaje en un rechazo seguro.
+        if (string.IsNullOrWhiteSpace(_ajusteNota))
+        {
+            Avisos.Aviso("El ajuste necesita un motivo: es lo que permite explicarlo después.");
+            return;
+        }
+
+        _ocupado = true;
+        try
+        {
+            var (ok, r) = await Api.EnviarAsync<AjusteDeSaldoRequest, ResultadoDto>(
+                $"api/ausencias/vacaciones/saldo/{developerId}/ajuste",
+                new AjusteDeSaldoRequest(_ajusteDias, _ajusteNota));
+
+            // El fallo ya lo anunció el manejador de respuestas con el mensaje del servidor.
+            if (!ok) return;
+            if (r is not null) Avisos.Exito(r.Mensaje);
+        }
+        finally { _ocupado = false; }
+
+        await CargarSaldo(developerId, _nombreDelSaldo);
+    }
+
+    /// <summary>
+    /// Cierra el panel soltando TAMBIÉN de quién era. Dejar el identificador puesto no se notaría hoy
+    /// —el panel no se pinta sin <see cref="_saldo"/>— pero es la clase de resto que un día vuelve a
+    /// leerse por otro camino, y lo que hay aquí decide a qué ficha se le escribe un ajuste.
+    /// </summary>
+    private void CerrarSaldo()
+    {
+        _saldo = null;
+        _saldoDeId = null;
+        _nombreDelSaldo = "";
+        _ajusteNota = null;
+    }
+
+    /// <summary>
+    /// El periodo ya caducado se pinta apagado, con el mismo criterio que la fila de un desarrollador
+    /// dado de baja: sigue siendo parte de la historia y tiene que verse, pero no cuenta para el
+    /// saldo de hoy y no debe leerse como si contara.
+    /// </summary>
+    private void PintarPeriodo(RowRenderEventArgs<PeriodoDeVacacionesDto> args)
+    {
+        if (args.Data.Caducado) args.Attributes["style"] = "opacity:.55";
     }
 
     // ── Las acciones sobre la fila elegida ───────────────────────────────────────

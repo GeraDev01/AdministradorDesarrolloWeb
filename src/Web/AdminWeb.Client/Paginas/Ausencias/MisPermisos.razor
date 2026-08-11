@@ -24,6 +24,49 @@
     El justificante SUBE por /api/ausencias y BAJA por /api/adjuntos/permiso/{id}, que es la ruta
     común a todos los adjuntos guardados en la base. Los bytes nunca viajan en la lista: se piden
     cuando alguien pulsa.
+
+    ── EL ASISTENTE: DOS PASOS, Y POR QUÉ DOS Y NO CINCO ──────────────────────────────────────────
+
+    «Mis vacaciones» guía el alta en CINCO pasos. Aquí son DOS, y la asimetría es la decisión, no un
+    descuido de haber portado una pantalla con menos cariño.
+
+    UN PERMISO SE PIDE CON PRISA. Se pide desde el estacionamiento del hospital, o entre dos
+    reuniones, porque algo acaba de pasar. Unas vacaciones se planean con semanas: por eso allí se
+    puede gastar una pantalla en enseñar el saldo, otra en cruzar fechas con el equipo y otra en el
+    respaldo. Aquí, cuatro pantallas para pedir medio día convertirían la herramienta en el trámite
+    del que la gente huye — y de la que se huye volviendo a acordar el permiso por fuera, que es
+    exactamente el problema que esta pantalla vino a resolver.
+
+    Así que la ruta rápida es: cuatro campos, «Siguiente», «Enviar permiso». Dos pulsaciones de
+    navegación, no cuatro.
+
+      PASO 1 · EL PERMISO. Tipo, desde, cuántos días y motivo. Son cuatro campos pero UNA sola
+      decisión —«qué necesito y cuándo»— y separarlos en cuatro pantallas no ayudaría a decidir
+      nada: quien abre esto ya sabe los cuatro. Debajo, calculado en vivo, lo que si no hay que
+      contar a mano: hasta qué día llega, cuántos hábiles son y cuándo se vuelve.
+
+      Las NOTAS y el JUSTIFICANTE están en el mismo paso pero PLEGADOS. Son opcionales y la mayoría
+      de los permisos no los llevan; en su propio paso serían una pantalla que casi siempre se pasa
+      de largo, y plegados no le cuestan un clic a quien no los necesita ni se le esconden a quien
+      sí. Es el mismo criterio que en vacaciones justifica un paso entero para el respaldo: allí casi
+      siempre hay documento, aquí casi nunca.
+
+      PASO 2 · REVISA Y ENVÍA. El resumen completo antes de mandarlo, y aquí es donde se aprovecha
+      para consultar QUIÉN MÁS DEL EQUIPO estará fuera esos días. Ese cruce vale igual que en
+      vacaciones, pero no se ha ganado un paso propio: se enseña dentro del resumen y desde ahí
+      todavía se puede volver atrás a mover la fecha. Cero clics de más por un dato que igual se ve.
+
+    Un permiso NO se firma —el documento con firmas es cosa de las vacaciones—, así que este resumen
+    no lleva lienzo y por eso puede ser el paso final sin más.
+
+    ── LO QUE NO CAMBIÓ ───────────────────────────────────────────────────────────────────────────
+
+    Lo que se manda al servidor es EXACTAMENTE lo de antes: un POST con tipo, fecha, días, motivo y
+    notas, y después el justificante en su propia subida. El asistente reparte los mismos campos y
+    añade lecturas, pero no negocia nada nuevo con la API. Que el MOTIVO sea obligatorio para
+    continuar tampoco es una regla nueva: la exige LeaveRequestService al dar de alta («Escribe el
+    motivo: es lo que el líder va a leer para decidir»), y lo que hace el asistente es decirlo antes
+    de gastar un viaje a la red en que lo rechacen.
 *@
 
 <PageTitle>Mis permisos</PageTitle>
@@ -60,81 +103,166 @@
 
             <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
                 <RadzenButton Text="Solicitar permiso" Icon="add" ButtonStyle="ButtonStyle.Primary"
-                              Click="@AbrirFormulario" Disabled="@(_ocupado || _pidiendo)" />
+                              Click="@AbrirAsistente" Disabled="@(_ocupado || _pidiendo)" />
                 <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
-                              Click="@Cargar" Disabled="@_ocupado" />
+                              Click="@Cargar" Disabled="@(_ocupado || _enviando)" />
             </RadzenStack>
         }
 
+        @* ── EL ASISTENTE ────────────────────────────────────────────────────── *@
         @if (_pidiendo)
         {
-            <RadzenCard>
-                <RadzenStack Gap="0.75rem">
-                    <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">Solicitar permiso</RadzenText>
-                    <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false">
-                        Tu solicitud queda PENDIENTE hasta que el líder la resuelva.
-                    </RadzenAlert>
+            <AsistentePorPasos Titulos="@Pasos" @bind-Paso="_paso"
+                               Ayuda="@AyudaDelPaso"
+                               PuedeAvanzar="@PuedeAvanzar"
+                               MotivoParaNoAvanzar="@MotivoParaNoAvanzar"
+                               TextoFinal="Enviar permiso" IconoFinal="send"
+                               Ocupado="@_enviando"
+                               AlFinalizar="@Solicitar" AlDescartar="@(() => _pidiendo = false)"
+                               AlEntrar="@AlEntrarEnPaso">
+                <Contenido>
+                    @* ── PASO 1: EL PERMISO ─────────────────────────────────── *@
+                    @if (_paso == PasoDelPermiso)
+                    {
+                        <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false">
+                            Tu solicitud queda PENDIENTE hasta que el líder la resuelva.
+                        </RadzenAlert>
 
-                    <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem"
-                                 AlignItems="AlignItems.End" Wrap="FlexWrap.Wrap">
-                        <RadzenStack Gap="0.25rem">
-                            <RadzenLabel Text="Tipo" Component="tipo" />
-                            <RadzenDropDown @bind-Value="_tipo" Data="@d.TiposDePermiso" Name="tipo"
-                                            TextProperty="Texto" ValueProperty="Id" Style="width:260px" />
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem"
+                                     AlignItems="AlignItems.End" Wrap="FlexWrap.Wrap">
+                            <RadzenStack Gap="0.25rem">
+                                <RadzenLabel Text="Tipo" Component="tipo" />
+                                <RadzenDropDown @bind-Value="_tipo" Data="@d.TiposDePermiso" Name="tipo"
+                                                TextProperty="Texto" ValueProperty="Id" Style="width:260px" />
+                            </RadzenStack>
+                            <RadzenStack Gap="0.25rem">
+                                <RadzenLabel Text="Desde" Component="desde" />
+                                <RadzenDatePicker TValue="DateTime" @bind-Value="_desde" Name="desde"
+                                                  DateFormat="dd/MM/yyyy" ShowTime="false" Style="width:170px" />
+                            </RadzenStack>
+                            <RadzenStack Gap="0.25rem">
+                                <RadzenLabel Text="Días" Component="dias" />
+                                <RadzenNumeric @bind-Value="_dias" Name="dias" Min="1" Max="@d.MaxDias"
+                                               Style="width:110px" />
+                            </RadzenStack>
                         </RadzenStack>
-                        <RadzenStack Gap="0.25rem">
-                            <RadzenLabel Text="Desde" Component="desde" />
-                            <RadzenDatePicker TValue="DateTime" @bind-Value="_desde" Name="desde"
-                                              DateFormat="dd/MM/yyyy" ShowTime="false" Style="width:170px" />
-                        </RadzenStack>
-                        <RadzenStack Gap="0.25rem">
-                            <RadzenLabel Text="Días" Component="dias" />
-                            <RadzenNumeric @bind-Value="_dias" Name="dias" Min="1" Max="@d.MaxDias"
-                                           Style="width:110px" />
-                        </RadzenStack>
+
                         @* Con «5 días» a partir de una fecha hay que contar a mano para saber hasta
-                           cuándo llega, y ahí es donde se cuela el error de un día. *@
-                        <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0">
-                            <b>Hasta el @Hasta.ToString("dd/MM/yyyy")</b>
-                        </RadzenText>
-                    </RadzenStack>
+                           cuándo llega, y ahí es donde se cuela el error de un día. Va en tarjeta
+                           aparte porque es lo CALCULADO: lo de arriba se teclea, esto sale solo. *@
+                        <RadzenCard Style="border-left:5px solid var(--rz-info)">
+                            <RadzenStack Gap="0.35rem">
+                                <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0">
+                                    <RadzenIcon Icon="date_range" /> Cubre <b>hasta el @Hasta.ToString("dd/MM/yyyy")</b>
+                                    (@DiasPedidos día(s) naturales · <b>@CuentasDeCalendario.DiasHabiles(_desde, Hasta) hábil(es)</b>).
+                                </RadzenText>
+                                <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0">
+                                    <RadzenIcon Icon="today" /> Te reincorporas el
+                                    <b>@CuentasDeCalendario.Regreso(Hasta)</b>.
+                                </RadzenText>
+                                <AvisoDeFestivos />
+                            </RadzenStack>
+                        </RadzenCard>
 
-                    <RadzenStack Gap="0.25rem">
-                        <RadzenLabel Text="Motivo" Component="motivo" />
-                        <RadzenTextArea @bind-Value="_motivo" Name="motivo" Rows="3" MaxLength="1000"
-                                        Style="width:100%"
-                                        Placeholder="Es lo que el líder va a leer para decidir." />
-                    </RadzenStack>
+                        <RadzenStack Gap="0.25rem">
+                            <RadzenLabel Text="Motivo" Component="motivo" />
+                            <RadzenTextArea @bind-Value="_motivo" Name="motivo" Rows="3" MaxLength="1000"
+                                            Style="width:100%"
+                                            Placeholder="Es lo que el líder va a leer para decidir." />
+                        </RadzenStack>
 
-                    <RadzenStack Gap="0.25rem">
-                        <RadzenLabel Text="Notas (opcional)" Component="notas" />
-                        <RadzenTextArea @bind-Value="_notas" Name="notas" Rows="2" MaxLength="1000"
-                                        Style="width:100%" />
-                    </RadzenStack>
+                        @* PLEGADO a propósito: los dos son opcionales y la mayoría de los permisos no
+                           los llevan. Ver la nota de arriba sobre por qué esto no es un tercer paso. *@
+                        <RadzenFieldset Text="Notas y justificante (opcional)" Icon="attach_file"
+                                        AllowCollapse="true" Collapsed="@(_notas is null && _archivoDelAlta is null)">
+                            <RadzenStack Gap="0.75rem">
+                                <RadzenStack Gap="0.25rem">
+                                    <RadzenLabel Text="Notas" Component="notas" />
+                                    <RadzenTextArea @bind-Value="_notas" Name="notas" Rows="2" MaxLength="1000"
+                                                    Style="width:100%"
+                                                    Placeholder="Detalles que no caben en el motivo." />
+                                </RadzenStack>
 
-                    <RadzenStack Gap="0.25rem">
-                        <RadzenLabel Text="Justificante (opcional)" />
-                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
-                            Receta, constancia, captura del correo que lo autoriza… Hasta @Megas(d) MB.
-                        </RadzenText>
-                        <InputFile OnChange="@(e => ElegirParaElAlta(e, d))" />
-                        @if (_archivoDelAlta is { } elegido)
+                                <RadzenStack Gap="0.25rem">
+                                    @* El rótulo va ATADO al selector con Component/id: sin eso, un
+                                       lector de pantalla anuncia «botón examinar» a secas. *@
+                                    <RadzenLabel Text="Justificante" Component="justificante" />
+                                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                        Receta, constancia, captura del correo que lo autoriza… Hasta @Megas(d) MB.
+                                        También puedes adjuntarlo después desde la lista, mientras siga pendiente.
+                                    </RadzenText>
+                                    <InputFile id="justificante" OnChange="@(e => ElegirParaElAlta(e, d))" />
+                                    @if (_archivoDelAlta is { } elegido)
+                                    {
+                                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                                                    Style="color:var(--rz-success)">
+                                            <RadzenIcon Icon="attach_file" /> @elegido.Nombre (@(elegido.Contenido.Length / 1024) KB)
+                                        </RadzenText>
+                                    }
+                                </RadzenStack>
+                            </RadzenStack>
+                        </RadzenFieldset>
+                    }
+
+                    @* ── PASO 2: REVISA Y ENVÍA ─────────────────────────────── *@
+                    else
+                    {
+                        <RadzenCard>
+                            <RadzenStack Gap="0.4rem">
+                                @Renglon("Tipo", EtiquetaDelTipo(d))
+                                @Renglon("Desde", $"{_desde:dd/MM/yyyy}")
+                                @Renglon("Duración", $"{DiasPedidos} día(s) naturales · {CuentasDeCalendario.DiasHabiles(_desde, Hasta)} hábil(es)")
+                                @Renglon("Hasta", $"{Hasta:dd/MM/yyyy}")
+                                @Renglon("Te reincorporas", CuentasDeCalendario.Regreso(Hasta))
+                                @Renglon("Motivo", string.IsNullOrWhiteSpace(_motivo) ? "— (falta)" : _motivo!)
+                                @Renglon("Notas", string.IsNullOrWhiteSpace(_notas) ? "— (ninguna)" : _notas!)
+                                @Renglon("Justificante", _archivoDelAlta is { } adjunto ? adjunto.Nombre : "— (ninguno)")
+                            </RadzenStack>
+                        </RadzenCard>
+
+                        <AvisoDeFestivos />
+
+                        @* QUIÉN MÁS ESTARÁ FUERA. Aquí y no en un paso propio: ver la nota de la
+                           cabecera. Es informativo y nunca impide enviar — coincidir con alguien
+                           puede ser perfectamente razonable, y quien decide es el líder. *@
+                        @if (_consultandoEquipo)
                         {
-                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
-                                        Style="color:var(--rz-success)">
-                                <RadzenIcon Icon="attach_file" /> @elegido.Nombre (@(elegido.Contenido.Length / 1024) KB)
+                            <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                                Consultando quién más estará fuera esos días…
                             </RadzenText>
                         }
-                    </RadzenStack>
-
-                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
-                        <RadzenButton Text="Solicitar" Icon="send" ButtonStyle="ButtonStyle.Primary"
-                                      Click="@Solicitar" Disabled="@_ocupado" />
-                        <RadzenButton Text="Descartar" Icon="close" ButtonStyle="ButtonStyle.Light"
-                                      Click="@(() => _pidiendo = false)" Disabled="@_ocupado" />
-                    </RadzenStack>
-                </RadzenStack>
-            </RadzenCard>
+                        else if (_equipo is { } e)
+                        {
+                            <RadzenAlert AlertStyle="@(e.Fuera.Count == 0 ? AlertStyle.Success : AlertStyle.Warning)"
+                                         Shade="Shade.Lighter" AllowClose="false">
+                                <RadzenStack Gap="0.35rem">
+                                    <span>@e.Resumen</span>
+                                    @foreach (var companero in e.Fuera)
+                                    {
+                                        <span>
+                                            · <b>@companero.Nombre</b>
+                                            @(companero.MismoEquipo ? " (tu equipo)" : "")
+                                            — del @companero.Inicio.ToString("dd/MM/yyyy")
+                                            al @companero.Fin.ToString("dd/MM/yyyy")
+                                        </span>
+                                    }
+                                    @if (e.Fuera.Count > 0)
+                                    {
+                                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                            Solo cuentan vacaciones ya APROBADAS. Si prefieres mover tu
+                                            fecha, vuelve al paso anterior.
+                                        </RadzenText>
+                                    }
+                                </RadzenStack>
+                            </RadzenAlert>
+                        }
+                        @* Si la consulta falló no se dice nada y no se estorba: es una ayuda de más
+                           en una pantalla que se usa con prisa, y un aviso de error por algo que
+                           nadie pidió sería ruido justo antes de pulsar «Enviar». En vacaciones sí
+                           se avisa, porque allí ocupa un paso entero que si no quedaría en blanco. *@
+                    }
+                </Contenido>
+            </AsistentePorPasos>
         }
 
         @if (_adjuntandoEn is int permisoId)
@@ -281,8 +409,31 @@
     private MisPermisosDto? _datos;
     private bool _ocupado;
 
-    // ── Formulario de alta ───────────────────────────────────────────────────
+    // ── El asistente ─────────────────────────────────────────────────────────
+    //
+    // DOS pasos, y el porqué está entero en la cabecera de este archivo: un permiso se pide con
+    // prisa. Van por constante y no por número suelto por lo mismo que en vacaciones: el marcado, la
+    // ayuda y el gancho de entrada hablan del mismo paso desde tres sitios.
+    private const int PasoDelPermiso = 0;
+    private const int PasoDelResumen = 1;
+
+    private static readonly string[] Pasos = ["El permiso", "Revisa y envía"];
+
     private bool _pidiendo;
+    private int _paso;
+
+    /// <summary>
+    /// El envío en curso. Es lo que impide mandar dos veces el mismo permiso: se levanta ANTES del
+    /// primer await, así que el segundo clic de un doble clic —que en Blazor entra mientras el
+    /// primero espera a la red— se encuentra la bandera puesta y se va sin hacer nada. El botón
+    /// además se apaga solo (IsBusy), pero eso llega un repintado más tarde.
+    /// </summary>
+    private bool _enviando;
+
+    // ── Lo que la persona va escribiendo ─────────────────────────────────────
+    //
+    // Vive en la PÁGINA y no en el asistente: el componente de pasos solo pinta el paso en curso, así
+    // que cualquier dato que viviera dentro moriría al avanzar. Aquí sobrevive a ir y volver.
     private int _tipo;
     private DateTime _desde = DateTime.Today;
     private int _dias = 1;
@@ -290,11 +441,36 @@
     private string? _notas;
     private ArchivoElegido? _archivoDelAlta;
 
+    // ── Quién más estará fuera ───────────────────────────────────────────────
+    private AusenciasDelEquipoDto? _equipo;
+    private bool _consultandoEquipo;
+
+    /// <summary>Las fechas con las que se pidió el cruce que hay en pantalla; ver «Mis vacaciones».</summary>
+    private string? _equipoConsultadoPara;
+
     // ── Justificante de una solicitud ya existente ───────────────────────────
     private int? _adjuntandoEn;
     private string _adjuntandoDescripcion = "";
 
-    private DateTime Hasta => _desde.Date.AddDays(Math.Max(1, _dias) - 1);
+    private int DiasPedidos => Math.Max(1, _dias);
+    private DateTime Hasta => _desde.Date.AddDays(DiasPedidos - 1);
+
+    private string AyudaDelPaso => _paso == PasoDelPermiso
+        ? "Qué necesitas y cuándo. Las notas y el justificante son opcionales y están abajo, plegados."
+        : "Comprueba que está bien antes de mandarlo: esto es lo que va a leer el líder.";
+
+    /// <summary>
+    /// El motivo es obligatorio para pasar de paso, y no es una regla que se invente esta pantalla:
+    /// la exige <c>LeaveRequestService</c> al dar de alta. Decirlo aquí solo evita gastar un viaje a
+    /// la red para que lo rechacen con esas mismas palabras.
+    /// </summary>
+    private bool PuedeAvanzar =>
+        _paso != PasoDelPermiso || !string.IsNullOrWhiteSpace(_motivo);
+
+    private string? MotivoParaNoAvanzar =>
+        _paso == PasoDelPermiso && string.IsNullOrWhiteSpace(_motivo)
+            ? "Escribe el motivo: es lo que el líder va a leer para decidir."
+            : null;
 
     protected override Task OnInitializedAsync() => Cargar();
 
@@ -311,16 +487,52 @@
         }
     }
 
-    private void AbrirFormulario()
+    private void AbrirAsistente()
     {
         _tipo = 0;
         _desde = DateTime.Today;
         _dias = 1;
         _motivo = _notas = null;
         _archivoDelAlta = null;
+        _equipo = null;
+        _equipoConsultadoPara = null;
         _adjuntandoEn = null;
+        _paso = PasoDelPermiso;
         _pidiendo = true;
     }
+
+    /// <summary>
+    /// El cruce con el equipo se pide al llegar al resumen, y solo si las fechas cambiaron. En cada
+    /// tecleo del número de días serían decenas de viajes que nadie pidió; al volver al mismo paso
+    /// sin tocar nada, uno de más.
+    /// </summary>
+    private async Task AlEntrarEnPaso(int paso)
+    {
+        if (paso != PasoDelResumen) return;
+
+        var clave = $"{_desde:yyyy-MM-dd}|{Hasta:yyyy-MM-dd}";
+        if (_equipoConsultadoPara == clave && _equipo is not null) return;
+
+        _consultandoEquipo = true;
+        // Lo que hubiera en pantalla es de otras fechas: se suelta ANTES de pedir el nuevo, para que
+        // durante la espera no se lea como vigente un cruce que ya no lo es.
+        _equipo = null;
+        try
+        {
+            _equipo = await Api.LeerAsync<AusenciasDelEquipoDto>(
+                $"api/ausencias/equipo/fuera?inicio={_desde:yyyy-MM-dd}&fin={Hasta:yyyy-MM-dd}",
+                _cancelacion.Token);
+            _equipoConsultadoPara = _equipo is null ? null : clave;
+        }
+        finally
+        {
+            _consultandoEquipo = false;
+        }
+    }
+
+    /// <summary>Cómo se llama el tipo elegido, para el resumen. Las etiquetas las manda el servidor.</summary>
+    private string EtiquetaDelTipo(MisPermisosDto d) =>
+        d.TiposDePermiso.FirstOrDefault(t => t.Id == _tipo)?.Texto ?? "(sin tipo)";
 
     // ── Alta ─────────────────────────────────────────────────────────────────
 
@@ -336,8 +548,11 @@
     /// </summary>
     private async Task Solicitar()
     {
-        _ocupado = true;
-        int id;
+        // La bandera se levanta SIN AWAIT DE POR MEDIO: es lo que hace que el segundo clic de un
+        // doble clic —que entra mientras el primero espera a la red— no cree un segundo permiso.
+        if (_enviando) return;
+        _enviando = true;
+
         try
         {
             var (ok, respuesta) = await Api.EnviarAsync<NuevaSolicitudDePermisoRequest, SolicitudCreadaDto>(
@@ -348,21 +563,20 @@
             if (!ok || respuesta is null) return;
 
             Avisos.Exito(respuesta.Mensaje);
-            id = respuesta.Id;
             _pidiendo = false;
+
+            if (_archivoDelAlta is { } archivo)
+            {
+                await Subir(respuesta.Id, archivo);
+                _archivoDelAlta = null;
+            }
+
+            await Cargar();
         }
         finally
         {
-            _ocupado = false;
+            _enviando = false;
         }
-
-        if (_archivoDelAlta is { } archivo)
-        {
-            await Subir(id, archivo);
-            _archivoDelAlta = null;
-        }
-
-        await Cargar();
     }
 
     // ── Justificante ─────────────────────────────────────────────────────────
@@ -511,6 +725,15 @@
             <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-1">@titulo</RadzenText>
             <RadzenText TextStyle="TextStyle.H6" Style="@($"margin:0;color:{color}")">@valor</RadzenText>
         </RadzenCard>
+    };
+
+    /// <summary>Un renglón del resumen: rótulo a la izquierda y dato a la derecha.</summary>
+    private static RenderFragment Renglon(string titulo, string valor) => __builder =>
+    {
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0" Style="min-width:150px">@titulo</RadzenText>
+            <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0"><b>@valor</b></RadzenText>
+        </RadzenStack>
     };
 
     // AQUÍ VIVÍA Color(LeaveStatus), y era la MISMA tabla que la de AusenciasLider/Permisos.razor

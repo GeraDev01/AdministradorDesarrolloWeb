@@ -8,11 +8,21 @@ namespace AdminWeb.Api.Endpoints;
 /// Las ausencias PROPIAS: pedir, consultar, cancelar y retirar vacaciones y permisos, más el
 /// justificante de un permiso.
 ///
-/// <b>Ninguna ruta lleva identificador de persona</b>, igual que en jornada: todas actúan sobre quien
-/// tiene la sesión. Con un <c>/{developerId}</c> habría que comprobar en cada endpoint que ese
-/// identificador es el propio, y el día que a uno se le olvidara sería «pide vacaciones a nombre de
-/// otro». Los identificadores que sí viajan son los de la solicitud, y de esos se encarga la guarda
-/// de pertenencia que ya traen los servicios.
+/// <b>Ninguna ruta de ESCRITURA lleva identificador de persona</b>, igual que en jornada: todas
+/// actúan sobre quien tiene la sesión. Con un <c>/{developerId}</c> habría que comprobar en cada
+/// endpoint que ese identificador es el propio, y el día que a uno se le olvidara sería «pide
+/// vacaciones a nombre de otro». Los identificadores que sí viajan son los de la solicitud, y de esos
+/// se encarga la guarda de pertenencia que ya traen los servicios.
+///
+/// <para><b>Las DOS excepciones, y por qué se dicen aquí arriba.</b> Las rutas del SALDO
+/// —<c>/vacaciones/saldo/{developerId}</c> y su ajuste— sí llevan identificador, porque el líder
+/// tiene que poder ver y corregir el saldo de cualquiera y el sitio natural para hacerlo es la ficha
+/// de esa persona. Esta regla se enuncia entera, con su excepción, en lugar de dejar la frase
+/// absoluta con dos rutas desmintiéndola: una cabecera que no es cierta deja de leerse, y entonces
+/// tampoco protege lo que sí es cierto. Lo que las sostiene es que la guarda está en el SERVICIO
+/// —<c>AuthorizationGuard.RequireOwnershipOrAdmin</c> al leer y <c>RequireAdmin</c> al ajustar—, no
+/// en un <c>if</c> del endpoint que el siguiente que copie y pegue podría olvidar; el ajuste lleva
+/// además su propia política. Si algún día hiciera falta una tercera, va aquí escrita o no va.</para>
 ///
 /// <para>Lo que resuelve el líder —aprobar, rechazar, el documento firmado— no está aquí y no es un
 /// descuido: es otra pantalla y otra fase.</para>
@@ -31,8 +41,14 @@ public static class AusenciasEndpoints
         // no un endpoint aparte a propósito: la pantalla pinta la lista y el estado de la firma en el
         // mismo renglón, y en dos peticiones habría un instante enseñando como «sin firmar» algo que
         // sí lo está — justo el dato que esta pantalla existe para dejar claro.
+        //
+        // El SALDO ACUMULADO se pega igual y por el mismo motivo: lo calcula quien conoce la tabla de
+        // la ley y la ventana de caducidad configurada, y la pantalla lo enseña junto a la lista de la
+        // que sale. En dos peticiones habría un instante enseñando un saldo que ya no cuadra con las
+        // solicitudes de al lado.
         grupo.MapGet("/vacaciones/mias", async (
-            AusenciasService ausencias, VacationRequestService vacaciones, CancellationToken ct) =>
+            AusenciasService ausencias, VacationRequestService vacaciones,
+            SaldoDeVacacionesService saldo, CancellationToken ct) =>
         {
             var datos = await ausencias.MisVacacionesAsync(ct);
             var papeles = await vacaciones.PapelesDeAsync(datos.Solicitudes.Select(s => s.Id), ct);
@@ -46,21 +62,48 @@ public static class AusenciasEndpoints
                         Firmada: p.SigueValiendo,
                         DejoDeValer: p.Firmada && !p.SigueValiendo,
                         FirmadaUtc: p.FirmadaUtc,
-                        SePuedeFirmar: VacationRequestService.PuedeFirmar(s.Estado),
+                        // El segundo dato NO se puede omitir aquí. Esa regla deja REPONER una firma
+                        // que dejó de valer aunque la solicitud ya esté resuelta —es la salida del
+                        // callejón en el que el documento del líder no se podía archivar nunca más—,
+                        // y preguntándole solo por el estado devolvería «no» justo ahí: la persona
+                        // recibiría el aviso de «vuelve a firmar» y abriría una pantalla sin botón.
+                        SePuedeFirmar: VacationRequestService.PuedeFirmar(
+                            s.Estado, reponerUnaFirmaCaida: p.Firmada && !p.SigueValiendo),
                         DocumentoArchivado: p.DocumentoDelLiderArchivado);
                 })
                 .ToList();
 
-            // Y se corrige el conteo de documentos con el que sí descuenta la fila de la firma: el
-            // enlace vive en la misma tabla que los documentos generados, y sin esto la confirmación
-            // de borrado avisaría de un papel que nadie generó.
-            var solicitudes = datos.Solicitudes
-                .Select(s => s with { DocumentosGenerados = papeles[s.Id].DocumentosGenerados })
-                .ToList();
-
-            return Results.Ok(datos with { Solicitudes = solicitudes, Firmas = firmas });
+            // Aquí había un parche que reescribía DocumentosGenerados con el conteo bueno de
+            // PapelesDeAsync, porque el servicio contaba de más la fila del enlace de la firma. El
+            // servicio ya cuenta bien —filtra esa fila en su propia consulta— y el parche se fue: dos
+            // sitios calculando el mismo número acaban discrepando, y el que gana es el de más abajo.
+            return Results.Ok(datos with { Firmas = firmas, SaldoAcumulado = await saldo.MioAsync(ct: ct) });
         })
-        .WithSummary("Saldo del año, solicitudes de vacaciones propias y el estado de sus firmas");
+        .WithSummary("Saldo de vacaciones, solicitudes propias y el estado de sus firmas");
+
+        // ── El saldo de vacaciones ───────────────────────────────────────────────
+
+        // Con identificador de persona, a diferencia del resto del grupo, porque el líder tiene que
+        // poder ver el saldo de cualquiera para decidir el ajuste. Quién puede verlo lo decide el
+        // servicio con la guarda de pertenencia: un desarrollador solo consigue el suyo, y el intento
+        // de mirar el de otro sale 403 sin llegar a leer nada.
+        grupo.MapGet("/vacaciones/saldo/{developerId:int}", async (
+            int developerId, SaldoDeVacacionesService saldo, CancellationToken ct) =>
+                Results.Ok(await saldo.CalcularAsync(developerId, ct: ct)))
+        .WithSummary("Saldo de vacaciones calculado de una persona, con el desglose por periodo");
+
+        // El AJUSTE es solo del líder, y la política se declara además de la guarda del servicio: la
+        // primera barrera tiene que estar antes de que la petición llegue a tocar una ficha ajena.
+        grupo.MapPost("/vacaciones/saldo/{developerId:int}/ajuste", async (
+            int developerId, AjusteDeSaldoRequest cuerpo, SaldoDeVacacionesService saldo,
+            CancellationToken ct) =>
+        {
+            var (ok, mensaje) = await saldo.RegistrarAjusteAsync(
+                developerId, cuerpo.Dias, cuerpo.Nota, ct);
+            return Resultado(ok, mensaje);
+        })
+        .RequireAuthorization("SoloAdmin")
+        .WithSummary("Corrige a mano el saldo calculado de una persona; la nota es obligatoria");
 
         grupo.MapPost("/vacaciones", async (
             NuevaSolicitudDeVacacionesRequest cuerpo, AusenciasService ausencias, CancellationToken ct) =>

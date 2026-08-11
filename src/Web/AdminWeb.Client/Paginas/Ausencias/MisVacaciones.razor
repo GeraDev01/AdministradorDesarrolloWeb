@@ -7,13 +7,15 @@
 @inject Descargas Descargas
 
 @*
-    Mis vacaciones: el saldo del año, las solicitudes propias y lo que se puede hacer con ellas.
+    Mis vacaciones: el saldo, las solicitudes propias, lo que se puede hacer con ellas y EL ASISTENTE
+    que guía el alta.
 
     Del escritorio se conservan cuatro decisiones que no son detalles de pintado:
 
-      · El SALDO se enseña pero NO bloquea. Son los días de la ficha menos los aprobados del año;
-        sirve para que la persona decida, no para negarle nada. Quien concede es el líder, y hay
-        casos que la ficha no conoce (días arrastrados, acuerdos particulares).
+      · El SALDO se enseña pero NO bloquea. Sirve para que la persona decida, no para negarle nada.
+        Quien concede es el líder, y hay casos que el cálculo no conoce (acuerdos particulares, días
+        que se gozaron cuando esto se llevaba en papel). Sigue valiendo con el saldo calculado: el
+        asistente avisa cuando se piden más días de los que hay, y deja enviar igual.
       · Cancelar una solicitud YA APROBADA avisa de que dejará de tomar esos días. Cancelar una
         pendiente no necesita ese aviso: no había nada apartado.
       · Eliminar dice cuántos documentos generados se van con ella. Caen en cascada y no vuelven.
@@ -29,9 +31,10 @@
     papel impreso; aquí se firma desde la pantalla, con el dedo o el ratón, y el trazo sale ya en el
     documento de Word que mantiene RH. Tres decisiones que conviene no deshacer:
 
-      · SE FIRMA AL SOLICITAR, por eso el recuadro está en el formulario de alta: lo que la persona
-        firma es SU PETICIÓN, no la respuesta del jefe. El documento definitivo, con las dos firmas,
-        sale cuando el líder resuelve.
+      · SE FIRMA AL SOLICITAR, por eso el recuadro está en el alta: lo que la persona firma es SU
+        PETICIÓN, no la respuesta del jefe. El documento definitivo, con las dos firmas, sale cuando
+        el líder resuelve. En el asistente eso cae en el ÚLTIMO paso, junto al resumen, que es donde
+        se puede leer entero lo que se está firmando.
       · Es OPCIONAL. Quien prefiera imprimir y firmar a mano sigue pudiendo: el documento sale igual,
         con la raya esperando una pluma. Obligarla dejaría fuera a quien no tiene pantalla táctil.
       · SI LA SOLICITUD CAMBIA DESPUÉS, LA FIRMA DEJA DE VALER y la columna lo dice con todas las
@@ -39,9 +42,41 @@
         de los que nadie mira hasta que hay un problema. Quien lo decide es el servidor comparando la
         huella de lo que se firmó; esta pantalla solo lo cuenta.
 
-    Los botones aparecen según lo que responde el SERVIDOR (SePuedeCancelar / SePuedeAdjuntar /
-    SePuedeEliminar), que es lo que decide el propio servicio. Una solicitud rechazada no ofrece
-    ninguno: es historial, y enseñar un botón que la API va a rechazar es peor que no enseñarlo.
+    Los botones de la lista aparecen según lo que responde el SERVIDOR (SePuedeCancelar /
+    SePuedeAdjuntar / SePuedeEliminar), que es lo que decide el propio servicio. Una solicitud
+    rechazada no ofrece ninguno: es historial, y enseñar un botón que la API va a rechazar es peor
+    que no enseñarlo.
+
+    ── EL ASISTENTE: CINCO PASOS, Y POR QUÉ CINCO ─────────────────────────────────────────────────
+
+    Antes esto era un formulario plano con seis controles a la vez. Cada paso de ahora corresponde a
+    UNA decisión, y ninguno se puso por simetría:
+
+      1. TU SALDO. Es lo que fija de cuántos días se está hablando, así que va ANTES de las fechas y
+         no al lado: quien tiene 38 días planea distinto que quien tiene 4, y quien no ha cumplido su
+         primer año tiene que enterarse ANTES de elegir unas fechas que no puede pedir todavía. Ése
+         es el caso que justifica el paso por sí solo — un cero sin fecha parece un error del
+         programa, y aquí sale con la fecha en la que deja de serlo.
+      2. LAS FECHAS. La única decisión obligatoria. Aquí se enseña lo que hay que contar a mano y es
+         donde se cuela el error de un día: días naturales, días hábiles y fecha de regreso.
+      3. EL EQUIPO. Quién más estará fuera esas fechas. Es la ayuda que evita el problema que de
+         verdad pasa —dos personas del mismo equipo la misma semana— y la única que no se puede
+         deducir sin preguntarle al servidor. Va DESPUÉS de las fechas porque no existe sin ellas, y
+         ANTES del resumen porque todavía se puede volver atrás a moverlas.
+      4. COMENTARIO Y RESPALDO. Los dos son opcionales y los dos son «lo que le cuento al líder»,
+         así que son una sola decisión y van juntos.
+      5. RESUMEN Y FIRMA. Todo junto y en una pantalla, y ahí se firma. Firmar sin poder releer lo
+         que se firma es exactamente lo que esta pantalla existe para evitar.
+
+    «Mis permisos» tiene DOS pasos y no cinco. No es una incoherencia: está explicado en su propio
+    archivo, y el motivo es que un permiso se pide con prisa.
+
+    ── LO QUE NO CAMBIÓ ───────────────────────────────────────────────────────────────────────────
+
+    Lo que se manda al servidor es EXACTAMENTE lo de antes: un POST con inicio, fin y comentario, y
+    después el respaldo y la firma en su propia subida. El asistente reparte los mismos campos en
+    varias pantallas y añade lecturas —el saldo y el cruce con el equipo—, pero no negocia nada nuevo
+    con la API ni decide nada que antes decidiera el servicio.
 *@
 
 <PageTitle>Mis vacaciones</PageTitle>
@@ -60,99 +95,363 @@
         }
         else
         {
-            <RadzenCard Style="@($"border-left:5px solid {ColorDelSaldo(d.Saldo.Disponibles)}")">
+            @* La tarjeta de cabecera enseña el saldo CALCULADO cuando el servidor lo mandó, que es el
+               número con el que se decide: el de la ficha es lo que RH tecleó y lo que sale impreso
+               en el documento, pero no descuenta lo caducado ni lo que hay pendiente de respuesta.
+               Si la respuesta no lo trae —una API vieja, o un fallo del cálculo— se cae al de la
+               ficha en vez de dejar el hueco: un saldo de menos calidad sigue siendo mejor que
+               ninguno. *@
+            <RadzenCard Style="@($"border-left:5px solid {ColorDelSaldo(DisponiblesHoy(d))}")">
                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-1">Días de vacaciones disponibles</RadzenText>
                 <RadzenText TextStyle="TextStyle.H4"
-                            Style="@($"margin:0;color:{ColorDelSaldo(d.Saldo.Disponibles)}")">
-                    @d.Saldo.Disponibles
+                            Style="@($"margin:0;color:{ColorDelSaldo(DisponiblesHoy(d))}")">
+                    @DisponiblesHoy(d)
                 </RadzenText>
-                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
-                    De @d.Saldo.Asignados asignado(s) · @d.Saldo.TomadosEsteAnio tomado(s) este año ·
-                    @d.Saldo.PendientesDeAprobacion pendiente(s) de aprobación
-                    @if (d.Saldo.FechaDeIngreso is DateTime ingreso)
-                    {
-                        <span> · Ingreso: @ingreso.ToString("dd/MM/yyyy")</span>
-                    }
-                </RadzenText>
+                @if (d.SaldoAcumulado is { TieneFicha: true } acumulado)
+                {
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@acumulado.Mensaje</RadzenText>
+                }
+                else
+                {
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                        De @d.Saldo.Asignados asignado(s) · @d.Saldo.TomadosEsteAnio tomado(s) este año ·
+                        @d.Saldo.PendientesDeAprobacion pendiente(s) de aprobación
+                        @if (d.Saldo.FechaDeIngreso is DateTime ingreso)
+                        {
+                            <span> · Ingreso: @ingreso.ToString("dd/MM/yyyy")</span>
+                        }
+                    </RadzenText>
+                }
             </RadzenCard>
 
             <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
                 <RadzenButton Text="Nueva solicitud" Icon="add" ButtonStyle="ButtonStyle.Primary"
-                              Click="@AbrirFormulario" Disabled="@(_ocupado || _pidiendo)" />
+                              Click="@AbrirAsistente" Disabled="@(_ocupado || _pidiendo)" />
                 <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
-                              Click="@Cargar" Disabled="@_ocupado" />
+                              Click="@Cargar" Disabled="@(_ocupado || _enviando)" />
             </RadzenStack>
         }
 
+        @* ── EL ASISTENTE ────────────────────────────────────────────────────── *@
         @if (_pidiendo)
         {
-            <RadzenCard>
-                <RadzenStack Gap="0.75rem">
-                    <RadzenText TextStyle="TextStyle.H6" class="rz-mb-0">Nueva solicitud de vacaciones</RadzenText>
-
-                    <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem"
-                                 AlignItems="AlignItems.End" Wrap="FlexWrap.Wrap">
-                        <RadzenStack Gap="0.25rem">
-                            <RadzenLabel Text="Inicio" Component="inicio" />
-                            <RadzenDatePicker TValue="DateTime" @bind-Value="_inicio" Name="inicio"
-                                              DateFormat="dd/MM/yyyy" ShowTime="false" Style="width:170px" />
-                        </RadzenStack>
-                        <RadzenStack Gap="0.25rem">
-                            <RadzenLabel Text="Fin" Component="fin" />
-                            <RadzenDatePicker TValue="DateTime" @bind-Value="_fin" Name="fin"
-                                              DateFormat="dd/MM/yyyy" ShowTime="false" Style="width:170px" />
-                        </RadzenStack>
-                        @* El rango en días, a la vista mientras se eligen las fechas: contar a mano
-                           entre dos fechas es donde se cuela el error de un día. *@
-                        <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0"
-                                    Style="@(RangoValido ? "" : "color:var(--rz-danger)")">
-                            <b>@(RangoValido ? $"{DiasPedidos} día(s)" : "La fecha de fin es anterior a la de inicio")</b>
-                        </RadzenText>
-                    </RadzenStack>
-
-                    <RadzenStack Gap="0.25rem">
-                        <RadzenLabel Text="Comentario (opcional)" Component="comentario" />
-                        <RadzenTextArea @bind-Value="_comentario" Name="comentario" Rows="3"
-                                        MaxLength="1000" Style="width:100%"
-                                        Placeholder="Lo que quieras que el líder tenga en cuenta." />
-                    </RadzenStack>
-
-                    <RadzenStack Gap="0.25rem">
-                        <RadzenLabel Text="Documento de respaldo (opcional)" />
-                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
-                            Constancia, comprobante del viaje, correo que lo autoriza… Hasta @Megas(d) MB.
-                        </RadzenText>
-                        <InputFile OnChange="@(e => ElegirParaElAlta(e, d))" />
-                        @if (_archivoDelAlta is { } elegido)
+            <AsistentePorPasos Titulos="@Pasos" @bind-Paso="_paso"
+                               Ayuda="@AyudaDelPaso"
+                               PuedeAvanzar="@PuedeAvanzar"
+                               MotivoParaNoAvanzar="@MotivoParaNoAvanzar"
+                               TextoFinal="Enviar solicitud" IconoFinal="send"
+                               Ocupado="@_enviando"
+                               AlFinalizar="@Solicitar" AlDescartar="@Descartar"
+                               AntesDeSalir="@AntesDeSalirDelPaso" AlEntrar="@AlEntrarEnPaso">
+                <Contenido>
+                    @* ── PASO 1: TU SALDO ───────────────────────────────────── *@
+                    @if (_paso == PasoDelSaldo)
+                    {
+                        @if (d.SaldoAcumulado is { TieneFicha: true } s)
                         {
-                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
-                                        Style="color:var(--rz-success)">
-                                <RadzenIcon Icon="attach_file" /> @elegido.Nombre (@(elegido.Contenido.Length / 1024) KB)
+                            @* El mensaje del servidor va PRIMERO y con el aspecto que le toca al
+                               caso. Lo escribe SaldoDeVacacionesService y ya resuelve lo que aquí
+                               hay que decir sin repetirlo: en el primer año dice que aún no hay días
+                               y CUÁNDO los habrá, y si algo está por caducar lo añade. Un cero sin
+                               fecha parece un error del programa, y ésta es la frase que lo
+                               convierte en una regla. *@
+                            <RadzenAlert AlertStyle="@(s.AniosCumplidos == 0 ? AlertStyle.Warning : AlertStyle.Info)"
+                                         Shade="Shade.Lighter" AllowClose="false">
+                                @s.Mensaje
+                            </RadzenAlert>
+
+                            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                                @Cifra("Disponibles hoy", s.Disponible, ColorDelSaldo(s.Disponible),
+                                       "Lo que puedes pedir ahora mismo. Es el número con el que se decide.")
+                                @Cifra("Generados", s.DiasGenerados, "var(--rz-text-color)",
+                                       "Todo lo que la ley te ha ido dando desde tu ingreso, sin descontar nada.")
+                                @Cifra("Ya gozados", s.DiasTomados, "var(--rz-text-color)",
+                                       "Días de solicitudes tuyas ya aprobadas.")
+                                @Cifra("Caducados", s.DiasCaducados,
+                                       s.DiasCaducados > 0 ? "var(--rz-danger)" : "var(--rz-text-color)",
+                                       $"Se generaron, nadie los gozó y pasó la ventana de {s.VentanaDeCaducidadMeses} meses.")
+                                @Cifra("Apartados", s.DiasComprometidos, "var(--rz-warning)",
+                                       "Días de solicitudes tuyas que siguen esperando respuesta: no están gozados, pero están comprometidos.")
+                                @Cifra("Ajuste del líder", s.AjusteManual, "var(--rz-text-color)",
+                                       string.IsNullOrWhiteSpace(s.NotaDelAjuste)
+                                           ? "Corrección manual del saldo. Hoy no hay ninguna."
+                                           : $"Corrección manual: {s.NotaDelAjuste}")
+                            </RadzenStack>
+
+                            @* La cuenta escrita, para que el número se pueda comprobar a mano. Un
+                               saldo que hay que creerse no se puede defender delante de quien
+                               reclama sus días. *@
+                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                @s.DiasGenerados generados − @s.DiasTomados gozados − @s.DiasCaducados caducados −
+                                @s.DiasComprometidos apartados @(s.AjusteManual >= 0 ? "+" : "−") @Math.Abs(s.AjusteManual) de ajuste
+                                = <b>@s.Disponible disponible(s)</b>.
+                            </RadzenText>
+
+                            @if (s.ProximoAniversario is DateTime proximo)
+                            {
+                                <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                                    <RadzenIcon Icon="event" /> El <b>@proximo.ToString("dd/MM/yyyy")</b>
+                                    se te suman <b>@s.DiasDelProximoPeriodo días</b> por cumplir otro
+                                    año de servicio.
+                                </RadzenText>
+                            }
+
+                            @if (s.Periodos.Count > 0)
+                            {
+                                @* El desglose va PLEGADO: quien solo quiere pedir sus días no
+                                   necesita ver diez renglones, y quien no entiende de dónde sale el
+                                   número necesita poder abrirlos. Plegarlo permite las dos cosas sin
+                                   tener que elegir una. *@
+                                <RadzenFieldset Text="Periodo por periodo, con su fecha de caducidad"
+                                                Icon="date_range" AllowCollapse="true" Collapsed="true">
+                                    <RadzenDataGrid TItem="PeriodoDeVacacionesDto" Data="@s.Periodos"
+                                                    AllowSorting="false" AllowPaging="false"
+                                                    EmptyText="Todavía no has cerrado ningún año de servicio.">
+                                        <Columns>
+                                            <RadzenDataGridColumn TItem="PeriodoDeVacacionesDto" Title="Año" Property="Anio" Width="70px" />
+                                            <RadzenDataGridColumn TItem="PeriodoDeVacacionesDto" Title="Se generaron el" Width="150px">
+                                                <Template Context="p">@p.Cierre.ToString("dd/MM/yyyy")</Template>
+                                            </RadzenDataGridColumn>
+                                            <RadzenDataGridColumn TItem="PeriodoDeVacacionesDto" Title="Días" Property="Dias" Width="80px" />
+                                            <RadzenDataGridColumn TItem="PeriodoDeVacacionesDto" Title="Usados" Property="Usados" Width="90px" />
+                                            <RadzenDataGridColumn TItem="PeriodoDeVacacionesDto" Title="Quedan" Property="Restantes" Width="90px" />
+                                            <RadzenDataGridColumn TItem="PeriodoDeVacacionesDto" Title="Caducan el" Width="170px">
+                                                <Template Context="p">
+                                                    <span style="@(p.Caducado ? "color:var(--rz-danger)" : "")">
+                                                        @p.Caduca.ToString("dd/MM/yyyy")
+                                                        @if (p.Caducado)
+                                                        {
+                                                            <b> (ya caducó)</b>
+                                                        }
+                                                    </span>
+                                                </Template>
+                                            </RadzenDataGridColumn>
+                                        </Columns>
+                                    </RadzenDataGrid>
+                                </RadzenFieldset>
+                            }
+                        }
+                        else
+                        {
+                            @* Sin el cálculo se enseña lo que hay, diciendo que es lo que hay.
+                               Callar el saldo entero por no tener el bueno dejaría a la persona
+                               eligiendo fechas a ciegas. *@
+                            <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false">
+                                No se pudo calcular tu saldo por antigüedad, así que aquí va el de tu
+                                ficha: <b>@d.Saldo.Disponibles día(s)</b> de @d.Saldo.Asignados
+                                asignado(s), @d.Saldo.TomadosEsteAnio tomado(s) este año y
+                                @d.Saldo.PendientesDeAprobacion pendiente(s) de aprobación.
+                            </RadzenAlert>
+                        }
+
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                            El saldo NO te bloquea: puedes pedir más días de los que tienes y el líder
+                            decide. Lo que hace esta pantalla es que no lo hagas sin saberlo.
+                        </RadzenText>
+                    }
+
+                    @* ── PASO 2: LAS FECHAS ─────────────────────────────────── *@
+                    else if (_paso == PasoDeLasFechas)
+                    {
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem"
+                                     AlignItems="AlignItems.End" Wrap="FlexWrap.Wrap">
+                            <RadzenStack Gap="0.25rem">
+                                <RadzenLabel Text="Primer día de vacaciones" Component="inicio" />
+                                <RadzenDatePicker TValue="DateTime" @bind-Value="_inicio" Name="inicio"
+                                                  DateFormat="dd/MM/yyyy" ShowTime="false" Style="width:200px" />
+                            </RadzenStack>
+                            <RadzenStack Gap="0.25rem">
+                                <RadzenLabel Text="Último día de vacaciones" Component="fin" />
+                                <RadzenDatePicker TValue="DateTime" @bind-Value="_fin" Name="fin"
+                                                  DateFormat="dd/MM/yyyy" ShowTime="false" Style="width:200px" />
+                            </RadzenStack>
+                        </RadzenStack>
+
+                        @if (RangoValido)
+                        {
+                            <RadzenCard Style="border-left:5px solid var(--rz-info)">
+                                <RadzenStack Gap="0.35rem">
+                                    <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0">
+                                        <b>@DiasPedidos día(s) naturales</b>, de los cuales
+                                        <b>@CuentasDeCalendario.DiasHabiles(_inicio, _fin) hábil(es)</b>.
+                                    </RadzenText>
+                                    <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0">
+                                        <RadzenIcon Icon="today" /> Te reincorporas el <b>@CuentasDeCalendario.Regreso(_fin)</b>.
+                                    </RadzenText>
+                                    <AvisoDeFestivos />
+                                </RadzenStack>
+                            </RadzenCard>
+
+                            @SaldoContraLoPedido(d)
+                        }
+                    }
+
+                    @* ── PASO 3: EL EQUIPO ──────────────────────────────────── *@
+                    else if (_paso == PasoDelEquipo)
+                    {
+                        @if (_consultandoEquipo)
+                        {
+                            <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">Consultando al equipo…</RadzenText>
+                        }
+                        else if (_equipo is not { } e)
+                        {
+                            @* Se dice que no se pudo y se deja seguir. Esto es una AYUDA: convertir
+                               su fallo en un muro dejaría a alguien sin poder pedir vacaciones
+                               porque una consulta secundaria no respondió. *@
+                            <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+                                No se pudo consultar quién más estará fuera esos días. Puedes
+                                continuar igual; el líder lo verá al resolver tu solicitud.
+                            </RadzenAlert>
+                        }
+                        else
+                        {
+                            <RadzenAlert AlertStyle="@(e.Fuera.Count == 0 ? AlertStyle.Success : AlertStyle.Warning)"
+                                         Shade="Shade.Lighter" AllowClose="false">
+                                @e.Resumen
+                            </RadzenAlert>
+
+                            @if (e.Fuera.Count > 0)
+                            {
+                                <RadzenDataGrid TItem="CompaneroFueraDto" Data="@e.Fuera"
+                                                AllowSorting="false" AllowPaging="false">
+                                    <Columns>
+                                        <RadzenDataGridColumn TItem="CompaneroFueraDto" Title="Quién" Property="Nombre">
+                                            <Template Context="c">
+                                                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.4rem"
+                                                             AlignItems="AlignItems.Center" Wrap="FlexWrap.Wrap">
+                                                    <span>@c.Nombre</span>
+                                                    @if (c.MismoEquipo)
+                                                    {
+                                                        <RadzenBadge BadgeStyle="BadgeStyle.Warning" Text="Tu equipo"
+                                                                     title="Está en el mismo equipo que tú." />
+                                                    }
+                                                </RadzenStack>
+                                            </Template>
+                                        </RadzenDataGridColumn>
+                                        <RadzenDataGridColumn TItem="CompaneroFueraDto" Title="Sus vacaciones" Width="230px">
+                                            <Template Context="c">
+                                                Del @c.Inicio.ToString("dd/MM/yyyy") al @c.Fin.ToString("dd/MM/yyyy")
+                                            </Template>
+                                        </RadzenDataGridColumn>
+                                        <RadzenDataGridColumn TItem="CompaneroFueraDto" Title="Días que pisan los tuyos"
+                                                              Property="DiasQueSeSolapan" Width="200px" />
+                                    </Columns>
+                                </RadzenDataGrid>
+                            }
+
+                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                Solo se cuentan vacaciones ya APROBADAS: lo que sigue pendiente
+                                todavía puede rechazarse. Coincidir no impide nada —quien decide es
+                                el líder—, pero si prefieres mover tus fechas, vuelve al paso
+                                anterior y cámbialas.
                             </RadzenText>
                         }
-                    </RadzenStack>
+                    }
 
-                    @* La firma va DENTRO del formulario de alta porque se firma al solicitar: lo que
-                       se firma es esta petición, con estas fechas y este motivo. Si luego cambian,
-                       la firma deja de valer y hay que volver a trazarla — y eso se avisa aquí, antes
-                       de firmar, y no solo cuando ya ha pasado. *@
-                    <RadzenStack Gap="0.25rem">
-                        <RadzenLabel Text="Tu firma (opcional)" />
+                    @* ── PASO 4: COMENTARIO Y RESPALDO ──────────────────────── *@
+                    else if (_paso == PasoDelDetalle)
+                    {
+                        <RadzenStack Gap="0.25rem">
+                            <RadzenLabel Text="Comentario para el líder (opcional)" Component="comentario" />
+                            <RadzenTextArea @bind-Value="_comentario" Name="comentario" Rows="3"
+                                            MaxLength="1000" Style="width:100%"
+                                            Placeholder="Lo que quieras que el líder tenga en cuenta." />
+                        </RadzenStack>
+
+                        <RadzenStack Gap="0.25rem">
+                            @* El rótulo va ATADO al selector con Component/id. Sin eso, un lector de
+                               pantalla anuncia «botón examinar» a secas y quien no ve la pantalla no
+                               sabe qué archivo le están pidiendo. *@
+                            <RadzenLabel Text="Documento de respaldo (opcional)" Component="respaldo" />
+                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                Constancia, comprobante del viaje, correo que lo autoriza… Hasta @Megas(d) MB.
+                            </RadzenText>
+                            <InputFile id="respaldo" OnChange="@(e => ElegirParaElAlta(e, d))" />
+                            @if (_archivoDelAlta is { } elegido)
+                            {
+                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                                            Style="color:var(--rz-success)">
+                                    <RadzenIcon Icon="attach_file" /> @elegido.Nombre (@(elegido.Contenido.Length / 1024) KB)
+                                </RadzenText>
+                            }
+                        </RadzenStack>
+
                         <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
-                            Sale en el documento, en el hueco del colaborador. Si no firmas aquí, el
-                            documento se imprime con la raya en blanco para firmarlo a mano.
+                            Puedes dejar los dos en blanco: el documento se puede adjuntar después
+                            desde la lista, mientras la solicitud siga pendiente.
                         </RadzenText>
-                        <FirmaEnLienzo @ref="_lienzoDelAlta" Alto="150" />
-                    </RadzenStack>
+                    }
 
-                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
-                        <RadzenButton Text="Solicitar" Icon="send" ButtonStyle="ButtonStyle.Primary"
-                                      Click="@Solicitar" Disabled="@(_ocupado || !RangoValido)" />
-                        <RadzenButton Text="Descartar" Icon="close" ButtonStyle="ButtonStyle.Light"
-                                      Click="@(() => _pidiendo = false)" Disabled="@_ocupado" />
-                    </RadzenStack>
-                </RadzenStack>
-            </RadzenCard>
+                    @* ── PASO 5: RESUMEN Y FIRMA ────────────────────────────── *@
+                    else
+                    {
+                        <RadzenCard>
+                            <RadzenStack Gap="0.4rem">
+                                @Renglon("Fechas", $"Del {_inicio:dd/MM/yyyy} al {_fin:dd/MM/yyyy}")
+                                @Renglon("Duración", $"{DiasPedidos} día(s) naturales · {CuentasDeCalendario.DiasHabiles(_inicio, _fin)} hábil(es)")
+                                @Renglon("Te reincorporas", CuentasDeCalendario.Regreso(_fin))
+                                @Renglon("Comentario", string.IsNullOrWhiteSpace(_comentario) ? "— (ninguno)" : _comentario!)
+                                @Renglon("Respaldo", _archivoDelAlta is { } adjunto ? adjunto.Nombre : "— (ninguno)")
+                                @Renglon("El equipo", _equipo?.Resumen ?? "No se pudo consultar.")
+                            </RadzenStack>
+                        </RadzenCard>
+
+                        @SaldoContraLoPedido(d)
+                        <AvisoDeFestivos />
+
+                        @* La firma va aquí y no antes porque lo que se firma es ESTA petición, con
+                           estas fechas y este comentario: firmarla en un paso anterior sería firmar
+                           algo que todavía podía cambiar en los siguientes. *@
+                        <RadzenStack Gap="0.25rem">
+                            <RadzenLabel Text="Tu firma (opcional)" />
+                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                Sale en el documento, en el hueco del colaborador. Si no firmas aquí,
+                                el documento se imprime con la raya en blanco para firmarlo a mano. Y
+                                si después cambias algo de esta solicitud, tu firma dejará de valer y
+                                tendrás que volver a trazarla.
+                            </RadzenText>
+
+                            @if (_firmaCapturada is { } firma)
+                            {
+                                @* Se volvió de otro paso. El lienzo se desmontó al salir, así que lo
+                                   que se enseña es el trazo YA GUARDADO: el dibujo sigue ahí y se va
+                                   a enviar. Sin esto, quien firma y retrocede a corregir una fecha
+                                   enviaría la solicitud sin firma sin que nada se lo dijera. *@
+                                <RadzenStack Gap="0.4rem">
+                                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                                                Style="color:var(--rz-success)">
+                                        <RadzenIcon Icon="verified" /> Ya firmaste. Tu trazo se guardó
+                                        y se enviará con la solicitud.
+                                    </RadzenText>
+                                    @* El PAPEL se declara como token y no se escribe suelto, igual que
+                                       en FirmaEnLienzo y en GestorDeFirmas: el marfil no es un color
+                                       de la pantalla sino la hoja sobre la que se firma, y por eso NO
+                                       sale del tema —el trazo es tinta oscura y sobre el fondo oscuro
+                                       no se vería nada, que es justo lo que este recuadro existe para
+                                       enseñar—. El día que el token suba a tema.css hay que borrarlo
+                                       de los tres sitios a la vez, no dejarlo aquí ganando por local.
+                                       La guía punteada usa la misma variable que el lienzo, y no
+                                       --rz-border-color: sobre el marfil ésa da 1,13 en claro y no se
+                                       ve. *@
+                                    <img src="@ImagenDeLaFirma(firma)" alt="Tu firma, tal como la trazaste"
+                                         style="--adminweb-papel:#faf9f7; --adminweb-papel-guia:#8f8a83;
+                                                max-width:100%;height:auto;background:var(--adminweb-papel);
+                                                border:1px dashed var(--adminweb-papel-guia);border-radius:6px;padding:.5rem" />
+                                    <div>
+                                        <RadzenButton Text="Volver a firmar" Icon="draw" ButtonStyle="ButtonStyle.Light"
+                                                      Size="ButtonSize.Small" Disabled="@_enviando"
+                                                      Click="@(() => _firmaCapturada = null)" />
+                                    </div>
+                                </RadzenStack>
+                            }
+                            else
+                            {
+                                <FirmaEnLienzo @ref="_lienzoDelAlta" Alto="150" />
+                            }
+                        </RadzenStack>
+                    }
+                </Contenido>
+            </AsistentePorPasos>
         }
 
         @if (_adjuntandoEn is int solicitudId)
@@ -416,15 +715,67 @@
     private MisVacacionesDto? _datos;
     private bool _ocupado;
 
-    // ── Formulario de alta ───────────────────────────────────────────────────
+    // ── El asistente ─────────────────────────────────────────────────────────
+    //
+    // Los pasos van por CONSTANTE y no por número suelto: el switch que pinta, los textos de ayuda y
+    // los ganchos de entrada y salida hablan del mismo paso desde tres sitios, y con literales
+    // bastaría intercalar un paso para que uno de los tres se quedara señalando al de al lado sin
+    // que nada dejara de compilar.
+    private const int PasoDelSaldo = 0;
+    private const int PasoDeLasFechas = 1;
+    private const int PasoDelEquipo = 2;
+    private const int PasoDelDetalle = 3;
+    private const int PasoDelResumen = 4;
+
+    private static readonly string[] Pasos =
+        ["Tu saldo", "Las fechas", "El equipo", "Comentario y respaldo", "Resumen y firma"];
+
     private bool _pidiendo;
+    private int _paso;
+
+    /// <summary>
+    /// El envío en curso. Es lo que impide mandar dos veces la misma solicitud: se levanta ANTES del
+    /// primer await, así que un segundo clic —que en Blazor entra mientras el primero espera por la
+    /// red— se encuentra la bandera puesta y se va sin hacer nada. El botón además se apaga solo
+    /// (IsBusy), pero eso llega un repintado más tarde y para entonces ya se pulsó dos veces.
+    /// </summary>
+    private bool _enviando;
+
+    // ── Lo que la persona va escribiendo ─────────────────────────────────────
+    //
+    // Vive en la PÁGINA y no en el asistente, y es lo que hace que volver atrás no borre nada: el
+    // componente de pasos solo pinta el paso en curso, así que cualquier dato que viviera dentro
+    // moriría con él al avanzar. Aquí sobreviven hasta que se descarta el asistente entero.
     private DateTime _inicio = DateTime.Today;
     private DateTime _fin = DateTime.Today;
     private string? _comentario;
     private ArchivoElegido? _archivoDelAlta;
 
-    /// <summary>El lienzo del formulario de alta: se firma AL SOLICITAR, que es lo que se firma.</summary>
+    /// <summary>El lienzo del último paso: se firma AL SOLICITAR, que es lo que se firma.</summary>
     private FirmaEnLienzo? _lienzoDelAlta;
+
+    /// <summary>
+    /// El trazo ya rescatado del lienzo.
+    ///
+    /// <para><b>Esto es lo que evita el defecto que no se ve al probar.</b> El lienzo es un elemento
+    /// del DOM: al cambiar de paso se desmonta y el dibujo se pierde sin que nada falle. Si alguien
+    /// firma, vuelve atrás a corregir una fecha y envía, la solicitud saldría SIN FIRMA y nadie se
+    /// enteraría hasta ver el papel. Por eso el trazo se lee a memoria al abandonar el paso de la
+    /// firma (ver <see cref="AntesDeSalirDelPaso"/>) y al volver se enseña como imagen, con el botón
+    /// para rehacerla.</para>
+    /// </summary>
+    private FirmaCapturada? _firmaCapturada;
+
+    // ── Quién más estará fuera ───────────────────────────────────────────────
+    private AusenciasDelEquipoDto? _equipo;
+    private bool _consultandoEquipo;
+
+    /// <summary>
+    /// Las fechas con las que se pidió el cruce que hay en pantalla. Sirve para dos cosas: no repetir
+    /// la consulta si se vuelve al paso sin haber tocado nada, y —más importante— no enseñar como
+    /// vigente un cruce de unas fechas que ya se cambiaron.
+    /// </summary>
+    private string? _equipoConsultadoPara;
 
     // ── Respaldo de una solicitud ya existente ───────────────────────────────
     private int? _adjuntandoEn;
@@ -437,6 +788,22 @@
 
     private bool RangoValido => _fin.Date >= _inicio.Date;
     private int DiasPedidos => (_fin.Date - _inicio.Date).Days + 1;
+
+    private string AyudaDelPaso => _paso switch
+    {
+        PasoDelSaldo => "Cuántos días tienes hoy y de dónde salen. Aquí no se decide nada todavía.",
+        PasoDeLasFechas => "El primer y el último día que no vas a estar. Es lo único obligatorio.",
+        PasoDelEquipo => "Quién más del equipo ya tiene vacaciones aprobadas en esas fechas.",
+        PasoDelDetalle => "Lo que quieras que el líder tenga en cuenta. Los dos campos son opcionales.",
+        _ => "Léelo entero antes de enviar: esto es lo que va a leer el líder y lo que firmas."
+    };
+
+    private bool PuedeAvanzar => _paso != PasoDeLasFechas || RangoValido;
+
+    private string? MotivoParaNoAvanzar =>
+        _paso == PasoDeLasFechas && !RangoValido
+            ? "La fecha de fin es anterior a la de inicio. Corrige una de las dos para continuar."
+            : null;
 
     protected override Task OnInitializedAsync() => Cargar();
 
@@ -453,14 +820,122 @@
         }
     }
 
-    private void AbrirFormulario()
+    private void AbrirAsistente()
     {
         _inicio = _fin = DateTime.Today;
         _comentario = null;
         _archivoDelAlta = null;
+        _firmaCapturada = null;
+        _lienzoDelAlta = null;
+        _equipo = null;
+        _equipoConsultadoPara = null;
         _adjuntandoEn = null;
         _firmandoEn = null;
+        _paso = PasoDelSaldo;
         _pidiendo = true;
+    }
+
+    private void Descartar()
+    {
+        _pidiendo = false;
+        // El trazo se suelta al cerrar. Guardarlo «por si vuelve» dejaría una firma en memoria
+        // asociada a unas fechas que la próxima vez serán otras, y firmar una petición es firmar
+        // ESAS fechas: reaprovecharla sería estampar en un papel una firma que nadie dio para él.
+        _firmaCapturada = null;
+        _lienzoDelAlta = null;
+    }
+
+    /// <summary>
+    /// Lo que hay que rescatar del paso que se abandona. Hoy solo la firma, porque es lo único que
+    /// vive en el DOM y no en un campo de esta clase.
+    /// </summary>
+    private async Task AntesDeSalirDelPaso(int paso)
+    {
+        if (paso == PasoDelResumen) await RescatarLaFirma();
+    }
+
+    /// <summary>
+    /// Lo que hay que traer al llegar a un paso. Solo el cruce con el equipo, y solo cuando las
+    /// fechas cambiaron: consultarlo en cada tecleo de una fecha serían decenas de viajes que nadie
+    /// pidió, y volver a pedirlo al pasar por el mismo paso sin tocar nada, uno de más.
+    /// </summary>
+    private async Task AlEntrarEnPaso(int paso)
+    {
+        if (paso is PasoDelEquipo or PasoDelResumen) await ConsultarAlEquipo();
+    }
+
+    // ── Trozos que se repiten entre pasos ────────────────────────────────────
+
+    /// <summary>
+    /// Lo que pides frente a lo que tienes. AVISA, NO BLOQUEA: es la regla del escritorio y sigue
+    /// valiendo con el saldo calculado, porque hay casos que el cálculo no conoce —acuerdos
+    /// particulares, días gozados cuando esto se llevaba en papel— y quien concede es el líder.
+    /// </summary>
+    private RenderFragment SaldoContraLoPedido(MisVacacionesDto d) => __builder =>
+    {
+        <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0"
+                    Style="@(DiasPedidos > DisponiblesHoy(d) ? "color:var(--rz-warning)" : "")">
+            @if (DiasPedidos > DisponiblesHoy(d))
+            {
+                <RadzenIcon Icon="warning" />
+                <text>
+                    Pides <b>@DiasPedidos día(s)</b> y hoy tienes <b>@DisponiblesHoy(d)</b>. Puedes
+                    enviarla igual: decide el líder, y hay casos que el cálculo no conoce.
+                </text>
+            }
+            else
+            {
+                <RadzenIcon Icon="check_circle" />
+                <text>
+                    Pides <b>@DiasPedidos día(s)</b> de los <b>@DisponiblesHoy(d)</b> que tienes; te
+                    quedarían <b>@(DisponiblesHoy(d) - DiasPedidos)</b>.
+                </text>
+            }
+        </RadzenText>
+    };
+
+    /// <summary>Un renglón del resumen: rótulo a la izquierda y dato a la derecha.</summary>
+    private static RenderFragment Renglon(string titulo, string valor) => __builder =>
+    {
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0" Style="min-width:150px">@titulo</RadzenText>
+            <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0"><b>@valor</b></RadzenText>
+        </RadzenStack>
+    };
+
+    /// <summary>Una cifra del saldo: el rótulo pequeño arriba y el número grande, como los indicadores.</summary>
+    private static RenderFragment Cifra(string titulo, int valor, string color, string explicacion) => __builder =>
+    {
+        <RadzenCard Style="@($"min-width:150px;border-left:5px solid {color}")" title="@explicacion">
+            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-1">@titulo</RadzenText>
+            <RadzenText TextStyle="TextStyle.H6" Style="@($"margin:0;color:{color}")">@valor</RadzenText>
+        </RadzenCard>
+    };
+
+    // ── Consultas del asistente ──────────────────────────────────────────────
+
+    private async Task ConsultarAlEquipo()
+    {
+        if (!RangoValido) return;
+
+        var clave = $"{_inicio:yyyy-MM-dd}|{_fin:yyyy-MM-dd}";
+        if (_equipoConsultadoPara == clave && _equipo is not null) return;
+
+        _consultandoEquipo = true;
+        // Lo que hay en pantalla es de otras fechas: se suelta ANTES de pedir el nuevo, para que
+        // durante la espera no se lea como vigente un cruce que ya no lo es.
+        _equipo = null;
+        try
+        {
+            _equipo = await Api.LeerAsync<AusenciasDelEquipoDto>(
+                $"api/ausencias/equipo/fuera?inicio={_inicio:yyyy-MM-dd}&fin={_fin:yyyy-MM-dd}",
+                _cancelacion.Token);
+            _equipoConsultadoPara = _equipo is null ? null : clave;
+        }
+        finally
+        {
+            _consultandoEquipo = false;
+        }
     }
 
     /// <summary>
@@ -483,20 +958,22 @@
     /// Si el alta pasa y una subida falla, la solicitud queda enviada sin esa pieza, y eso se dice:
     /// las dos se pueden volver a poner desde la lista mientras siga pendiente.
     ///
-    /// <para>La FIRMA se lee del lienzo ANTES de enviar el alta, aunque se suba después. Es a
-    /// propósito: al ocultar el formulario, el lienzo se destruye con él y el trazo se pierde — así
-    /// que leerlo más tarde devolvería una firma vacía sin que nada fallara.</para>
+    /// <para>La FIRMA se resuelve ANTES de enviar el alta, aunque se suba después. Es a propósito:
+    /// al cerrar el asistente el lienzo se destruye con él y el trazo se pierde — así que leerlo más
+    /// tarde devolvería una firma vacía sin que nada fallara.</para>
     /// </summary>
     private async Task Solicitar()
     {
-        var firma = _lienzoDelAlta is not null && !await _lienzoDelAlta.EstaVaciaAsync()
-            ? await _lienzoDelAlta.ObtenerAsync()
-            : null;
+        // La bandera se levanta SIN AWAIT DE POR MEDIO: es lo que hace que el segundo clic de un
+        // doble clic —que entra mientras el primero espera a la red— no cree una segunda solicitud.
+        if (_enviando) return;
+        _enviando = true;
 
-        _ocupado = true;
-        int id;
         try
         {
+            var firma = await RescatarLaFirma();
+
+            int id;
             var (ok, respuesta) = await Api.EnviarAsync<NuevaSolicitudDeVacacionesRequest, SolicitudCreadaDto>(
                 "api/ausencias/vacaciones",
                 new NuevaSolicitudDeVacacionesRequest(_inicio, _fin, _comentario), _cancelacion.Token);
@@ -506,22 +983,49 @@
             Avisos.Exito(respuesta.Mensaje);
             id = respuesta.Id;
             _pidiendo = false;
+
+            if (_archivoDelAlta is { } archivo)
+            {
+                await Subir(id, archivo);
+                _archivoDelAlta = null;
+            }
+
+            if (firma is not null) await SubirFirma(id, firma);
+
+            _firmaCapturada = null;
+            await Cargar();
         }
         finally
         {
-            _ocupado = false;
+            _enviando = false;
         }
-
-        if (_archivoDelAlta is { } archivo)
-        {
-            await Subir(id, archivo);
-            _archivoDelAlta = null;
-        }
-
-        if (firma is not null) await SubirFirma(id, firma);
-
-        await Cargar();
     }
+
+    /// <summary>
+    /// Se queda con el trazo del lienzo antes de que el lienzo desaparezca, y devuelve el que haya.
+    ///
+    /// <para>Se llama en dos momentos —al salir del paso de la firma y al enviar—, y por eso es
+    /// idempotente: si el trazo ya está rescatado devuelve ése y no vuelve a preguntarle a un lienzo
+    /// que puede que ya no exista.</para>
+    ///
+    /// <para>La REFERENCIA AL LIENZO se suelta al rescatarlo. Blazor no la limpia cuando el
+    /// componente sale del árbol, así que sin esto quedaría apuntando a un lienzo desmontado y la
+    /// siguiente llamada acabaría preguntándole por un elemento que ya no está en la página.</para>
+    /// </summary>
+    private async Task<FirmaCapturada?> RescatarLaFirma()
+    {
+        if (_firmaCapturada is not null) return _firmaCapturada;
+        if (_lienzoDelAlta is not { } lienzo) return null;
+
+        _lienzoDelAlta = null;
+
+        if (await lienzo.EstaVaciaAsync()) return null;
+        return _firmaCapturada = await lienzo.ObtenerAsync();
+    }
+
+    /// <summary>La firma rescatada, como imagen que el navegador pueda pintar sin volver al servidor.</summary>
+    private static string ImagenDeLaFirma(FirmaCapturada firma) =>
+        $"data:image/png;base64,{Convert.ToBase64String(firma.Png)}";
 
     // ── La firma ─────────────────────────────────────────────────────────────
 
@@ -730,6 +1234,17 @@
     // ColoresDeEstado.ColorDeVacaciones, en Shared, con los mismos cuatro criterios del escritorio.
     // Sigue siendo verdad lo que decía la nota: el color lo pone la interfaz y no el servicio, que no
     // debe saber del tema visual. Lo que se fue es la copia.
+
+    /// <summary>
+    /// El saldo con el que se decide: el CALCULADO si el servidor lo mandó, y si no el de la ficha.
+    ///
+    /// Los dos existen y no son lo mismo: el de la ficha es lo que RH tecleó y lo que sale impreso en
+    /// el documento; el calculado es lo que la ley fue generando menos lo gozado, lo caducado y lo
+    /// comprometido. Para decidir cuántos días pedir manda el segundo, así que es el que se enseña
+    /// cuando está.
+    /// </summary>
+    private static int DisponiblesHoy(MisVacacionesDto d) =>
+        d.SaldoAcumulado is { TieneFicha: true } s ? s.Disponible : d.Saldo.Disponibles;
 
     private static string ColorDelSaldo(int disponibles) =>
         disponibles <= 0 ? "var(--rz-danger)"

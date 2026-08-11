@@ -233,6 +233,14 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(d => d.Phone).HasMaxLength(50);
             e.Property(d => d.Seniority).HasMaxLength(50);
             e.Property(d => d.EquipmentSerial).HasMaxLength(100);
+
+            // Las longitudes van declaradas y no se dejan a la omisión de EF, que en SQL Server
+            // sería nvarchar(max). No es cosmética: una columna (max) no cabe como clave de índice
+            // —ya mordió una vez con DedupeKey de Notifications— y aquí además tienen que coincidir
+            // con lo que el parche de DatabaseMigrator crea en una base que ya existe, o la misma
+            // columna acabaría siendo de un tipo en las bases nuevas y de otro en las viejas.
+            e.Property(d => d.VacationAdjustmentNote).HasMaxLength(500);
+            e.Property(d => d.VacationAdjustmentBy).HasMaxLength(150);
         });
 
         modelBuilder.Entity<TeamRotation>(e => e.HasIndex(r => r.RotatedAt));

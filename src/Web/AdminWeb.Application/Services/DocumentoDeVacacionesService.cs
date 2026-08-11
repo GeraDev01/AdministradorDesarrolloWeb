@@ -68,6 +68,23 @@ public class DocumentoDeVacacionesService(
     public static bool SePuedeArchivar(FirmaDelColaboradorLeida firma) => !firma.DejoDeValer;
 
     /// <summary>
+    /// La OTRA salida del mismo bloqueo: archivar el documento reconociendo que va sin la firma.
+    ///
+    /// <para>Es exactamente el complemento de <see cref="SePuedeArchivar"/> y por eso vive pegada a
+    /// ella: donde una dice que no, la otra dice por dónde. Solo se ofrece con la firma CAÍDA porque
+    /// es el único caso en que hace falta — sin firma que se cayera, el camino normal ya archiva, y
+    /// un «archivar sin firma» disponible siempre acabaría siendo el botón que se pulsa por costumbre
+    /// para saltarse el aviso.</para>
+    ///
+    /// <para>No es una excepción a la regla: es lo que la aplicación hacía ANTES de que existiera el
+    /// bloqueo —emitía el papel con el hueco en blanco y nadie se enteraba—, dicho ahora a las claras,
+    /// con motivo obligatorio, con asiento en la bitácora y, sobre todo, <b>escrito dentro del propio
+    /// documento</b>. Un papel al que le falta una firma y no lo menciona es peor que uno que lo dice:
+    /// el segundo se puede discutir, el primero solo se descubre cuando ya hay un problema.</para>
+    /// </summary>
+    public static bool SePuedeArchivarSinLaFirma(FirmaDelColaboradorLeida firma) => firma.DejoDeValer;
+
+    /// <summary>
     /// Cancelar alcanza también a lo <b>ya aprobado</b>: unas vacaciones concedidas que al final no
     /// se toman se cancelan, no se rechazan. Es la misma regla que
     /// <see cref="VacationRequestService.PuedeCancelar"/> le da al desarrollador sobre lo suyo, y se
@@ -443,15 +460,78 @@ public class DocumentoDeVacacionesService(
     /// Solo se firma lo ya resuelto: un papel firmado con las dos casillas en blanco no dice nada, y
     /// la firma del jefe es justo lo que convierte la decisión en un documento del expediente.
     ///
-    /// <para><b>Y no se archiva con la firma del colaborador caída.</b> Ésta es la barrera, y va aquí
-    /// —no en el botón— porque la pantalla corre en la máquina de cada quien y a esta operación se
-    /// llega también sin navegador: deshabilitar un control es una cortesía, no una regla. El motivo
-    /// de fondo es que el papel archivado es el que alguien lee dentro de un año, cuando ya nadie se
-    /// acuerda de nada, y uno al que le falta una firma no se descubre hasta que hay un problema.
-    /// </para>
+    /// <para><b>Y por aquí no se archiva con la firma del colaborador caída.</b> Ésa es la barrera, y
+    /// vive en <see cref="ArchivarAsync"/> —no en el botón— porque la pantalla corre en la máquina de
+    /// cada quien y a esta operación se llega también sin navegador: deshabilitar un control es una
+    /// cortesía, no una regla. El motivo de fondo es que el papel archivado es el que alguien lee
+    /// dentro de un año, cuando ya nadie se acuerda de nada, y uno al que le falta una firma no se
+    /// descubre hasta que hay un problema.</para>
+    ///
+    /// <para><b>Este es el camino LIMPIO, y por eso sigue sin ceder.</b> Las dos salidas del bloqueo
+    /// están cada una en su método —<see cref="PedirQueVuelvaAFirmarAsync"/> y
+    /// <see cref="ArchivarSinLaFirmaAsync"/>— y ninguna se cuela aquí como parámetro opcional: quien
+    /// llama a «firmar y archivar» pide el documento completo, y si no puede salir completo tiene que
+    /// enterarse en vez de recibirlo cojo.</para>
     /// </summary>
-    public async Task<(bool ok, string mensaje)> FirmarAsync(int solicitudId, int firmaId,
-        CancellationToken ct = default)
+    public Task<(bool ok, string mensaje)> FirmarAsync(int solicitudId, int firmaId,
+        CancellationToken ct = default) =>
+        ArchivarAsync(solicitudId, firmaId, motivoParaArchivarSinLaFirma: null, ct);
+
+    /// <summary>
+    /// LA SEGUNDA SALIDA: archiva el documento <b>reconociendo que va sin la firma del colaborador</b>,
+    /// con un motivo obligatorio que queda escrito en el papel y en la bitácora.
+    ///
+    /// <para><b>Por qué existe.</b> La primera salida —pedirle que vuelva a firmar— depende de que la
+    /// persona esté y responda. A veces no: se fue, la solicitud es de hace un año, o sencillamente el
+    /// papel se necesita hoy. Sin esta segunda salida, el bloqueo obligaba a esperar a alguien que
+    /// puede no volver, y un bloqueo así se acaba sorteando por fuera de la aplicación — que es
+    /// exactamente donde nadie deja rastro.</para>
+    ///
+    /// <para><b>Qué la separa de firmar normalmente.</b> Tres cosas, y las tres a propósito: es una
+    /// operación DISTINTA (no un parámetro escondido de la otra, para que nadie la ejecute sin
+    /// saberlo), exige un motivo que no puede quedarse en blanco ni en espacios, y el documento sale
+    /// diciendo que se archivó sin la firma, con el motivo y con el nombre de quien lo decidió. Lo que
+    /// la aplicación hacía antes era esto mismo <b>sin decir nada</b>; la diferencia entera está en
+    /// que ahora se dice.</para>
+    ///
+    /// <para><b>Y no sustituye a la otra.</b> Solo se admite con la firma CAÍDA (ver
+    /// <see cref="SePuedeArchivarSinLaFirma"/>): donde la firma nunca existió, el camino normal ya
+    /// archiva y añadirle una confesión al papel sería mentir sobre lo que pasó.</para>
+    /// </summary>
+    /// <param name="motivo">Por qué se archiva sin ella. Obligatorio: es lo único que va a leer quien
+    /// abra el expediente dentro de un año, y sin él la frase del documento solo diría que falta una
+    /// firma sin explicar si eso se decidió o se descuidó.</param>
+    public async Task<(bool ok, string mensaje)> ArchivarSinLaFirmaAsync(
+        int solicitudId, int firmaId, string? motivo, CancellationToken ct = default)
+    {
+        // La guarda va DELANTE de la validación del motivo, aunque ArchivarAsync la repita: a quien no
+        // le toca esta operación no se le contesta primero cómo usarla bien. Es el orden de siempre —
+        // quién puede, y solo después qué mandó—.
+        AuthorizationGuard.RequireAdmin(usuarioActual);
+
+        // El motivo se exige AQUÍ y no en la pantalla, igual que el del rechazo: a esta operación se
+        // llega también sin navegador, y un motivo en blanco convertiría toda esta salida en el
+        // «archívalo y ya» que existe para no volver a tener.
+        if (string.IsNullOrWhiteSpace(motivo))
+            return (false, "Escribe por qué se archiva sin su firma: va impreso en el documento y es lo " +
+                           "único que explicará el hueco a quien lo lea dentro de un año.");
+
+        return await ArchivarAsync(solicitudId, firmaId, motivo.Trim(), ct);
+    }
+
+    /// <summary>
+    /// El archivado del documento definitivo, con las dos salidas metidas en el mismo cuerpo.
+    ///
+    /// <para>Comparten cuerpo porque son el MISMO acto —emitir el PDF y guardarlo en la solicitud— y
+    /// solo cambia una cosa: si la firma del colaborador tiene que estar o si su ausencia se está
+    /// declarando. Con dos cuerpos separados, cualquier arreglo futuro del archivado tendría que
+    /// acordarse de hacerse dos veces, y el día que no, una de las dos salidas emitiría un papel
+    /// distinto de la otra.</para>
+    /// </summary>
+    /// <param name="motivoParaArchivarSinLaFirma">Nulo en el camino normal, que es el que EXIGE la
+    /// firma en regla. Con texto, la barrera se levanta y a cambio el documento lo dice.</param>
+    private async Task<(bool ok, string mensaje)> ArchivarAsync(
+        int solicitudId, int firmaId, string? motivoParaArchivarSinLaFirma, CancellationToken ct)
     {
         AuthorizationGuard.RequireAdmin(usuarioActual);
 
@@ -466,14 +546,29 @@ public class DocumentoDeVacacionesService(
                            "de autorizada o rechazada, y sin decisión saldrían las dos en blanco.");
 
         var firmaDelColaborador = await FirmaDelColaboradorAsync(solicitudId, solicitud.Status, ct);
-        if (!SePuedeArchivar(firmaDelColaborador))
+        var sinLaFirma = motivoParaArchivarSinLaFirma is not null;
+
+        // LAS DOS BARRERAS, y las dos aquí: en el servidor. Que la pantalla pinte un botón u otro es
+        // una cortesía —corre en la máquina de cada quien y a esta operación se llega sin navegador—,
+        // así que si la regla viviera allí no sería una regla.
+        if (!sinLaFirma && !SePuedeArchivar(firmaDelColaborador))
             return (false,
                 $"{solicitud.FullName} firmó esta solicitud, pero la solicitud cambió después: su " +
-                "firma dejó de valer y el documento se archivaría con ese hueco en blanco. Tiene que " +
-                "volver a firmarla —el botón «Pedir que vuelva a firmar» se lo avisa—, y eso solo " +
-                "puede hacerlo mientras la solicitud siga pendiente de respuesta.");
+                "firma dejó de valer y el documento se archivaría con ese hueco en blanco. Hay dos " +
+                "formas de seguir: pedirle que vuelva a firmar —ya se puede aunque la solicitud esté " +
+                "resuelta— o archivarlo sin su firma, escribiendo por qué; en ese caso el propio " +
+                "documento lo dirá.");
 
-        var (datos, nombreArchivo, _, _, error) = await ArmarAsync(solicitudId, firmaId, ct);
+        if (sinLaFirma && !SePuedeArchivarSinLaFirma(firmaDelColaborador))
+            return (false, firmaDelColaborador.Vigente
+                ? $"La firma de {solicitud.FullName} vale para esta solicitud tal como está hoy: " +
+                  "archívalo por el camino normal y saldrá CON su firma, que es mejor documento."
+                : $"{solicitud.FullName} nunca firmó esta solicitud, así que no hay ninguna firma caída " +
+                  "que descartar. Archívalo por el camino normal: el documento sale como toda la vida, " +
+                  "con el hueco para firmar a mano.");
+
+        var (datos, nombreArchivo, _, _, error) = await ArmarAsync(
+            solicitudId, firmaId, ct, motivoParaArchivarSinLaFirma);
         if (datos == null) return (false, error!);
         if (datos.FirmaDelJefe is not { Length: > 0 })
             return (false, "Esa firma no tiene imagen guardada. Elige otra o vuelve a trazarla.");
@@ -508,10 +603,21 @@ public class DocumentoDeVacacionesService(
         if (documento.Id == 0) db.VacationDocuments.Add(documento);
         await db.SaveChangesAsync(ct);
 
+        // EL ASIENTO DE LA SEGUNDA SALIDA lleva el motivo dentro, y por eso no se conforma con el
+        // texto del archivado normal: la pregunta que alguien va a hacer dentro de un año no es
+        // «¿quién archivó esto?» sino «¿quién decidió archivarlo sin su firma, y por qué?». El QUIÉN
+        // lo pone AuditService con la sesión; el PORQUÉ solo puede venir de aquí.
         await auditoria.RecordAsync(AuditAction.Update, "VacationDocument", documento.Id.ToString(),
-            $"Documento de vacaciones firmado: {datos.Nombre} ({datos.FechaInicio} — {datos.FechaFin})", ct);
+            sinLaFirma
+                ? $"Documento de vacaciones archivado SIN la firma de {datos.Nombre} " +
+                  $"({datos.FechaInicio} — {datos.FechaFin}). Motivo: {motivoParaArchivarSinLaFirma}"
+                : $"Documento de vacaciones firmado: {datos.Nombre} ({datos.FechaInicio} — {datos.FechaFin})",
+            ct);
 
-        return (true, "Documento firmado y archivado.");
+        return (true, sinLaFirma
+            ? $"Documento archivado sin la firma de {datos.Nombre}. El papel lo dice, con tu motivo y " +
+              "tu nombre, y queda el asiento en la bitácora."
+            : "Documento firmado y archivado.");
     }
 
     // ── La salida del bloqueo ────────────────────────────────────────────────────
@@ -524,10 +630,19 @@ public class DocumentoDeVacacionesService(
     /// que salir de la pantalla a buscar a la persona por otro medio, lo que acabaría pasando es que
     /// nadie usara el documento firmado. Un bloqueo sin salida molesta más de lo que protege.</para>
     ///
-    /// <para><b>Se niega en vez de mandar un aviso imposible</b> cuando la solicitud ya está
-    /// resuelta: solo se firma la petición mientras espera respuesta, así que pedirle una firma que
-    /// no puede dar sería mandarlo a una pantalla donde no hay botón. El mensaje dice entonces lo
-    /// único que arregla eso de verdad.</para>
+    /// <para><b>Alcanza también a las solicitudes YA RESUELTAS, y ése es el cambio que abre el
+    /// callejón.</b> Antes se negaba ahí —«solo se firma la petición mientras espera respuesta»— y el
+    /// razonamiento se mordía la cola: el bloqueo del archivado solo se dispara cuando la firma dejó
+    /// de valer, y una firma se puede caer sin tocar la solicitud (basta borrar el trazo en «Firmas»),
+    /// así que sobre una solicitud resuelta el líder se quedaba con un documento imposible y con el
+    /// único botón de salida apagado por definición. Ahora <see cref="VacationRequestService.PuedeFirmar"/>
+    /// deja REPONER una firma caída en cualquier estado, y este aviso lleva a una pantalla donde el
+    /// botón existe de verdad.</para>
+    ///
+    /// <para><b>Lo que se sigue negando</b> es pedir una PRIMERA firma sobre algo ya resuelto: ahí no
+    /// hay ninguna firma que reponer, la persona no tendría dónde firmar y el papel no está bloqueado
+    /// —sale como toda la vida, con el hueco para firmar a mano—. El mensaje lo dice en vez de mandar
+    /// un recado que nadie puede atender.</para>
     ///
     /// <para><b>Sin clave de deduplicación</b>, al revés que los avisos automáticos: éste no lo
     /// dispara un proceso que puede repetirse solo, lo pulsa una persona a sabiendas. Con clave, el
@@ -555,17 +670,28 @@ public class DocumentoDeVacacionesService(
                            "trazarla él desde «Mis vacaciones».");
 
         if (!firma.PuedeVolverAFirmar)
-            return (false, $"Esa solicitud ya está «{Etiqueta(solicitud.Status)}» y lo que se firma es " +
-                           "la PETICIÓN, mientras espera respuesta. Avisarle ahora no le daría dónde " +
-                           "firmar: si el papel tiene que salir con su firma, la solicitud tiene que " +
-                           "volver a pedirse.");
+            return (false, $"Esa solicitud ya está «{Etiqueta(solicitud.Status)}» y {solicitud.FullName} " +
+                           "nunca la firmó, así que no hay ninguna firma suya que reponer: lo que se " +
+                           "firma es la PETICIÓN, mientras espera respuesta, y avisarle ahora no le " +
+                           "daría dónde hacerlo. El documento no está bloqueado por esto — sale como " +
+                           "siempre, con el hueco para firmar a mano.");
 
         var periodo = $"{solicitud.StartDate:dd/MM/yyyy} — {solicitud.EndDate:dd/MM/yyyy}";
         var quien = usuarioActual.FullName ?? usuarioActual.Username ?? "Tu líder";
 
+        // Que la solicitud esté RESUELTA se dice en el recado, y no es un detalle de cortesía: quien
+        // lo reciba va a abrir una solicitud que ya tiene respuesta y va a encontrar un botón de
+        // firmar donde antes no había ninguno. Sin esta frase, lo lógico sería pensar que el aviso
+        // llegó tarde o que se equivocaron de solicitud, y no firmarla.
+        var yaResuelta = solicitud.Status is not VacationStatus.Pendiente;
+
         var cuerpo = (firma.DejoDeValer
                 ? $"La solicitud del {periodo} cambió después de que la firmaras, así que tu firma dejó " +
                   "de valer y ya no sale en el documento. Vuelve a firmarla."
+                  + (yaResuelta
+                      ? $" La solicitud ya está «{Etiqueta(solicitud.Status)}», pero eso no impide " +
+                        "firmarla otra vez: lo que falta es tu firma en el papel que se archiva."
+                      : "")
                 : $"Falta tu firma en la solicitud del {periodo}. Sin ella el documento se archiva con " +
                   "el hueco en blanco.")
             + (string.IsNullOrWhiteSpace(nota) ? "" : $"\n\n{quien}: {nota.Trim()}");
@@ -644,9 +770,13 @@ public class DocumentoDeVacacionesService(
     /// pedir su propio documento estampado con la firma del jefe y tendría un papel autorizado que
     /// nadie autorizó.</para>
     /// </summary>
+    /// <param name="motivoParaArchivarSinLaFirma">Cuando viene, el papel sale DICIENDO que se archivó
+    /// sin la firma del colaborador, con este motivo y con el nombre de quien lo decidió. Va al final
+    /// de la lista y con valor por omisión para que las llamadas de siempre —las que solo generan el
+    /// documento— sigan escritas igual: el aviso es la excepción, no el caso.</param>
     private async Task<(DatosDeVacaciones? datos, string? nombreArchivo,
                         FirmaEnPng? delJefe, FirmaEnPng? delColaborador, string? error)> ArmarAsync(
-        int solicitudId, int? firmaId, CancellationToken ct)
+        int solicitudId, int? firmaId, CancellationToken ct, string? motivoParaArchivarSinLaFirma = null)
     {
         AuthorizationGuard.RequireLoggedIn(usuarioActual);
         if (!usuarioActual.IsAdmin) firmaId = null;
@@ -707,7 +837,13 @@ public class DocumentoDeVacacionesService(
             puesto: puesto,
             jefeDirecto: jefe,
             firmaDelJefe: delJefe?.Png,
-            firmaDelColaborador: delColaborador?.Png);
+            firmaDelColaborador: delColaborador?.Png,
+            // El aviso se arma AQUÍ y no en Campos porque necesita dos datos que solo este método
+            // tiene: el nombre de quien tiene la sesión —el que decide— y el de la persona a la que le
+            // falta la firma. Campos es puro a propósito y así se queda.
+            avisoDeArchivadoSinFirma: motivoParaArchivarSinLaFirma is null ? null : LeyendaSinFirma(
+                solicitud.FullName, motivoParaArchivarSinLaFirma,
+                usuarioActual.FullName ?? usuarioActual.Username ?? "el líder"));
 
         return (datos, NombreDelArchivo(solicitud.FullName, solicitud.StartDate),
                 delJefe, delColaborador, null);
@@ -728,6 +864,16 @@ public class DocumentoDeVacacionesService(
     /// <param name="firmaDelColaborador">El trazo con el que la persona firmó SU petición. Va al
     /// final y con valor por omisión para que las llamadas de siempre —que no la conocían— sigan
     /// escritas igual.</param>
+    /// <param name="avisoDeArchivadoSinFirma">La confesión del papel: que se archivó SIN la firma del
+    /// colaborador, por qué y quién lo decidió. Ya viene redactada (ver <see cref="LeyendaSinFirma"/>)
+    /// porque este método es puro y no conoce ni la sesión ni el reloj.
+    ///
+    /// <para>Se imprime <b>dentro de las observaciones y delante de todo lo demás</b>. Que vaya ahí no
+    /// es comodidad: es el único bloque de texto libre que el documento tiene en las DOS salidas —el
+    /// PDF que maqueta el código y el .docx de la plantilla de RH, por su marcador
+    /// <c>{{OBSERVACIONES}}</c>—, así que un hueco nuevo habría salido solo en uno de los dos y el
+    /// papel diría una cosa distinta según por dónde se pidiera. Y delante, porque una advertencia
+    /// debajo de tres renglones de comentario es una advertencia que no se lee.</para></param>
     public static DatosDeVacaciones Campos(
         string nombre,
         DateTime? fechaDeIngreso,
@@ -742,9 +888,19 @@ public class DocumentoDeVacacionesService(
         string jefeDirecto,
         byte[]? firmaDelJefe = null,
         DateTime? hoy = null,
-        byte[]? firmaDelColaborador = null)
+        byte[]? firmaDelColaborador = null,
+        string? avisoDeArchivadoSinFirma = null)
     {
         var regreso = SiguienteDiaHabil(fin);
+
+        // Las observaciones de siempre NO se pierden: la advertencia se antepone y lo que el líder
+        // escribió al resolver sigue debajo. Sustituirlas habría hecho que archivar sin la firma se
+        // llevara por delante la respuesta que se le dio a la persona.
+        var observaciones = respuestaDelLider ?? comentario ?? "";
+        if (!string.IsNullOrWhiteSpace(avisoDeArchivadoSinFirma))
+            observaciones = string.IsNullOrWhiteSpace(observaciones)
+                ? avisoDeArchivadoSinFirma
+                : $"{avisoDeArchivadoSinFirma}\n\n{observaciones}";
 
         return new DatosDeVacaciones(
             Nombre: nombre,
@@ -765,10 +921,32 @@ public class DocumentoDeVacacionesService(
             // hace así. Con una sola, el papel no se parecería al que se firma a mano.
             Autorizada: estado == VacationStatus.Aprobada,
             Rechazada: estado == VacationStatus.Rechazada,
-            Observaciones: respuestaDelLider ?? comentario ?? "",
+            Observaciones: observaciones,
             FirmaDelJefe: firmaDelJefe,
             FirmaDelColaborador: firmaDelColaborador);
     }
+
+    /// <summary>
+    /// Lo que el documento DICE cuando se archiva sin la firma del colaborador.
+    ///
+    /// <para><b>Es la pieza que separa esta salida de lo que la aplicación hacía antes.</b> Antes el
+    /// papel salía con el hueco en blanco y callado, que es la peor versión: quien lo lee dentro de un
+    /// año no sabe si la persona se negó a firmar, si nadie se lo pidió o si el sistema falló, y
+    /// tampoco sabe a quién preguntarle. Aquí van las tres cosas que contestan eso —que la ausencia
+    /// fue una DECISIÓN, por qué, y de quién— en una sola frase que se lee sin explicación.</para>
+    ///
+    /// <para>La FECHA va en local y no en UTC porque la escribe y la lee gente, no un programa; y se
+    /// escribe entera, con hora, porque el orden de los hechos es justo lo que se reconstruye después
+    /// («¿lo archivaron antes o después de que ella volviera a firmar?»).</para>
+    ///
+    /// <para>Se queda privada: lo que hay que poder comprobar desde fuera no es esta cadena sino que
+    /// el documento archivado la lleve dentro, y eso se prueba mirando los datos con los que se generó
+    /// el PDF. Una prueba atada a la frase exacta se rompería al corregirle una coma.</para>
+    /// </summary>
+    private static string LeyendaSinFirma(string nombre, string motivo, string quienLoDecidio) =>
+        $"ARCHIVADO SIN LA FIRMA DE {nombre.ToUpper(Espanol)}. " +
+        $"Este documento se archivó sin su firma por decisión de {quienLoDecidio} " +
+        $"el {DateTime.Now:dd/MM/yyyy HH:mm}. Motivo: {motivo}";
 
     /// <summary>
     /// El primer día laborable después del último de vacaciones.
@@ -883,20 +1061,32 @@ public record SolicitudDeVacacionesLeida(
 /// <param name="PuedeVolverAFirmar">Si la solicitud admite firma ahora mismo. Sale de
 /// <see cref="VacationRequestService.PuedeFirmar"/> y no de una copia de la regla, porque quien tiene
 /// que poder firmar es la misma persona a la que aquella pantalla le enseña —o le esconde— el botón.
-/// </param>
+///
+/// <para><b>Y hay que pasarle el segundo dato, no solo el estado.</b> Esa regla deja reponer una firma
+/// CAÍDA aunque la solicitud ya esté resuelta —es la salida del callejón—, así que preguntarle solo
+/// por el estado devolvería «no» justo en el único caso en que la respuesta importa: el líder vería
+/// apagado el botón que lo saca del bloqueo.</para></param>
 public record FirmaDelColaboradorLeida(
     bool Vigente,
     bool DejoDeValer,
     DateTime? FirmadaUtc,
     bool PuedeVolverAFirmar)
 {
-    public static FirmaDelColaboradorLeida De(PapelesDeUnaSolicitud papeles, VacationStatus estado) =>
-        new(papeles.SigueValiendo,
-            papeles.Firmada && !papeles.SigueValiendo,
+    public static FirmaDelColaboradorLeida De(PapelesDeUnaSolicitud papeles, VacationStatus estado)
+    {
+        var dejoDeValer = papeles.Firmada && !papeles.SigueValiendo;
+        return new(papeles.SigueValiendo,
+            dejoDeValer,
             papeles.FirmadaUtc,
-            VacationRequestService.PuedeFirmar(estado));
+            VacationRequestService.PuedeFirmar(estado, reponerUnaFirmaCaida: dejoDeValer));
+    }
 
-    /// <summary>Nadie firmó. Evita que cada llamada tenga que decidir qué significa una ausencia.</summary>
+    /// <summary>
+    /// Nadie firmó. Evita que cada llamada tenga que decidir qué significa una ausencia.
+    ///
+    /// <para>Sin firma no hay nada que reponer, así que aquí la regla se pregunta SOLO por el estado:
+    /// una primera firma se sigue dando mientras la solicitud espera respuesta.</para>
+    /// </summary>
     public static FirmaDelColaboradorLeida Ninguna(VacationStatus estado) =>
         new(false, false, null, VacationRequestService.PuedeFirmar(estado));
 }

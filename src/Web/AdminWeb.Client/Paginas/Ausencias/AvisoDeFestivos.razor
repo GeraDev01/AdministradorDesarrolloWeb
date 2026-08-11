@@ -1,0 +1,28 @@
+@*
+    La limitación de los días hábiles y de la fecha de regreso, dicha en pantalla.
+
+    ── POR QUÉ ESTO ES UN COMPONENTE Y NO UNA FRASE COPIADA ───────────────────────────────────────
+
+    Porque aparece CUATRO veces: en el paso de las fechas y en el resumen de vacaciones, y en los dos
+    pasos de permisos. Una advertencia copiada cuatro veces se corrige en tres.
+
+    ── POR QUÉ SE DICE Y NO SE ESCONDE ────────────────────────────────────────────────────────────
+
+    El sistema NO tiene calendario de días festivos, y el asistente acaba de enseñar dos números que
+    parecen exactos: cuántos días hábiles cubre la ausencia y qué día se vuelve. Si dentro del rango
+    cae un festivo, los dos están mal —los hábiles de más, el regreso de menos— y nadie lo va a
+    revisar, porque un número puesto por el sistema se lee como un hecho.
+
+    Callarlo sería la peor versión: la cuenta seguiría siendo optimista y encima nadie sabría que
+    puede serlo. Inventar un calendario de festivos sería peor todavía —cambian por año, por estado y
+    por empresa, y equivocarse en uno da un número igual de falso pero ya sin aviso—. Así que se dice,
+    en el mismo bloque donde está el número y no en una nota al pie, que es donde no se lee.
+
+    Va en tinta de AVISO y no de peligro: no está mal lo que se enseña, está incompleto.
+*@
+
+<RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0" Style="color:var(--rz-warning)">
+    <RadzenIcon Icon="warning" /> Los días hábiles y la fecha de regreso solo saltan sábados y
+    domingos: <b>el sistema no tiene calendario de días festivos</b>. Si cae uno dentro de tus fechas,
+    los días hábiles serán optimistas y tu regreso puede ser un día después.
+</RadzenText>

@@ -33,11 +33,20 @@
       · Son TRES situaciones y no dos, y se cuentan con el motivo delante: firmada, sin firmar, y
         «firmó pero su firma dejó de valer porque la solicitud cambió después». La tercera escondida
         dentro de «sin firmar» era la lectura más tranquilizadora posible de un problema.
-      · Con la firma caída NO se archiva. El botón se apaga, pero la barrera es la del servidor
-        (DocumentoDeVacacionesService.FirmarAsync): esta pantalla corre en la máquina de cada quien.
-      · Y hay salida sin moverse de aquí: «Pedir que vuelva a firmar» le manda un aviso a la persona.
-        Se firma la PETICIÓN mientras espera respuesta, así que conviene pedírsela ANTES de resolver
-        la solicitud — resuelta ya no hay dónde firmar, y el servidor lo dice si se intenta.
+      · Con la firma caída NO se archiva por el camino normal. El botón se apaga, pero la barrera es
+        la del servidor (DocumentoDeVacacionesService): esta pantalla corre en la máquina de cada
+        quien y a la operación se llega también sin navegador.
+      · Y hay DOS salidas sin moverse de aquí, que es lo último que llegó a esta pantalla:
+          - «Pedir que vuelva a firmar» le manda un aviso a la persona. Ya vale también sobre una
+            solicitud RESUELTA cuando su firma se cayó — antes no, y ahí estaba el callejón: el
+            bloqueo solo se dispara con la firma caída, y el botón que lo resolvía exigía que la
+            solicitud siguiera pendiente, así que en el caso bloqueado estaba apagado por definición.
+          - «Archivar sin su firma» emite el papel reconociéndolo, con motivo obligatorio. Es lo que
+            la aplicación hacía antes —el hueco en blanco y callado—, ahora dicho: el documento sale
+            diciendo que se archivó sin ella, con el motivo y con quién lo decidió, y queda el
+            asiento en la bitácora.
+        Cuál de las dos se ofrece lo decide el SERVIDOR (PuedeVolverAFirmar y SePuedeArchivarSinLaFirma),
+        no una condición escrita aquí.
 
     La pestaña de FIRMAS es el mismo componente que la pantalla «Firmas» de Administración, donde
     viven de verdad: se queda aquí porque cuando alguien descubre que le falta una firma es justo
@@ -147,44 +156,44 @@
                                                   : "Firmó, pero la solicitud cambió después:")
                                             las fechas o el motivo ya no son los que firmó, así que su firma NO
                                             sale en el documento.
-                                            <b>El documento definitivo no se puede archivar hasta que vuelva a
-                                            firmar.</b>
+                                            <b>El documento definitivo no se archiva así.</b>
+                                            @* AQUÍ ESTABA EL CALLEJÓN, y conviene dejar escrito cuál
+                                               era porque el estado no es inalcanzable ni raro. Se
+                                               llega usando la aplicación y por un camino que ni
+                                               siquiera toca la solicitud: basta con que alguien borre
+                                               en «Firmas» el trazo de esa persona —la firma de
+                                               vacaciones se guarda como un SignatureProfile suyo y
+                                               aparece en ese gestor—. La clave foránea es SetNull, así
+                                               que el enlace sobrevive sin imagen y el servicio lo lee,
+                                               con toda la razón, como una firma que dejó de valer.
+
+                                               Con la solicitud ya resuelta, el líder se quedaba con un
+                                               papel imposible: archivar estaba prohibido y el único
+                                               botón de salida —«pedir que vuelva a firmar»— exigía que
+                                               la solicitud siguiera PENDIENTE, que es justo lo que
+                                               este caso nunca cumple. Un bloqueo cuya salida está
+                                               apagada por definición no protege: se sortea por fuera
+                                               de la aplicación, donde nadie deja rastro.
+
+                                               Ahora son DOS salidas y las elige el líder, y ninguna
+                                               de las dos vive en estos botones: los decide el servidor
+                                               (SePuedeArchivarSinLaFirma y PuedeVolverAFirmar) porque
+                                               esta pantalla corre en la máquina de cada quien. *@
+                                            Hay dos formas de seguir, y las dos están aquí abajo:
                                             @if (sel.FirmaDelColaborador.PuedeVolverAFirmar)
                                             {
-                                                <text>Pídeselo con el botón de aquí abajo, y hazlo ANTES de
-                                                resolver la solicitud: se firma la petición mientras espera
-                                                respuesta, así que una vez resuelta ya no tendrá dónde
-                                                firmar.</text>
+                                                <text><b>pedirle que vuelva a firmar</b> —ya se puede aunque la
+                                                solicitud esté resuelta, y es la buena: el papel acaba con las
+                                                dos firmas—</text>
                                             }
                                             else
                                             {
-                                                @* SIN SALIDA, y conviene no endulzarlo: aquí el papel
-                                                   ya no se puede archivar nunca. La pantalla lo dice en
-                                                   vez de ofrecer un botón que solo puede fallar.
-
-                                                   NO es un estado inalcanzable. Se llega usando la
-                                                   aplicación, y por un camino que no toca la
-                                                   solicitud: basta con que alguien borre en «Firmas»
-                                                   el trazo de esa persona —la firma de vacaciones se
-                                                   guarda como un SignatureProfile suyo y aparece en
-                                                   ese gestor—. La clave foránea es SetNull, así que el
-                                                   enlace sobrevive sin imagen y VacationRequestService
-                                                   lo lee, con toda la razón, como una firma que dejó
-                                                   de valer. Si la solicitud ya estaba resuelta, no hay
-                                                   forma de conseguir otra.
-
-                                                   Cerrar ese callejón es una decisión de producto y no
-                                                   una línea de aquí: o se deja volver a firmar una
-                                                   solicitud resuelta cuya firma se cayó (tocar
-                                                   VacationRequestService.PuedeFirmar), o se le da al
-                                                   líder un «descartar la firma caída y archivar sin
-                                                   ella», que es lo que la aplicación hacía antes pero
-                                                   dicho a las claras y con asiento en la bitácora. *@
-                                                <text>Y la solicitud ya está resuelta, así que tampoco puede
-                                                volver a firmarla: se firma la petición mientras espera
-                                                respuesta. Si el papel tiene que llevar su firma, la
-                                                solicitud tiene que volver a pedirse.</text>
+                                                <text><b>volver a pedir la solicitud</b> si el papel tiene que
+                                                llevar su firma</text>
                                             }
+                                            , o <b>archivarlo sin su firma</b> escribiendo por qué. En ese
+                                            segundo caso el documento lo dice: sale impreso que se archivó sin
+                                            ella, con tu motivo y tu nombre, y queda el asiento en la bitácora.
                                         </RadzenAlert>
                                     }
                                     else if (!sel.FirmaDelColaborador.Firmada)
@@ -246,18 +255,18 @@
                                                       Disabled="@(_ocupado || _firmaId is null || !sel.SePuedeArchivar)"
                                                       title="@(sel.SePuedeArchivar
                                                                  ? "Emite el documento definitivo y lo archiva en la solicitud."
-                                                                 : "No se puede archivar: la firma del colaborador dejó de valer.")"
+                                                                 : "La firma del colaborador dejó de valer: pídesela otra vez, o archívalo sin ella con el botón de al lado.")"
                                                       Click="@(() => Firmar(sel))" />
-                                        @* LA SALIDA. Va junto al botón que se apaga, porque un
+                                        @* LA PRIMERA SALIDA. Va junto al botón que se apaga, porque un
                                            bloqueo cuya solución está en otra pantalla acaba siendo
                                            un bloqueo que nadie resuelve. Aparece también cuando
                                            todavía no ha firmado: es el mismo recado.
 
-                                           Y solo si la persona PUEDE firmar hoy: se firma la
-                                           petición mientras espera respuesta, así que sobre una
-                                           solicitud ya resuelta este botón únicamente serviría para
-                                           llevarse un rechazo. Ahí lo que hay que hacer lo dice el
-                                           aviso de arriba. *@
+                                           PuedeVolverAFirmar ya no significa «la solicitud sigue
+                                           pendiente»: el servidor lo enciende también sobre una
+                                           resuelta cuya firma se cayó, que es el caso bloqueado. Lo
+                                           que sigue apagándolo es pedir una PRIMERA firma sobre algo
+                                           ya resuelto, donde la persona no tendría dónde firmar. *@
                                         @if (sel.FirmaDelColaborador.PuedeVolverAFirmar
                                              && (sel.FirmaDelColaborador.DejoDeValer || !sel.FirmaDelColaborador.Firmada))
                                         {
@@ -269,6 +278,31 @@
                                                           Size="ButtonSize.Small" Disabled="@_ocupado"
                                                           title="Le llega un aviso en la aplicación con el motivo."
                                                           Click="@(() => PedirFirma(sel))" />
+                                        }
+                                        @* LA SEGUNDA SALIDA, la que no depende de que la persona esté
+                                           y conteste. Solo aparece con la firma caída, que es cuando
+                                           hace falta: ofrecerla siempre la convertiría en el botón
+                                           que se pulsa por costumbre para saltarse el aviso.
+
+                                           Va en «Light» y no en «Danger» a propósito. No es una
+                                           operación peligrosa —es una decisión legítima y queda
+                                           registrada—, y pintarla de rojo al lado del rojo del aviso
+                                           de arriba haría que las dos se leyeran como la misma
+                                           alarma. Lo que la separa del botón principal es que aquél
+                                           es «Primary»: el papel completo sigue siendo lo que se
+                                           quiere.
+
+                                           «archive» es el archivador, y es exactamente lo que hace:
+                                           guarda el papel. El acto de FIRMAR lleva «draw» y no puede
+                                           llevarlo éste, porque aquí justamente no se consigue una
+                                           firma — se renuncia a ella. *@
+                                        @if (sel.SePuedeArchivarSinLaFirma)
+                                        {
+                                            <RadzenButton Text="Archivar sin su firma" Icon="archive"
+                                                          ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                                          Disabled="@(_ocupado || _firmaId is null)"
+                                                          title="Emite el documento reconociendo que va sin su firma. El motivo sale impreso en el papel."
+                                                          Click="@(() => ArchivarSinLaFirma(sel))" />
                                         }
                                         @if (sel.DocumentoFirmado)
                                         {
@@ -385,7 +419,7 @@
                                         @if (v.FirmaDelColaborador.DejoDeValer)
                                         {
                                             <span style="color:var(--rz-danger)"
-                                                  title="Firmó, pero la solicitud cambió después: las fechas o el motivo ya no son los que firmó. No se puede archivar el documento hasta que vuelva a firmar.">
+                                                  title="Firmó, pero la solicitud cambió después: las fechas o el motivo ya no son los que firmó. El documento no se archiva así: abre «Documento» y elige entre pedirle que vuelva a firmar o archivarlo sin su firma.">
                                                 <RadzenIcon Icon="warning" /> Dejó de valer
                                             </span>
                                         }
@@ -673,6 +707,40 @@
 
         await Enviar($"api/ausencias-lider/vacaciones/{v.Id}/firma-del-colaborador/recordatorio",
             new RecordatorioDeFirmaRequest(nota));
+    }
+
+    /// <summary>
+    /// La otra salida: archivar el documento reconociendo que va sin la firma de la persona.
+    ///
+    /// <para>La confirmación dice ANTES de decidir lo que va a pasar con todas las letras —que el papel
+    /// saldrá diciéndolo, con el motivo y con el nombre de quien lo decidió—, porque esto es lo único
+    /// de esta pantalla que produce un documento incompleto a sabiendas. Enterarse después, al leer el
+    /// PDF archivado, sería enterarse tarde.</para>
+    ///
+    /// <para>El motivo se pide vacío y se manda igual: quien lo exige es el SERVICIO, y su mensaje
+    /// —«va impreso en el documento»— es el que explica por qué hace falta. Comprobarlo también aquí
+    /// daría dos sitios donde decidir lo mismo y a la API se llega sin pasar por esta pantalla.</para>
+    /// </summary>
+    private async Task ArchivarSinLaFirma(SolicitudDeVacacionesDelLiderDto v)
+    {
+        if (_firmaId is not int firmaId) return;
+
+        if (!await Avisos.ConfirmarAsync(
+            $"El documento de {v.Desarrollador} se archivará SIN su firma.\n\n" +
+            "El papel lo dirá: saldrá impreso que se archivó sin ella, con el motivo que escribas y " +
+            "con tu nombre, y quedará el asiento en la bitácora.\n\n" +
+            "Si prefieres el documento completo, pídele que vuelva a firmar: ya se puede aunque la " +
+            "solicitud esté resuelta.",
+            "Archivar sin la firma", "Sí, archivar sin ella"))
+            return;
+
+        var motivo = await Avisos.PedirTextoAsync(
+            "Motivo (obligatorio). Sale impreso en el documento:", "Archivar sin la firma");
+
+        if (motivo is null) return;
+
+        await Enviar($"api/ausencias-lider/vacaciones/{v.Id}/documento/archivado-sin-firma",
+            new ArchivarSinLaFirmaRequest(firmaId, motivo));
     }
 
     // ── Apoyo ────────────────────────────────────────────────────────────────

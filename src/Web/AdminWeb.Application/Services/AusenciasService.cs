@@ -61,8 +61,16 @@ public class AusenciasService(
 
         // Cuántos documentos generados cuelgan de cada solicitud: es lo que se pierde al eliminarla,
         // y hay que poder avisarlo antes de que la persona confirme.
+        //
+        // La FILA DE LA FIRMA del colaborador queda fuera del conteo, y ésa es toda la corrección:
+        // vive en esta misma tabla —VacationDocuments es también donde se guarda el enlace a la firma,
+        // ver VacationRequestService— pero no es un documento que nadie haya generado. Contándola, la
+        // confirmación de borrado avisaba de un papel de más en cuanto la persona firmaba su
+        // solicitud. Se filtra AQUÍ, en la consulta, y no restando uno después: restar uno acierta
+        // por casualidad mientras solo haya una fila rara, y deja de acertar el día que haya dos.
         var documentos = (await db.VacationDocuments.AsNoTracking()
-            .Where(d => d.VacationRequest.DeveloperId == devId)
+            .Where(d => d.VacationRequest.DeveloperId == devId
+                     && d.FileName != VacationRequestService.MarcaDeLaFirmaDelColaborador)
             .GroupBy(d => d.VacationRequestId)
             .Select(g => new { Solicitud = g.Key, Cuantos = g.Count() })
             .ToListAsync(ct))
