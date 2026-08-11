@@ -43,6 +43,13 @@ public class PersonasQueryService(
     /// <summary>Cuántas rotaciones enseña el historial. Es un vistazo, no un archivo: para eso está la bitácora.</summary>
     public const int RotacionesQueSeEnsenan = 100;
 
+    /// <summary>
+    /// Lo que cabe en la función de una persona dentro de su equipo. Es una frase, no una descripción
+    /// de puesto: en el organigrama ocupa dos renglones de una tarjeta, y lo que no cabe se corta —así
+    /// que dejar escribir mil caracteres sería prometer que se van a leer.
+    /// </summary>
+    public const int LargoMaximoDeFuncion = 200;
+
     /// <summary>Las pantallas de personas son del líder. Segunda barrera, la que viaja pegada al dato.</summary>
     private void SoloAdmin() => AuthorizationGuard.RequireAdmin(currentUser);
 
@@ -376,8 +383,11 @@ public class PersonasQueryService(
         var equipo = await db.Teams.FirstOrDefaultAsync(t => t.Id == equipoId, ct);
         if (equipo == null) return (false, "Ese equipo ya no existe. Actualiza la pantalla.");
 
+        // La función se borra junto con el rol y por lo mismo: describía lo que esa persona hacía
+        // DENTRO de este equipo, y el equipo deja de existir. Sin esta línea quedaría gente «sin
+        // equipo» arrastrando la responsabilidad de un equipo que ya no está en ninguna pantalla.
         var integrantes = await db.Developers.Where(d => d.TeamId == equipo.Id).ToListAsync(ct);
-        foreach (var d in integrantes) { d.TeamId = null; d.TeamRole = TeamRole.SinRol; }
+        foreach (var d in integrantes) { d.TeamId = null; d.TeamRole = TeamRole.SinRol; d.TeamFunction = null; }
 
         // El cargo de líder se suelta antes de borrar: la FK apunta a la ficha y quedaría colgando.
         equipo.LeadDeveloperId = null;
@@ -404,6 +414,11 @@ public class PersonasQueryService(
     ///   <item>queda una fila de rotación con los NOMBRES copiados, para que el historial sobreviva a
     ///         que después se borre el equipo.</item>
     /// </list>
+    ///
+    /// <para>Y una CUARTA que no estaba porque el dato no existía: <b>la función se borra</b>. «Mantiene
+    /// la pasarela de pagos» describe una responsabilidad dentro del equipo que se deja, no una
+    /// cualidad de la persona; arrastrarla al equipo nuevo pondría en el organigrama una
+    /// responsabilidad que nadie le ha dado y que su nuevo líder no sabría que está publicada.</para>
     /// </summary>
     public async Task<(bool ok, string mensaje)> MoverIntegrantesAsync(
         MoverIntegrantesRequest peticion, CancellationToken ct = default)
@@ -432,8 +447,9 @@ public class PersonasQueryService(
             var origen = origenId is int id && equipos.TryGetValue(id, out var t) ? t : null;
             if (origen != null && origen.LeadDeveloperId == dev.Id) origen.LeadDeveloperId = null;
 
-            dev.TeamId   = peticion.EquipoId;
-            dev.TeamRole = TeamRole.SinRol;
+            dev.TeamId       = peticion.EquipoId;
+            dev.TeamRole     = TeamRole.SinRol;
+            dev.TeamFunction = null;
 
             db.TeamRotations.Add(new TeamRotation
             {
@@ -500,6 +516,45 @@ public class PersonasQueryService(
         return (true, $"{dev.FullName}: {EtiquetasDeCatalogo.RolDeEquipo(peticion.Rol)}.");
     }
 
+    /// <summary>
+    /// Anota qué hace una persona dentro de su equipo. Mandarla vacía la borra.
+    ///
+    /// <para><b>Solo se le pone función a quien tiene equipo</b>, y no por purismo: el texto describe
+    /// una responsabilidad DENTRO de un equipo, se borra al cambiarse de equipo y se borra si el
+    /// equipo desaparece. Permitir escribirla a quien no está en ninguno crearía una frase que el
+    /// organigrama no puede dibujar en ninguna caja y que la primera rotación borraría sin avisar.</para>
+    ///
+    /// <para>A la bitácora va el texto entero. No es un dato sensible —es lo que se publica en el
+    /// organigrama que se reparte en PDF— y sin él la anotación solo diría «alguien cambió algo».</para>
+    /// </summary>
+    public async Task<(bool ok, string mensaje)> GuardarFuncionAsync(
+        GuardarFuncionRequest peticion, CancellationToken ct = default)
+    {
+        SoloAdmin();
+
+        var funcion = Limpiar(peticion.Funcion);
+        if (funcion is { Length: > LargoMaximoDeFuncion })
+            return (false, $"La función no puede pasar de {LargoMaximoDeFuncion} caracteres.");
+
+        var dev = await db.Developers.FirstOrDefaultAsync(d => d.Id == peticion.DeveloperId, ct);
+        if (dev == null) return (false, "Esa persona ya no está en el catálogo. Actualiza la pantalla.");
+        if (dev.TeamId is null)
+            return (false, $"{dev.FullName} no está en ningún equipo; la función describe lo que hace " +
+                           "dentro de uno. Muévela primero a un equipo.");
+
+        dev.TeamFunction = funcion;
+        await db.SaveChangesAsync(ct);
+
+        await audit.RecordAsync(AuditAction.Update, "Developer", dev.Id.ToString(),
+            funcion is null
+                ? $"{dev.FullName}: se borró su función en el equipo"
+                : $"{dev.FullName}: función «{funcion}»", ct);
+
+        return (true, funcion is null
+            ? $"{dev.FullName} se queda sin función anotada."
+            : $"Función de {dev.FullName} guardada.");
+    }
+
     /// <summary>El historial reciente de rotaciones, lo más nuevo primero.</summary>
     public async Task<IReadOnlyList<RotacionDto>> RotacionesAsync(CancellationToken ct = default)
     {
@@ -514,14 +569,22 @@ public class PersonasQueryService(
     }
 
     /// <summary>
-    /// Reúne lo que va impreso en el PDF de la organización.
+    /// El organigrama entero: los equipos con su descripción, su gente ordenada y quien no está en
+    /// ninguno.
     ///
-    /// Aquí solo se JUNTAN los datos ya formateados; el documento lo maqueta
-    /// <see cref="IGeneradorDeDocumentos.OrganizacionDeEquipos"/>. Los textos de cada integrante son
-    /// los mismos que armaba <c>TeamsControl.MemberLabel</c>, para que el papel y la pantalla digan
-    /// lo mismo.
+    /// <para><b>Es la única consulta que resuelve quién manda en cada equipo</b>, y de ahí salen las
+    /// tres cosas que lo enseñan: la pestaña de siempre, el diagrama y el PDF. La regla —manda el rol
+    /// marcado en la ficha y solo si nadie lo tiene se recurre al <c>LeadDeveloperId</c> del equipo—
+    /// se apoya en dos datos que pueden discrepar, así que cada sitio que la resolviera por su cuenta
+    /// sería un sitio donde puede salir otro nombre. Con dos pestañas de la misma pantalla, la
+    /// contradicción se vería de un vistazo; con el papel, se repartiría.</para>
+    ///
+    /// <para><b>Nadie se queda fuera.</b> Se recorren los roles en el orden del escritorio y al final
+    /// se añade a quien no haya entrado por ningún rol —un segundo «líder» heredado de datos viejos,
+    /// por ejemplo—: en una lista faltar es una fila menos, pero en un organigrama es una persona que
+    /// oficialmente no está en ninguna parte.</para>
     /// </summary>
-    public async Task<DatosDeEquipos> DatosDeEquiposAsync(CancellationToken ct = default)
+    public async Task<OrganigramaDto> OrganigramaAsync(CancellationToken ct = default)
     {
         SoloAdmin();
 
@@ -536,21 +599,28 @@ public class PersonasQueryService(
             .Where(p => p.TeamId != null).OrderBy(p => p.Name)
             .Select(p => new { p.TeamId, p.Name, p.Client }).ToListAsync(ct);
 
-        var impresos = equipos.Select(t =>
+        var dibujados = equipos.Select(t =>
         {
             var miembros = devs.Where(d => d.TeamId == t.Id).ToList();
             var lider = miembros.FirstOrDefault(m => m.TeamRole == TeamRole.Lider)
                         ?? miembros.FirstOrDefault(m => m.Id == t.LeadDeveloperId);
 
-            var integrantes = miembros
-                .OrderBy(m => m.TeamRole == TeamRole.Lider ? 0 : 1)
-                .ThenBy(m => (int)m.TeamRole)
-                .ThenBy(m => m.FullName)
-                .Select(EtiquetaDeIntegrante)
-                .ToList();
+            var integrantes = new List<PersonaDelOrganigramaDto>(miembros.Count);
+            if (lider != null) integrantes.Add(Persona(lider, TeamRole.Lider, esLider: true));
 
-            return new EquipoImpreso(
-                t.Name, t.Description, lider?.FullName, t.ColorHex,
+            var resto = miembros.Where(m => lider == null || m.Id != lider.Id).ToList();
+            foreach (var rol in EtiquetasDeCatalogo.OrdenDeRoles)
+                integrantes.AddRange(resto.Where(m => m.TeamRole == rol)
+                                          .Select(m => Persona(m, rol, esLider: false)));
+
+            // El colador: OrdenDeRoles no incluye «Líder», así que un segundo líder marcado en la
+            // ficha —que AsignarRolAsync ya no permite, pero que pudo quedar de antes— no entraría
+            // por ninguna vuelta del bucle y desaparecería del diagrama sin dejar rastro.
+            integrantes.AddRange(resto.Where(m => !EtiquetasDeCatalogo.OrdenDeRoles.Contains(m.TeamRole))
+                                      .Select(m => Persona(m, m.TeamRole, esLider: false)));
+
+            return new EquipoDelOrganigramaDto(
+                t.Id, t.Name, Limpiar(t.Description), Limpiar(t.ColorHex), lider?.FullName,
                 integrantes,
                 sistemas.Where(s => s.TeamId == t.Id).Select(s => s.Name).ToList(),
                 proyectos.Where(p => p.TeamId == t.Id)
@@ -558,18 +628,45 @@ public class PersonasQueryService(
                     .ToList());
         }).ToList();
 
-        var sinEquipo = devs.Where(d => d.TeamId == null).Select(NombreYNivel).ToList();
+        var sinEquipo = devs.Where(d => d.TeamId == null)
+            .Select(d => Persona(d, d.TeamRole, esLider: false))
+            .ToList();
 
-        return new DatosDeEquipos(impresos, sinEquipo, DateTime.Now.ToString("dd/MM/yyyy HH:mm"));
+        return new OrganigramaDto(
+            dibujados, sinEquipo,
+            dibujados.Sum(e => e.Integrantes.Count) + sinEquipo.Count,
+            DateTime.Now.ToString("dd/MM/yyyy HH:mm"));
     }
 
-    private static string NombreYNivel(Developer d) =>
-        string.IsNullOrWhiteSpace(d.Seniority) ? d.FullName : $"{d.FullName} ({d.Seniority})";
+    /// <summary>
+    /// Lo que va impreso en el PDF del organigrama.
+    ///
+    /// <para>Sale de <see cref="OrganigramaAsync"/> y no de una consulta propia: es LA misma
+    /// información dibujada en otro soporte, y tenerla dos veces era garantizar que un día el papel
+    /// y la pantalla dijeran cosas distintas del mismo equipo. Aquí solo se traduce al contrato de
+    /// documentos, que no conoce identificadores ni enumeraciones — el generador maqueta, no decide.</para>
+    /// </summary>
+    public async Task<DatosDeEquipos> DatosDeEquiposAsync(CancellationToken ct = default)
+    {
+        var organigrama = await OrganigramaAsync(ct);   // guarda de admin dentro
 
-    private static string EtiquetaDeIntegrante(Developer d) =>
-        d.TeamRole == TeamRole.SinRol
-            ? NombreYNivel(d)
-            : $"{NombreYNivel(d)} — {EtiquetasDeCatalogo.RolDeEquipo(d.TeamRole)}";
+        return new DatosDeEquipos(
+            [.. organigrama.Equipos.Select(e => new EquipoImpreso(
+                e.Nombre, e.Descripcion, e.Lider, e.ColorHex,
+                [.. e.Integrantes.Select(Impreso)],
+                e.Sistemas, e.Proyectos))],
+            [.. organigrama.SinEquipo.Select(Impreso)],
+            organigrama.TotalPersonas,
+            organigrama.GeneradoEl);
+    }
+
+    private static PersonaDelOrganigramaDto Persona(Developer d, TeamRole rol, bool esLider) =>
+        new(d.Id, d.FullName, Limpiar(d.Seniority), rol,
+            EtiquetasDeCatalogo.RolDeEquipo(rol), EtiquetasDeCatalogo.ColorDeRol(rol),
+            Limpiar(d.TeamFunction), esLider);
+
+    private static IntegranteImpreso Impreso(PersonaDelOrganigramaDto p) =>
+        new(p.Nombre, p.Nivel, p.RolTexto, p.Funcion, p.EsLider);
 
     // ── Usuarios ─────────────────────────────────────────────────────────────────
 

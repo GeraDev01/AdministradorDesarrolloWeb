@@ -1,11 +1,14 @@
 @inherits LayoutComponentBase
 @implements IDisposable
 @using AdminWeb.Client.Navegacion
+@using AdminWeb.Client.Paginas.Conocimiento
 @using AdminWeb.Shared
+@using AdminWeb.Shared.Dtos.Conocimiento
 @inject EstadoSesion Sesion
 @inject NavigationManager Navegacion
 @inject AuthenticationStateProvider ProveedorAuth
 @inject ConexionEnVivo EnVivo
+@inject ClienteApi Api
 
 @*
     El armazón: menú lateral por rol y barra superior.
@@ -101,7 +104,7 @@
 
     <RadzenSidebar @bind-Expanded="_menuAbierto" Style="width:250px">
         <RadzenPanelMenu>
-            @foreach (var item in Menu.Sueltos(Sesion.Usuario?.Rol))
+            @foreach (var item in Menu.Sueltos(Sesion.Usuario?.Rol, _conocimiento))
             {
                 @Entrada(item)
             }
@@ -139,9 +142,22 @@
 @code {
     private bool _menuAbierto = true;
 
+    /// <summary>
+    /// Lo que espera a quien mira en la base de conocimiento: lo que el líder tiene por revisar y lo
+    /// que a esta persona le devolvieron. Null hasta que se haya podido preguntar, y el menú lo
+    /// distingue de un cero —un cero se lee «no hay nada» y se deja de mirar—.
+    /// </summary>
+    private ConocimientoPendientesDto? _conocimiento;
+
     protected override async Task OnInitializedAsync()
     {
         Sesion.Cambio += Repintar;
+
+        // El número del menú se vuelve a pedir cuando algo pudo cambiarlo (se manda un artículo a
+        // revisar, el líder resuelve uno). Sin esto habría que recargar la página para que la marca
+        // dejara de mentir, y una marca que miente es peor que ninguna: enseña trabajo pendiente que
+        // ya está hecho, y a la tercera vez nadie vuelve a hacerle caso.
+        PendientesDeConocimiento.Cambio += RefrescarConocimiento;
 
         // La conexión en vivo se abre aquí y no en cada pantalla: es lo que sostiene la presencia y
         // el latido del cronómetro, y tiene que sobrevivir a navegar. Abrirla dentro de una página
@@ -150,19 +166,44 @@
         // Va en este layout —el de dentro de la sesión— y no en App: sin sesión el hub responde 401
         // y reintentaría en bucle contra la pantalla de acceso.
         await EnVivo.IniciarAsync();
+        await RefrescarConocimientoAsync();
     }
 
     private RenderFragment Entrada(ItemDeMenu item) => __builder =>
     {
         @* El icono va en Icon y no pegado al texto: así lo pinta la fuente de Material Symbols que
            Radzen trae empaquetada, hereda el color del tema y queda alineado en su propia columna.
-           Concatenado al texto era una cadena más, y ni se alineaba ni cambiaba de color. *@
-        <RadzenPanelMenuItem Text="@item.Texto"
+           Concatenado al texto era una cadena más, y ni se alineaba ni cambiaba de color.
+
+           La MARCA («Conocimiento (3)») va dentro del propio texto, y no como una pastilla flotante.
+           Es a conciencia: la pastilla habría que colocarla con reglas de estilo propias sobre el
+           interior de un componente ajeno, y una entrada de menú mide 250 px — un número pegado al
+           nombre se lee igual de lejos y no se descoloca cuando el texto crece. Lo que hace falta es
+           que el número ESTÉ, no que flote. *@
+        <RadzenPanelMenuItem Text="@(item.Marca > 0 ? $"{item.Texto} ({item.Marca})" : item.Texto)"
                              Icon="@item.Icono"
                              Path="@(item.Disponible ? item.Ruta : null)"
                              Disabled="@(!item.Disponible)"
-                             title="@(item.Disponible ? null : "Todavía no está en la web; usa la aplicación de escritorio.")" />
+                             title="@(item.Disponible ? item.MarcaTitulo : "Todavía no está en la web; usa la aplicación de escritorio.")" />
     };
+
+    /// <summary>
+    /// Vuelve a contar lo pendiente de la base de conocimiento.
+    ///
+    /// <para>Solo con sesión, y esa comprobación no es un adorno: este layout se monta un instante
+    /// antes de que la aplicación redirija a la pantalla de acceso, y preguntar sin sesión se llevaría
+    /// un 401 que el manejador de respuestas interpreta como expulsión — o sea, una redirección al
+    /// acceso disparada por el propio menú.</para>
+    /// </summary>
+    private async Task RefrescarConocimientoAsync()
+    {
+        if (Sesion.Usuario is null) { _conocimiento = null; return; }
+
+        _conocimiento = await Api.LeerAsync<ConocimientoPendientesDto>("api/conocimiento/pendientes");
+        StateHasChanged();
+    }
+
+    private void RefrescarConocimiento() => InvokeAsync(RefrescarConocimientoAsync);
 
     private void Repintar() => InvokeAsync(async () =>
     {
@@ -172,6 +213,10 @@
         // pedirla no cuesta nada si ya está abierta, y es lo único que evita pasar toda la sesión
         // sin presencia ni latido por un fallo de medio segundo al arrancar.
         if (Sesion.Usuario is not null) await EnVivo.IniciarAsync();
+
+        // Y con la sesión ya leída se pueden contar los pendientes: el primer intento, al montarse,
+        // pudo encontrarse sin usuario todavía y volverse sin número.
+        await RefrescarConocimientoAsync();
         StateHasChanged();
     });
 
@@ -189,5 +234,12 @@
         _ => "Operaciones"
     };
 
-    public void Dispose() => Sesion.Cambio -= Repintar;
+    public void Dispose()
+    {
+        Sesion.Cambio -= Repintar;
+        // El aviso de conocimiento es un evento ESTÁTICO: si este layout no se diera de baja, cada
+        // vuelta a la pantalla de acceso dejaría un layout muerto suscrito, y a la tercera sesión el
+        // mismo contador se pediría tres veces.
+        PendientesDeConocimiento.Cambio -= RefrescarConocimiento;
+    }
 }

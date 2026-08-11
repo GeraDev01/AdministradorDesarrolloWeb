@@ -285,56 +285,237 @@ public class GeneradorDeDocumentosQuestPdf : IGeneradorDeDocumentos
         _ => "Otro"
     };
 
-    // ── Organización de equipos ─────────────────────────────────────────────────
+    // ── El organigrama ──────────────────────────────────────────────────────────
+    //
+    // ESTO ERA UNA LISTA y ahora es un diagrama, que es lo que se pidió. Merece explicación porque
+    // parece un capricho de forma y no lo es: en la lista, el equipo se reconocía por una franja de
+    // color a la izquierda y todo lo demás —descripción, líder, integrantes— era texto corrido; para
+    // saber cuánta gente lleva un equipo había que contar nombres separados por puntos. En el
+    // diagrama, cada equipo es una caja que se ve entera de un golpe, y el tamaño de la caja ES el
+    // tamaño del equipo. Eso es lo que se mira en un organigrama.
+    //
+    // POR QUÉ NO SE MANDA EL SVG DE LA PANTALLA A ESTE PDF, que era la vía obvia teniendo el diagrama
+    // ya dibujado allá y sabiendo que QuestPDF admite SVG (Svg(string), desde 2024.3):
+    //
+    //   · El SVG de la pantalla pinta TODO con variables del tema (var(--rz-…)). Fuera del navegador
+    //     nadie resuelve esas variables: el diagrama saldría en negro sobre negro o directamente sin
+    //     pintar. Habría que mantener una segunda copia del dibujo con colores fijos.
+    //   · Un SVG entra como UNA imagen. Una imagen no se parte por la mitad, así que un organigrama
+    //     de veinte equipos o cabe encogido hasta ser ilegible en una hoja, o no cabe. Aquí las cajas
+    //     son contenido de verdad y QuestPDF las va pasando de página él solo.
+    //   · El texto de un SVG lo dibuja Skia como trazos. En el PDF que sale de aquí los nombres son
+    //     TEXTO: se buscan con Ctrl+F, se copian y se leen con un lector de pantalla. Es un documento
+    //     que se archiva y se reparte, no una captura de pantalla.
+    //   · Y el detalle que lo cierra: el corte de línea. Una descripción de equipo de tres renglones
+    //     hay que partirla a mano en el SVG contando caracteres a ojo; aquí la parte QuestPDF con la
+    //     métrica real de la fuente.
+    //
+    // Lo que sí se conserva del SVG es el CONCEPTO: mismo nodo arriba, mismas cajas, mismo orden y la
+    // misma caja final de «sin equipo». Quien vea la pantalla y luego el papel reconoce el dibujo.
 
-    public byte[] OrganizacionDeEquipos(DatosDeEquipos d) =>
+    /// <summary>Cuántas cajas por fila. Tres caben legibles en una carta apaisada; cuatro dejan los
+    /// nombres largos partidos en dos renglones y la caja se vuelve un párrafo.</summary>
+    private const int CajasPorFila = 3;
+
+    private const float EspacioEntreCajas = 10f;
+
+    public byte[] OrganizacionDeEquipos(DatosDeEquipos d) => DocumentoDelOrganigrama(d).GeneratePdf();
+
+    /// <summary>El documento antes de convertirlo en bytes. Va aparte porque el diagrama es lo único
+    /// que se revisa mirándolo, y así se puede pedir una página como imagen sin generar el PDF.</summary>
+    private static IDocument DocumentoDelOrganigrama(DatosDeEquipos d) =>
         Document.Create(doc =>
         {
             doc.Page(pagina =>
             {
-                Hoja(pagina);
+                // APAISADA, al revés que los otros dos documentos. Un organigrama crece a lo ancho:
+                // en vertical solo caben dos cajas por fila y el diagrama se convierte en una
+                // columna larguísima, que es exactamente la lista de la que se venía huyendo.
+                pagina.Size(PageSizes.Letter.Landscape());
+                pagina.Margin(1.2f, Unit.Centimetre);
+                pagina.DefaultTextStyle(t => t.FontSize(10).FontColor(Tinta));
 
-                pagina.Header().Element(e => Titulo(e, "Organización de equipos", $"Generado el {d.GeneradoEl}"));
+                pagina.Header().Element(e => Titulo(e, "Organigrama de equipos", $"Generado el {d.GeneradoEl}"));
 
-                pagina.Content().PaddingVertical(14).Column(col =>
+                pagina.Content().PaddingVertical(10).Column(col =>
                 {
-                    col.Spacing(10);
+                    col.Item().Element(e => NodoRaiz(e, d));
 
-                    foreach (var eq in d.Equipos)
-                        col.Item().Element(e => Equipo(e, eq));
-
+                    // Las cajas en el orden en que se leen: los equipos y, al final, la de quien no
+                    // está en ninguno. Va con ellas y no en una nota al pie porque en un organigrama
+                    // esa caja es media pregunta del que lo abre.
+                    var cajas = new List<EquipoImpreso>(d.Equipos);
                     if (d.SinEquipo.Count > 0)
+                        cajas.Add(new EquipoImpreso(
+                            "Sin equipo", "Todavía no están asignados a ninguno.", null, null,
+                            d.SinEquipo, [], []));
+
+                    if (cajas.Count == 0)
                     {
-                        col.Item().Element(e => Seccion(e, "Sin equipo asignado"));
-                        col.Item().Text(string.Join(" · ", d.SinEquipo)).FontSize(9).FontColor(Tenue);
+                        col.Item().PaddingTop(20).AlignCenter()
+                          .Text("Todavía no hay equipos ni personas que dibujar.")
+                          .FontSize(10).FontColor(Tenue);
+                        return;
+                    }
+
+                    for (int desde = 0; desde < cajas.Count; desde += CajasPorFila)
+                    {
+                        var fila = cajas.Skip(desde).Take(CajasPorFila).ToList();
+
+                        col.Item().Element(e => Reparto(e, fila.Count));
+                        col.Item().PaddingBottom(12).Row(r =>
+                        {
+                            r.Spacing(EspacioEntreCajas);
+                            foreach (var caja in fila)
+                                r.RelativeItem().Element(x => CajaDeEquipo(x, caja));
+
+                            // Los huecos de la última fila se reservan igual. Sin esto, dos equipos
+                            // solos se estirarían a media hoja cada uno y no parecerían del mismo
+                            // tamaño que los de la fila de arriba: en un diagrama, el tamaño se lee
+                            // como un dato.
+                            for (int hueco = fila.Count; hueco < CajasPorFila; hueco++)
+                                r.RelativeItem();
+                        });
                     }
                 });
 
                 pagina.Footer().Element(PieDePagina);
             });
-        }).GeneratePdf();
+        });
 
-    private static void Equipo(IContainer c, EquipoImpreso eq) =>
-        // La franja de color a la izquierda es el mismo color con el que el equipo se ve en pantalla:
-        // quien mira el papel y quien mira la aplicación reconocen lo mismo.
-        c.BorderLeft(4).BorderColor(ColorValido(eq.ColorHex)).PaddingLeft(8).PaddingBottom(6).Column(col =>
+    /// <summary>
+    /// El nodo de arriba: de quién cuelga todo esto y cuánta gente hay en total. Sin él, las cajas
+    /// sueltas son una cuadrícula; con él, son un organigrama.
+    /// </summary>
+    private static void NodoRaiz(IContainer c, DatosDeEquipos d) =>
+        c.Column(col =>
         {
-            col.Item().Text(eq.Nombre).SemiBold().FontSize(12).FontColor(Tinta);
+            col.Item().AlignCenter().Border(1).BorderColor(Tinta).Padding(8).Column(caja =>
+            {
+                caja.Item().AlignCenter().Text("Organización").SemiBold().FontSize(13).FontColor(Tinta);
+                caja.Item().AlignCenter().Text(
+                    $"{d.Equipos.Count} equipo(s) · {d.TotalPersonas} persona(s)" +
+                    (d.SinEquipo.Count > 0 ? $" · {d.SinEquipo.Count} sin equipo" : ""))
+                    .FontSize(8).FontColor(Tenue);
+            });
 
-            if (!string.IsNullOrWhiteSpace(eq.Descripcion))
-                col.Item().Text(eq.Descripcion).FontSize(9).FontColor(Tenue);
+            col.Item().Height(10).AlignCenter().LineVertical(0.8f).LineColor(Linea);
+        });
 
-            if (!string.IsNullOrWhiteSpace(eq.Lider))
-                col.Item().PaddingTop(2).Text($"Líder: {eq.Lider}").FontSize(9).FontColor(Tinta);
+    /// <summary>
+    /// La barra de la que cuelgan las cajas de una fila, con su bajada a cada una.
+    ///
+    /// <para>Se repite en CADA fila, y no solo bajo el nodo de arriba, porque una fila que empieza en
+    /// la página siguiente aparecería suelta: sin la barra, esas cajas parecerían colgar de las de
+    /// arriba —o sea, subequipos— y aquí todos los equipos están al mismo nivel.</para>
+    /// </summary>
+    private static void Reparto(IContainer c, int cuantas) =>
+        c.Column(col =>
+        {
+            // La barra se queda donde acaba la última caja de la fila, no cruza la hoja entera. En la
+            // última fila —que casi nunca va completa— una barra de lado a lado parece que va a
+            // repartir a cajas que no están, y lo primero que se piensa es que falta algo.
+            col.Item().Row(barra =>
+            {
+                barra.RelativeItem(cuantas).LineHorizontal(0.8f).LineColor(Linea);
+                if (cuantas < CajasPorFila) barra.RelativeItem(CajasPorFila - cuantas);
+            });
 
-            col.Item().PaddingTop(3).Text(eq.Integrantes.Count == 0
-                ? "Sin integrantes."
-                : string.Join(" · ", eq.Integrantes)).FontSize(9);
+            col.Item().Height(10).Row(r =>
+            {
+                r.Spacing(EspacioEntreCajas);
+                for (int i = 0; i < CajasPorFila; i++)
+                {
+                    var celda = r.RelativeItem();
+                    if (i < cuantas) celda.AlignCenter().LineVertical(0.8f).LineColor(Linea);
+                }
+            });
+        });
 
-            if (eq.Sistemas.Count > 0)
-                col.Item().Text($"Sistemas: {string.Join(", ", eq.Sistemas)}").FontSize(8).FontColor(Tenue);
-            if (eq.Proyectos.Count > 0)
-                col.Item().Text($"Proyectos: {string.Join(", ", eq.Proyectos)}").FontSize(8).FontColor(Tenue);
+    /// <summary>
+    /// La caja de un equipo: banda de color, nombre, a qué se dedica y su gente.
+    ///
+    /// <para><b>El color va en la banda de arriba y NUNCA detrás de un texto.</b> Lo teclea una
+    /// persona en una caja de texto, así que puede ser cualquier cosa —un amarillo pálido o un azul
+    /// marino—; con el nombre del equipo encima, el primero deja el texto ilegible en blanco y el
+    /// segundo en negro, y no hay forma de acertar sin adivinar el color. En una banda maciza sobre
+    /// el borde de la caja no hay nada que leer encima: el color identifica, y el texto se lee
+    /// siempre en tinta sobre papel.</para>
+    /// </summary>
+    private static void CajaDeEquipo(IContainer c, EquipoImpreso eq) =>
+        c.Border(1).BorderColor(Linea).Column(col =>
+        {
+            col.Item().Height(6).Background(ColorValido(eq.ColorHex));
+
+            col.Item().Padding(8).PaddingBottom(6).Column(cab =>
+            {
+                cab.Item().Text(eq.Nombre).SemiBold().FontSize(12).FontColor(Tinta);
+
+                // La descripción se imprime SIEMPRE, aunque no la haya. Un renglón que falta en una
+                // caja y está en la de al lado descoloca la fila entera y se lee como que a esa caja
+                // le pasa algo; el paréntesis dice lo que ocurre de verdad, que es que nadie la ha
+                // escrito todavía.
+                cab.Item().PaddingTop(2).Text(string.IsNullOrWhiteSpace(eq.Descripcion)
+                        ? "(sin descripción)"
+                        : eq.Descripcion)
+                    .FontSize(8).FontColor(Tenue);
+
+                cab.Item().PaddingTop(3).Text($"{eq.Integrantes.Count} persona(s)")
+                    .FontSize(8).FontColor(Tenue);
+            });
+
+            col.Item().LineHorizontal(0.8f).LineColor(Linea);
+
+            col.Item().Padding(8).PaddingTop(6).Column(gente =>
+            {
+                gente.Spacing(4);
+
+                if (eq.Integrantes.Count == 0)
+                    gente.Item().Text("(sin integrantes)").FontSize(8).FontColor(Tenue);
+
+                foreach (var p in eq.Integrantes)
+                    gente.Item().Element(e => PersonaImpresa(e, p));
+
+                if (eq.Sistemas.Count > 0)
+                    gente.Item().PaddingTop(4).Text($"Sistemas: {string.Join(", ", eq.Sistemas)}")
+                        .FontSize(7).FontColor(Tenue);
+                if (eq.Proyectos.Count > 0)
+                    gente.Item().Text($"Proyectos: {string.Join(", ", eq.Proyectos)}")
+                        .FontSize(7).FontColor(Tenue);
+            });
+        });
+
+    /// <summary>
+    /// Una persona dentro de su caja: nombre, nivel y rol en una línea, y su función debajo.
+    ///
+    /// <para>Al LÍDER se le pone una raya vertical al lado y el nombre en negrita. No lleva ningún
+    /// pictograma —ni corona ni estrella— por lo mismo que se quitaron los de las rejillas: los dibuja
+    /// la fuente del sistema, cambian de forma según la máquina y donde no hay fuente de emoji salen
+    /// como un cuadro vacío. Una raya la dibuja el propio documento y sale igual en cualquier
+    /// impresora, y además el rol ya dice «Líder» con todas sus letras.</para>
+    /// </summary>
+    private static void PersonaImpresa(IContainer c, IntegranteImpreso p) =>
+        // Los dos con el MISMO sangrado: el borde del líder se pinta dentro del margen y no empuja al
+        // texto, así que con menos relleno su nombre arrancaría dos puntos antes que los demás y la
+        // columna de nombres saldría descuadrada justo en el renglón que más se mira.
+        (p.EsLider ? c.BorderLeft(2).BorderColor(Tinta) : c).PaddingLeft(7)
+        .Column(col =>
+        {
+            col.Item().Text(t =>
+            {
+                var nombre = t.Span(p.Nombre).FontSize(9).FontColor(Tinta);
+                if (p.EsLider) nombre.Bold(); else nombre.SemiBold();
+
+                if (!string.IsNullOrWhiteSpace(p.Nivel))
+                    t.Span($" ({p.Nivel})").FontSize(7).FontColor(Tenue);
+                t.Span($" · {p.Rol}").FontSize(7).FontColor(Tenue);
+            });
+
+            // La función solo ocupa sitio si existe. Al revés que la descripción del equipo, aquí NO
+            // se imprime un «(sin función)»: son tantos renglones como personas tenga el equipo, y
+            // repetir un paréntesis vacío quince veces convierte la caja en una lista de excusas.
+            if (!string.IsNullOrWhiteSpace(p.Funcion))
+                col.Item().Text(p.Funcion).FontSize(7.5f).FontColor(Tenue);
         });
 
     /// <summary>

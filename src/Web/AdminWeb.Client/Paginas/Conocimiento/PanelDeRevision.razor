@@ -1,0 +1,216 @@
+@using AdminWeb.Shared.Dtos.Conocimiento
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+
+@*
+    Lo que el líder decide sobre un artículo: publicarlo —otorgando puntos o no— o devolverlo con un
+    motivo.
+
+    ── LAS DOS DECISIONES VAN EN UN SOLO BOTÓN ────────────────────────────────────────────────────
+
+    Aprobar y puntuar son dos decisiones y un solo momento. Con dos botones, el segundo se olvida: el
+    artículo queda publicado, los puntos no se dan nunca y el incentivo que justificaba todo esto
+    deja de existir en la práctica. Por eso el criterio, la cantidad y la nota viajan DENTRO de la
+    aprobación, y el servidor los aplica en la misma operación.
+
+    No otorgar es una respuesta perfectamente normal: no todos los artículos puntúan, y por eso el
+    botón dice «Publicar» y no «Publicar sin puntos» cuando no se eligió criterio — no se está
+    renunciando a nada, se está aprobando.
+
+    ── EL MOTIVO DE UNA DEVOLUCIÓN NO PUEDE QUEDAR VACÍO ──────────────────────────────────────────
+
+    Y no por validar por validar: devolver algo sin decir por qué es lo que hace que la gente deje de
+    escribir. Quien recibe un artículo de vuelta sin explicación no sabe qué corregir, así que no
+    corrige: reescribe a ciegas o abandona. El botón está apagado hasta que hay motivo, y el texto de
+    al lado dice por qué está apagado — un botón muerto sin explicación se lee como una avería.
+
+    La comprobación de aquí es COMODIDAD. La de verdad la hace el servidor, que rechaza un motivo
+    corto aunque la llamada no pase por esta pantalla.
+*@
+
+<RadzenCard>
+    <RadzenStack Gap="0.75rem">
+        <RadzenText TextStyle="TextStyle.H6" Style="margin:0">
+            <RadzenIcon Icon="@(EsRetiro ? "visibility_off" : "fact_check")" />
+            @(EsRetiro ? "Retirar de circulación" : "Revisar y decidir")
+        </RadzenText>
+
+        @if (EsRetiro)
+        {
+            <RadzenText TextStyle="TextStyle.Body2" Style="margin:0">
+                Un artículo publicado no se borra: se retira con un motivo y su autor puede corregirlo y
+                volver a mandarlo. Lo que ya se otorgó en puntos no se quita desde aquí — eso se decide
+                en la pantalla de puntos, sobre el desempeño de una persona y un mes que quizá ya cerró.
+            </RadzenText>
+        }
+        else
+        {
+            @* ── Aprobar ───────────────────────────────────────────────────────────── *@
+            <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap"
+                         AlignItems="AlignItems.Center" Gap="0.5rem">
+                <RadzenDropDown TValue="int?" Data="@_criterios" TextProperty="Texto" ValueProperty="Id"
+                                @bind-Value="_criterio" AllowClear="true" Style="width:290px"
+                                Placeholder="Sin puntos" aria-label="Criterio con el que se otorgan los puntos"
+                                Change="@(_ => AlCambiarCriterio())" />
+
+                @* La cantidad solo se puede escribir con un criterio elegido: unos puntos sin criterio
+                   no significan nada —no habría con qué justificarlos en el desempeño— y el servidor
+                   los rechaza. Apagar el campo evita el viaje y el mensaje de error. *@
+                <RadzenNumeric TValue="int?" @bind-Value="_puntos" Min="1" Max="@MaxPuntos"
+                               Disabled="@(_criterio is null)" Style="width:130px"
+                               Placeholder="Del catálogo" aria-label="Cuántos puntos" />
+            </RadzenStack>
+
+            @if (_criterio is not null && _puntos is null)
+            {
+                <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
+                    Sin cantidad se otorgan los puntos que el catálogo le da a ese criterio.
+                </RadzenText>
+            }
+
+            <RadzenTextArea @bind-Value="_nota" Rows="2" MaxLength="@MaxTexto" Style="width:100%"
+                            aria-label="Nota de la aprobación"
+                            Placeholder="Nota para su autor (opcional): qué estuvo bien, o por qué esos puntos." />
+
+            <div>
+                <RadzenButton Text="@(_criterio is null ? "Publicar" : "Publicar y otorgar")"
+                              Icon="publish" ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small"
+                              Disabled="@_ocupado" Click="@AprobarAsync" />
+            </div>
+
+            <hr style="border:none;border-top:1px solid var(--rz-border-color);margin:.2rem 0" />
+        }
+
+        @* ── Devolver ──────────────────────────────────────────────────────────────── *@
+        <RadzenTextArea @bind-Value="_motivo" Rows="3" MaxLength="@MaxTexto" Style="width:100%"
+                        aria-label="Motivo de la devolución"
+                        Placeholder="@(EsRetiro
+                            ? "Por qué deja de ser válido. Su autor lo va a leer."
+                            : "Qué hay que corregir. Es lo único que le dice a su autor por dónde empezar.")" />
+
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                     Wrap="FlexWrap.Wrap" Gap="0.6rem">
+            <RadzenButton Text="@(EsRetiro ? "Retirar" : "Devolver a su autor")"
+                          Icon="@(EsRetiro ? "visibility_off" : "reply")"
+                          ButtonStyle="@(EsRetiro ? ButtonStyle.Danger : ButtonStyle.Light)"
+                          Size="ButtonSize.Small"
+                          Disabled="@(_ocupado || !HayMotivo)" Click="@RechazarAsync" />
+
+            @if (!HayMotivo)
+            {
+                <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
+                    Escribe el motivo para poder @(EsRetiro ? "retirarlo" : "devolverlo").
+                </RadzenText>
+            }
+        </RadzenStack>
+    </RadzenStack>
+</RadzenCard>
+
+@code {
+    /// <summary>El artículo sobre el que se decide.</summary>
+    [Parameter, EditorRequired]
+    public int Id { get; set; }
+
+    /// <summary>
+    /// El artículo ya está publicado y lo que cabe es retirarlo. Es el mismo camino —el servidor no
+    /// tiene un estado «archivado» ni le hace falta—, pero la pantalla no puede llamarlo igual: no es
+    /// lo mismo devolver un borrador que sacar de circulación algo que el equipo ya está leyendo.
+    /// </summary>
+    [Parameter]
+    public bool EsRetiro { get; set; }
+
+    /// <summary>Se resolvió: quien lo puso en pantalla decide si recarga, si cierra o si navega.</summary>
+    [Parameter]
+    public EventCallback OnResuelto { get; set; }
+
+    /// <summary>
+    /// Los topes, repetidos aquí porque el navegador no ve las constantes del servidor. Sirven para
+    /// avisar antes y no para decidir: el que cuenta lo sigue aplicando el servidor, y si algún día
+    /// cambia allá, aquí solo se pierde el aviso previo.
+    /// </summary>
+    private const int MaxPuntos = 100;
+    private const int MaxTexto = 1000;
+
+    private IReadOnlyList<OpcionDto> _criterios = [];
+    private int? _criterio;
+    private int? _puntos;
+    private string _nota = "";
+    private string _motivo = "";
+    private bool _ocupado;
+
+    private bool HayMotivo => _motivo.Trim().Length >= 5;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Los criterios son los del catálogo de puntuación de siempre, filtrados a los que aplican a
+        // una persona. No hay un catálogo aparte para esto a propósito: dos listas de criterios
+        // acabarían premiando lo mismo con nombres distintos.
+        if (EsRetiro) return;
+        _criterios = await Api.LeerAsync<List<OpcionDto>>("api/conocimiento/criterios") ?? [];
+    }
+
+    /// <summary>Quitar el criterio quita la cantidad: dejarla puesta mandaría puntos huérfanos que el
+    /// servidor rechaza, y quien lo viera no entendería de dónde salió el error.</summary>
+    private void AlCambiarCriterio()
+    {
+        if (_criterio is null) _puntos = null;
+    }
+
+    private async Task AprobarAsync()
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, r) = await Api.EnviarAsync<ConocimientoAprobacionDto, ResultadoDto>(
+                $"api/conocimiento/{Id}/aprobar",
+                new ConocimientoAprobacionDto(_criterio, _puntos, _nota));
+
+            if (!ok || r is null) return;
+
+            // El mensaje del servidor se enseña TAL CUAL: es el que distingue «se le otorgaron 8
+            // puntos» de «ya había recibido 8 en su primera aprobación», y esa diferencia es
+            // justamente lo que el líder necesita saber.
+            Avisos.Resultado(r.Ok, r.Mensaje);
+            if (r.Ok) await ResueltoAsync();
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task RechazarAsync()
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, r) = await Api.EnviarAsync<ConocimientoRechazoDto, ResultadoDto>(
+                $"api/conocimiento/{Id}/rechazar", new ConocimientoRechazoDto(_motivo));
+
+            if (!ok || r is null) return;
+
+            Avisos.Resultado(r.Ok, r.Mensaje);
+            if (r.Ok) await ResueltoAsync();
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task ResueltoAsync()
+    {
+        Limpiar();
+        // La cola acaba de encoger (o de crecer): el número del menú tiene que enterarse ahora, no
+        // en la próxima recarga completa de la aplicación.
+        PendientesDeConocimiento.Avisar();
+        await OnResuelto.InvokeAsync();
+    }
+
+    /// <summary>
+    /// Vacía el formulario después de resolver. Hace falta porque en la cola este mismo panel pasa a
+    /// atender el artículo SIGUIENTE sin volver a construirse: sin esto, el motivo del que se acaba
+    /// de devolver aparecería escrito en el del compañero de al lado.
+    /// </summary>
+    private void Limpiar()
+    {
+        _criterio = null;
+        _puntos = null;
+        _nota = "";
+        _motivo = "";
+    }
+}

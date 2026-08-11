@@ -327,8 +327,8 @@ public class PersonasQueryServiceTests
 
         var alfa = datos.Equipos.Single(e => e.Nombre == "Alfa");
         Assert.Equal("Ana", alfa.Lider);
-        Assert.Contains(alfa.Integrantes, i => i.Contains("Beto") && i.Contains("Backend"));
-        Assert.Contains("Caro", datos.SinEquipo);
+        Assert.Contains(alfa.Integrantes, i => i.Nombre == "Beto" && i.Rol == "Backend Dev");
+        Assert.Contains(datos.SinEquipo, i => i.Nombre == "Caro");
     }
 
     // ── Usuarios ─────────────────────────────────────────────────────────────────

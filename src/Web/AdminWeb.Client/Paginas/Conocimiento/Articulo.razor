@@ -1,0 +1,306 @@
+@page "/conocimiento/{Id:int}"
+@using AdminWeb.Client.Paginas.Foro
+@using AdminWeb.Shared.Dtos.Conocimiento
+@inject ClienteApi Api
+@inject HttpClient Http
+@inject AvisosDeInterfaz Avisos
+@inject NavigationManager Navegacion
+@inject EstadoSesion Sesion
+
+@*
+    Un artículo, abierto para leerlo.
+
+    Se llega aquí desde la lista, desde el buscador de arriba —el de toda la aplicación, que devuelve
+    artículos con su dirección propia— o desde un enlace que alguien pegó en un mensaje. Ese último
+    caso es el que manda en el diseño de esta pantalla: tiene que bastarse sola, así que trae el
+    título, quién lo escribió, cuándo se publicó, sus temas y el camino de vuelta a la lista.
+
+    El CUERPO lo pinta CuerpoDeConocimiento a partir de los bloques que decidió el servidor. Aquí no
+    se interpreta marcado ni se construye HTML con texto de nadie; ahí está explicado por qué.
+
+    Las acciones que se ven las decide el SERVIDOR, no esta pantalla: viene dicho en el propio
+    artículo si quien lo abre puede editarlo, mandarlo a revisar o resolverlo. Calcularlo aquí —«es
+    mío y está en borrador, luego…»— habría sido una segunda copia de las reglas, y la copia que se
+    quedara atrás enseñaría un botón que contesta 403.
+*@
+
+<PageTitle>@(_articulo?.Titulo ?? "Artículo")</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+        <RadzenButton Text="Volver" Icon="chevron_left" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@(() => Navegacion.NavigateTo("conocimiento"))" />
+    </RadzenStack>
+
+    @if (_cargando)
+    {
+        <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" />
+    }
+    else if (_articulo is null)
+    {
+        @* El mismo mensaje para «no existe» y para «no te toca verlo»: distinguirlos confirmaría que
+           el borrador de otra persona existe, que es justo lo que un borrador no debe revelar. *@
+        <RadzenAlert AlertStyle="AlertStyle.Warning" AllowClose="false">
+            Ese artículo no existe o no está disponible para ti.
+        </RadzenAlert>
+    }
+    else
+    {
+        @* Un nombre corto para el artículo: se nombra treinta veces en lo que queda de pantalla. *@
+        var a = _articulo;
+
+        <RadzenCard>
+            <RadzenStack Gap="0.6rem">
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                             Wrap="FlexWrap.Wrap" Gap="0.5rem">
+                    <RadzenText TextStyle="TextStyle.H4" Style="margin:0">@a.Titulo</RadzenText>
+                    <RadzenBadge BadgeStyle="@PresentacionDeConocimiento.DeEstado(a.Estado)"
+                                 Text="@a.EstadoEtiqueta" />
+                    @if (a.PuntosOtorgados > 0)
+                    {
+                        <RadzenBadge BadgeStyle="BadgeStyle.Info"
+                                     Text="@($"+{a.PuntosOtorgados} pts")"
+                                     title="Puntos que su autor ganó cuando se aprobó." />
+                    }
+                </RadzenStack>
+
+                <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
+                    <RadzenIcon Icon="person" /> @a.Autor
+                    @if (a.PublicadoUtc is { } publicado)
+                    {
+                        <text>&nbsp;·&nbsp; publicado @TiempoDelForo.Fecha(publicado, conHora: false)</text>
+                    }
+                    @if (a.ActualizadoUtc is { } tocado)
+                    {
+                        @* La última edición importa en documentación más que en ninguna otra parte:
+                           un procedimiento de hace dos años y otro de la semana pasada se leen
+                           distinto aunque digan lo mismo. *@
+                        <text>&nbsp;·&nbsp; última edición @TiempoDelForo.HaceCuanto(tocado)</text>
+                    }
+                    @if (a.VueltaDeRevision > 1)
+                    {
+                        <text>&nbsp;·&nbsp; vuelta @a.VueltaDeRevision</text>
+                    }
+                </RadzenText>
+
+                @if (PresentacionDeConocimiento.Etiquetas(a.Etiquetas) is { Count: > 0 } etiquetas)
+                {
+                    @* Los temas son pulsables: llevan a la lista filtrada por esa etiqueta, que es
+                       como se encuentra «lo demás que habla de esto». Es la mitad de lo que hace útil
+                       etiquetar. *@
+                    <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.3rem">
+                        @foreach (var e in etiquetas)
+                        {
+                            <RadzenButton Text="@e" Icon="label" ButtonStyle="ButtonStyle.Light"
+                                          Size="ButtonSize.ExtraSmall"
+                                          title="@($"Ver todo lo etiquetado «{e}»")"
+                                          Click="@(() => VerEtiqueta(e))" />
+                        }
+                    </RadzenStack>
+                }
+            </RadzenStack>
+        </RadzenCard>
+
+        @* ── El artículo ────────────────────────────────────────────────────────── *@
+        <RadzenCard>
+            @if (a.Cuerpo.Count == 0)
+            {
+                <RadzenText TextStyle="TextStyle.Body2" Style="margin:0">
+                    Este artículo todavía no tiene texto.
+                </RadzenText>
+            }
+            else
+            {
+                <CuerpoDeConocimiento Bloques="@a.Cuerpo" />
+            }
+        </RadzenCard>
+
+        @* ── Lo que decidió el líder ────────────────────────────────────────────── *@
+        @if (!string.IsNullOrWhiteSpace(a.NotaDeRevision) || !string.IsNullOrWhiteSpace(a.Historial))
+        {
+            @* Esto solo llega a su autor y al líder: para el resto del equipo un artículo publicado
+               es el resultado, no el expediente de cómo se llegó a él. *@
+            <RadzenCard>
+                <RadzenStack Gap="0.5rem">
+                    <RadzenText TextStyle="TextStyle.H6" Style="margin:0">
+                        <RadzenIcon Icon="history" /> La revisión
+                    </RadzenText>
+
+                    @if (!string.IsNullOrWhiteSpace(a.NotaDeRevision))
+                    {
+                        <RadzenAlert AlertStyle="@(a.Estado == KnowledgeStatus.Rechazado ? AlertStyle.Danger : AlertStyle.Info)"
+                                     AllowClose="false" ShowIcon="false">
+                            <RadzenText TextStyle="TextStyle.Body2" Style="margin:0;white-space:pre-wrap;overflow-wrap:anywhere">@a.NotaDeRevision</RadzenText>
+                            @if (!string.IsNullOrWhiteSpace(a.Revisor))
+                            {
+                                <RadzenText TextStyle="TextStyle.Caption" Style="margin:.3rem 0 0">
+                                    @a.Revisor@(a.RevisadoUtc is { } cuando ? $" · {TiempoDelForo.Fecha(cuando)}" : "")
+                                </RadzenText>
+                            }
+                        </RadzenAlert>
+                    }
+
+                    @if (!string.IsNullOrWhiteSpace(a.Historial))
+                    {
+                        @* El ida y vuelta completo, y no solo la última decisión: sin él, volver a
+                           mandar el artículo borraría el motivo que se está atendiendo y la
+                           conversación quedaría sin la mitad que la explica. *@
+                        <details>
+                            <summary style="cursor:pointer;font-size:.85rem">Todo el ida y vuelta</summary>
+                            <RadzenText TextStyle="TextStyle.Caption" Style="margin:.4rem 0 0;white-space:pre-wrap;overflow-wrap:anywhere">@a.Historial</RadzenText>
+                        </details>
+                    }
+                </RadzenStack>
+            </RadzenCard>
+        }
+
+        @* ── Lo que puede hacer quien lo abre ───────────────────────────────────── *@
+        @if (a.PuedoEditar || a.PuedoEnviar || PuedoBorrar)
+        {
+            <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.5rem">
+                @if (a.PuedoEditar)
+                {
+                    <RadzenButton Text="Editar" Icon="edit" ButtonStyle="ButtonStyle.Light"
+                                  Size="ButtonSize.Small" Disabled="@_ocupado"
+                                  Click="@(() => Navegacion.NavigateTo($"conocimiento/{Id}/editar"))" />
+                }
+                @if (a.PuedoEnviar)
+                {
+                    <RadzenButton Text="Mandar a revisar" Icon="send" ButtonStyle="ButtonStyle.Primary"
+                                  Size="ButtonSize.Small" Disabled="@_ocupado" Click="@EnviarAsync" />
+                }
+                @if (PuedoBorrar)
+                {
+                    <RadzenButton Text="Borrar" Icon="delete" ButtonStyle="ButtonStyle.Danger"
+                                  Size="ButtonSize.Small" Disabled="@_ocupado" Click="@BorrarAsync" />
+                }
+            </RadzenStack>
+
+            @if (a.Estado == KnowledgeStatus.Publicado && a.PuedoEditar)
+            {
+                <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
+                    @(_esAdmin
+                        ? "Al estar publicado, tus cambios se ven en cuanto guardas: tu edición ya está revisada por definición."
+                        : "Está publicado: si lo editas volverá a la cola de revisión, porque lo que el equipo lee tiene que haber pasado por ahí.")
+                </RadzenText>
+            }
+        }
+
+        @* ── La decisión del líder ──────────────────────────────────────────────── *@
+        @if (a.PuedoRevisar)
+        {
+            <PanelDeRevision Id="@Id" OnResuelto="@CargarAsync" />
+        }
+        else if (_esAdmin && a.Estado == KnowledgeStatus.Publicado)
+        {
+            @* Retirar algo publicado está detrás de un botón y no a la vista: es la operación menos
+               frecuente de esta pantalla y la única que le quita al equipo algo que ya estaba usando.
+               No debe quedar a un resbalón de «Editar». *@
+            @if (_retirando)
+            {
+                <PanelDeRevision Id="@Id" EsRetiro="true" OnResuelto="@AlRetirarAsync" />
+                <div>
+                    <RadzenButton Text="Cancelar" Icon="close" ButtonStyle="ButtonStyle.Light"
+                                  Size="ButtonSize.Small" Click="@(() => _retirando = false)" />
+                </div>
+            }
+            else
+            {
+                <div>
+                    <RadzenButton Text="Retirar de circulación" Icon="visibility_off"
+                                  ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                  title="Para cuando esto deja de ser cierto. Queda dicho por qué."
+                                  Click="@(() => _retirando = true)" />
+                </div>
+            }
+        }
+    }
+</RadzenStack>
+
+@code {
+    [Parameter]
+    public int Id { get; set; }
+
+    private ConocimientoArticuloDto? _articulo;
+    private bool _cargando = true, _ocupado, _esAdmin, _retirando;
+
+    /// <summary>
+    /// Se borra lo que nunca llegó a publicarse, y solo su autor o el líder. Lo publicado no se
+    /// borra: es conocimiento del equipo y alguien puede tenerlo enlazado — para eso está retirarlo,
+    /// que deja dicho por qué. Quien manda de verdad es el servidor; esto solo evita ofrecer un
+    /// botón que iba a contestar que no.
+    /// </summary>
+    private bool PuedoBorrar =>
+        _articulo is { } a
+        && a.Estado is KnowledgeStatus.Borrador or KnowledgeStatus.Rechazado
+        && (a.EsMio || _esAdmin)
+        && a.PuntosOtorgados == 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var usuario = Sesion.Usuario ?? await Sesion.RefrescarAsync();
+        _esAdmin = usuario?.Rol == UserRole.Admin;
+    }
+
+    /// <summary>
+    /// Se recarga en OnParametersSet y no solo al montar porque desde el buscador de arriba se salta
+    /// de un artículo a OTRO sin que la pantalla se destruya: Blazor reutiliza el mismo componente y
+    /// solo cambia el parámetro. Sin esto se quedaría el artículo anterior en pantalla con la
+    /// dirección del nuevo.
+    /// </summary>
+    protected override Task OnParametersSetAsync() => CargarAsync();
+
+    private async Task CargarAsync()
+    {
+        _cargando = true;
+        _retirando = false;
+        _articulo = await Api.LeerAsync<ConocimientoArticuloDto>($"api/conocimiento/{Id}");
+        _cargando = false;
+    }
+
+    private async Task EnviarAsync()
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, r) = await Api.EnviarAsync<object?, ResultadoDto>($"api/conocimiento/{Id}/enviar", null);
+            if (!ok || r is null) return;
+
+            Avisos.Resultado(r.Ok, r.Mensaje);
+            if (!r.Ok) return;
+
+            // La cola del líder acaba de crecer: su marca del menú tiene que enterarse ahora.
+            PendientesDeConocimiento.Avisar();
+            await CargarAsync();
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task BorrarAsync()
+    {
+        if (!await Avisos.ConfirmarAsync(
+            "Se borra y no se puede deshacer. ¿Seguro?", "Borrar el artículo", "Borrar")) return;
+
+        _ocupado = true;
+        try
+        {
+            var r = await Http.BorrarAsync($"api/conocimiento/{Id}");
+            if (!string.IsNullOrEmpty(r.Mensaje)) Avisos.Resultado(r.Ok, r.Mensaje);
+            if (!r.Ok) return;
+
+            PendientesDeConocimiento.Avisar();
+            Navegacion.NavigateTo("conocimiento");
+        }
+        finally { _ocupado = false; }
+    }
+
+    /// <summary>Retirado: ya no está publicado, así que se recarga para que la pantalla lo diga.</summary>
+    private async Task AlRetirarAsync()
+    {
+        _retirando = false;
+        await CargarAsync();
+    }
+
+    private void VerEtiqueta(string etiqueta) =>
+        Navegacion.NavigateTo($"conocimiento?etiqueta={Uri.EscapeDataString(etiqueta)}");
+}

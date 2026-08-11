@@ -113,6 +113,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<ForumLike> ForumLikes => Set<ForumLike>();
     public DbSet<ForumAttachment> ForumAttachments => Set<ForumAttachment>();
 
+    // ── Base de conocimiento ─────────────────────────────────────────────────
+    // Una sola tabla para todo: una guía larga y un término del glosario son el mismo tipo de fila
+    // con etiquetas distintas. Ver KnowledgeArticle.
+    public DbSet<KnowledgeArticle> KnowledgeArticles => Set<KnowledgeArticle>();
+
     // ── Propias de la web ────────────────────────────────────────────────────
     // No existen en el escritorio: sustituyen a cosas que allí vivían en la máquina de cada quien
     // (el token de DevOps cifrado con DPAPI, la configuración de columnas) o que no hacían falta
@@ -239,6 +244,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(d => d.Phone).HasMaxLength(50);
             e.Property(d => d.Seniority).HasMaxLength(50);
             e.Property(d => d.EquipmentSerial).HasMaxLength(100);
+
+            // La función dentro del equipo: 200, el mismo tope que valida
+            // PersonasQueryService.LargoMaximoDeFuncion y el mismo que crea el parche de
+            // DatabaseMigrator. Sin esta línea EF la haría nvarchar(max) en las bases NUEVAS mientras
+            // el parche la deja en nvarchar(200) en las que ya existían: la misma columna con dos
+            // tipos según cuándo se creó la base, que es justo lo que advierte el comentario de abajo.
+            e.Property(d => d.TeamFunction).HasMaxLength(200);
 
             // Las longitudes van declaradas y no se dejan a la omisión de EF, que en SQL Server
             // sería nvarchar(max). No es cosmética: una columna (max) no cabe como clave de índice
@@ -671,6 +683,31 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasIndex(a => new { a.PostId, a.Orden });
         });
 
+        // Base de conocimiento. Sin FK al autor por lo mismo que el foro: la documentación es
+        // histórica y tiene que sobrevivir a que se borre la cuenta de quien la escribió.
+        //
+        // PointEntryId tampoco lleva FK, y esto sí es una restricción del motor y no una preferencia:
+        // PointEntries ya cae en cascada desde Developers, así que una segunda ruta hasta la misma
+        // tabla es de las que SQL Server rechaza al crear las restricciones. Es la misma decisión —y
+        // por el mismo motivo— que PoolActivity.PointEntryId.
+        modelBuilder.Entity<KnowledgeArticle>(e =>
+        {
+            e.Property(a => a.Status).HasConversion<int>();
+            e.Property(a => a.Title).IsRequired().HasMaxLength(200);
+            e.Property(a => a.AuthorName).IsRequired().HasMaxLength(200);
+            e.Property(a => a.ReviewerName).HasMaxLength(200);
+            e.Property(a => a.Tags).HasMaxLength(300);
+            e.Ignore(a => a.YaOtorgoPuntos);
+            e.Ignore(a => a.EsPublico);
+            e.Ignore(a => a.EnManosDelAutor);
+
+            // El estado va primero en el índice porque TODA consulta empieza por él: la cola es
+            // «por revisar», el buscador es «publicado» y la lista propia es «lo mío».
+            e.HasIndex(a => new { a.Status, a.UpdatedAtUtc });
+            e.HasIndex(a => new { a.AuthorUserId, a.Status });
+            e.HasIndex(a => a.PublishedAtUtc);
+        });
+
         // Bitácora de tramos trabajados (sin FK a propósito: registro histórico de tiempo por día).
         modelBuilder.Entity<WorkInterval>(e => e.HasIndex(w => new { w.DeveloperId, w.LocalDate }));
 
@@ -696,6 +733,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             modelBuilder.Entity<Template>().Property(t => t.RowVersion).IsRowVersion();
             modelBuilder.Entity<PointEntry>().Property(p => p.RowVersion).IsRowVersion();
             modelBuilder.Entity<DevActivity>().Property(a => a.RowVersion).IsRowVersion();
+
+            // El autor corrigiendo su artículo mientras el líder lo resuelve, cada uno en su pestaña.
+            modelBuilder.Entity<KnowledgeArticle>().Property(a => a.RowVersion).IsRowVersion();
         }
         else
         {
@@ -712,6 +752,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             modelBuilder.Entity<Template>().Ignore(t => t.RowVersion);
             modelBuilder.Entity<PointEntry>().Ignore(p => p.RowVersion);
             modelBuilder.Entity<DevActivity>().Ignore(a => a.RowVersion);
+
+            modelBuilder.Entity<KnowledgeArticle>().Ignore(a => a.RowVersion);
         }
 
         // ── Propias de la web ────────────────────────────────────────────────

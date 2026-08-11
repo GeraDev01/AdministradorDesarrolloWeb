@@ -144,8 +144,17 @@ public static class PersonasEndpoints
 
     private static void MapEquipos(IEndpointRouteBuilder grupo)
     {
-        // El organigrama se sigue leyendo por /api/catalogos/equipos, que ya existe desde la fase 1.
-        // Duplicarlo aquí solo habría creado dos verdades sobre quién es el líder de cada equipo.
+        // ¿Y /api/catalogos/equipos, que servía este mismo organigrama desde la fase 1? Sigue ahí, pero
+        // la pantalla de equipos ya no lo llama. La razón por la que en su día NO se duplicó aquí —«dos
+        // verdades sobre quién es el líder de cada equipo»— es exactamente la que ahora obliga a mover
+        // la lectura: el diagrama necesita dos datos que aquella respuesta no lleva (la descripción del
+        // equipo y la función de cada persona), y el PDF se arma desde este lado. Con la pantalla
+        // leyendo de un sitio y el papel de otro, las dos verdades habrían aparecido igual, solo que
+        // repartidas. Esta ruta y el PDF salen del MISMO método del servicio.
+        grupo.MapGet("/equipos/organigrama", async (
+            PersonasQueryService personas, CancellationToken ct) =>
+            Results.Ok(await personas.OrganigramaAsync(ct)))
+        .WithSummary("El organigrama: equipos con su descripción, su gente y quien no tiene equipo");
 
         grupo.MapPost("/equipos", async (
             GuardarEquipoRequest cuerpo, PersonasQueryService personas, CancellationToken ct) =>
@@ -179,6 +188,14 @@ public static class PersonasEndpoints
         })
         .WithSummary("Asigna el rol de alguien dentro de su equipo");
 
+        grupo.MapPost("/equipos/funcion", async (
+            GuardarFuncionRequest cuerpo, PersonasQueryService personas, CancellationToken ct) =>
+        {
+            var (ok, mensaje) = await personas.GuardarFuncionAsync(cuerpo, ct);
+            return Resultado(ok, mensaje);
+        })
+        .WithSummary("Anota qué hace una persona dentro de su equipo (vacío la borra)");
+
         grupo.MapGet("/equipos/rotaciones", async (
             PersonasQueryService personas, CancellationToken ct) =>
             Results.Ok(await personas.RotacionesAsync(ct)))
@@ -193,9 +210,9 @@ public static class PersonasEndpoints
             // y es el navegador quien decide dónde guardarlo, en vez del «guardar como» del escritorio.
             var pdf = documentos.OrganizacionDeEquipos(datos);
             return Results.File(pdf, "application/pdf",
-                $"Organizacion_Equipos_{DateTime.Now:yyyyMMdd}.pdf");
+                $"Organigrama_Equipos_{DateTime.Now:yyyyMMdd}.pdf");
         })
-        .WithSummary("La organización de equipos en PDF, para imprimirla o repartirla");
+        .WithSummary("El organigrama en PDF, dibujado, para imprimirlo o repartirlo");
     }
 
     // ── Usuarios ─────────────────────────────────────────────────────────────────

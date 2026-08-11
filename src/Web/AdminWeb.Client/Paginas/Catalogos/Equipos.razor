@@ -1,6 +1,6 @@
 @page "/equipos"
 @attribute [Authorize(Policy = "SoloAdmin")]
-@using AdminWeb.Shared.Dtos.Catalogos
+@using System.Globalization
 @using AdminWeb.Shared.Dtos.Personas
 @implements IDisposable
 @inject ClienteApi Api
@@ -8,28 +8,19 @@
 @inject Descargas Descargas
 
 @*
-    El organigrama, ahora también EDITABLE (fase 3).
+    Los equipos, en dos pestañas: la de SIEMPRE, donde se crea, se mueve y se asigna, y el
+    ORGANIGRAMA, que solo se mira.
 
-    En fase 1 esta pantalla era solo consulta y lo decía: reorganizar equipos seguía haciéndose desde
-    el escritorio. Aquí se completa — crear y editar equipos, mover gente, asignar roles, ver el
-    historial de rotaciones y generar el PDF — conservando tal cual lo que ya se leía: el líder
-    arriba, los demás agrupados por rol, y una columna final con quien todavía no tiene equipo.
+    Que el diagrama no se edite es una decisión, no una carencia. Un organigrama que además fuera
+    editable tendría que dejar arrastrar personas entre cajas, y entonces habría DOS formas de mover a
+    alguien de equipo: la de la pestaña de al lado —con su motivo, su rotación registrada y sus reglas
+    de líder y rol— y la del diagrama. Dos caminos para la misma escritura terminan siempre igual: uno
+    de los dos se olvida de una de las reglas. Aquí el diagrama enseña y la pestaña de al lado manda.
 
-    Lo que CAMBIA respecto al escritorio, y por qué no había alternativa:
-
-      · La asignación era ARRASTRAR Y SOLTAR entre columnas. En el navegador se sustituye por dos
-        listas con botones. El arrastre del escritorio dependía de un cursor con precisión de píxel;
-        en la web habría que reimplementarlo con eventos de puntero y quedaría fuera de alcance para
-        quien navegue con teclado. Lo que SÍ se conserva es lo que el arrastre hacía visible de un
-        golpe: quién no tiene equipo, que aquí es la lista de la izquierda y lleva su contador.
-      · El rol se asignaba con el clic derecho sobre la tarjeta. Aquí es un desplegable por persona
-        en el panel de asignación: un menú contextual en una página web compite con el del propio
-        navegador y hay quien nunca lo encuentra.
-
-    Lo que NO cambia: mover a alguien le quita el rol y suelta el cargo de líder del equipo que deja,
-    y cada movimiento queda registrado como rotación con los nombres copiados —para que el historial
-    sobreviva a que después se borre el equipo—. Esas tres reglas son de MoveDeveloper y siguen en el
-    servidor, no aquí.
+    Lo que YA HABÍA y sigue igual: crear y editar equipos, mover gente con motivo, asignar roles, el
+    historial de rotaciones y el PDF. Lo que cambia respecto al escritorio —el arrastrar y soltar
+    sustituido por dos listas con botones, y el rol en un desplegable en vez de en el clic derecho—
+    está explicado abajo, donde ocurre.
 
     Solo aparecen los desarrolladores activos, igual que en el escritorio: un organigrama con quien
     ya no está deja de describir al equipo.
@@ -41,7 +32,7 @@
     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem" Wrap="FlexWrap.Wrap">
         <RadzenText TextStyle="TextStyle.H5" Style="margin:0">Equipos</RadzenText>
         <RadzenButton Text="Nuevo equipo" Icon="add" Disabled="@_ocupado" Click="@AbrirEquipoNuevo" />
-        <RadzenButton Text="Generar PDF" Icon="download" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+        <RadzenButton Text="Organigrama en PDF" Icon="download" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
                       Click="@GenerarPdf" />
         @* «history» —el reloj con la flecha hacia atrás— es el mismo concepto que la entrada
            «Bitácora» del menú. Era el único botón de esta cabecera sin Icon, así que además del
@@ -72,18 +63,25 @@
                         <RadzenLabel Text="Color (hex)" Component="colorEquipo" />
                         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
                             @* EXCEPCIÓN CONSCIENTE: aquí sí va un hex escrito a mano. Lo que se
-                               captura en esta caja se guarda TAL CUAL en la base y puede acabar en
-                               el PDF del organigrama, y «var(--rz-primary)» no significa nada fuera
-                               del navegador. Es el ámbar del acento en claro (--rz-primary de
-                               tema.css): si allí cambia, cámbialo aquí a mano. *@
+                               captura en esta caja se guarda TAL CUAL en la base y acaba en el PDF
+                               del organigrama, y «var(--rz-primary)» no significa nada fuera del
+                               navegador. Es el ámbar del acento en claro (--rz-primary de tema.css):
+                               si allí cambia, cámbialo aquí a mano. *@
                             <RadzenTextBox @bind-Value="_colorEquipo" Name="colorEquipo" MaxLength="9"
                                            Placeholder="#BA490B" Style="width:8rem" />
-                            @* La muestra en vivo: el color es lo que identifica al equipo en el
-                               tablero y en el PDF, y un hex mal escrito solo se nota al verlo. *@
-                            <div style="@($"width:2rem;height:2rem;border-radius:4px;background:{Color(_colorEquipo)}")"></div>
+                            @* La muestra en vivo, con la MISMA regla que aplica el PDF. Antes se
+                               pintaba el texto tal cual, así que un «#ABC» o un «azul» se veían de
+                               color aquí y salían grises en el papel: la muestra prometía algo que
+                               el documento no cumplía. *@
+                            <div style="@($"width:2rem;height:2rem;border-radius:4px;background:{ColorDeEquipo(_colorEquipo)}")"></div>
                         </RadzenStack>
                     </RadzenStack>
                 </RadzenStack>
+
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                    El color tiene que ser «#RRGGBB» (seis dígitos). Si se deja vacío o mal escrito, el
+                    equipo se dibuja con el color de la aplicación, en pantalla y en el PDF.
+                </RadzenText>
 
                 <RadzenTextArea @bind-Value="_descripcionEquipo" Rows="2" Style="width:100%"
                                 Placeholder="Descripción (opcional): a qué se dedica este equipo" />
@@ -101,238 +99,444 @@
     {
         <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" />
     }
-    else if (_organizacion is null)
+    else if (_organigrama is null)
     {
         <RadzenText>No se pudo cargar la organización.</RadzenText>
     }
     else
     {
-        @* ── Asignación: dos listas con botones ─────────────────────────────────
-           Sustituye al arrastrar y soltar. La lista de la izquierda es la que importa: es dónde se
-           ve, sin buscar, a quién le falta equipo. *@
-        <RadzenCard>
-            <RadzenStack Gap="0.75rem">
-                <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">Asignar personas a equipos</RadzenText>
+        <RadzenTabs>
+            <Tabs>
+                @* ── Pestaña 1: donde se trabaja ──────────────────────────────── *@
+                <RadzenTabsItem Text="Organización" Icon="groups">
+                    <RadzenStack Gap="1rem">
+                        @* ── Asignación: dos listas con botones ─────────────────────────
+                           Sustituye al arrastrar y soltar del escritorio, que dependía de un cursor
+                           con precisión de píxel y habría dejado fuera a quien navega con teclado.
+                           Lo que SÍ se conserva es lo que el arrastre hacía visible de un golpe:
+                           quién no tiene equipo, que aquí es la lista de la izquierda con su
+                           contador. *@
+                        <RadzenCard>
+                            <RadzenStack Gap="0.75rem">
+                                <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">Asignar personas a equipos</RadzenText>
 
-                <div style="display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-start">
-                    <div style="flex:1 1 18rem;min-width:16rem">
-                        <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">
-                            Sin equipo (@_organizacion.SinEquipo.Count)
-                        </RadzenText>
-                        <div style="max-height:16rem;overflow:auto;padding:.25rem 0">
-                            @if (_organizacion.SinEquipo.Count == 0)
-                            {
-                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
-                                    Todo el mundo tiene equipo.
-                                </RadzenText>
-                            }
-                            @foreach (var persona in _organizacion.SinEquipo)
-                            {
-                                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
-                                    <RadzenCheckBox TValue="bool" Value="@_marcadosSinEquipo.Contains(persona.Id)"
-                                                    ValueChanged="@((bool m) => Marcar(_marcadosSinEquipo, persona.Id, m))"
-                                                    Disabled="@_ocupado" />
-                                    <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">@persona.Nombre</RadzenText>
-                                </RadzenStack>
-                            }
-                        </div>
-                    </div>
-
-                    <RadzenStack Gap="0.5rem" Style="flex:0 0 auto;padding-top:2rem">
-                        @* «group_add» es la única excepción a «crear = add»: aquí no se crea nada,
-                           se mete a alguien en un equipo que ya existe. Los dos botones perdieron su
-                           flecha: describían el MOVIMIENTO en la pantalla (de una columna a la otra),
-                           que es una casualidad de la maquetación, mientras que group_add/remove
-                           describen la ACCIÓN, que no cambia si mañana se reordenan las columnas. Y
-                           como RadzenButton no tiene IconPosition, una flecha no podría ir detrás del
-                           texto ni queriendo: solo quedaría un carácter colgando dentro del Text. *@
-                        <RadzenButton Text="Mover al equipo" Icon="group_add" Size="ButtonSize.Small"
-                                      Disabled="@(_ocupado || _equipoDestino is null || _marcadosSinEquipo.Count == 0)"
-                                      Click="@MoverAlEquipo" />
-                        <RadzenButton Text="Quitar del equipo" Icon="remove" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
-                                      Disabled="@(_ocupado || _marcadosDelEquipo.Count == 0)"
-                                      Click="@QuitarDelEquipo" />
-                    </RadzenStack>
-
-                    <div style="flex:1 1 24rem;min-width:20rem">
-                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
-                                     Gap="0.5rem" Wrap="FlexWrap.Wrap">
-                            <RadzenLabel Text="Equipo:" Component="destino" />
-                            <RadzenDropDown TValue="int?" @bind-Value="_equipoDestino" Name="destino"
-                                            Data="@_organizacion.Equipos" TextProperty="Nombre" ValueProperty="Id"
-                                            Placeholder="Elige un equipo" Style="min-width:14rem"
-                                            Change="@(_ => _marcadosDelEquipo.Clear())" Disabled="@_ocupado" />
-                        </RadzenStack>
-
-                        <div style="max-height:16rem;overflow:auto;padding:.25rem 0">
-                            @if (EquipoElegido is not { } elegido)
-                            {
-                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
-                                    Elige un equipo para ver y cambiar a su gente.
-                                </RadzenText>
-                            }
-                            else
-                            {
-                                @foreach (var integrante in elegido.Integrantes)
-                                {
-                                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
-                                        <RadzenCheckBox TValue="bool" Value="@_marcadosDelEquipo.Contains(integrante.Id)"
-                                                        ValueChanged="@((bool m) => Marcar(_marcadosDelEquipo, integrante.Id, m))"
-                                                        Disabled="@_ocupado" />
-                                        @* Aquí la marca SÍ hace falta: es una lista plana de gente sin
-                                           ninguna cabecera que diga quién manda. Material no tiene
-                                           corona y lo más cercano del recorte es «workspace_premium»
-                                           (la roseta con cinta), así que es un apaño consciente — por
-                                           eso lleva title: un dibujo que no se reconoce a la primera
-                                           necesita que se le pueda preguntar. *@
-                                        <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0" Style="min-width:11rem">
-                                            @if (integrante.EsLider) { <RadzenIcon Icon="workspace_premium" title="Líder del equipo" /> }
-                                            @integrante.Nombre
+                                <div style="display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-start">
+                                    <div style="flex:1 1 18rem;min-width:16rem">
+                                        <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">
+                                            Sin equipo (@_organigrama.SinEquipo.Count)
                                         </RadzenText>
-                                        @* El rol se cambia aquí, en un desplegable: el clic derecho del
-                                           escritorio compite en la web con el menú del navegador. *@
-                                        <RadzenDropDown TValue="TeamRole" Value="@integrante.Rol"
-                                                        Data="@Roles" TextProperty="Texto" ValueProperty="Valor"
-                                                        Style="width:11rem" Disabled="@_ocupado"
-                                                        ValueChanged="@((TeamRole rol) => AsignarRol(integrante.Id, rol))" />
+                                        <div style="max-height:16rem;overflow:auto;padding:.25rem 0">
+                                            @if (_organigrama.SinEquipo.Count == 0)
+                                            {
+                                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                                    Todo el mundo tiene equipo.
+                                                </RadzenText>
+                                            }
+                                            @foreach (var persona in _organigrama.SinEquipo)
+                                            {
+                                                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                                                    <RadzenCheckBox TValue="bool" Value="@_marcadosSinEquipo.Contains(persona.Id)"
+                                                                    ValueChanged="@((bool m) => Marcar(_marcadosSinEquipo, persona.Id, m))"
+                                                                    Disabled="@_ocupado" />
+                                                    <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">@persona.Nombre</RadzenText>
+                                                </RadzenStack>
+                                            }
+                                        </div>
+                                    </div>
+
+                                    <RadzenStack Gap="0.5rem" Style="flex:0 0 auto;padding-top:2rem">
+                                        @* «group_add» es la única excepción a «crear = add»: aquí no se crea nada,
+                                           se mete a alguien en un equipo que ya existe. Los dos botones perdieron su
+                                           flecha: describían el MOVIMIENTO en la pantalla (de una columna a la otra),
+                                           que es una casualidad de la maquetación, mientras que group_add/remove
+                                           describen la ACCIÓN, que no cambia si mañana se reordenan las columnas. *@
+                                        <RadzenButton Text="Mover al equipo" Icon="group_add" Size="ButtonSize.Small"
+                                                      Disabled="@(_ocupado || _equipoDestino is null || _marcadosSinEquipo.Count == 0)"
+                                                      Click="@MoverAlEquipo" />
+                                        <RadzenButton Text="Quitar del equipo" Icon="remove" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                                      Disabled="@(_ocupado || _marcadosDelEquipo.Count == 0)"
+                                                      Click="@QuitarDelEquipo" />
                                     </RadzenStack>
-                                }
-                                @if (elegido.Integrantes.Count == 0)
-                                {
-                                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
-                                        Este equipo no tiene a nadie todavía.
+
+                                    <div style="flex:1 1 32rem;min-width:24rem">
+                                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                                     Gap="0.5rem" Wrap="FlexWrap.Wrap">
+                                            <RadzenLabel Text="Equipo:" Component="destino" />
+                                            <RadzenDropDown TValue="int?" @bind-Value="_equipoDestino" Name="destino"
+                                                            Data="@_organigrama.Equipos" TextProperty="Nombre" ValueProperty="Id"
+                                                            Placeholder="Elige un equipo" Style="min-width:14rem"
+                                                            Change="@(_ => _marcadosDelEquipo.Clear())" Disabled="@_ocupado" />
+                                        </RadzenStack>
+
+                                        <div style="max-height:20rem;overflow:auto;padding:.25rem 0">
+                                            @if (EquipoElegido is not { } elegido)
+                                            {
+                                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                                    Elige un equipo para ver y cambiar a su gente.
+                                                </RadzenText>
+                                            }
+                                            else
+                                            {
+                                                @foreach (var integrante in elegido.Integrantes)
+                                                {
+                                                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                                                 Gap="0.5rem" Wrap="FlexWrap.Wrap" Style="margin-bottom:.35rem">
+                                                        <RadzenCheckBox TValue="bool" Value="@_marcadosDelEquipo.Contains(integrante.Id)"
+                                                                        ValueChanged="@((bool m) => Marcar(_marcadosDelEquipo, integrante.Id, m))"
+                                                                        Disabled="@_ocupado" />
+                                                        @* Aquí la marca SÍ hace falta: es una lista plana de gente sin
+                                                           ninguna cabecera que diga quién manda. Material no tiene
+                                                           corona y lo más cercano del recorte es «workspace_premium»
+                                                           (la roseta con cinta), así que es un apaño consciente — por
+                                                           eso lleva title: un dibujo que no se reconoce a la primera
+                                                           necesita que se le pueda preguntar. *@
+                                                        <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0" Style="min-width:11rem">
+                                                            @if (integrante.EsLider) { <RadzenIcon Icon="workspace_premium" title="Líder del equipo" /> }
+                                                            @integrante.Nombre
+                                                        </RadzenText>
+                                                        @* El rol se cambia aquí, en un desplegable: el clic derecho del
+                                                           escritorio compite en la web con el menú del navegador. *@
+                                                        <RadzenDropDown TValue="TeamRole" Value="@integrante.Rol"
+                                                                        Data="@Roles" TextProperty="Texto" ValueProperty="Valor"
+                                                                        Style="width:10rem" Disabled="@_ocupado"
+                                                                        ValueChanged="@((TeamRole rol) => AsignarRol(integrante.Id, rol))" />
+                                                        @* LA FUNCIÓN, que es el campo nuevo. Va PEGADA al rol y no en
+                                                           otra pantalla porque son la misma pregunta hecha dos veces:
+                                                           el rol dice de qué es (y lo comparte con otros cuatro), la
+                                                           función dice qué hace (y no lo comparte con nadie). Quien
+                                                           está reorganizando el equipo es justo quien lo sabe.
+
+                                                           Se guarda al SALIR de la caja (Change), no en cada tecla: es
+                                                           una frase, y guardar en cada pulsación llenaría la bitácora
+                                                           de una línea por letra. *@
+                                                        <RadzenTextBox Value="@(integrante.Funcion ?? "")"
+                                                                       MaxLength="@LargoMaximoDeFuncion" Style="flex:1 1 16rem;min-width:12rem"
+                                                                       Placeholder="Función (opcional): qué hace en el equipo"
+                                                                       Disabled="@_ocupado"
+                                                                       Change="@((string f) => GuardarFuncion(integrante, f))" />
+                                                    </RadzenStack>
+                                                }
+                                                @if (elegido.Integrantes.Count == 0)
+                                                {
+                                                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                                        Este equipo no tiene a nadie todavía.
+                                                    </RadzenText>
+                                                }
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                    Mover a alguien le deja «sin rol» y sin función en su nuevo equipo, y suelta el cargo
+                                    de líder del que deja. Cada movimiento queda registrado como rotación.
+                                </RadzenText>
+                            </RadzenStack>
+                        </RadzenCard>
+
+                        @if (_historial is not null)
+                        {
+                            <RadzenCard>
+                                <RadzenStack Gap="0.5rem">
+                                    @* El mismo glifo que el botón «Historial» que abre este panel: el que abre y lo
+                                       que se abre tienen que reconocerse como la misma cosa. Va como <RadzenIcon>
+                                       porque RadzenText no admite el parámetro Icon. *@
+                                    <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                                        <RadzenIcon Icon="history" /> Rotaciones recientes
                                     </RadzenText>
-                                }
+                                    <RadzenDataGrid TItem="RotacionDto" Data="@_historial" AllowSorting="false"
+                                                    AllowPaging="true" PageSize="10"
+                                                    EmptyText="Todavía no se ha movido a nadie de equipo.">
+                                        <Columns>
+                                            <RadzenDataGridColumn TItem="RotacionDto" Title="Cuándo" Width="150px" Sortable="false">
+                                                <Template Context="r">@r.FechaUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</Template>
+                                            </RadzenDataGridColumn>
+                                            <RadzenDataGridColumn TItem="RotacionDto" Property="Desarrollador" Title="Persona" />
+                                            <RadzenDataGridColumn TItem="RotacionDto" Property="DeEquipo" Title="De" Width="160px" />
+                                            <RadzenDataGridColumn TItem="RotacionDto" Property="AEquipo" Title="A" Width="160px" />
+                                            <RadzenDataGridColumn TItem="RotacionDto" Property="Nota" Title="Motivo">
+                                                <Template Context="r">@(r.Nota ?? "")</Template>
+                                            </RadzenDataGridColumn>
+                                        </Columns>
+                                    </RadzenDataGrid>
+                                </RadzenStack>
+                            </RadzenCard>
+                        }
+
+                        @* Las tarjetas de siempre. Son la LISTA —cada equipo con su gente agrupada por
+                           rol— y siguen aquí aunque exista el diagrama: para el trabajo del día a día
+                           esto se lee más rápido, y el que quiera la foto completa tiene la pestaña de
+                           al lado. Columnas que se envuelven: en el escritorio el tablero se desplazaba
+                           en horizontal porque la ventana era de ancho fijo; en el navegador se
+                           aprovecha el ancho que haya. *@
+                        <div style="display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-start">
+                            @foreach (var equipo in _organigrama.Equipos)
+                            {
+                                <RadzenCard Style="width:17rem;padding:0;overflow:hidden">
+                                    <div style="@($"border-left:6px solid {ColorDeEquipo(equipo.ColorHex)};padding:.75rem 1rem")">
+                                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                                     JustifyContent="JustifyContent.SpaceBetween" Gap="0.25rem">
+                                            <RadzenText TextStyle="TextStyle.Subtitle1" Style="margin:0">@equipo.Nombre</RadzenText>
+                                            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem">
+                                                <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Light"
+                                                              Size="ButtonSize.ExtraSmall" title="Editar este equipo"
+                                                              Disabled="@_ocupado" Click="@(() => AbrirEquipo(equipo))" />
+                                                <RadzenButton Icon="delete" ButtonStyle="ButtonStyle.Danger"
+                                                              Size="ButtonSize.ExtraSmall" title="Eliminar este equipo"
+                                                              Disabled="@_ocupado" Click="@(() => EliminarEquipo(equipo))" />
+                                            </RadzenStack>
+                                        </RadzenStack>
+                                        <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
+                                            @* Los tres datos con su palabra: la línea ya empezaba con «N
+                                               integrante(s)» escrito, así que los otros dos con un dibujo al lado
+                                               quedaban en un formato distinto al de su vecino de la izquierda. *@
+                                            @equipo.Integrantes.Count integrante(s) &nbsp;·&nbsp; @equipo.Sistemas.Count sistema(s) &nbsp;·&nbsp; @equipo.Proyectos.Count proyecto(s)
+                                        </RadzenText>
+                                        @if (!string.IsNullOrWhiteSpace(equipo.Descripcion))
+                                        {
+                                            <RadzenText TextStyle="TextStyle.Caption" Style="margin:.35rem 0 0">
+                                                @equipo.Descripcion
+                                            </RadzenText>
+                                        }
+                                    </div>
+
+                                    <div style="padding:.5rem .75rem 1rem">
+                                        @if (equipo.Integrantes.Count == 0)
+                                        {
+                                            <RadzenText TextStyle="TextStyle.Caption">(sin integrantes)</RadzenText>
+                                        }
+                                        else
+                                        {
+                                            @* El líder ya viene primero y marcado desde el servidor: quién lo es
+                                               depende de dos datos que pueden discrepar (el rol de la ficha y el
+                                               LeadDeveloperId del equipo) y esa regla no se decide en la pantalla. *@
+                                            @foreach (var grupo in equipo.Integrantes.GroupBy(i => i.RolTexto))
+                                            {
+                                                <RadzenText TextStyle="TextStyle.Caption"
+                                                            Style="@($"margin:.6rem 0 .2rem;font-weight:600;color:{grupo.First().ColorDeRol}")">
+                                                    @grupo.Key.ToUpperInvariant()
+                                                </RadzenText>
+                                                @* Aquí el líder NO se marca, al revés que en la lista de asignación de
+                                                   arriba: este bucle agrupa por rol y pinta dos renglones más arriba
+                                                   el rótulo del rol en mayúsculas y en su color («LÍDER»). *@
+                                                @foreach (var i in grupo)
+                                                {
+                                                    <RadzenText TextStyle="TextStyle.Body2" Style="margin:.1rem 0">
+                                                        @i.Nombre
+                                                    </RadzenText>
+                                                    @if (!string.IsNullOrWhiteSpace(i.Funcion))
+                                                    {
+                                                        <RadzenText TextStyle="TextStyle.Caption" Style="margin:0 0 .2rem">
+                                                            @i.Funcion
+                                                        </RadzenText>
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    </div>
+                                </RadzenCard>
+                            }
+
+                            @if (_organigrama.SinEquipo.Count > 0)
+                            {
+                                <RadzenCard Style="width:17rem;padding:0;overflow:hidden">
+                                    @* Este borde NO es un color de equipo —«Sin equipo» no es un equipo—: es un
+                                       borde, y por eso va a la variable de bordes y no a un gris escrito a mano. *@
+                                    <div style="border-left:6px solid var(--rz-border-color);padding:.75rem 1rem">
+                                        <RadzenText TextStyle="TextStyle.Subtitle1" Style="margin:0">Sin equipo</RadzenText>
+                                        <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
+                                            @_organigrama.SinEquipo.Count integrante(s)
+                                        </RadzenText>
+                                    </div>
+                                    <div style="padding:.5rem .75rem 1rem">
+                                        @foreach (var i in _organigrama.SinEquipo)
+                                        {
+                                            <RadzenText TextStyle="TextStyle.Body2" Style="margin:.1rem 0">@i.Nombre</RadzenText>
+                                        }
+                                    </div>
+                                </RadzenCard>
                             }
                         </div>
-                    </div>
-                </div>
+                    </RadzenStack>
+                </RadzenTabsItem>
 
-                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
-                    Mover a alguien le deja «sin rol» en su nuevo equipo y suelta el cargo de líder del
-                    que deja. Cada movimiento queda registrado como rotación.
-                </RadzenText>
-            </RadzenStack>
-        </RadzenCard>
-
-        @if (_historial is not null)
-        {
-            <RadzenCard>
-                <RadzenStack Gap="0.5rem">
-                    @* El mismo glifo que el botón «Historial» que abre este panel: el que abre y lo
-                       que se abre tienen que reconocerse como la misma cosa. Va como <RadzenIcon>
-                       porque RadzenText no admite el parámetro Icon. *@
-                    <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
-                        <RadzenIcon Icon="history" /> Rotaciones recientes
-                    </RadzenText>
-                    <RadzenDataGrid TItem="RotacionDto" Data="@_historial" AllowSorting="false"
-                                    AllowPaging="true" PageSize="10"
-                                    EmptyText="Todavía no se ha movido a nadie de equipo.">
-                        <Columns>
-                            <RadzenDataGridColumn TItem="RotacionDto" Title="Cuándo" Width="150px" Sortable="false">
-                                <Template Context="r">@r.FechaUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</Template>
-                            </RadzenDataGridColumn>
-                            <RadzenDataGridColumn TItem="RotacionDto" Property="Desarrollador" Title="Persona" />
-                            <RadzenDataGridColumn TItem="RotacionDto" Property="DeEquipo" Title="De" Width="160px" />
-                            <RadzenDataGridColumn TItem="RotacionDto" Property="AEquipo" Title="A" Width="160px" />
-                            <RadzenDataGridColumn TItem="RotacionDto" Property="Nota" Title="Motivo">
-                                <Template Context="r">@(r.Nota ?? "")</Template>
-                            </RadzenDataGridColumn>
-                        </Columns>
-                    </RadzenDataGrid>
-                </RadzenStack>
-            </RadzenCard>
-        }
-
-        @* Columnas que se envuelven: en el escritorio el tablero se desplazaba en horizontal porque
-           la ventana era de ancho fijo; en el navegador se aprovecha el ancho que haya. *@
-        <div style="display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-start">
-            @foreach (var equipo in _organizacion.Equipos)
-            {
-                <RadzenCard Style="width:17rem;padding:0;overflow:hidden">
-                    <div style="@($"border-left:6px solid {Color(equipo.ColorHex)};padding:.75rem 1rem")">
+                @* ── Pestaña 2: el organigrama ────────────────────────────────── *@
+                <RadzenTabsItem Text="Organigrama" Icon="account_tree">
+                    <RadzenStack Gap="0.75rem">
                         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
-                                     JustifyContent="JustifyContent.SpaceBetween" Gap="0.25rem">
-                            <RadzenText TextStyle="TextStyle.Subtitle1" Style="margin:0">@equipo.Nombre</RadzenText>
-                            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem">
-                                <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Light"
-                                              Size="ButtonSize.ExtraSmall" title="Editar este equipo"
-                                              Disabled="@_ocupado" Click="@(() => AbrirEquipo(equipo))" />
-                                <RadzenButton Icon="delete" ButtonStyle="ButtonStyle.Danger"
-                                              Size="ButtonSize.ExtraSmall" title="Eliminar este equipo"
-                                              Disabled="@_ocupado" Click="@(() => EliminarEquipo(equipo))" />
+                                     Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.35rem">
+                                <RadzenLabel Text="Columnas:" Component="columnas" />
+                                <RadzenDropDown TValue="int" @bind-Value="_columnas" Name="columnas"
+                                                Data="@ColumnasPosibles" Style="width:5rem" />
                             </RadzenStack>
-                        </RadzenStack>
-                        <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
-                            @* Los tres datos con su palabra: la línea ya empezaba con «N
-                               integrante(s)» escrito, así que los otros dos con un dibujo al lado
-                               quedaban en un formato distinto al de su vecino de la izquierda, y
-                               encima había que adivinar qué era la carpeta y qué el monitor. Dos
-                               <RadzenIcon> («dns» y «folder») también valdrían, pero entonces habría
-                               que ponerle uno también a «integrante(s)» o quedaría uno sin marca. *@
-                            @equipo.Integrantes.Count integrante(s) &nbsp;·&nbsp; @equipo.Sistemas sistema(s) &nbsp;·&nbsp; @equipo.Proyectos proyecto(s)
-                        </RadzenText>
-                        @if (!string.IsNullOrWhiteSpace(equipo.Descripcion))
-                        {
-                            <RadzenText TextStyle="TextStyle.Caption" Style="margin:.35rem 0 0">
-                                @equipo.Descripcion
+                            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.35rem">
+                                <RadzenLabel Text="Tamaño:" Component="escala" />
+                                <RadzenDropDown TValue="int" @bind-Value="_escala" Name="escala"
+                                                Data="@EscalasPosibles" TextProperty="Texto" ValueProperty="Valor"
+                                                Style="width:7rem" />
+                            </RadzenStack>
+                            <RadzenButton Text="Plegar todos" Icon="expand_less" ButtonStyle="ButtonStyle.Light"
+                                          Size="ButtonSize.Small" Click="@PlegarTodos" />
+                            <RadzenButton Text="Desplegar todos" Icon="expand_more" ButtonStyle="ButtonStyle.Light"
+                                          Size="ButtonSize.Small" Click="@(() => _plegados.Clear())" />
+                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                Pulsa una caja para plegarla o desplegarla. Aquí solo se mira: los cambios se hacen
+                                en «Organización».
                             </RadzenText>
-                        }
-                    </div>
+                        </RadzenStack>
 
-                    <div style="padding:.5rem .75rem 1rem">
-                        @if (equipo.Integrantes.Count == 0)
-                        {
-                            <RadzenText TextStyle="TextStyle.Caption">(sin integrantes)</RadzenText>
-                        }
-                        else
-                        {
-                            @* El líder ya viene primero y marcado desde el servidor: quién lo es
-                               depende de dos datos que pueden discrepar (el rol de la ficha y el
-                               LeadDeveloperId del equipo) y esa regla no se decide en la pantalla. *@
-                            @foreach (var grupo in equipo.Integrantes.GroupBy(i => i.RolTexto))
-                            {
-                                <RadzenText TextStyle="TextStyle.Caption"
-                                            Style="@($"margin:.6rem 0 .2rem;font-weight:600;color:{grupo.First().ColorDeRol}")">
-                                    @grupo.Key.ToUpperInvariant()
-                                </RadzenText>
-                                @* Aquí el líder NO se marca, al revés que en la lista de asignación de
-                                   arriba: este bucle agrupa por rol y pinta dos renglones más arriba
-                                   el rótulo del rol en mayúsculas y en su color («LÍDER»), así que
-                                   una marca al lado del nombre repetiría lo que ya está escrito con
-                                   todas sus letras. *@
-                                @foreach (var i in grupo)
-                                {
-                                    <RadzenText TextStyle="TextStyle.Body2" Style="margin:.1rem 0">
-                                        @i.Nombre
-                                    </RadzenText>
-                                }
+                        <RadzenCard Style="padding:.75rem">
+                            @{
+                                var trazado = Trazar(_organigrama);
                             }
-                        }
-                    </div>
-                </RadzenCard>
-            }
+                            @* El diagrama entero cabe SIEMPRE a lo ancho porque las cajas se envuelven en
+                               filas: lo que crece es el alto, y de eso ya se encarga la página. El
+                               desplazamiento horizontal solo aparece al subir el tamaño por encima del
+                               100 %, que es justo cuando alguien pide letra más grande a cambio de
+                               moverse. *@
+                            <div style="overflow:auto;max-width:100%">
+                                @* TODO EL COLOR VA EN style Y NUNCA EN fill= NI EN stroke=. Los atributos
+                                   de presentación aceptan var() en los navegadores modernos, pero si la
+                                   variable no existe fallan EN SILENCIO y la forma se pinta de negro: un
+                                   dibujo entero en negro sobre fondo grafito y nadie se entera. Con style,
+                                   si la variable falta la forma no se pinta y el error salta a la vista en
+                                   la primera prueba. Es la misma regla de la línea de tiempo del sprint. *@
+                                <svg viewBox="0 0 @N(Lienzo) @N(trazado.Alto)"
+                                     style="@($"width:{_escala}%;height:auto;display:block")"
+                                     role="group" aria-label="@AriaDelDiagrama(_organigrama)">
 
-            @if (_organizacion.SinEquipo.Count > 0)
-            {
-                <RadzenCard Style="width:17rem;padding:0;overflow:hidden">
-                    @* Este borde NO es un color de equipo —«Sin equipo» no es un equipo—: es un
-                       borde, y por eso va a la variable de bordes y no a un gris escrito a mano. *@
-                    <div style="border-left:6px solid var(--rz-border-color);padding:.75rem 1rem">
-                        <RadzenText TextStyle="TextStyle.Subtitle1" Style="margin:0">Sin equipo</RadzenText>
-                        <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
-                            @_organizacion.SinEquipo.Count integrante(s)
+                                    @* El nodo de arriba. Sin él las cajas son una cuadrícula; con él,
+                                       cuelgan de algo y el dibujo es un organigrama. *@
+                                    <rect x="0" y="0" width="340" height="@N(AltoRaiz)" rx="3"
+                                          style="fill:var(--rz-card-background-color);stroke:var(--rz-text-secondary-color)"
+                                          stroke-width="1.4" />
+                                    <text x="14" y="24" font-size="15" font-weight="600"
+                                          style="fill:var(--rz-text-color)">Organización</text>
+                                    <text x="14" y="42" font-size="10"
+                                          style="fill:var(--rz-text-secondary-color)">@ResumenDeLaRaiz(_organigrama)</text>
+
+                                    @* El espinazo y las ramas: una barra por FILA de cajas, no una sola
+                                       para todas. Con una sola barra, la segunda fila colgaría de las
+                                       cajas de la primera y se leería como si fueran subequipos; aquí
+                                       todos los equipos están al mismo nivel. *@
+                                    <line x1="@N(EspinazoX)" y1="@N(AltoRaiz)" x2="@N(EspinazoX)" y2="@N(trazado.EspinazoHasta)"
+                                          style="stroke:var(--rz-border-color)" stroke-width="1.4" />
+
+                                    @foreach (var rama in trazado.Ramas)
+                                    {
+                                        <line x1="@N(EspinazoX)" y1="@N(rama.Y)" x2="@N(rama.Hasta)" y2="@N(rama.Y)"
+                                              style="stroke:var(--rz-border-color)" stroke-width="1.4" />
+                                        @foreach (var bajada in rama.Bajadas)
+                                        {
+                                            <line x1="@N(bajada)" y1="@N(rama.Y)" x2="@N(bajada)" y2="@N(rama.Y + AltoRama)"
+                                                  style="stroke:var(--rz-border-color)" stroke-width="1.4" />
+                                        }
+                                    }
+
+                                    @foreach (var caja in trazado.Cajas)
+                                    {
+                                        var c = caja;
+                                        <g tabindex="0" role="button" style="cursor:pointer"
+                                           aria-label="@AriaDeLaCaja(c)"
+                                           @onclick="@(() => AlternarPliegue(c.Id))"
+                                           @onkeydown="@((KeyboardEventArgs e) => TeclaSobreCaja(e, c.Id))">
+                                            <title>@AriaDeLaCaja(c)</title>
+
+                                            <rect x="@N(c.X)" y="@N(c.Y)" width="@N(c.Ancho)" height="@N(c.Alto)" rx="3"
+                                                  style="fill:var(--rz-card-background-color);stroke:var(--rz-border-color)"
+                                                  stroke-width="1" />
+
+                                            @* LA BANDA DE COLOR, y por qué lleva una pista gris debajo.
+                                               El color lo teclea una persona: puede ser un amarillo pálido
+                                               (invisible sobre la tarjeta clara) o un azul casi negro
+                                               (invisible sobre la oscura). La pista en --rz-base-300 se
+                                               ve en los dos temas pase lo que pase, y el color se pinta
+                                               un punto por dentro: si desaparece, sigue quedando el
+                                               marco, así que la caja nunca parece rota — solo pierde el
+                                               color, que es un apoyo y no la información. El NOMBRE del
+                                               equipo va siempre en tinta del tema, nunca sobre el color:
+                                               con texto encima no hay hex que se pueda garantizar. *@
+                                            <rect x="@N(c.X)" y="@N(c.Y)" width="@N(c.Ancho)" height="@N(Banda)"
+                                                  style="fill:var(--rz-base-300)" />
+                                            <rect x="@N(c.X + 1)" y="@N(c.Y + 1)" width="@N(c.Ancho - 2)" height="@N(Banda - 2)"
+                                                  style="@($"fill:{c.Color}")" />
+
+                                            @foreach (var renglon in c.Renglones)
+                                            {
+                                                var y = c.Y + renglon.Y;
+                                                switch (renglon.Tipo)
+                                                {
+                                                    case Trazo.Separador:
+                                                        <line x1="@N(c.X + Pad)" y1="@N(y)" x2="@N(c.X + c.Ancho - Pad)" y2="@N(y)"
+                                                              style="stroke:var(--rz-border-color)" stroke-width="1" />
+                                                        break;
+
+                                                    case Trazo.Titulo:
+                                                        @* Los <text> del SVG van envueltos en un <g> cuando
+                                                           salen de dentro de un bloque de código: ahí Razor
+                                                           toma «text» por su etiqueta de escape y no compila
+                                                           si lleva atributos. El <g> devuelve el contexto a
+                                                           marcado y agrupa, que es para lo que existe. *@
+                                                        <g>
+                                                            <text x="@N(c.X + Pad)" y="@N(y)" font-size="13" font-weight="600"
+                                                                  style="fill:var(--rz-text-color)">@renglon.Texto</text>
+                                                        </g>
+                                                        break;
+
+                                                    case Trazo.Apunte:
+                                                        <g>
+                                                            <text x="@N(c.X + Pad)" y="@N(y)" font-size="9.5"
+                                                                  style="fill:var(--rz-text-secondary-color)">@renglon.Texto</text>
+                                                        </g>
+                                                        break;
+
+                                                    case Trazo.Persona:
+                                                        <g>
+                                                            <text x="@N(c.X + Pad + 8)" y="@N(y)" font-size="11"
+                                                                  style="fill:var(--rz-text-color)">@renglon.Texto</text>
+                                                        </g>
+                                                        break;
+
+                                                    case Trazo.Lider:
+                                                        @* El líder, distinguido con una barra en el acento y
+                                                           el nombre en negrita. Sin pictograma: en un SVG
+                                                           habría que dibujarlo con la fuente de iconos, que
+                                                           es un recorte y no la carga el navegador dentro de
+                                                           un <text> sin ayuda; y un emoji lo dibuja el
+                                                           sistema operativo, cambia de forma en cada equipo y
+                                                           donde no hay fuente sale un cuadro vacío. Además el
+                                                           renglón ya dice «Líder» con todas sus letras. *@
+                                                        <g>
+                                                            <rect x="@N(c.X + Pad)" y="@N(y - 9)" width="3" height="11"
+                                                                  style="fill:var(--rz-primary)" />
+                                                            <text x="@N(c.X + Pad + 8)" y="@N(y)" font-size="11" font-weight="600"
+                                                                  style="fill:var(--rz-text-color)">@renglon.Texto</text>
+                                                        </g>
+                                                        break;
+
+                                                    case Trazo.Funcion:
+                                                        <g>
+                                                            <text x="@N(c.X + Pad + 8)" y="@N(y)" font-size="9"
+                                                                  style="fill:var(--rz-text-secondary-color)">@renglon.Texto</text>
+                                                        </g>
+                                                        break;
+                                                }
+                                            }
+                                        </g>
+                                    }
+                                </svg>
+                            </div>
+                        </RadzenCard>
+
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                            Generado el @_organigrama.GeneradoEl. El PDF de la barra de arriba dibuja este mismo
+                            diagrama con los mismos datos.
                         </RadzenText>
-                    </div>
-                    <div style="padding:.5rem .75rem 1rem">
-                        @foreach (var i in _organizacion.SinEquipo)
-                        {
-                            <RadzenText TextStyle="TextStyle.Body2" Style="margin:.1rem 0">@i.Nombre</RadzenText>
-                        }
-                    </div>
-                </RadzenCard>
-            }
-        </div>
+                    </RadzenStack>
+                </RadzenTabsItem>
+            </Tabs>
+        </RadzenTabs>
     }
 </RadzenStack>
 
@@ -358,10 +562,23 @@
     ];
 
     private sealed record OpcionDeRol(TeamRole Valor, string Texto);
+    private sealed record OpcionDeEscala(int Valor, string Texto);
+
+    /// <summary>Lo mismo que acepta el servidor. Se lee de allá para que la caja no prometa un largo
+    /// que la petición vaya a rechazar.</summary>
+    private const int LargoMaximoDeFuncion = 200;
+
+    private static readonly int[] ColumnasPosibles = [2, 3, 4];
+
+    private static readonly OpcionDeEscala[] EscalasPosibles =
+    [
+        new(70, "70 %"), new(85, "85 %"), new(100, "100 %"),
+        new(125, "125 %"), new(150, "150 %"), new(200, "200 %")
+    ];
 
     private readonly CancellationTokenSource _cancelacion = new();
 
-    private OrganizacionDto? _organizacion;
+    private OrganigramaDto? _organigrama;
     private IReadOnlyList<RotacionDto>? _historial;
     private bool _cargando = true;
     private bool _ocupado;
@@ -379,8 +596,13 @@
     private string _descripcionEquipo = "";
     private string _colorEquipo = "";
 
-    private EquipoDto? EquipoElegido =>
-        _equipoDestino is int id ? _organizacion?.Equipos.FirstOrDefault(e => e.Id == id) : null;
+    // El diagrama: qué cajas están plegadas, cuántas por fila y a qué tamaño.
+    private readonly HashSet<int> _plegados = [];
+    private int _columnas = 3;
+    private int _escala = 100;
+
+    private EquipoDelOrganigramaDto? EquipoElegido =>
+        _equipoDestino is int id ? _organigrama?.Equipos.FirstOrDefault(e => e.Id == id) : null;
 
     protected override async Task OnInitializedAsync() => await Cargar();
 
@@ -389,8 +611,9 @@
         _ocupado = true;
         try
         {
-            var organizacion = await Api.LeerAsync<OrganizacionDto>("api/catalogos/equipos", _cancelacion.Token);
-            if (organizacion is not null) _organizacion = organizacion;
+            var organigrama = await Api.LeerAsync<OrganigramaDto>(
+                "api/personas/equipos/organigrama", _cancelacion.Token);
+            if (organigrama is not null) _organigrama = organigrama;
 
             // Lo marcado deja de tener sentido tras recargar: quien estaba en la lista pudo cambiar
             // de sitio, y dejar las casillas puestas invitaría a mover a quien no se quería.
@@ -434,6 +657,20 @@
     private Task AsignarRol(int developerId, TeamRole rol) =>
         Enviar("api/personas/equipos/rol", new AsignarRolRequest(developerId, rol));
 
+    /// <summary>
+    /// Guarda la función de alguien. No se manda si no cambió: la caja lanza Change al perder el
+    /// foco, así que pasar por ella sin tocar nada dispararía una escritura y una línea de bitácora
+    /// por cada vez que alguien recorre la lista con el tabulador.
+    /// </summary>
+    private Task GuardarFuncion(PersonaDelOrganigramaDto persona, string? funcion)
+    {
+        var limpia = (funcion ?? "").Trim();
+        if (limpia == (persona.Funcion ?? "")) return Task.CompletedTask;
+
+        return Enviar("api/personas/equipos/funcion",
+            new GuardarFuncionRequest(persona.Id, limpia));
+    }
+
     // ── Equipos ──────────────────────────────────────────────────────────────
 
     private void AbrirEquipoNuevo()
@@ -446,7 +683,7 @@
         _capturandoEquipo  = true;
     }
 
-    private void AbrirEquipo(EquipoDto equipo)
+    private void AbrirEquipo(EquipoDelOrganigramaDto equipo)
     {
         _equipoEnEdicion   = equipo.Id;
         _nombreOriginal    = equipo.Nombre;
@@ -470,7 +707,7 @@
             _capturandoEquipo = false;
     }
 
-    private async Task EliminarEquipo(EquipoDto equipo)
+    private async Task EliminarEquipo(EquipoDelOrganigramaDto equipo)
     {
         if (!await Avisos.ConfirmarAsync(
                 $"¿Eliminar el equipo «{equipo.Nombre}»? Sus {equipo.Integrantes.Count} integrante(s) " +
@@ -501,7 +738,7 @@
     /// </summary>
     private async Task GenerarPdf()
     {
-        if (_organizacion is null || (_organizacion.Equipos.Count == 0 && _organizacion.SinEquipo.Count == 0))
+        if (_organigrama is null || (_organigrama.Equipos.Count == 0 && _organigrama.SinEquipo.Count == 0))
         {
             Avisos.Aviso("No hay equipos ni desarrolladores para generar el PDF.");
             return;
@@ -530,18 +767,286 @@
         finally { _ocupado = false; }
     }
 
+    // ── El dibujo ────────────────────────────────────────────────────────────
+    //
+    // Las medidas son unidades del viewBox, no píxeles: el SVG se estira al ancho que le den y todo
+    // se escala junto. El lienzo es de ancho FIJO y las cajas se envuelven en filas, así que el
+    // diagrama nunca se sale a la derecha — crece hacia abajo, que es la dirección en la que una
+    // página web ya sabe desplazarse.
+
+    /// <summary>Ancho del lienzo. Con 1200 y tres columnas, cada caja se lleva unas 360 unidades, que
+    /// es donde un nombre y su rol caben en un renglón sin partirse.</summary>
+    private const double Lienzo = 1200;
+
+    /// <summary>Margen izquierdo: no es estética, es el sitio por donde baja el espinazo. Sin él, la
+    /// línea vertical pasaría por encima de la primera columna de cajas.</summary>
+    private const double MargenIzq = 60;
+    private const double MargenDer = 20;
+    private const double EspinazoX = 26;
+    private const double Hueco = 18;
+    private const double AltoRaiz = 54;
+    private const double CaidaRaiz = 30;
+    private const double AltoRama = 16;
+    private const double SeparacionFilas = 34;
+    private const double Banda = 6;
+    private const double Pad = 12;
+
+    /// <summary>Identificador de la caja de «sin equipo». Cero porque ningún equipo lo tiene: así el
+    /// plegado de esa caja usa el mismo conjunto que el de los demás y no hace falta un segundo.</summary>
+    private const int SinEquipoId = 0;
+
+    private enum Trazo { Titulo, Apunte, Persona, Lider, Funcion, Separador }
+
+    private sealed record Renglon(Trazo Tipo, double Y, string Texto);
+
+    private sealed record Colocada(
+        int Id, string Nombre, string Color, int Personas, bool Plegada,
+        double X, double Y, double Ancho, double Alto, IReadOnlyList<Renglon> Renglones);
+
+    private sealed record Rama(double Y, double Hasta, IReadOnlyList<double> Bajadas);
+
+    private sealed record Trazado(
+        IReadOnlyList<Colocada> Cajas, IReadOnlyList<Rama> Ramas, double EspinazoHasta, double Alto);
+
+    /// <summary>Lo que va dentro de una caja antes de saber dónde cae.</summary>
+    private sealed record Caja(
+        int Id, string Nombre, string? Descripcion, string Color,
+        IReadOnlyList<PersonaDelOrganigramaDto> Integrantes, int Sistemas, int Proyectos);
+
     /// <summary>
-    /// El color del equipo para PINTARLO. El que capturó la persona se devuelve tal cual —es un
-    /// dato suyo, guardado en la base, y el tema no tiene nada que decir sobre él—; el que falta se
-    /// resuelve con el acento de la aplicación en vez de con un azul escrito a mano, que era lo que
-    /// dejaba las tarjetas sin equipo con el color de la plantilla anterior.
+    /// Coloca todas las cajas y devuelve, ya resueltas, las líneas del árbol y el alto del lienzo.
     ///
-    /// Lo que devuelve puede ser la CADENA «var(--…)»: solo se interpola dentro de un atributo
-    /// style y la resuelve el navegador. No la uses para nada que salga del navegador —el hex que
-    /// va a la base sale de la caja de captura, no de aquí.
+    /// <para>Se calcula en UN sitio y el marcado solo lo pinta. La alternativa —medir en el código y
+    /// dibujar con otras cuentas en el marcado— es cómo se consigue que un renglón se salga de su
+    /// caja únicamente cuando alguien escribe una descripción larga.</para>
     /// </summary>
-    private static string Color(string? hex) =>
-        string.IsNullOrWhiteSpace(hex) ? "var(--rz-primary)" : hex!;
+    private Trazado Trazar(OrganigramaDto org)
+    {
+        var cajas = org.Equipos
+            .Select(e => new Caja(e.Id, e.Nombre, e.Descripcion, ColorDeEquipo(e.ColorHex),
+                                  e.Integrantes, e.Sistemas.Count, e.Proyectos.Count))
+            .ToList();
+
+        // Quien no tiene equipo entra como una caja MÁS y no como una nota al pie. Un organigrama que
+        // solo dibuja a quien está colocado miente por omisión, y justo esa caja es media pregunta
+        // del que lo abre. Se marca con el gris de bordes porque «Sin equipo» no es un equipo y no
+        // puede llevar color de equipo.
+        if (org.SinEquipo.Count > 0)
+            cajas.Add(new Caja(SinEquipoId, "Sin equipo", "Todavía no están asignados a ninguno.",
+                               "var(--rz-base-400)", org.SinEquipo, 0, 0));
+
+        double ancho = (Lienzo - MargenIzq - MargenDer - Hueco * (_columnas - 1)) / _columnas;
+
+        var colocadas = new List<Colocada>(cajas.Count);
+        var ramas = new List<Rama>();
+        double y = AltoRaiz + CaidaRaiz;
+        double ultimaRama = AltoRaiz;
+
+        for (int desde = 0; desde < cajas.Count; desde += _columnas)
+        {
+            var fila = cajas.Skip(desde).Take(_columnas).ToList();
+            var bajadas = new List<double>(fila.Count);
+            double altoDeLaFila = 0;
+
+            for (int col = 0; col < fila.Count; col++)
+            {
+                var caja = fila[col];
+                double x = MargenIzq + col * (ancho + Hueco);
+                bool plegada = _plegados.Contains(caja.Id);
+
+                var (renglones, alto) = Contenido(caja, ancho, plegada);
+                colocadas.Add(new Colocada(
+                    caja.Id, caja.Nombre, caja.Color, caja.Integrantes.Count, plegada,
+                    x, y, ancho, alto, renglones));
+
+                bajadas.Add(x + ancho / 2);
+                altoDeLaFila = Math.Max(altoDeLaFila, alto);
+            }
+
+            ultimaRama = y - AltoRama;
+            ramas.Add(new Rama(ultimaRama, bajadas[^1], bajadas));
+            y += altoDeLaFila + SeparacionFilas;
+        }
+
+        // Sin cajas no hay ramas: el lienzo se queda con el nodo de arriba y nada más.
+        return new Trazado(colocadas, ramas, ultimaRama, Math.Max(y - SeparacionFilas + 10, AltoRaiz + 20));
+    }
+
+    /// <summary>
+    /// Los renglones de una caja y su alto, calculados a la vez y con las mismas cuentas.
+    ///
+    /// <para><b>Ni la descripción vacía ni la función vacía dejan hueco</b>, pero no se resuelven
+    /// igual, y es a propósito. La descripción falta o no falta UNA vez por caja: se imprime «(sin
+    /// descripción)» para que la caja tenga siempre la misma forma y un equipo sin descripción no
+    /// parezca a medio cargar. La función falta tantas veces como personas haya: repetir ahí un
+    /// paréntesis vacío quince veces convertiría el equipo en una lista de excusas, así que
+    /// sencillamente no se dibuja el renglón y el siguiente nombre sube.</para>
+    /// </summary>
+    private (IReadOnlyList<Renglon> Renglones, double Alto) Contenido(Caja caja, double ancho, bool plegada)
+    {
+        double util = ancho - 2 * Pad;
+        var renglones = new List<Renglon>();
+        double y = Banda + 10;
+
+        y += 14;
+        renglones.Add(new(Trazo.Titulo, y, Recortar(caja.Nombre, util, 13)));
+
+        y += 14;
+        renglones.Add(new(Trazo.Apunte, y, Contadores(caja, plegada)));
+
+        if (plegada) return (renglones, y + 12);
+
+        foreach (var linea in Partir(
+                     string.IsNullOrWhiteSpace(caja.Descripcion) ? "(sin descripción)" : caja.Descripcion!,
+                     util, 9.5, 3))
+        {
+            y += 12;
+            renglones.Add(new(Trazo.Apunte, y, linea));
+        }
+
+        y += 10;
+        renglones.Add(new(Trazo.Separador, y, ""));
+
+        if (caja.Integrantes.Count == 0)
+        {
+            y += 15;
+            renglones.Add(new(Trazo.Apunte, y, "(sin integrantes)"));
+        }
+
+        foreach (var p in caja.Integrantes)
+        {
+            y += 16;
+            renglones.Add(new(p.EsLider ? Trazo.Lider : Trazo.Persona, y,
+                              Recortar(EtiquetaDePersona(p), util - 8, 11)));
+
+            if (!string.IsNullOrWhiteSpace(p.Funcion))
+            {
+                y += 12;
+                renglones.Add(new(Trazo.Funcion, y, Recortar(p.Funcion!, util - 8, 9)));
+            }
+        }
+
+        if (caja.Sistemas > 0 || caja.Proyectos > 0)
+        {
+            y += 15;
+            renglones.Add(new(Trazo.Apunte, y,
+                $"{caja.Sistemas} sistema(s) · {caja.Proyectos} proyecto(s)"));
+        }
+
+        return (renglones, y + 12);
+    }
+
+    private static string Contadores(Caja caja, bool plegada) =>
+        $"{caja.Integrantes.Count} persona(s)" + (plegada ? " · plegado" : "");
+
+    /// <summary>Nombre, nivel y rol en un renglón. El nivel entre paréntesis solo si lo tiene: unos
+    /// paréntesis vacíos detrás de un nombre parecen un error de impresión.</summary>
+    private static string EtiquetaDePersona(PersonaDelOrganigramaDto p) =>
+        string.IsNullOrWhiteSpace(p.Nivel)
+            ? $"{p.Nombre} · {p.RolTexto}"
+            : $"{p.Nombre} ({p.Nivel}) · {p.RolTexto}";
+
+    private void AlternarPliegue(int id)
+    {
+        if (!_plegados.Remove(id)) _plegados.Add(id);
+    }
+
+    /// <summary>
+    /// El teclado hace lo mismo que el ratón. Una caja de un SVG no es un botón, así que sin esto
+    /// plegar y desplegar sería una función solo para quien puede apuntar con un ratón.
+    /// </summary>
+    private void TeclaSobreCaja(KeyboardEventArgs e, int id)
+    {
+        if (e.Key is "Enter" or " ") AlternarPliegue(id);
+    }
+
+    private void PlegarTodos()
+    {
+        if (_organigrama is null) return;
+        foreach (var equipo in _organigrama.Equipos) _plegados.Add(equipo.Id);
+        if (_organigrama.SinEquipo.Count > 0) _plegados.Add(SinEquipoId);
+    }
+
+    // ── Textos y medidas ─────────────────────────────────────────────────────
+
+    private static string N(double valor) => valor.ToString("0.##", CultureInfo.InvariantCulture);
+
+    private static string ResumenDeLaRaiz(OrganigramaDto org) =>
+        $"{org.Equipos.Count} equipo(s) · {org.TotalPersonas} persona(s)" +
+        (org.SinEquipo.Count > 0 ? $" · {org.SinEquipo.Count} sin equipo" : "");
+
+    /// <summary>
+    /// Lo que oye quien no ve el dibujo. El diagrama entero no se puede narrar en un atributo, y
+    /// tampoco hace falta: la pestaña de al lado tiene exactamente los mismos datos como texto de
+    /// verdad, navegable con el lector de pantalla. Esto sitúa, y cada caja se anuncia por su cuenta.
+    /// </summary>
+    private static string AriaDelDiagrama(OrganigramaDto org) =>
+        $"Organigrama: {ResumenDeLaRaiz(org)}. Cada equipo es una caja con su gente.";
+
+    private static string AriaDeLaCaja(Colocada c) =>
+        $"{c.Nombre}, {c.Personas} persona(s). {(c.Plegada ? "Plegado" : "Desplegado")}. " +
+        "Pulsa para plegar o desplegar.";
+
+    /// <summary>
+    /// El color con el que se pinta un equipo, con la MISMA regla que aplica el generador del PDF:
+    /// solo vale un «#RRGGBB».
+    ///
+    /// <para>Antes se devolvía lo tecleado tal cual y eso tenía dos consecuencias silenciosas. Una:
+    /// un «#ABC» o un «azul» se veían de color en el navegador y salían grises en el papel, así que
+    /// la pantalla prometía algo que el documento no cumplía. Y otra peor: interpolado dentro de un
+    /// «border-left: 6px solid azul», el navegador tira la declaración ENTERA y el borde desaparece
+    /// —la tarjeta se descoloca seis píxeles y nadie relaciona eso con lo que escribió en el color—.
+    /// Con el acento del tema como salida, un color imposible se ve raro pero nunca rompe nada.</para>
+    /// </summary>
+    private static string ColorDeEquipo(string? hex) =>
+        !string.IsNullOrWhiteSpace(hex) && hex.Length == 7 && hex[0] == '#' && hex[1..].All(Uri.IsHexDigit)
+            ? hex
+            : "var(--rz-primary)";
+
+    /// <summary>
+    /// Cuántos caracteres caben, a ojo. No hay forma de medir texto desde C# sin preguntarle al
+    /// navegador, y preguntárselo por cada renglón de cada caja sería un viaje de interoperabilidad
+    /// por nombre. El 0,52 es el ancho medio de la fuente de la aplicación en proporción a su
+    /// tamaño; se queda corto a propósito, porque pasarse corta una letra de más y quedarse corto
+    /// solo deja aire.
+    /// </summary>
+    private static int Caben(double ancho, double tamano) => Math.Max(4, (int)(ancho / (tamano * 0.52)));
+
+    private static string Recortar(string texto, double ancho, double tamano)
+    {
+        int caben = Caben(ancho, tamano);
+        return texto.Length <= caben ? texto : texto[..(caben - 1)].TrimEnd() + "…";
+    }
+
+    /// <summary>
+    /// Parte un texto en renglones por palabras, con un tope. Lo que no cabe se corta y se dice con
+    /// puntos suspensivos: una descripción de tres párrafos no puede empujar hacia abajo a todas las
+    /// cajas de su fila.
+    /// </summary>
+    private static IReadOnlyList<string> Partir(string texto, double ancho, double tamano, int maxLineas)
+    {
+        int caben = Caben(ancho, tamano);
+        var lineas = new List<string>();
+        var actual = "";
+
+        foreach (var palabra in texto.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+        {
+            // Una palabra más larga que el renglón —una dirección, un nombre de sistema— no se puede
+            // colocar entera: se recorta ella, en vez de desbordar la caja.
+            var trozo = palabra.Length > caben ? palabra[..(caben - 1)] + "…" : palabra;
+
+            if (actual.Length == 0) actual = trozo;
+            else if (actual.Length + 1 + trozo.Length <= caben) actual += " " + trozo;
+            else { lineas.Add(actual); actual = trozo; }
+        }
+        if (actual.Length > 0) lineas.Add(actual);
+
+        if (lineas.Count <= maxLineas) return lineas;
+
+        var recortadas = lineas.Take(maxLineas).ToList();
+        recortadas[^1] = Recortar(recortadas[^1] + " …", ancho, tamano);
+        return recortadas;
+    }
 
     public void Dispose()
     {

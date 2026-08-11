@@ -1,0 +1,214 @@
+@page "/conocimiento/revision"
+@attribute [Authorize(Policy = "SoloAdmin")]
+@using AdminWeb.Client.Paginas.Foro
+@using AdminWeb.Shared.Dtos.Conocimiento
+@inject ClienteApi Api
+@inject NavigationManager Navegacion
+
+@*
+    La cola del líder: lo que el equipo escribió y está esperando una respuesta.
+
+    ── EL ORDEN ES LO IMPORTANTE, Y VA AL REVÉS QUE EN TODAS LAS DEMÁS LISTAS ─────────────────────
+
+    Primero lo MÁS ANTIGUO. En una lista ordenada por lo más reciente, lo que lleva nueve días parado
+    se queda al final, que es donde nadie mira — y eso es exactamente lo que hace que su autor no
+    vuelva a escribir nunca. Por eso además cada fila lleva cuántos días lleva esperando, con color:
+    a partir de tres días quien lo escribió ya se está preguntando si alguien lo va a leer, y a la
+    semana ha decidido que no.
+
+    ── SE LEE Y SE DECIDE EN LA MISMA PANTALLA ────────────────────────────────────────────────────
+
+    Al entrar se abre solo el que lleva más tiempo esperando, y al resolver uno se abre el siguiente.
+    No es un adorno: una cola en la que hay que elegir a mano qué abrir después es una cola que se
+    atiende «cuando haya un rato», y revisar tres artículos seguidos deja de costar tres clics para
+    costar nueve. Aprobar y devolver están al lado del texto porque decidir sin leer es justo lo que
+    convierte una revisión en un trámite.
+
+    Esta pantalla es del líder —la política lo dice aquí y el servidor lo comprueba otra vez—, pero
+    los mismos botones aparecen en el artículo abierto: quien llega por el buscador no tiene por qué
+    volver aquí para poder resolver.
+*@
+
+<PageTitle>Cola de revisión</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                 Wrap="FlexWrap.Wrap" Gap="0.5rem">
+        <RadzenButton Text="Volver" Icon="chevron_left" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@(() => Navegacion.NavigateTo("conocimiento"))" />
+        <RadzenText TextStyle="TextStyle.H5" Style="margin:0">Cola de revisión</RadzenText>
+        <RadzenButton Text="Actualizar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Click="@CargarColaAsync" />
+    </RadzenStack>
+
+    @if (_cargandoCola)
+    {
+        <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" />
+    }
+    else if (_cola.Count == 0)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Success" AllowClose="false">
+            No hay nada esperando. Cuando alguien mande un artículo aparecerá aquí, y el menú lo dirá sin
+            que haya que entrar a mirar.
+        </RadzenAlert>
+    }
+    else
+    {
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Start"
+                     Wrap="FlexWrap.Wrap" Gap="1rem">
+
+            @* ── La cola ────────────────────────────────────────────────────────── *@
+            <div style="flex:1 1 320px;min-width:290px;max-width:420px">
+                <RadzenStack Gap="0.4rem">
+                    @foreach (var f in _cola)
+                    {
+                        <div @onclick="@(() => AbrirAsync(f.Id))" style="cursor:pointer">
+                            @* El seleccionado se marca con una barra en el acento del tema, no con un
+                               color de fondo escrito a mano: así se distingue igual en claro y en
+                               oscuro. *@
+                            <RadzenCard Style="@(f.Id == _abierto ? "border-left:4px solid var(--rz-primary)" : "border-left:4px solid transparent")">
+                                <RadzenStack Gap="0.3rem">
+                                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                                 Wrap="FlexWrap.Wrap" Gap="0.4rem">
+                                        <RadzenBadge BadgeStyle="@PresentacionDeConocimiento.DeEspera(f.DiasEsperando)"
+                                                     Text="@PresentacionDeConocimiento.Espera(f.DiasEsperando)"
+                                                     title="@($"Enviado el {TiempoDelForo.Fecha(f.EnviadoUtc)}")" />
+                                        @if (f.Vuelta > 1)
+                                        {
+                                            @* La vuelta le dice al líder de un vistazo si está ante algo
+                                               nuevo o ante la tercera insistencia sobre lo mismo. *@
+                                            <RadzenBadge BadgeStyle="BadgeStyle.Light" Text="@($"vuelta {f.Vuelta}")" />
+                                        }
+                                    </RadzenStack>
+
+                                    <RadzenText TextStyle="TextStyle.Body2" Style="margin:0;font-weight:600">@f.Titulo</RadzenText>
+                                    <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
+                                        <RadzenIcon Icon="person" /> @f.Autor
+                                    </RadzenText>
+                                </RadzenStack>
+                            </RadzenCard>
+                        </div>
+                    }
+                </RadzenStack>
+
+                <RadzenText TextStyle="TextStyle.Caption" Style="margin:.6rem 0 0">
+                    @_cola.Count esperando. Arriba, lo que lleva más tiempo.
+                </RadzenText>
+            </div>
+
+            @* ── El artículo abierto ────────────────────────────────────────────── *@
+            <div style="flex:2 1 420px;min-width:300px">
+                @if (_cargandoArticulo)
+                {
+                    <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" />
+                }
+                else if (_articulo is null)
+                {
+                    <RadzenAlert AlertStyle="AlertStyle.Info" AllowClose="false">
+                        Elige uno de la izquierda para leerlo y decidir.
+                    </RadzenAlert>
+                }
+                else
+                {
+                    var a = _articulo;
+
+                    <RadzenStack Gap="1rem">
+                        <RadzenCard>
+                            <RadzenStack Gap="0.5rem">
+                                <RadzenText TextStyle="TextStyle.H5" Style="margin:0">@a.Titulo</RadzenText>
+                                <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
+                                    <RadzenIcon Icon="person" /> @a.Autor
+                                    &nbsp;·&nbsp; escrito @TiempoDelForo.HaceCuanto(a.CreadoUtc)
+                                    @if (a.PuntosOtorgados > 0)
+                                    {
+                                        @* Aviso importante para quien va a puntuar: este artículo YA
+                                           pagó, y una segunda aprobación publica pero no vuelve a
+                                           otorgar. Verlo antes evita elegir un criterio para nada. *@
+                                        <text>&nbsp;·&nbsp; ya otorgó @a.PuntosOtorgados pts</text>
+                                    }
+                                </RadzenText>
+
+                                @if (PresentacionDeConocimiento.Etiquetas(a.Etiquetas) is { Count: > 0 } etiquetas)
+                                {
+                                    <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.3rem">
+                                        @foreach (var e in etiquetas)
+                                        {
+                                            <RadzenBadge BadgeStyle="BadgeStyle.Light" Text="@e" />
+                                        }
+                                    </RadzenStack>
+                                }
+                            </RadzenStack>
+                        </RadzenCard>
+
+                        <RadzenCard>
+                            <CuerpoDeConocimiento Bloques="@a.Cuerpo" />
+                        </RadzenCard>
+
+                        @if (!string.IsNullOrWhiteSpace(a.Historial))
+                        {
+                            @* En una segunda o tercera vuelta, lo primero que hace falta es lo que se
+                               le pidió la vez anterior: sin eso no se puede juzgar si lo corrigió. *@
+                            <RadzenCard>
+                                <RadzenText TextStyle="TextStyle.Body2" Style="margin:0 0 .3rem">
+                                    <RadzenIcon Icon="history" /> Lo que ya se le dijo
+                                </RadzenText>
+                                <RadzenText TextStyle="TextStyle.Caption" Style="margin:0;white-space:pre-wrap;overflow-wrap:anywhere">@a.Historial</RadzenText>
+                            </RadzenCard>
+                        }
+
+                        <PanelDeRevision Id="@a.Id" OnResuelto="@AlResolverAsync" />
+                    </RadzenStack>
+                }
+            </div>
+        </RadzenStack>
+    }
+</RadzenStack>
+
+@code {
+    private IReadOnlyList<ConocimientoColaFilaDto> _cola = [];
+    private ConocimientoArticuloDto? _articulo;
+    private int? _abierto;
+    private bool _cargandoCola = true, _cargandoArticulo;
+
+    protected override Task OnInitializedAsync() => CargarColaAsync();
+
+    private async Task CargarColaAsync()
+    {
+        _cargandoCola = true;
+        _cola = await Api.LeerAsync<List<ConocimientoColaFilaDto>>("api/conocimiento/cola") ?? [];
+        _cargandoCola = false;
+
+        // Se abre solo el que lleva más tiempo esperando. Si el que estaba abierto sigue en la cola
+        // —porque la lista se actualizó sin resolver nada— se respeta: quitárselo de delante a media
+        // lectura sería peor que no actualizar.
+        if (_cola.Count == 0)
+        {
+            _abierto = null;
+            _articulo = null;
+            return;
+        }
+
+        if (_abierto is int id && _cola.Any(f => f.Id == id)) return;
+
+        await AbrirAsync(_cola[0].Id);
+    }
+
+    private async Task AbrirAsync(int id)
+    {
+        _abierto = id;
+        _cargandoArticulo = true;
+        _articulo = await Api.LeerAsync<ConocimientoArticuloDto>($"api/conocimiento/{id}");
+        _cargandoArticulo = false;
+    }
+
+    /// <summary>
+    /// Se resolvió el que estaba abierto: se olvida y se vuelve a pedir la cola, que abrirá sola el
+    /// siguiente. Es lo que convierte revisar tres artículos en tres decisiones y no en nueve clics.
+    /// </summary>
+    private Task AlResolverAsync()
+    {
+        _abierto = null;
+        _articulo = null;
+        return CargarColaAsync();
+    }
+}

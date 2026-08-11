@@ -1,3 +1,4 @@
+using AdminWeb.Shared.Dtos.Conocimiento;
 using AdminWeb.Shared.Enums;
 
 namespace AdminWeb.Client.Navegacion;
@@ -25,7 +26,18 @@ namespace AdminWeb.Client.Navegacion;
 /// URL de verdad, así que se gana poder compartir el enlace y usar el botón de atrás.</param>
 /// <param name="Disponible">False mientras la pantalla no exista todavía: se muestra apagada, para
 /// que se vea qué falta en lugar de fingir que el menú está completo.</param>
-public record ItemDeMenu(string Icono, string Texto, string Ruta, bool Disponible = true);
+/// <param name="Marca">
+/// Cuántas cosas esperan a quien mira, detrás de esa puerta. Cero —lo normal— significa que la
+/// entrada se pinta tal cual.
+///
+/// <para>No es un adorno: es lo único que sostiene una cola de revisión. Una cola que hay que
+/// acordarse de abrir no se abre, y en cuanto dos artículos se quedan esperando, quien los escribió
+/// deja de escribir. El número tiene que estar donde ya se está mirando.</para>
+/// </param>
+/// <param name="MarcaTitulo">Qué son esas cosas, para el tooltip. Un número suelto no dice si son
+/// tuyas o de otro, ni desde cuándo llevan ahí.</param>
+public record ItemDeMenu(string Icono, string Texto, string Ruta, bool Disponible = true,
+    int Marca = 0, string? MarcaTitulo = null);
 
 /// <summary>Un grupo plegable del menú.</summary>
 public record GrupoDeMenu(string Titulo, IReadOnlyList<ItemDeMenu> Items);
@@ -66,12 +78,33 @@ public static class Menu
     /// verdad la ponen las políticas de los grupos <c>/api/foro</c> y <c>/api/jornada</c>, más las
     /// guardas dentro de los servicios. Esto solo evita enseñar una puerta que contestaría 403.
     /// </summary>
-    public static IReadOnlyList<ItemDeMenu> Sueltos(UserRole? rol)
+    /// <param name="conocimiento">
+    /// Lo que espera a quien mira en la base de conocimiento. Null mientras no se haya podido
+    /// preguntar —o antes de que haya sesión—, y entonces la entrada va sin número: enseñar un cero
+    /// que en realidad significa «todavía no lo sé» sería peor que no enseñar nada, porque el cero
+    /// se lee como «no hay nada pendiente» y se deja de mirar.
+    /// </param>
+    public static IReadOnlyList<ItemDeMenu> Sueltos(UserRole? rol, ConocimientoPendientesDto? conocimiento = null)
     {
         var items = new List<ItemDeMenu>
         {
             new("notifications", "Avisos", "avisos"),
         };
+
+        // La base de conocimiento la ve TODO el mundo, Operaciones incluida, y no es un descuido: un
+        // artículo publicado es documentación de trabajo —cómo se despliega algo, qué significa un
+        // término, qué hacer cuando falla—, y dejar fuera justo a quien despliega convertiría la base
+        // en un sitio donde no se puede escribir lo que más falta hace. Escribir y revisar siguen
+        // siendo del líder y de los desarrolladores, y eso lo deciden las políticas de
+        // /api/conocimiento, no esta línea.
+        //
+        // «description» —una hoja escrita— y no «library_books»: esa ya es Plantillas, y dos entradas
+        // de menú con el mismo glifo a 20 px son la misma entrada repetida. Comprobado en
+        // wwwroot/fuentes/iconos.txt, que es la lista completa de lo que trae el recorte de la fuente;
+        // un nombre que no esté ahí no deja hueco, pinta la PALABRA dentro del menú.
+        var (marca, titulo) = MarcaDeConocimiento(conocimiento);
+        items.Add(new ItemDeMenu("description", "Conocimiento", "conocimiento",
+            Marca: marca, MarcaTitulo: titulo));
 
         // «speed» (un velocímetro) y no «dashboard»: ese eran cuatro rectángulos que no dicen nada, y
         // encima se confundía a simple vista con el «space_dashboard» de Mi Panel, que es la MISMA
@@ -96,6 +129,41 @@ public static class Menu
         items.Add(new ItemDeMenu("shield", "Mi acceso", "segundo-factor"));
 
         return items;
+    }
+
+    /// <summary>
+    /// El número de la entrada de conocimiento y su explicación.
+    ///
+    /// <para><b>Cuenta los DOS lados de la cola</b>, porque una cola de revisión se muere igual por
+    /// arriba que por abajo: al líder le pesa lo que le falta revisar, y a quien escribe le pesa lo
+    /// que le devolvieron y todavía no ha corregido. Las dos cosas son «algo que me está esperando
+    /// ahí dentro», que es lo único que un número en un menú puede significar sin confundir.</para>
+    ///
+    /// <para>Los BORRADORES quedan fuera del número a propósito, aunque también sean propios: un
+    /// borrador no espera a nadie, es trabajo en curso, y un menú que marca 4 porque alguien tiene
+    /// cuatro cosas a medias deja de significar «hay algo que atender» al segundo día. Sí se cuentan
+    /// dentro de la pantalla, que es donde sirven.</para>
+    ///
+    /// <para>La antigüedad del más viejo va en el tooltip y no en el número: es el dato que de verdad
+    /// avergüenza —«el más viejo lleva nueve días»— pero no cabe en una marca de dos dígitos.</para>
+    /// </summary>
+    private static (int Marca, string? Titulo) MarcaDeConocimiento(ConocimientoPendientesDto? p)
+    {
+        if (p == null) return (0, null);
+
+        // Aquí NO se mira el rol. El servidor ya devuelve cero en «por revisar» a quien no revisa, y
+        // repetir esa decisión en el cliente sería un segundo sitio donde equivocarse — con el
+        // agravante de que este corre en la máquina de quien mira.
+        var partes = new List<string>();
+        if (p.PorRevisar > 0)
+            partes.Add(p.DiasDelMasAntiguo > 0
+                ? $"{p.PorRevisar} por revisar (el más viejo lleva {p.DiasDelMasAntiguo} día(s))"
+                : $"{p.PorRevisar} por revisar");
+        if (p.MisDevueltos > 0) partes.Add($"{p.MisDevueltos} que te devolvieron");
+        if (p.MisBorradores > 0) partes.Add($"{p.MisBorradores} borrador(es) tuyo(s)");
+
+        int marca = p.PorRevisar + p.MisDevueltos;
+        return (marca, partes.Count == 0 ? null : string.Join(" · ", partes));
     }
 
     private static readonly IReadOnlyList<GrupoDeMenu> Admin =

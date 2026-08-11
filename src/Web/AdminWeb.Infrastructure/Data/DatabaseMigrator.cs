@@ -485,6 +485,16 @@ public static class DatabaseMigrator
         ");
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Developers"" ADD COLUMN ""TeamId"" INTEGER"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Developers"" ADD COLUMN ""TeamRole"" INTEGER NOT NULL DEFAULT 0"); } catch { }
+        // Qué hace cada persona DENTRO de su equipo, la frase que el organigrama pinta bajo su nombre.
+        // Va aquí, pegada a TeamRole, porque son el mismo dato en dos formas —de qué es y qué hace— y
+        // quien añada mañana otra columna de equipo la va a buscar en este renglón.
+        //
+        // VERSIÓN DE SQLITE: comillas dobles y ADD COLUMN … TEXT. La gemela de T-SQL está en
+        // PatchSqlServer con nvarchar(200) y su IF COL_LENGTH; están traducidas, no copiadas.
+        //
+        // Nullable y sin DEFAULT a propósito: la función es opcional y «no escrita todavía» tiene que
+        // poder distinguirse de «escrita y vacía», que es lo que un DEFAULT '' borraría.
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Developers"" ADD COLUMN ""TeamFunction"" TEXT"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""AppSystems"" ADD COLUMN ""TeamId"" INTEGER"); } catch { }
 
         db.Database.ExecuteSqlRaw(@"
@@ -1286,6 +1296,48 @@ public static class DatabaseMigrator
         try { db.Database.ExecuteSqlRaw(@"CREATE UNIQUE INDEX IF NOT EXISTS ""UX_UserTrustedDevices_Token"" ON ""UserTrustedDevices""(""TokenHash"")"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_UserTrustedDevices_User"" ON ""UserTrustedDevices""(""UserId"")"); } catch { }
 
+        // ── Base de conocimiento (SQLite) ────────────────────────────────────────────────────
+        //
+        // ESTA ES LA VERSIÓN DE SQLITE: comillas dobles, TEXT/INTEGER y CREATE TABLE IF NOT EXISTS.
+        // La gemela de SQL Server está en PatchSqlServer y NO es la misma sentencia — está traducida,
+        // no copiada. Si hay que tocar una, hay que traducir el cambio a la otra.
+        //
+        // Una sola tabla para todo: un término del glosario es un artículo corto etiquetado y una
+        // guía de despliegue es uno largo. Sin clave foránea al autor (la documentación es histórica
+        // y sobrevive a que se borre la cuenta) ni a PointEntries — ahí la razón es del otro motor:
+        // PointEntries ya cae en cascada desde Developers y SQL Server rechaza la segunda ruta, así
+        // que las dos ramas se quedan igual para que el esquema no dependa de dónde corra.
+        //
+        // RowVersion no aparece: no existe en SQLite y el modelo la ignora ahí.
+        db.Database.ExecuteSqlRaw(@"
+            CREATE TABLE IF NOT EXISTS ""KnowledgeArticles"" (
+                ""Id""                INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                ""Title""             TEXT    NOT NULL,
+                ""Body""              TEXT    NOT NULL,
+                ""Tags""              TEXT,
+                ""Status""            INTEGER NOT NULL DEFAULT 0,
+                ""AuthorUserId""      INTEGER NOT NULL,
+                ""AuthorName""        TEXT    NOT NULL,
+                ""AuthorDeveloperId"" INTEGER,
+                ""CreatedAtUtc""      TEXT    NOT NULL,
+                ""UpdatedAtUtc""      TEXT,
+                ""SubmittedAtUtc""    TEXT,
+                ""ReviewedByUserId""  INTEGER,
+                ""ReviewerName""      TEXT,
+                ""ReviewedAtUtc""     TEXT,
+                ""ReviewComment""     TEXT,
+                ""ReviewRound""       INTEGER NOT NULL DEFAULT 0,
+                ""ReviewHistory""     TEXT,
+                ""PublishedAtUtc""    TEXT,
+                ""PointEntryId""      INTEGER,
+                ""PointsAwarded""     INTEGER NOT NULL DEFAULT 0
+            );");
+        // El estado va de primera columna porque toda consulta empieza por él: la cola es «por
+        // revisar», el buscador es «publicado» y la lista propia es «lo mío».
+        try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Know_Estado"" ON ""KnowledgeArticles""(""Status"",""UpdatedAtUtc"")"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Know_Autor"" ON ""KnowledgeArticles""(""AuthorUserId"",""Status"")"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Know_Publicado"" ON ""KnowledgeArticles""(""PublishedAtUtc"")"); } catch { }
+
         SembrarVentanaDeCaducidadDeVacaciones(db);
 
         // Al final de la rama, con todas las columnas de horas ya creadas: sin ellas no habría dónde
@@ -1828,6 +1880,20 @@ CREATE TABLE [SlaCommitments] (
         Exec("IF COL_LENGTH('AppReleases','TargetFolder') IS NULL ALTER TABLE [AppReleases] ADD [TargetFolder] nvarchar(200) NULL;");
         Exec("IF COL_LENGTH('Developers','Phone') IS NULL ALTER TABLE [Developers] ADD [Phone] nvarchar(50) NULL;");
         Exec("IF COL_LENGTH('Developers','EquipmentSerial') IS NULL ALTER TABLE [Developers] ADD [EquipmentSerial] nvarchar(100) NULL;");
+
+        // Qué hace cada persona DENTRO de su equipo: la frase que el organigrama pinta bajo su nombre
+        // y que va impresa en el PDF que se reparte.
+        //
+        // ESTA ES LA VERSIÓN DE T-SQL. La gemela de SQLite dice ADD COLUMN "TeamFunction" TEXT y vive
+        // al lado de "TeamRole" en la otra rama: es la MISMA columna TRADUCIDA, no la misma sentencia.
+        // Pegar aquella aquí abortaría esta y todas las que vienen detrás mientras el arranque anuncia
+        // «Esquema al día», que es exactamente cómo se perdieron 114 parches.
+        //
+        // nvarchar(200) porque es lo que declara el modelo (PersonasQueryService.LargoMaximoDeFuncion):
+        // con otra longitud, la columna saldría de un tipo en las bases nuevas —que las crea
+        // EnsureCreated desde el modelo— y de otro en las que ya existían. NULL y sin DEFAULT porque
+        // «todavía nadie la ha escrito» es un dato distinto de «escrita y vacía».
+        Exec("IF COL_LENGTH('Developers','TeamFunction') IS NULL ALTER TABLE [Developers] ADD [TeamFunction] nvarchar(200) NULL;");
 
         // Ajuste manual del saldo de vacaciones. Mismas cuatro columnas y mismos criterios que en la
         // rama SQLite: el saldo se calcula y no se guarda, así que esto es lo único que un humano
@@ -2546,6 +2612,56 @@ CREATE TABLE [UserTrustedDevices] (
         // Y uno normal por usuario, que es como se listan y como se borran todos de golpe al
         // reiniciarle el segundo factor a alguien.
         ExecIndex("UserTrustedDevices", "IX_UserTrustedDevices_User", "UserId", "[UserId]");
+
+        // ── Base de conocimiento (SQL Server) ────────────────────────────────────────────────
+        //
+        // ESTA ES LA VERSIÓN DE T-SQL: corchetes, IF OBJECT_ID … IS NULL, nvarchar/datetime2/rowversion.
+        // La gemela de SQLite está en la otra rama y NO es la misma sentencia: está TRADUCIDA. Pegar
+        // una en la otra rompe esta sentencia y, con ella, todas las que vengan detrás — que es
+        // exactamente cómo se perdieron 114 parches mientras el arranque anunciaba «Esquema al día».
+        //
+        // Una sola tabla para todo: un término del glosario es un artículo corto etiquetado y una
+        // guía de despliegue es uno largo. Sin FK al autor (la documentación es histórica y
+        // sobrevive a que se borre la cuenta) y sin FK a PointEntries, que ya cae en cascada desde
+        // Developers: una segunda ruta hasta la misma tabla es de las que SQL Server rechaza al
+        // crear las restricciones. Es la misma decisión que en PoolActivities.
+        Exec(@"
+IF OBJECT_ID(N'[KnowledgeArticles]', N'U') IS NULL
+CREATE TABLE [KnowledgeArticles] (
+    [Id] int IDENTITY(1,1) NOT NULL CONSTRAINT [PK_KnowledgeArticles] PRIMARY KEY,
+    [Title] nvarchar(200) NOT NULL,
+    [Body] nvarchar(max) NOT NULL,
+    [Tags] nvarchar(300) NULL,
+    [Status] int NOT NULL DEFAULT 0,
+    [AuthorUserId] int NOT NULL,
+    [AuthorName] nvarchar(200) NOT NULL,
+    [AuthorDeveloperId] int NULL,
+    [CreatedAtUtc] datetime2 NOT NULL,
+    [UpdatedAtUtc] datetime2 NULL,
+    [SubmittedAtUtc] datetime2 NULL,
+    [ReviewedByUserId] int NULL,
+    [ReviewerName] nvarchar(200) NULL,
+    [ReviewedAtUtc] datetime2 NULL,
+    [ReviewComment] nvarchar(max) NULL,
+    [ReviewRound] int NOT NULL DEFAULT 0,
+    [ReviewHistory] nvarchar(max) NULL,
+    [PublishedAtUtc] datetime2 NULL,
+    [PointEntryId] int NULL,
+    [PointsAwarded] int NOT NULL DEFAULT 0
+);");
+        // El sello de concurrencia va APARTE y justo aquí, no en la lista de tablas de más arriba:
+        // aquella corre antes de que esta tabla exista, así que el ALTER no habría hecho nada en el
+        // primer arranque y la columna habría aparecido —en silencio— hasta el segundo.
+        // [rowversion] se puede agregar NOT NULL sin DEFAULT: lo rellena el motor en cada fila.
+        Exec(@"
+IF OBJECT_ID(N'[KnowledgeArticles]', N'U') IS NOT NULL AND COL_LENGTH('KnowledgeArticles','RowVersion') IS NULL
+ALTER TABLE [KnowledgeArticles] ADD [RowVersion] rowversion NOT NULL;");
+
+        // El estado va de primera columna porque toda consulta empieza por él: la cola es «por
+        // revisar», el buscador es «publicado» y la lista propia es «lo mío».
+        ExecIndex("KnowledgeArticles", "IX_Know_Estado", "Status", "[Status],[UpdatedAtUtc]");
+        ExecIndex("KnowledgeArticles", "IX_Know_Autor", "AuthorUserId", "[AuthorUserId],[Status]");
+        ExecIndex("KnowledgeArticles", "IX_Know_Publicado", "PublishedAtUtc", "[PublishedAtUtc]");
 
         return fallidas;
     }

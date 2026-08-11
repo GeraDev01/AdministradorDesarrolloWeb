@@ -68,6 +68,27 @@ public class Developer
 
     public int? TeamId { get; set; }
     public TeamRole TeamRole { get; set; } = TeamRole.SinRol;
+
+    /// <summary>
+    /// Qué hace esta persona DENTRO de su equipo, en una frase. Opcional.
+    ///
+    /// <para>No es lo mismo que <see cref="TeamRole"/> y por eso es un campo aparte: el rol es una
+    /// etiqueta de un catálogo cerrado —«Backend Dev»— que sirve para agrupar, y hay cinco personas
+    /// con la misma; la función es lo que solo hace ella —«mantiene la pasarela de pagos y atiende
+    /// las incidencias de facturación»—. En el organigrama son las dos líneas de su tarjeta, y sin
+    /// la segunda el diagrama enseña un organigrama de puestos en vez de uno de responsabilidades,
+    /// que es justo lo que se pidió.</para>
+    ///
+    /// <para><b>Se borra al cambiar de equipo</b>, igual que el rol y por el mismo motivo: la frase
+    /// describe una responsabilidad dentro de UN equipo y no viaja con la persona. La reescribe
+    /// quien la recibe. También se borra si su equipo desaparece, porque entonces no queda equipo
+    /// dentro del cual tener función.</para>
+    ///
+    /// <para>Longitud máxima 200: es una frase, no una descripción de puesto. Quien necesite más
+    /// tiene <see cref="Notes"/> y la ficha de desarrollo, que es donde ya vive lo largo.</para>
+    /// </summary>
+    public string? TeamFunction { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>Equipo al que pertenece, o null si está sin equipo. Es la otra punta de <see cref="Team.Members"/>.</summary>

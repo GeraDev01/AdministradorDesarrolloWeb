@@ -29,7 +29,7 @@ public interface IGeneradorDeDocumentos
     /// <summary>La ficha de un desarrollador: sus evaluaciones, hitos e indicadores.</summary>
     byte[] FichaDeDesarrollador(DatosDeFicha datos);
 
-    /// <summary>La organización de equipos, para imprimirla o repartirla.</summary>
+    /// <summary>El organigrama de equipos, dibujado, para imprimirlo o repartirlo.</summary>
     byte[] OrganizacionDeEquipos(DatosDeEquipos datos);
 }
 
@@ -91,15 +91,40 @@ public record DatosDeFicha(
     IReadOnlyList<HitoImpreso> Hitos,
     string GeneradoEl);
 
-// ── Organización de equipos ─────────────────────────────────────────────────────
+// ── Organigrama de equipos ──────────────────────────────────────────────────────
+
+/// <summary>
+/// Una persona dentro de una caja del organigrama.
+///
+/// <para><b>Llega en piezas y no como una cadena ya armada</b>, que es como venía antes
+/// («Ana Pérez (Senior) — Backend Dev»). El cambio no es cosmético: mientras el documento era una
+/// LISTA, una frase por renglón bastaba; en un diagrama cada dato ocupa su sitio —el nombre pesa,
+/// el nivel y el rol van pequeños al lado, la función va debajo en su propia línea y puede partirse
+/// en dos— y eso no se puede hacer con un texto ya concatenado sin volver a trocearlo aquí.</para>
+/// </summary>
+/// <param name="Nivel">El «Senior», «Junior»… de la ficha. Puede faltar y entonces no se imprime nada:
+/// un paréntesis vacío detrás de un nombre parece un error de impresión.</param>
+/// <param name="Funcion">Qué hace dentro del equipo. Opcional; sin ella la tarjeta se dibuja de una
+/// sola línea en vez de dejar un renglón en blanco.</param>
+/// <param name="EsLider">Se dibuja distinto. Quién lo es lo decide el servicio, no el papel.</param>
+public record IntegranteImpreso(
+    string Nombre, string? Nivel, string Rol, string? Funcion, bool EsLider);
 
 public record EquipoImpreso(
     string Nombre, string? Descripcion, string? Lider, string? ColorHex,
-    IReadOnlyList<string> Integrantes, IReadOnlyList<string> Sistemas, IReadOnlyList<string> Proyectos);
+    IReadOnlyList<IntegranteImpreso> Integrantes,
+    IReadOnlyList<string> Sistemas, IReadOnlyList<string> Proyectos);
 
+/// <param name="SinEquipo">Quien no está en ningún equipo. <b>Va en el diagrama como una caja más</b>,
+/// no en una nota al pie: un organigrama que solo dibuja a quien tiene equipo miente por omisión, y
+/// esa caja suele ser justo lo que se viene a mirar.</param>
+/// <param name="TotalPersonas">Cuántas personas activas hay en total, con equipo y sin él. Va en el
+/// nodo de arriba del diagrama; se cuenta en el servidor para que el papel no pueda contradecir a la
+/// pantalla por sumar cada uno por su cuenta.</param>
 public record DatosDeEquipos(
     IReadOnlyList<EquipoImpreso> Equipos,
-    IReadOnlyList<string> SinEquipo,
+    IReadOnlyList<IntegranteImpreso> SinEquipo,
+    int TotalPersonas,
     string GeneradoEl);
 
 // ── La solicitud de vacaciones en WORD, desde una plantilla editable ────────────

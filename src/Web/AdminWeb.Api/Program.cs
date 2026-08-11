@@ -124,6 +124,7 @@ builder.Services.AddScoped<WorkSessionService>();
 builder.Services.AddScoped<DevActivityService>();
 builder.Services.AddScoped<PoolActivityService>();
 builder.Services.AddScoped<ForumService>();
+builder.Services.AddScoped<ConocimientoService>();
 builder.Services.AddScoped<SuggestionService>();
 builder.Services.AddScoped<VacationRequestService>();
 builder.Services.AddScoped<LeaveRequestService>();
@@ -445,6 +446,7 @@ app.MapCatalogosEndpoints();
 app.MapPlantillasEndpoints();
 app.MapBitacoraEndpoints();
 app.MapForoEndpoints();
+app.MapConocimientoEndpoints();
 app.MapAdjuntosEndpoints();
 
 // Autoservicio del desarrollador (fase 2).

@@ -51,6 +51,7 @@ public static class BusquedaEndpoints
             SearchKind.Desarrollador => "Desarrollador",
             SearchKind.Sugerencia    => "Sugerencia",
             SearchKind.Plantilla     => "Plantilla",
+            SearchKind.Articulo      => "Artículo",
             _                        => h.Kind.ToString()
         },
         h.Texto,
@@ -62,6 +63,12 @@ public static class BusquedaEndpoints
             "developers"     => "/desarrolladores",
             "suggestions"    => "/sugerencias",
             "templates"      => "/plantillas",
+            // Los artículos de conocimiento son los únicos que llevan su identificador dentro de la
+            // clave, y por eso su ruta se compone en vez de estar en la tabla: buscar un tema y
+            // aterrizar en la lista completa de la documentación no sería encontrarlo. La clave la
+            // fabrica el servicio con el Id de la fila, así que aquí no hay texto de nadie que
+            // pudiera colarse en la dirección.
+            _ when h.NavKey.StartsWith("conocimiento/", StringComparison.Ordinal) => "/" + h.NavKey,
             _                => "/"
         });
 }

@@ -1,0 +1,377 @@
+@page "/conocimiento"
+@using AdminWeb.Client.Paginas.Foro
+@using AdminWeb.Shared.Dtos.Conocimiento
+@inject ClienteApi Api
+@inject NavigationManager Navegacion
+@inject EstadoSesion Sesion
+
+@*
+    La base de conocimiento: la pantalla que se abre para CONSULTAR.
+
+    ── LO PRIMERO ES ENCONTRAR, NO NAVEGAR ────────────────────────────────────────────────────────
+
+    Por eso la caja de búsqueda y el índice de etiquetas van arriba del todo, antes que la lista, y
+    por eso la lista empieza filtrada a lo PUBLICADO. Quien entra aquí casi nunca viene a mirar qué
+    hay: viene con una pregunta concreta —cómo se despliega tal cosa, qué significa tal término— y
+    la documentación solo sirve si esa pregunta se contesta en el primer intento. Una pantalla que
+    recibe con una lista cronológica de todo obliga a leerla entera para descubrir que lo que se
+    buscaba no está.
+
+    Las ETIQUETAS son el índice de verdad, y ahí está también el glosario: un término es un artículo
+    corto etiquetado, no otra pantalla con otra forma de buscar. Cada etiqueta lleva cuántos
+    artículos publicados la usan, que es lo que distingue un tema del que hay documentación de una
+    palabra que alguien escribió una vez.
+
+    ── LO PROPIO NO SE ESCONDE EN OTRA PANTALLA ───────────────────────────────────────────────────
+
+    Los borradores y lo devuelto se ven desde aquí, con los mismos filtros. Separarlos en un «mis
+    artículos» aparte habría duplicado el buscador y, sobre todo, habría escondido lo devuelto en un
+    sitio al que solo se entra a propósito — que es exactamente como muere: nadie corrige lo que no
+    recuerda que existe. Por eso los avisos de arriba son BOTONES: llevan a su propio filtro.
+
+    Quién ve qué lo decide el servidor y solo el servidor. Un borrador ajeno no está aquí porque no
+    sale de la base, no porque esta pantalla lo esconda.
+*@
+
+<PageTitle>Base de conocimiento</PageTitle>
+
+<RadzenStack Gap="1rem">
+
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                 Wrap="FlexWrap.Wrap" JustifyContent="JustifyContent.SpaceBetween" Gap="0.75rem">
+        <RadzenText TextStyle="TextStyle.H5" Style="margin:0">Base de conocimiento</RadzenText>
+
+        <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.5rem">
+            @if (_esAdmin)
+            {
+                @* La cola no se anuncia solo cuando hay algo: enseñarla siempre es lo que hace que se
+                   sepa que existe. Cuando hay algo esperando, además, lleva el número y se pinta
+                   encendida. *@
+                <RadzenButton Text="@(PorRevisar > 0 ? $"Cola de revisión ({PorRevisar})" : "Cola de revisión")"
+                              Icon="fact_check"
+                              ButtonStyle="@(PorRevisar > 0 ? ButtonStyle.Warning : ButtonStyle.Light)"
+                              Size="ButtonSize.Small"
+                              Click="@(() => Navegacion.NavigateTo("conocimiento/revision"))" />
+            }
+            @if (_puedeEscribir)
+            {
+                <RadzenButton Text="Escribir un artículo" Icon="add" ButtonStyle="ButtonStyle.Primary"
+                              Size="ButtonSize.Small"
+                              Click="@(() => Navegacion.NavigateTo("conocimiento/nuevo"))" />
+            }
+        </RadzenStack>
+    </RadzenStack>
+
+    @* ── Lo que me espera a MÍ ──────────────────────────────────────────────────── *@
+    @if (_pendientes is { } p && (p.MisDevueltos > 0 || p.MisBorradores > 0))
+    {
+        <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap"
+                     AlignItems="AlignItems.Center" Gap="0.5rem">
+            @if (p.MisDevueltos > 0)
+            {
+                <RadzenButton Text="@($"Te devolvieron {p.MisDevueltos}")" Icon="reply"
+                              ButtonStyle="ButtonStyle.Danger" Size="ButtonSize.Small"
+                              Click="@(() => VerLoMioAsync(KnowledgeStatus.Rechazado))" />
+            }
+            @if (p.MisBorradores > 0)
+            {
+                <RadzenButton Text="@($"{p.MisBorradores} borrador(es) a medias")" Icon="drafts"
+                              ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                              Click="@(() => VerLoMioAsync(KnowledgeStatus.Borrador))" />
+            }
+        </RadzenStack>
+    }
+
+    @* ── Buscar ─────────────────────────────────────────────────────────────────── *@
+    <RadzenCard>
+        <RadzenStack Gap="0.7rem">
+            <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap"
+                         AlignItems="AlignItems.Center" Gap="0.5rem">
+                @* Se busca al salir del campo o con Enter, no en cada tecla: cada cambio es una
+                   consulta paginada al servidor que además mira DENTRO del texto de cada artículo. *@
+                <RadzenTextBox @bind-Value="_texto" Style="width:300px"
+                               Placeholder="Buscar un tema, un término, una palabra del texto…"
+                               aria-label="Buscar en la documentación"
+                               Change="@(async _ => await BuscarDeNuevoAsync())" />
+
+                @if (_puedeEscribir)
+                {
+                    <RadzenDropDown TValue="int?" Data="@Estados" TextProperty="Texto" ValueProperty="Id"
+                                    @bind-Value="_estado" AllowClear="true" Style="width:180px"
+                                    Placeholder="Todos los estados" aria-label="Estado"
+                                    Change="@(async _ => await BuscarDeNuevoAsync())" />
+
+                    <RadzenCheckBox TValue="bool" Value="@_soloMios" Name="soloMios"
+                                    ValueChanged="@(async (bool v) => { _soloMios = v; await BuscarDeNuevoAsync(); })" />
+                    <RadzenLabel Text="Solo lo mío" Component="soloMios" />
+                }
+
+                @if (HayFiltro)
+                {
+                    <RadzenButton Text="Quitar filtros" Icon="clear" ButtonStyle="ButtonStyle.Light"
+                                  Size="ButtonSize.Small" Click="@LimpiarAsync" />
+                }
+            </RadzenStack>
+
+            @* ── El índice de etiquetas ──────────────────────────────────────── *@
+            @if (_etiquetas.Count > 0)
+            {
+                <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap"
+                             AlignItems="AlignItems.Center" Gap="0.35rem">
+                    <RadzenText TextStyle="TextStyle.Caption" Style="margin:0 .3rem 0 0">
+                        <RadzenIcon Icon="label" /> Temas:
+                    </RadzenText>
+
+                    @* Solo las más usadas, y el resto detrás de un botón: con sesenta etiquetas en
+                       pantalla el índice deja de ser un índice y pasa a ser otra cosa que hay que
+                       leer entera. Van ordenadas por cuántos artículos tienen, así que las primeras
+                       son las que de verdad contestan preguntas. *@
+                    @foreach (var e in EtiquetasVisibles)
+                    {
+                        <RadzenButton Text="@($"{e.Etiqueta} ({e.Articulos})")"
+                                      ButtonStyle="@(EsLaEtiqueta(e.Etiqueta) ? ButtonStyle.Primary : ButtonStyle.Light)"
+                                      Size="ButtonSize.ExtraSmall"
+                                      Click="@(() => AlternarEtiquetaAsync(e.Etiqueta))" />
+                    }
+
+                    @if (_etiquetas.Count > EtiquetasALaVista)
+                    {
+                        <RadzenButton Text="@(_todasLasEtiquetas ? "Ver menos" : $"Ver las {_etiquetas.Count}")"
+                                      Icon="@(_todasLasEtiquetas ? "expand_less" : "expand_more")"
+                                      ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                      Click="@(() => _todasLasEtiquetas = !_todasLasEtiquetas)" />
+                    }
+                </RadzenStack>
+            }
+        </RadzenStack>
+    </RadzenCard>
+
+    @* ── Resultados ─────────────────────────────────────────────────────────────── *@
+    @if (_cargando)
+    {
+        <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" />
+    }
+    else if (_articulos.Count == 0)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Info" AllowClose="false">
+            @if (HayFiltro)
+            {
+                <text>
+                    Nada coincide con eso. Prueba con una palabra menos, o quita los filtros — y si el
+                    tema no está escrito, ahora sabes cuál es el siguiente artículo que hace falta.
+                </text>
+            }
+            else
+            {
+                <text>
+                    Todavía no hay nada publicado. Lo primero que se escribe suele ser lo que más veces
+                    se ha explicado de viva voz.
+                </text>
+            }
+        </RadzenAlert>
+    }
+    else
+    {
+        @foreach (var a in _articulos)
+        {
+            <div @onclick="@(() => Abrir(a.Id))" style="cursor:pointer">
+                <RadzenCard>
+                    <RadzenStack Gap="0.35rem">
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                     Wrap="FlexWrap.Wrap" Gap="0.5rem">
+                            <RadzenText TextStyle="TextStyle.H6" Style="margin:0">@a.Titulo</RadzenText>
+
+                            @* El estado solo se pinta cuando NO es «publicado»: en una lista donde casi
+                               todo está publicado, esa pastilla repetida en cada tarjeta no informa de
+                               nada y tapa las tres que sí dicen algo. *@
+                            @if (a.Estado != KnowledgeStatus.Publicado)
+                            {
+                                <RadzenBadge BadgeStyle="@PresentacionDeConocimiento.DeEstado(a.Estado)"
+                                             Text="@a.EstadoEtiqueta" />
+                            }
+                            @if (a.PuntosOtorgados > 0)
+                            {
+                                <RadzenBadge BadgeStyle="BadgeStyle.Info" Text="@($"+{a.PuntosOtorgados} pts")" />
+                            }
+                        </RadzenStack>
+
+                        <RadzenText TextStyle="TextStyle.Caption" Style="margin:0"
+                                    title="@TiempoDelForo.Fecha(a.PublicadoUtc ?? a.ActualizadoUtc ?? a.CreadoUtc)">
+                            <RadzenIcon Icon="person" /> @a.Autor
+                            &nbsp;·&nbsp; @TiempoDelForo.HaceCuanto(a.PublicadoUtc ?? a.ActualizadoUtc ?? a.CreadoUtc)
+                            @if (a.EsMio)
+                            {
+                                <text>&nbsp;·&nbsp; lo escribiste tú</text>
+                            }
+                        </RadzenText>
+
+                        @* El extracto es TEXTO LLANO que armó el servidor recorriendo los bloques ya
+                           analizados: nunca lleva marcado ni direcciones a medias. *@
+                        <RadzenText TextStyle="TextStyle.Body2" Style="margin:0">@a.Extracto</RadzenText>
+
+                        @if (PresentacionDeConocimiento.Etiquetas(a.Etiquetas) is { Count: > 0 } etiquetas)
+                        {
+                            <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.3rem">
+                                @foreach (var e in etiquetas)
+                                {
+                                    <RadzenBadge BadgeStyle="BadgeStyle.Light" Text="@e" />
+                                }
+                            </RadzenStack>
+                        }
+                    </RadzenStack>
+                </RadzenCard>
+            </div>
+        }
+
+        @* El paginado lo hace el SERVIDOR: la documentación crece sin techo y traerla entera deja de
+           funcionar al año. *@
+        <RadzenPager Count="@_total" PageSize="@TamanoPagina" PageNumbersCount="5"
+                     PageChanged="@AlCambiarPaginaAsync" />
+
+        <RadzenText TextStyle="TextStyle.Caption">
+            @_total artículo(s). Lo más recientemente tocado va primero.
+        </RadzenText>
+    }
+</RadzenStack>
+
+@code {
+    private const int TamanoPagina = 10;
+
+    /// <summary>Cuántas etiquetas se pintan antes de tener que pedir el resto.</summary>
+    private const int EtiquetasALaVista = 18;
+
+    /// <summary>
+    /// Los estados, con el mismo nombre que usa el servidor. «Devuelto» y no «Rechazado» a propósito:
+    /// es lo que de verdad ocurre —vuelve a manos de su autor para que lo corrija— y la palabra con
+    /// la que se lea importa cuando la lee quien lo escribió.
+    /// </summary>
+    private static readonly OpcionDto[] Estados =
+    [
+        new((int)KnowledgeStatus.Publicado,  "Publicado"),
+        new((int)KnowledgeStatus.Borrador,   "Borrador"),
+        new((int)KnowledgeStatus.PorRevisar, "Por revisar"),
+        new((int)KnowledgeStatus.Rechazado,  "Devuelto")
+    ];
+
+    /// <summary>La etiqueta con la que se entra desde otra pantalla: un artículo enlaza sus temas.</summary>
+    [Parameter, SupplyParameterFromQuery(Name = "etiqueta")]
+    public string? EtiquetaInicial { get; set; }
+
+    private bool _esAdmin, _puedeEscribir;
+    private ConocimientoPendientesDto? _pendientes;
+
+    private IReadOnlyList<ConocimientoTarjetaDto> _articulos = [];
+    private IReadOnlyList<ConocimientoEtiquetaDto> _etiquetas = [];
+    private bool _todasLasEtiquetas;
+
+    private string _texto = "";
+    private string? _etiqueta;
+    private bool _soloMios;
+    private int _pagina = 1, _total;
+    private bool _cargando = true;
+
+    /// <summary>
+    /// Se entra viendo lo PUBLICADO, no todo. La pantalla es para consultar, y los borradores
+    /// propios mezclados con la documentación buena harían dudar de qué está revisado y qué no.
+    /// </summary>
+    private int? _estado = (int)KnowledgeStatus.Publicado;
+
+    private int PorRevisar => _pendientes?.PorRevisar ?? 0;
+
+    private IEnumerable<ConocimientoEtiquetaDto> EtiquetasVisibles =>
+        _todasLasEtiquetas ? _etiquetas : _etiquetas.Take(EtiquetasALaVista);
+
+    private bool HayFiltro =>
+        !string.IsNullOrWhiteSpace(_texto) || _etiqueta != null || _soloMios
+        || _estado != (int)KnowledgeStatus.Publicado;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Al entrar por una dirección compartida la sesión puede no estar leída todavía.
+        var usuario = Sesion.Usuario ?? await Sesion.RefrescarAsync();
+        _esAdmin = usuario?.Rol == UserRole.Admin;
+        _puedeEscribir = usuario?.Rol is UserRole.Admin or UserRole.Desarrollador;
+
+        _etiqueta = string.IsNullOrWhiteSpace(EtiquetaInicial) ? null : EtiquetaInicial.Trim();
+
+        _etiquetas = await Api.LeerAsync<List<ConocimientoEtiquetaDto>>("api/conocimiento/etiquetas") ?? [];
+        await RefrescarPendientesAsync();
+        await BuscarAsync();
+    }
+
+    // ── Buscar ───────────────────────────────────────────────────────────────
+
+    /// <summary>Cambiar un filtro vuelve a la primera página: si no, se quedaría mirando una página
+    /// que ya no existe en el resultado nuevo.</summary>
+    private Task BuscarDeNuevoAsync()
+    {
+        _pagina = 1;
+        return BuscarAsync();
+    }
+
+    private async Task BuscarAsync()
+    {
+        _cargando = true;
+        var pagina = await Api.LeerAsync<PaginaDto<ConocimientoTarjetaDto>>(Ruta());
+        _cargando = false;
+
+        // null = el error ya se mostró; se deja lo que hubiera en pantalla en vez de vaciarla.
+        if (pagina == null) return;
+
+        _articulos = pagina.Filas;
+        _total = pagina.Total;
+    }
+
+    private string Ruta()
+    {
+        var parametros = new List<string> { $"pagina={_pagina}", $"tamano={TamanoPagina}" };
+        if (!string.IsNullOrWhiteSpace(_texto)) parametros.Add($"texto={Uri.EscapeDataString(_texto.Trim())}");
+        if (!string.IsNullOrWhiteSpace(_etiqueta)) parametros.Add($"etiqueta={Uri.EscapeDataString(_etiqueta)}");
+        if (_estado is int e) parametros.Add($"estado={e}");
+        if (_soloMios) parametros.Add("soloMios=true");
+        return "api/conocimiento?" + string.Join("&", parametros);
+    }
+
+    private Task AlCambiarPaginaAsync(PagerEventArgs e)
+    {
+        _pagina = e.PageIndex + 1;
+        return BuscarAsync();
+    }
+
+    private bool EsLaEtiqueta(string etiqueta) =>
+        string.Equals(_etiqueta, etiqueta, StringComparison.CurrentCultureIgnoreCase);
+
+    /// <summary>
+    /// Pulsar la etiqueta que ya estaba puesta la QUITA. Es lo que se espera de un filtro que se ve
+    /// encendido, y evita el callejón de tener que buscar un botón de limpiar para deshacer un clic.
+    /// </summary>
+    private Task AlternarEtiquetaAsync(string etiqueta)
+    {
+        _etiqueta = EsLaEtiqueta(etiqueta) ? null : etiqueta;
+        return BuscarDeNuevoAsync();
+    }
+
+    private Task LimpiarAsync()
+    {
+        _texto = "";
+        _etiqueta = null;
+        _soloMios = false;
+        _estado = (int)KnowledgeStatus.Publicado;
+        return BuscarDeNuevoAsync();
+    }
+
+    /// <summary>El atajo de los avisos de arriba: lo mío en ese estado, sin nada más filtrando.</summary>
+    private Task VerLoMioAsync(KnowledgeStatus estado)
+    {
+        _texto = "";
+        _etiqueta = null;
+        _soloMios = true;
+        _estado = (int)estado;
+        return BuscarDeNuevoAsync();
+    }
+
+    private async Task RefrescarPendientesAsync() =>
+        _pendientes = await Api.LeerAsync<ConocimientoPendientesDto>("api/conocimiento/pendientes");
+
+    private void Abrir(int id) => Navegacion.NavigateTo($"conocimiento/{id}");
+}

@@ -110,18 +110,23 @@ public class GeneradorDeDocumentosTests
         EsUnPdf(Generador.FichaDeDesarrollador(ficha));
     }
 
-    // ── Organización de equipos ─────────────────────────────────────────────────
+    // ── Organigrama de equipos ──────────────────────────────────────────────────
 
     [Fact]
-    public void LaOrganizacionDeEquipos_SeGenera()
+    public void ElOrganigramaDeEquipos_SeGenera()
     {
         var datos = new DatosDeEquipos(
             [
                 new EquipoImpreso("Equipo Web", "Portales y APIs", "Ana Pérez", "#2563eb",
-                    ["Ana Pérez", "Beto Ruiz"], ["Portal", "API"], ["Migración"]),
+                    [
+                        new IntegranteImpreso("Ana Pérez", "Senior", "Líder", "Coordina el portal público", true),
+                        new IntegranteImpreso("Beto Ruiz", null, "Backend Dev", null, false)
+                    ],
+                    ["Portal", "API"], ["Migración"]),
                 new EquipoImpreso("Equipo Móvil", null, null, null, [], [], [])
             ],
-            ["Carla Díaz"],
+            [new IntegranteImpreso("Carla Díaz", "Junior", "Sin rol", null, false)],
+            3,
             "06/08/2026 10:00");
 
         EsUnPdf(Generador.OrganizacionDeEquipos(datos));
@@ -133,8 +138,9 @@ public class GeneradorDeDocumentosTests
         // El color lo teclea una persona en una pantalla. Que se equivoque no puede dejar sin
         // documento a todo el mundo; se cae al color de siempre y el papel sale igual.
         var datos = new DatosDeEquipos(
-            [new EquipoImpreso("Equipo", null, null, "azul", ["Ana"], [], [])],
-            [], "06/08/2026 10:00");
+            [new EquipoImpreso("Equipo", null, null, "azul",
+                [new IntegranteImpreso("Ana", null, "QA", null, false)], [], [])],
+            [], 1, "06/08/2026 10:00");
 
         EsUnPdf(Generador.OrganizacionDeEquipos(datos));
     }
@@ -142,6 +148,45 @@ public class GeneradorDeDocumentosTests
     [Fact]
     public void SinEquipos_SeGeneraIgual()
     {
-        EsUnPdf(Generador.OrganizacionDeEquipos(new DatosDeEquipos([], [], "06/08/2026 10:00")));
+        EsUnPdf(Generador.OrganizacionDeEquipos(new DatosDeEquipos([], [], 0, "06/08/2026 10:00")));
+    }
+
+    /// <summary>
+    /// El caso que decide si el diagrama sirve o no: un equipo que no cabe en una hoja.
+    ///
+    /// <para>Es la diferencia entre dibujar el organigrama con las piezas de QuestPDF y mandarle un
+    /// SVG ya hecho. Un SVG entra como UNA imagen y una imagen no se parte: sesenta personas o salen
+    /// encogidas hasta ser ilegibles o no salen. Aquí las cajas son contenido, así que la que no cabe
+    /// sigue en la página siguiente. Si esto reventara —y las excepciones de maquetado de QuestPDF
+    /// solo aparecen al generar—, se enteraría el líder que aprieta el botón delante de su equipo.</para>
+    /// </summary>
+    [Fact]
+    public void UnEquipoMasAltoQueLaHoja_SeSigueGenerando()
+    {
+        var mucha = Enumerable.Range(1, 60)
+            .Select(i => new IntegranteImpreso(
+                $"Persona número {i} con apellido largo", "Semisenior", "Fullstack",
+                "Atiende incidencias del sistema de facturación y mantiene sus pruebas", i == 1))
+            .ToList();
+
+        var datos = new DatosDeEquipos(
+            [new EquipoImpreso("Equipo enorme", "Todo el mundo aquí dentro.", "Persona número 1",
+                "#16A34A", mucha, [], [])],
+            [], 60, "06/08/2026 10:00");
+
+        EsUnPdf(Generador.OrganizacionDeEquipos(datos));
+    }
+
+    /// <summary>Con más equipos que columnas hay varias filas, y cada una vuelve a colgar de su barra.</summary>
+    [Fact]
+    public void ConMuchosEquipos_ElDiagramaSeReparteEnVariasFilas()
+    {
+        var equipos = Enumerable.Range(1, 11)
+            .Select(i => new EquipoImpreso($"Equipo {i}", i % 2 == 0 ? null : $"Se dedica a lo número {i}",
+                $"Líder {i}", i % 3 == 0 ? null : "#2563EB",
+                [new IntegranteImpreso($"Líder {i}", null, "Líder", null, true)], [], []))
+            .ToList();
+
+        EsUnPdf(Generador.OrganizacionDeEquipos(new DatosDeEquipos(equipos, [], 11, "06/08/2026 10:00")));
     }
 }

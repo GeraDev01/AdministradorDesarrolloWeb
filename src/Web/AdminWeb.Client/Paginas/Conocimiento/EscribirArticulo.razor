@@ -1,0 +1,316 @@
+@page "/conocimiento/nuevo"
+@page "/conocimiento/{Id:int}/editar"
+@attribute [Authorize(Policy = "AdminUDesarrollador")]
+@using AdminWeb.Shared.Dtos.Conocimiento
+@inject ClienteApi Api
+@inject HttpClient Http
+@inject AvisosDeInterfaz Avisos
+@inject NavigationManager Navegacion
+@inject EstadoSesion Sesion
+
+@*
+    Escribir un artículo, o cambiar uno que ya existe.
+
+    ── EMPIEZA EN BORRADOR, Y EL BORRADOR ES PRIVADO ──────────────────────────────────────────────
+
+    Lo que se guarda aquí no lo ve nadie más —ni el líder— hasta que su autor lo manda a revisar. No
+    es un detalle de permisos: si lo escrito a medias se pudiera leer, la gente escribiría en otro
+    sitio hasta tenerlo presentable, y la base de conocimiento se quedaría sin la mitad de lo que
+    debería contener. Por eso hay dos botones y no uno: guardar es una cosa, mandarlo es otra.
+
+    ── NO HAY VISTA PREVIA, Y ES A PROPÓSITO ──────────────────────────────────────────────────────
+
+    Quien decide qué es un título, qué es un enlace y qué es código es el SERVIDOR: esa decisión es
+    la que hace que un artículo no pueda ejecutar nada en el navegador de quien lo lea. Una vista
+    previa dibujada aquí sería una SEGUNDA interpretación del mismo texto, hecha en la máquina de
+    quien escribe, y en cuanto se separara de la de verdad enseñaría una cosa distinta de la que se
+    va a publicar — que es peor que no enseñar nada. Lo que sí hay es la lista de las cinco marcas
+    que existen, ahí abajo: son pocas a propósito, y con eso se documenta cualquier cosa.
+
+    Guardado el artículo, se abre para verlo tal como quedó de verdad.
+*@
+
+<PageTitle>@(EsNuevo ? "Escribir un artículo" : "Editar el artículo")</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+        <RadzenButton Text="Volver" Icon="chevron_left" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.Small" Disabled="@_ocupado" Click="@Volver" />
+        <RadzenText TextStyle="TextStyle.H5" Style="margin:0">
+            @(EsNuevo ? "Escribir un artículo" : "Editar el artículo")
+        </RadzenText>
+    </RadzenStack>
+
+    @if (_cargando)
+    {
+        <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" />
+    }
+    else if (_noSePuede is { } motivo)
+    {
+        <RadzenAlert AlertStyle="AlertStyle.Warning" AllowClose="false">@motivo</RadzenAlert>
+    }
+    else
+    {
+        <RadzenCard>
+            <RadzenStack Gap="0.7rem">
+                <RadzenTextBox @bind-Value="_titulo" MaxLength="@MaxTitulo" Style="width:100%"
+                               Placeholder="Título: por aquí se va a encontrar"
+                               aria-label="Título del artículo" Disabled="@_ocupado" />
+
+                <RadzenTextBox @bind-Value="_etiquetas" MaxLength="@MaxEtiquetas" Style="width:100%"
+                               Placeholder="Temas separados por comas: sql, despliegue, glosario…"
+                               aria-label="Etiquetas" Disabled="@_ocupado" />
+
+                @* Las etiquetas son el índice de la base, y por eso conviene decir aquí para qué
+                   sirven: quien no lo sepa las deja vacías y su artículo solo se encuentra si alguien
+                   acierta con una palabra del texto. *@
+                <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
+                    Los temas son el índice: es como se llega a «lo demás que habla de esto». Se guardan
+                    en minúsculas para que «SQL» y «sql» no partan en dos el mismo tema.
+                </RadzenText>
+
+                <RadzenTextArea @bind-Value="_cuerpo" Rows="18" MaxLength="@MaxCuerpo" Style="width:100%"
+                                aria-label="Texto del artículo" Disabled="@_ocupado"
+                                Placeholder="Escribe aquí. Lo que sabes tú y todavía no está escrito en ningún sitio." />
+
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                             Wrap="FlexWrap.Wrap" JustifyContent="JustifyContent.SpaceBetween" Gap="0.5rem">
+                    <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
+                        @($"{Largo:N0} de {MaxCuerpo:N0} caracteres")
+                        @if (Largo > MaxCuerpo * 0.9)
+                        {
+                            <text> — si no cabe, pártelo en varios artículos y enlázalos: así es como se encuentra después.</text>
+                        }
+                    </RadzenText>
+                </RadzenStack>
+
+                <details>
+                    <summary style="cursor:pointer;font-size:.85rem">Las marcas que se entienden (son cinco)</summary>
+                    <RadzenText TextStyle="TextStyle.Caption" Style="margin:.4rem 0 0;white-space:pre-wrap">@Ayuda</RadzenText>
+                </details>
+            </RadzenStack>
+        </RadzenCard>
+
+        <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.5rem">
+            <RadzenButton Text="@(EsNuevo ? "Guardar borrador" : "Guardar")" Icon="save"
+                          ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                          Disabled="@_ocupado" Click="@(() => GuardarAsync(mandar: false))" />
+
+            @if (PuedeMandar)
+            {
+                @* Guardar y mandar en un solo botón: si fueran dos pasos, el segundo se olvidaría y el
+                   artículo se quedaría en un borrador que nadie va a leer nunca. *@
+                <RadzenButton Text="Guardar y mandar a revisar" Icon="send" ButtonStyle="ButtonStyle.Primary"
+                              Size="ButtonSize.Small" Disabled="@_ocupado"
+                              Click="@(() => GuardarAsync(mandar: true))" />
+            }
+
+            <RadzenButton Text="Cancelar" Icon="close" ButtonStyle="ButtonStyle.Light"
+                          Size="ButtonSize.Small" Disabled="@_ocupado" Click="@Volver" />
+        </RadzenStack>
+
+        @if (_estado == KnowledgeStatus.Publicado && !EsNuevo)
+        {
+            @* El aviso se bifurca por rol porque el servidor se bifurca: editar lo publicado devuelve
+               el artículo a la cola SALVO que quien edite sea el líder, cuya edición ya está revisada
+               por definición —que es lo que significa que él sea el revisor—. Un aviso único prometía
+               al líder una cola por la que su cambio no iba a pasar, y un aviso que no se cumple
+               enseña a no leer los avisos. Es la misma bifurcación que ya hace el artículo abierto. *@
+            <RadzenAlert AlertStyle="AlertStyle.Info" AllowClose="false">
+                @if (_esAdmin)
+                {
+                    <text>
+                        Este artículo está publicado. Tus cambios se ven en cuanto guardas: tu edición ya
+                        está revisada por definición, porque el revisor eres tú.
+                    </text>
+                }
+                else
+                {
+                    <text>
+                        Este artículo está publicado. Al guardarlo vuelve a la cola de revisión, porque lo
+                        que el equipo lee tiene que haber pasado por ahí — si no, bastaría con publicar
+                        algo inocuo y cambiarlo después.
+                    </text>
+                }
+            </RadzenAlert>
+        }
+    }
+</RadzenStack>
+
+@code {
+    /// <summary>El artículo que se edita. Null cuando se está escribiendo uno nuevo.</summary>
+    [Parameter]
+    public int? Id { get; set; }
+
+    /// <summary>
+    /// Los topes, repetidos aquí porque el navegador no ve las constantes del servidor. Sirven para
+    /// avisar antes y para que el campo no deje teclear de más; el que cuenta lo sigue aplicando el
+    /// servidor.
+    /// </summary>
+    private const int MaxTitulo = 200;
+    private const int MaxEtiquetas = 300;
+    private const int MaxCuerpo = 20_000;
+
+    /// <summary>Lo mínimo para que valga la pena hacer que el líder abra la cola.</summary>
+    private const int MinCuerpoParaMandar = 40;
+
+    private const string Ayuda =
+        "# Título    ##  y  ###  para las secciones de dentro\n" +
+        "- punto de una lista        1. punto numerado\n" +
+        "**negrita**                 `código dentro de una línea`\n" +
+        "```sql   …líneas de código…   ```   (las tres comillas, en su propia línea)\n" +
+        "Las direcciones se vuelven enlaces solas; para ponerles nombre, [así](https://…).\n\n" +
+        "Todo lo demás es texto tal cual. No hay imágenes, ni tablas, ni HTML: dentro de un bloque de " +
+        "código no se interpreta nada, así que un script lleno de # comentarios no se convierte en títulos.";
+
+    private string _titulo = "", _cuerpo = "", _etiquetas = "";
+    private KnowledgeStatus _estado = KnowledgeStatus.Borrador;
+    private bool _cargando, _ocupado, _esAdmin;
+    private string? _noSePuede;
+
+    /// <summary>
+    /// Si el SERVIDOR dice que quien está aquí puede mandar ESTE artículo a revisar. Se cree lo que
+    /// venga en el artículo y no se deduce del estado, que es lo que se hacía y estaba mal: mandar a
+    /// revisar es solo de su AUTOR, así que el líder editando algo devuelto de otra persona veía el
+    /// botón, guardaba, y se llevaba un «solo su autor puede mandarlo a revisar» con el texto ya
+    /// escrito. La regla vive en un sitio, y no es éste.
+    /// </summary>
+    private bool _puedoEnviar;
+
+    /// <summary>
+    /// Qué artículo hay cargado en el formulario. Existe para no volver a traerlo del servidor cuando
+    /// la pantalla se vuelve a preparar sin haber cambiado de artículo: recargar aquí no es refrescar,
+    /// es TIRAR lo que la persona lleva escrito y no ha guardado todavía.
+    /// </summary>
+    private int? _enElFormulario;
+    private bool _preparado;
+
+    private bool EsNuevo => Id is null;
+    private int Largo => _cuerpo?.Length ?? 0;
+
+    /// <summary>
+    /// Mandar a revisar solo tiene sentido mientras el artículo esté en manos de SU AUTOR. Uno nuevo
+    /// lo es siempre —lo acaba de escribir quien está aquí—; para el resto manda lo que dijo el
+    /// servidor, no lo que esta pantalla pueda deducir del estado.
+    /// </summary>
+    private bool PuedeMandar => EsNuevo || _puedoEnviar;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Solo para saber qué avisar sobre lo publicado. Quién puede hacer qué lo sigue diciendo el
+        // servidor en cada artículo; esto no abre ni cierra ningún botón.
+        var usuario = Sesion.Usuario ?? await Sesion.RefrescarAsync();
+        _esAdmin = usuario?.Rol == UserRole.Admin;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Ya está preparado para ESTE artículo: no se toca nada.
+        if (_preparado && _enElFormulario == Id) return;
+        _preparado = true;
+        _enElFormulario = Id;
+
+        if (EsNuevo)
+        {
+            // Se entra a escribir uno nuevo, quizá desde el que se acababa de editar: la pantalla se
+            // reutiliza, así que hay que dejarla en blanco a mano.
+            _titulo = _cuerpo = _etiquetas = "";
+            _estado = KnowledgeStatus.Borrador;
+            _puedoEnviar = false;   // uno nuevo se manda por ser nuevo, no por este permiso
+            _noSePuede = null;
+            return;
+        }
+
+        _cargando = true;
+        _noSePuede = null;
+        var a = await Api.LeerAsync<ConocimientoArticuloDto>($"api/conocimiento/{Id}");
+        _cargando = false;
+
+        if (a is null)
+        {
+            _noSePuede = "Ese artículo no existe o no está disponible para ti.";
+            return;
+        }
+
+        if (!a.PuedoEditar)
+        {
+            _noSePuede = "Solo puedes editar lo que tú escribiste.";
+            return;
+        }
+
+        _titulo = a.Titulo;
+        _etiquetas = a.Etiquetas ?? "";
+        _estado = a.Estado;
+        _puedoEnviar = a.PuedoEnviar;
+
+        // Se edita la FUENTE —el texto con su marcado sin interpretar—, nunca los bloques ya
+        // analizados: el análisis es de ida, y reconstruir el original a partir de él perdería
+        // exactamente lo que el autor escribió.
+        _cuerpo = a.Fuente ?? "";
+    }
+
+    /// <summary>
+    /// Guarda, y si se pidió, manda a revisar acto seguido.
+    ///
+    /// <para>Las validaciones de fondo —título corto, cuerpo insuficiente, quién puede editar qué—
+    /// las hace el servidor y su mensaje se enseña TAL CUAL. Aquí solo se adelanta lo que evitaría un
+    /// viaje seguro a un rechazo, y con el mismo texto que daría el servidor.</para>
+    /// </summary>
+    private async Task GuardarAsync(bool mandar)
+    {
+        if (mandar && _cuerpo.Trim().Length < MinCuerpoParaMandar)
+        {
+            Avisos.Aviso($"Para mandarlo a revisar escribe al menos {MinCuerpoParaMandar} caracteres.");
+            return;
+        }
+
+        _ocupado = true;
+        try
+        {
+            var cuerpo = new ConocimientoEscrituraDto(_titulo, _cuerpo, _etiquetas);
+            int id;
+
+            if (EsNuevo)
+            {
+                var (ok, creado) = await Api.EnviarAsync<ConocimientoEscrituraDto, ConocimientoCreadoDto>(
+                    "api/conocimiento", cuerpo);
+                if (!ok || creado is null) return;
+
+                id = creado.Id;
+                if (!mandar) Avisos.Exito(creado.Mensaje);
+            }
+            else
+            {
+                var r = await Http.CambiarAsync($"api/conocimiento/{Id}", cuerpo);
+                if (!r.Ok)
+                {
+                    if (!string.IsNullOrEmpty(r.Mensaje)) Avisos.Error(r.Mensaje);
+                    return;
+                }
+
+                id = Id!.Value;
+                if (!mandar) Avisos.Exito(r.Mensaje);
+            }
+
+            if (mandar)
+            {
+                var (ok, enviado) = await Api.EnviarAsync<object?, ResultadoDto>(
+                    $"api/conocimiento/{id}/enviar", null);
+
+                // Si el envío falla, el texto YA está guardado: se dice qué pasó y se abre el
+                // artículo igual, para que nadie se quede pensando que perdió lo que escribió.
+                if (ok && enviado is not null) Avisos.Resultado(enviado.Ok, enviado.Mensaje);
+            }
+
+            // Los contadores del menú pudieron cambiar por los dos lados: un borrador nuevo, o algo
+            // que acaba de entrar en la cola del líder.
+            PendientesDeConocimiento.Avisar();
+            Navegacion.NavigateTo($"conocimiento/{id}");
+        }
+        finally { _ocupado = false; }
+    }
+
+    /// <summary>Volver: al artículo si ya existía, y a la lista si todavía no.</summary>
+    private void Volver() =>
+        Navegacion.NavigateTo(Id is int id ? $"conocimiento/{id}" : "conocimiento");
+}

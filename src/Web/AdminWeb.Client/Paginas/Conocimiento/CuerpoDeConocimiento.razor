@@ -1,0 +1,123 @@
+@using AdminWeb.Shared.Dtos.Conocimiento
+
+@*
+    Pinta el cuerpo de un artículo: títulos, párrafos, listas y bloques de código.
+
+    ── POR QUÉ ESTO NO ES UN «RENDERIZADOR DE MARKDOWN» ───────────────────────────────────────────
+
+    Porque no hay marcado que renderizar. El servidor no manda una cadena con asteriscos ni una
+    cadena con etiquetas: manda BLOQUES, con RENGLONES, con SEGMENTOS, y cada segmento trae ya dicho
+    qué es —texto, negrita, código o enlace— y con qué dirección. Aquí solo se elige el componente
+    que le toca a cada trozo y se emite su texto COMO TEXTO.
+
+    Eso importa porque un artículo lo escribe cualquiera del equipo y lo lee todo el mundo, que es el
+    vector clásico del XSS almacenado. Con este reparto no existe en ningún punto del camino una
+    cadena de marcado que alguien pudiera olvidarse de escapar, porque no se produce ninguna. Las
+    tres reglas, y ninguna es opcional:
+
+      1. El texto sale con @@, que Blazor escapa. Nunca MarkupString, nunca innerHTML.
+      2. Los enlaces NO se buscan aquí: llegan decididos y validados por el servidor (solo http y
+         https; javascript: y data: se quedaron en texto llano). Esta pantalla corre en la máquina de
+         quien lee y se puede manipular, así que decidir aquí qué es un enlace no valdría de defensa.
+      3. Cada ancla lleva rel="noopener noreferrer": sin noopener, la página que se abre puede
+         redirigir la nuestra desde window.opener.
+
+    Dentro de un bloque de código no se pinta nada especial —ni negritas, ni enlaces— porque el
+    servidor tampoco los analizó: ahí una dirección es código, y un renglón que empieza por # es un
+    comentario, no un título.
+*@
+
+@foreach (var bloque in Bloques)
+{
+    @if (bloque.Tipo == TipoDeBloque.Titulo)
+    {
+        @* Los títulos del artículo empiezan en H5 y no en H1: el H4 ya lo lleva el nombre del
+           artículo arriba, y un título de sección más grande que el del documento invierte la
+           jerarquía de lo que se está leyendo. *@
+        <RadzenText TextStyle="@EstiloDeTitulo(bloque.Nivel)" Style="margin:1.3rem 0 .4rem">
+            @Renglon(bloque.Renglones.FirstOrDefault())
+        </RadzenText>
+    }
+    else if (bloque.Tipo == TipoDeBloque.Lista && bloque.Numerada)
+    {
+        <ol style="margin:0 0 .8rem;padding-left:1.6rem">
+            @foreach (var r in bloque.Renglones)
+            {
+                <li style="margin:.15rem 0">@Renglon(r)</li>
+            }
+        </ol>
+    }
+    else if (bloque.Tipo == TipoDeBloque.Lista)
+    {
+        <ul style="margin:0 0 .8rem;padding-left:1.6rem">
+            @foreach (var r in bloque.Renglones)
+            {
+                <li style="margin:.15rem 0">@Renglon(r)</li>
+            }
+        </ul>
+    }
+    else if (bloque.Tipo == TipoDeBloque.Codigo)
+    {
+        <div style="margin:0 0 .9rem;border:1px solid var(--rz-border-color);border-radius:var(--rz-border-radius);overflow:hidden">
+            @if (!string.IsNullOrWhiteSpace(bloque.Lenguaje))
+            {
+                @* El lenguaje se enseña porque un procedimiento de despliegue mezcla SQL, consola y
+                   configuración, y saber qué es cada trozo antes de copiarlo evita pegar una
+                   consulta donde iba un comando. *@
+                <div style="padding:.2rem .6rem;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;background:var(--rz-base-200);border-bottom:1px solid var(--rz-border-color);color:var(--rz-text-secondary-color)">
+                    @bloque.Lenguaje
+                </div>
+            }
+            @* El bloque de código SE DESPLAZA por dentro (overflow-x) en vez de partir los
+               renglones: una línea de comando cortada a la mitad deja de poder copiarse, que es lo
+               único que se hace con un bloque de código. *@
+            <pre style="margin:0;padding:.6rem .7rem;overflow-x:auto;font-family:var(--rz-font-family-monospace, monospace);font-size:.85rem;line-height:1.45;background:var(--rz-base-100)">@TextoDelCodigo(bloque)</pre>
+        </div>
+    }
+    else
+    {
+        @* pre-wrap conserva los saltos de línea que escribió su autor: quien puso una dirección y
+           debajo su explicación quiere verlas en dos renglones. Y por eso el contenido va TODO
+           pegado, sin saltos de línea en el marcado: cualquier sangría que dejáramos aquí se colaría
+           dentro de su texto como espacio de más. *@
+        <RadzenText TextStyle="TextStyle.Body1" Style="margin:0 0 .8rem;white-space:pre-wrap;overflow-wrap:anywhere">@Renglon(bloque.Renglones.FirstOrDefault())</RadzenText>
+    }
+}
+
+@code {
+    /// <summary>El cuerpo ya analizado por el servidor. Vacío en un artículo sin texto.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<ConocimientoBloqueDto> Bloques { get; set; } = [];
+
+    /// <summary>
+    /// Un renglón, trozo a trozo. Todo en una línea a propósito, por lo mismo que el párrafo: el
+    /// contenedor respeta los espacios, así que un salto de línea del marcado saldría en pantalla.
+    /// </summary>
+    private RenderFragment Renglon(ConocimientoRenglonDto? renglon) => __builder =>
+    {
+        if (renglon is null) return;
+        @foreach (var s in renglon.Segmentos){if (s.Url is not null){<a href="@s.Url" target="_blank" rel="noopener noreferrer" title="@($"{s.Url} (se abre en otra pestaña)")">@s.Texto</a>}else if (s.Codigo){<code style="padding:.05rem .3rem;border-radius:3px;background:var(--rz-base-200);font-family:var(--rz-font-family-monospace, monospace);font-size:.88em">@s.Texto</code>}else if (s.Negrita){<strong>@s.Texto</strong>}else{@s.Texto}}
+    };
+
+    /// <summary>
+    /// El texto crudo de un bloque de código, en una sola cadena.
+    ///
+    /// <para>Se arma aquí y no con un renglón por línea en el marcado porque dentro de un
+    /// <c>&lt;pre&gt;</c> cada elemento que se añadiera metería su propio salto: el código saldría
+    /// con una línea en blanco entre cada dos, que en un script de veinte líneas es otro script.</para>
+    /// </summary>
+    private static string TextoDelCodigo(ConocimientoBloqueDto bloque) =>
+        string.Join("\n", bloque.Renglones.Select(r => string.Concat(r.Segmentos.Select(s => s.Texto))));
+
+    /// <summary>
+    /// El nivel del título, acotado. Un nivel fuera de rango no puede pasar —el servidor solo
+    /// produce 1, 2 y 3— pero si pasara, salir por el más pequeño es preferible a reventar la
+    /// lectura de un artículo que entonces nadie podría abrir para arreglarlo.
+    /// </summary>
+    private static TextStyle EstiloDeTitulo(int nivel) => nivel switch
+    {
+        1 => TextStyle.H5,
+        2 => TextStyle.H6,
+        _ => TextStyle.Subtitle1
+    };
+}
