@@ -19,6 +19,12 @@
     una consulta de medios. Aquí no hay ni una decisión de tamaño de pantalla: si la hubiera, habría
     que arrastrar el ancho del navegador hasta C# y repintar en cada arrastre, que es mucho trabajo
     para algo que el navegador ya sabe hacer solo.
+
+    EL ACCESO VA EN DOS TRAMOS y los dos comparten esta pantalla, sin cambiar de dirección. Es
+    deliberado: una segunda página significaría que existe una dirección a la que se puede llegar
+    «estando a medias», y quien la marcara como favorita se llevaría un formulario que no puede
+    funcionar. Aquí, el paso del código solo existe mientras exista el tramo que lo sostiene, que vive
+    en memoria y muere al recargar.
 *@
 
 <div class="acceso-fondo">
@@ -73,35 +79,91 @@
 
         @* La mitad del formulario. Ésta sí cambia con el modo: es superficie, no cromo. *@
         <section class="acceso-formulario">
-            <h2 class="acceso-titulo">Entrar</h2>
 
-            @* Etiqueta VISIBLE envolviendo al campo. Envolver en lugar de usar for/id evita tener
-               que adivinar el identificador que Radzen le genera al <input> por dentro: si algún día
-               lo cambia, un for="…" escrito a mano se quedaría apuntando a la nada y la etiqueta
-               dejaría de dar foco al campo sin que nadie se entere.
+            @if (!_pidiendoCodigo)
+            {
+                <h2 class="acceso-titulo">Entrar</h2>
 
-               El aria-label se queda además de la etiqueta —dicen lo mismo y no compiten: el
-               aria-label es el que gana como nombre accesible—, porque es lo que había y quitarlo
-               sería confiar en que el envoltorio funciona en todos los lectores de pantalla. *@
-            <label class="acceso-campo">
-                <span class="acceso-etiqueta">Usuario</span>
-                @* AutoCompleteType y NO un autocomplete="username" suelto. El atributo suelto sí
-                   llegaría al <input> (estos componentes recogen los atributos que no reconocen),
-                   pero Radzen YA escribe su propio autocomplete —vale «on» mientras no se le diga
-                   otra cosa— y acabaría habiendo dos en el mismo elemento. Con el parámetro sale uno
-                   solo y con el valor exacto: comprobado que AutoCompleteType.Username se escribe
-                   «username» y CurrentPassword, «current-password». *@
-                <RadzenTextBox @ref="_campoUsuario" @bind-Value="_usuario" aria-label="Usuario"
-                               AutoCompleteType="AutoCompleteType.Username"
-                               @onkeydown="AlTeclear" Disabled="@_ocupado" />
-            </label>
+                @* Etiqueta VISIBLE envolviendo al campo. Envolver en lugar de usar for/id evita tener
+                   que adivinar el identificador que Radzen le genera al <input> por dentro: si algún día
+                   lo cambia, un for="…" escrito a mano se quedaría apuntando a la nada y la etiqueta
+                   dejaría de dar foco al campo sin que nadie se entere.
 
-            <label class="acceso-campo">
-                <span class="acceso-etiqueta">Contraseña</span>
-                <RadzenPassword @bind-Value="_contrasena" aria-label="Contraseña"
-                                AutoCompleteType="AutoCompleteType.CurrentPassword"
-                                @onkeydown="AlTeclear" Disabled="@_ocupado" />
-            </label>
+                   El aria-label se queda además de la etiqueta —dicen lo mismo y no compiten: el
+                   aria-label es el que gana como nombre accesible—, porque es lo que había y quitarlo
+                   sería confiar en que el envoltorio funciona en todos los lectores de pantalla. *@
+                <label class="acceso-campo">
+                    <span class="acceso-etiqueta">Usuario</span>
+                    @* AutoCompleteType y NO un autocomplete="username" suelto. El atributo suelto sí
+                       llegaría al <input> (estos componentes recogen los atributos que no reconocen),
+                       pero Radzen YA escribe su propio autocomplete —vale «on» mientras no se le diga
+                       otra cosa— y acabaría habiendo dos en el mismo elemento. Con el parámetro sale uno
+                       solo y con el valor exacto: comprobado que AutoCompleteType.Username se escribe
+                       «username» y CurrentPassword, «current-password». *@
+                    <RadzenTextBox @ref="_campoUsuario" @bind-Value="_usuario" aria-label="Usuario"
+                                   AutoCompleteType="AutoCompleteType.Username"
+                                   @onkeydown="AlTeclear" Disabled="@_ocupado" />
+                </label>
+
+                <label class="acceso-campo">
+                    <span class="acceso-etiqueta">Contraseña</span>
+                    <RadzenPassword @bind-Value="_contrasena" aria-label="Contraseña"
+                                    AutoCompleteType="AutoCompleteType.CurrentPassword"
+                                    @onkeydown="AlTeclear" Disabled="@_ocupado" />
+                </label>
+            }
+            else
+            {
+                @* SEGUNDO TRAMO. Aquí NO hay sesión todavía: la API sigue contestando 401 a todo
+                   mientras este código no se teclee. Lo único vivo es el tramo, que caduca en cinco
+                   minutos. *@
+                <h2 class="acceso-titulo">Código de acceso</h2>
+
+                <label class="acceso-campo">
+                    <span class="acceso-etiqueta">
+                        @(_sinTelefono ? "Código de rescate" : "Código de tu aplicación")
+                    </span>
+                    @* AutoCompleteType.OneTimeCode: es lo que hace que el teléfono ofrezca el código
+                       recién copiado y que un gestor de contraseñas no intente meter aquí un usuario.
+                       Sin MaxLength a propósito: en este mismo campo también se teclea un código de
+                       rescate, que son diecinueve caracteres con sus guiones, y un tope de seis lo
+                       recortaría en silencio — el peor fallo posible, porque la persona vería su
+                       código bien escrito en el papel y rechazado en la pantalla. *@
+                    <RadzenTextBox @ref="_campoCodigo" @bind-Value="_codigo"
+                                   aria-label="Código de acceso"
+                                   AutoCompleteType="AutoCompleteType.OneTimeCode"
+                                   Placeholder="@(_sinTelefono ? "XXXX-XXXX-XXXX-XXXX" : "000000")"
+                                   @onkeydown="AlTeclear" Disabled="@_ocupado" />
+                </label>
+
+                @* La casilla de los treinta días.
+
+                   Va en un <div> y NO envuelta en un <label>, a diferencia de los campos de arriba.
+                   Con los de texto, envolver es lo correcto —la etiqueta da foco al <input> sin tener
+                   que adivinar el identificador que Radzen le genera—; con la casilla no, porque este
+                   componente no es un <input> suelto sino un conjunto con su propio manejador de
+                   clic, y un <label> alrededor añadiría un segundo camino para el mismo clic. *@
+                <div class="acceso-campo">
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                        <RadzenCheckBox TValue="bool" @bind-Value="_recordarEquipo" Name="recordarEquipo"
+                                        Disabled="@_ocupado" aria-label="No volver a pedirlo en este equipo durante 30 días" />
+                        <span class="acceso-etiqueta" style="margin:0">
+                            No volver a pedirlo en este equipo durante 30 días
+                        </span>
+                    </RadzenStack>
+                </div>
+
+                <RadzenText TextStyle="TextStyle.Caption">
+                    @if (_sinTelefono)
+                    {
+                        @("Teclea uno de los ocho códigos que guardaste al activar el segundo factor. Cada uno sirve una sola vez.")
+                    }
+                    else
+                    {
+                        @("Son seis dígitos y cambian cada 30 segundos. Si tu teléfono no está a mano, usa un código de rescate.")
+                    }
+                </RadzenText>
+            }
 
             @* El hueco del aviso existe SIEMPRE, con error o sin él, y además VISIBLE: un
                role="alert" que entra en el DOM —o que se enciende desde display:none— a la vez que
@@ -120,8 +182,24 @@
             @* El width sigue en Style y no en la clase a propósito: en línea gana siempre, y las
                reglas de Radzen para .rz-button traen su propia anchura con más peso del que tendría
                una clase mía. *@
-            <RadzenButton Text="@(_ocupado ? "Entrando…" : "Entrar")" Disabled="@_ocupado"
-                          Click="@Entrar" class="acceso-boton" Style="width:100%" />
+            <RadzenButton Text="@TextoDelBoton" Disabled="@_ocupado"
+                          Click="@Continuar" class="acceso-boton" Style="width:100%" />
+
+            @if (_pidiendoCodigo)
+            {
+                @* Los dos escapes del segundo tramo, discretos y en texto: cambiar al código de
+                   rescate y volver a empezar. Van como botones de estilo ligero y no como enlaces
+                   porque no navegan a ningún sitio — un enlace que no lleva a una dirección es una
+                   trampa para quien navegue con el teclado. *@
+                <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.Center"
+                             Gap="0.25rem" Style="margin-top:.5rem">
+                    <RadzenButton Text="@(_sinTelefono ? "Tengo mi teléfono" : "No tengo el teléfono")"
+                                  ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                  Variant="Variant.Text" Disabled="@_ocupado" Click="@CambiarDeCodigo" />
+                    <RadzenButton Text="Volver" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                  Variant="Variant.Text" Disabled="@_ocupado" Click="@Volver" />
+                </RadzenStack>
+            }
         </section>
 
     </div>
@@ -130,18 +208,32 @@
 @code {
     private string _usuario = "";
     private string _contrasena = "";
+    private string _codigo = "";
+    private bool _recordarEquipo;
+    private bool _sinTelefono;
     private string? _error;
     private bool _ocupado;
 
+    /// <summary>El primer tramo salió bien y falta el código. No hay sesión mientras esto sea cierto.</summary>
+    private bool _pidiendoCodigo;
+
     private RadzenTextBox? _campoUsuario;
+    private RadzenTextBox? _campoCodigo;
+
+    /// <summary>Para llevar el foco al campo del código en el render siguiente al cambio de tramo.</summary>
+    private bool _enfocarCodigo;
 
     [SupplyParameterFromQuery(Name = "volverA")]
     private string? VolverA { get; set; }
 
+    private string TextoDelBoton =>
+        _ocupado ? (_pidiendoCodigo ? "Comprobando…" : "Entrando…")
+                 : (_pidiendoCodigo ? "Comprobar" : "Entrar");
+
     protected override async Task OnInitializedAsync()
     {
         // Si ya hay sesión (por ejemplo al recargar), no tiene sentido pedirla otra vez.
-        if (await Sesion.RefrescarAsync() != null) Continuar();
+        if (await Sesion.RefrescarAsync() != null) Seguir();
     }
 
     /// <summary>
@@ -155,12 +247,22 @@
         // este método no llega a ejecutarse sobre un componente desmontado, pero la referencia se
         // comprueba igual: cuesta nada y evita depender de ese detalle.
         if (primerRender && _campoUsuario is not null) await _campoUsuario.FocusAsync();
+
+        // Y al aparecer el segundo tramo, el foco salta al código. Sin esto hay que ir a buscar el
+        // campo con el ratón justo cuando la persona tiene el teléfono en la otra mano.
+        if (_enfocarCodigo && _campoCodigo is not null)
+        {
+            _enfocarCodigo = false;
+            await _campoCodigo.FocusAsync();
+        }
     }
 
     private async Task AlTeclear(KeyboardEventArgs e)
     {
-        if (e.Key == "Enter") await Entrar();
+        if (e.Key == "Enter") await Continuar();
     }
+
+    private Task Continuar() => _pidiendoCodigo ? ComprobarCodigo() : Entrar();
 
     private async Task Entrar()
     {
@@ -176,11 +278,21 @@
         _ocupado = true;
         try
         {
-            var (ok, mensaje) = await Sesion.EntrarAsync(_usuario.Trim(), _contrasena);
+            var (ok, faltaCodigo, mensaje) = await Sesion.EntrarAsync(_usuario.Trim(), _contrasena);
             if (!ok) { _error = mensaje; return; }
 
+            if (faltaCodigo)
+            {
+                // La contraseña se borra igual que en el camino normal: ya no hace falta para nada y
+                // no tiene por qué seguir en memoria mientras alguien busca su teléfono.
+                _pidiendoCodigo = true;
+                _enfocarCodigo = true;
+                _codigo = "";
+                return;
+            }
+
             (ProveedorAuth as ProveedorEstadoAutenticacion)?.Notificar();
-            Continuar();
+            Seguir();
         }
         finally
         {
@@ -189,15 +301,85 @@
         }
     }
 
+    private async Task ComprobarCodigo()
+    {
+        if (_ocupado) return;
+        _error = null;
+
+        if (string.IsNullOrWhiteSpace(_codigo))
+        {
+            _error = "Teclea el código.";
+            return;
+        }
+
+        _ocupado = true;
+        try
+        {
+            var (ok, mensaje) = await Sesion.CompletarSegundoFactorAsync(_codigo.Trim(), _recordarEquipo);
+            if (!ok)
+            {
+                _error = mensaje;
+
+                // El código se limpia SIEMPRE que se rechaza. Dejarlo escrito invita a pulsar otra
+                // vez el mismo, y con la antirrepetición del servidor eso gasta un intento de los
+                // cinco que hay antes del bloqueo.
+                _codigo = "";
+                _enfocarCodigo = true;
+                return;
+            }
+
+            (ProveedorAuth as ProveedorEstadoAutenticacion)?.Notificar();
+            Seguir();
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
     /// <summary>
-    /// Con una contraseña temporal no se llega a ninguna pantalla: el servidor rechaza todo lo demás
-    /// mientras siga sin cambiarse, así que llevar ahí directo evita un rebote incomprensible.
+    /// Cambia entre el código del teléfono y el de rescate. Es solo un cambio de TEXTO: los dos se
+    /// teclean en el mismo campo y se mandan por la misma puerta, porque el servidor los distingue
+    /// por su forma. Dos puertas habrían sido dos sitios donde aplicar el bloqueo por intentos.
     /// </summary>
-    private void Continuar()
+    private void CambiarDeCodigo()
+    {
+        _sinTelefono = !_sinTelefono;
+        _codigo = "";
+        _error = null;
+        _enfocarCodigo = true;
+    }
+
+    /// <summary>Abandona el acceso a medias y vuelve a pedir usuario y contraseña.</summary>
+    private void Volver()
+    {
+        Sesion.OlvidarTramo();
+        _pidiendoCodigo = false;
+        _sinTelefono = false;
+        _codigo = "";
+        _error = null;
+        _contrasena = "";
+    }
+
+    /// <summary>
+    /// A dónde va quien acaba de entrar.
+    ///
+    /// <para>El orden importa y es el mismo que aplica el servidor: <b>primero la contraseña, después
+    /// el segundo factor</b>. Con una contraseña temporal no se llega a ninguna pantalla —la API
+    /// rechaza todo lo demás, incluido el alta del segundo factor—, así que mandar antes al alta
+    /// dejaría a la persona rebotando entre dos avisos sin entender cuál atender.</para>
+    /// </summary>
+    private void Seguir()
     {
         if (Sesion.Usuario?.DebeCambiarContrasena == true)
         {
             Navegacion.NavigateTo("cambiar-contrasena", replace: true);
+            return;
+        }
+
+        if (Sesion.Usuario?.DebeActivarSegundoFactor == true)
+        {
+            Navegacion.NavigateTo("segundo-factor", replace: true);
             return;
         }
 

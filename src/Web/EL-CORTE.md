@@ -4,6 +4,11 @@
 > ejecuta solo ni lo ejecuta una herramienta automática: lo hace una persona, con el equipo avisado y
 > con la marcha atrás preparada. Léelo entero antes de empezar.
 
+> **Y una cosa hay que resolverla ANTES de todo lo demás**: hoy solo existe una cuenta de
+> administrador, y el segundo factor obligatorio convierte eso en un riesgo nuevo. Está explicado en
+> [«Hoy solo hay una cuenta de administrador»](#hoy-solo-hay-una-cuenta-de-administrador), más abajo.
+> No se activa el segundo factor sin haber leído ese apartado.
+
 ## Por qué un corte único y no una convivencia
 
 Durante todo el desarrollo, la web trabajó contra una base de **ensayo** y el escritorio siguió siendo
@@ -38,6 +43,52 @@ de mantenimiento; sin él se está adivinando.
 6. Tirar la copia.
 
 Si algo falla en el ensayo, se arregla y se vuelve a ensayar. El ensayo es barato; el corte no.
+
+## Hoy solo hay una cuenta de administrador
+
+**Esto es lo primero que hay que arreglar, y se arregla antes del corte, no durante.**
+
+De las once cuentas que hay, **solo una tiene rol de administrador**. Un solo líder. Compruébalo
+antes de seguir, desde «Usuarios»: la columna del rol lo dice y no hace falta abrir la base.
+
+Con el segundo factor obligatorio, cada quien tiene dos salidas si pierde el teléfono:
+
+1. **Sus ocho códigos de rescate**, que se entregan una sola vez al darlo de alta.
+2. **Que el líder se lo reinicie** desde «Usuarios», con lo que esa persona vuelve a darlo de alta
+   como el primer día.
+
+**El líder no tiene la segunda.** Si quien pierde el teléfono *y* los códigos de rescate es él, no
+queda **nadie dentro de la aplicación** capaz de devolverle el acceso: el reinicio es una acción de
+administrador y él era el único. La única salida sería tocar la base a mano —justo lo que este
+documento prohíbe en su último apartado— o restaurar un respaldo anterior, con todo lo que eso
+arrastra. No es un escenario rebuscado: un teléfono se moja, se pierde o se cambia de aparato sin
+pasar los códigos, y los ocho papeles de rescate acaban en el mismo cajón que se traspapela.
+
+### La recomendación, concreta
+
+**Crear una segunda cuenta de administrador ANTES de activar el segundo factor.**
+
+- Se puede hacer **hoy mismo, desde la aplicación de escritorio**, contra producción: su pantalla de
+  usuarios ya permite crear cuentas con rol de administrador. No hace falta esperar al corte, y de
+  hecho conviene que ya exista cuando el equipo empiece a darse de alta.
+- **Que sea de una persona de verdad**, con su propio nombre y su propia contraseña. Una cuenta
+  compartida «de emergencia» que todo el mundo conoce es un agujero, no un respaldo: la contraseña
+  circula, nadie la cambia y en la bitácora todas las acciones salen a nombre de nadie.
+- **Que las dos personas guarden sus códigos de rescate en sitios distintos.** Los dos juegos en el
+  mismo cajón —o en el mismo gestor de contraseñas, con la misma llave maestra— es tener una sola
+  copia con dos nombres.
+- **Que no compartan el teléfono**, por lo mismo.
+
+Con eso, el peor caso deja de ser irreversible: quien se queda fuera se lo pide al otro
+administrador, queda el asiento en la bitácora y se sigue trabajando.
+
+### Si aun así ocurre
+
+Si el único administrador se queda sin teléfono y sin códigos, **no hay nada dentro de la aplicación
+que lo resuelva**, y este documento no va a describir cómo tocar la base a mano para arreglarlo: es
+una intervención que se planifica con quien administra la base, con respaldo previo y por escrito, no
+un paso que se improvisa un martes por la tarde. Crear la segunda cuenta cuesta dos minutos; esto,
+un día.
 
 ## El día del corte
 
@@ -91,6 +142,9 @@ Lo que la web añade al esquema —todo aditivo, nada se renombra ni se borra:
 | `PushSubscriptions` | A qué navegador entregar un aviso con la pestaña cerrada |
 | `WorkSessions.LastHeartbeatUtc` | Consolidar el cronómetro hasta el último latido cuando se cierra la pestaña |
 | `RowVersion` en seis entidades | Que dos ediciones simultáneas den un 409 en vez de pisarse |
+| `Users.SegundoFactorActivo` / `SegundoFactorDesdeUtc` / `SegundoFactorUltimaVentana` | El **estado** del segundo factor de cada cuenta. El secreto no está aquí: va cifrado en `UserSecrets`, como el PAT |
+| `UserRecoveryCodes` | Los códigos de rescate de cada persona, **solo como hash**: ni la base ni un respaldo los contienen en claro |
+| `UserTrustedDevices` | Los navegadores a los que no se les vuelve a pedir el código durante 30 días, también solo como hash |
 
 ### 4. Comprobar que arrancó
 
@@ -112,8 +166,14 @@ hacer antes**: hasta aquí, los temporizadores del escritorio hacían ese trabaj
 
 Y quedarse mirando la primera hora: los avisos, las jornadas que se abren, los cronómetros.
 
-**Avísales de dos cosas al entrar**, porque ninguna se puede resolver por ellos:
+**Avísales de tres cosas al entrar**, porque ninguna se puede resolver por ellos:
 
+- **Lo primero que verán es el alta del segundo factor**, antes que ninguna otra pantalla: un código
+  QR que hay que escanear con la aplicación del teléfono y un código de seis dígitos que hay que
+  teclear para comprobar que quedó bien. Al terminar, la pantalla enseña **una sola vez** ocho
+  códigos de rescate. Esto no se improvisa el día del corte: la preparación está en
+  «[Antes del día del corte — el segundo factor del equipo](GUIA-DE-PUESTA-EN-MARCHA.md#antes-del-día-del-corte--el-segundo-factor-del-equipo)»
+  de la guía, y hay que haberla hecho **días antes**.
 - **Cada quien tiene que volver a capturar su PAT de Azure DevOps**, en «Mis tickets DevOps». El
   anterior vivía en un archivo cifrado con DPAPI en su propia máquina y no hay forma de migrarlo. A
   cambio, el nuevo va cifrado en el servidor y les sigue al cambiar de equipo — que era justo lo que
@@ -121,6 +181,12 @@ Y quedarse mirando la primera hora: los avisos, las jornadas que se abren, los c
   la instalación.
 - **La primera vez que se abra la web pedirá permiso para los avisos.** Sin aceptarlo no llegan
   avisos con la pestaña cerrada, que es lo que sustituye al globo de la bandeja del escritorio.
+
+**Entra tú primero, antes que nadie.** Da de alta tu propio segundo factor y comprueba que el código
+que muestra tu teléfono es aceptado. Si la hora del servidor estuviera desajustada, los códigos
+serían rechazados sin explicación posible desde el lado de quien los teclea — y es mucho mejor
+descubrirlo con una persona delante que con el equipo entero preguntando a la vez. El porqué del
+reloj está en el punto 1.6 de la guía.
 
 ### 8. Si hay que volver atrás
 
@@ -152,3 +218,10 @@ Por eso el paso 9 va después de estabilizar, y no el mismo día.
 - **Encender los trabajos de fondo con el escritorio todavía en uso.**
 - **Regenerar las llaves VAPID de los avisos push** después de que la gente se haya suscrito: todas
   las suscripciones dejarían de valer de golpe.
+- **Dejar el segundo factor obligatorio con una sola cuenta de administrador.** Es el apartado de
+  arriba, y está aquí repetido porque es el único de esta lista cuyo daño no lo paga la aplicación
+  sino una persona concreta: el propio líder, encerrado fuera de su propio sistema.
+- **Reiniciarle el segundo factor a alguien que lo pidió por escrito y nada más.** Es la acción que
+  devuelve el acceso a una cuenta; una petición por chat la puede escribir cualquiera que ya tenga la
+  contraseña. Se confirma por una vía que se reconozca —una llamada, en persona— antes de pulsar. La
+  pantalla lo dice en el diálogo y el asiento queda en la bitácora a nombre de quien reinició.

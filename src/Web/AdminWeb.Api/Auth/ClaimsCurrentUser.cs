@@ -10,6 +10,18 @@ public static class ClaimsPersonalizados
     public const string DeveloperId = "developer_id";
     public const string SecurityStamp = "security_stamp";
     public const string MustChangePassword = "pwd_change";
+
+    /// <summary>
+    /// La cuenta entró pero todavía no tiene segundo factor: hay que llevarla a activarlo y no
+    /// dejarla hacer nada más.
+    ///
+    /// <para>Va como claim y no se consulta la base en cada petición por la misma razón que
+    /// <see cref="MustChangePassword"/>: son miles de peticiones al día y el dato cambia una vez en
+    /// la vida de cada cuenta. La cookie se reemite en cuanto el alta se confirma, así que el claim
+    /// no puede quedarse viejo por el lado que importaría — y si se quedara, el efecto sería pedir
+    /// un alta ya hecha, no dejar entrar a quien no debe.</para>
+    /// </summary>
+    public const string SegundoFactorPendiente = "2fa_setup";
 }
 
 /// <summary>

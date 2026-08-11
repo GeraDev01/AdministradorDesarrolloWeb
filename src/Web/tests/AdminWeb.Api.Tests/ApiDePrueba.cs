@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Net;
 using System.Net.Http.Json;
 using AdminWeb.Domain.Entities;
 using AdminWeb.Domain.Security;
@@ -5,6 +7,7 @@ using AdminWeb.Infrastructure.Data;
 using AdminWeb.Shared.Dtos.Auth;
 using AdminWeb.Shared.Enums;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.Mvc.Testing.Handlers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -54,6 +57,9 @@ public class ApiDePrueba : WebApplicationFactory<Program>, IAsyncLifetime
     /// <summary>
     /// Un cliente que conserva las cookies, que es lo que hace que estas pruebas signifiquen algo:
     /// sin ellas la sesión no viajaría y todo respondería 401 por el motivo equivocado.
+    ///
+    /// <para>Cada llamada trae un frasco de cookies NUEVO: es un navegador recién estrenado, sin
+    /// sesión y sin equipo recordado. Las pruebas que miran la puerta desde fuera cuentan con eso.</para>
     /// </summary>
     public HttpClient NuevoCliente() =>
         CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
@@ -61,61 +67,116 @@ public class ApiDePrueba : WebApplicationFactory<Program>, IAsyncLifetime
     /// <summary>La contraseña definitiva del administrador, una vez cambiada la temporal.</summary>
     public const string ContrasenaDelAdmin = "ClaveDePrueba123";
 
+    /// <summary>La que se le pone a cualquier cuenta sembrada por <see cref="ClienteComoAsync"/>.</summary>
+    private const string ContrasenaSembrada = "OtraClave123";
+
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    //  LA PUESTA A PUNTO DE UNA CUENTA
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    //
+    // Una cuenta recién creada NO puede usar la API: arrastra una contraseña temporal y le falta el
+    // segundo factor, y el servidor corta todo lo demás mientras siga así. Eso es el producto
+    // funcionando, no un estorbo de las pruebas, y por eso este andamiaje hace exactamente lo que
+    // hará una persona el primer día — cambiar la contraseña y dar de alta el teléfono— pasando por
+    // las rutas de verdad. Las pruebas empiezan donde empieza el trabajo real, en vez de tropezar
+    // cada una con el mismo 403.
+    //
+    // LO ÚNICO DELICADO ES EL RELOJ. Un código de seis dígitos vale para una ventana de treinta
+    // segundos y no se puede repetir: el servidor apunta la última ventana aceptada justamente para
+    // que nadie reutilice un código visto. Consecuencia para estas pruebas: tras confirmar el alta,
+    // el siguiente acceso caería DENTRO de la misma ventana y sería rechazado con toda la razón.
+    //
+    // Se resuelve como lo resolvería cualquiera: se entra UNA vez con un código de rescate —que no
+    // dependen del reloj— marcando «recuerda este equipo», y a partir de ahí ese frasco de cookies
+    // ya no necesita ningún código. De ahí que haya un frasco POR CUENTA y no uno por cliente.
+
     /// <summary>
-    /// El cambio de la contraseña temporal, hecho UNA sola vez para toda la clase de pruebas.
+    /// Un frasco de cookies por CUENTA, compartido por todos los clientes que se pidan para ella.
     ///
-    /// Es lo que obliga a que exista: la temporal solo vale hasta que se cambia. Si cada prueba la
-    /// usara para entrar, la primera en correr funcionaría y el resto fallaría con un 401 — y como
-    /// xUnit no garantiza el orden, «la primera» sería una distinta cada vez.
+    /// <para>Es lo que hace que el equipo recordado sobreviva de una prueba a la siguiente. Cerrar
+    /// sesión no lo vacía —la cookie del equipo no se retira al salir, a propósito—, así que una
+    /// prueba que cierre sesión no deja a las demás sin poder entrar.</para>
     /// </summary>
-    private Task? _preparacion;
+    private readonly ConcurrentDictionary<string, CookieContainer> _frascos = new();
+
+    /// <summary>Los códigos de rescate que le quedan sin gastar a cada cuenta de prueba.</summary>
+    private readonly ConcurrentDictionary<string, Queue<string>> _codigosDeRescate = new();
+
+    /// <summary>La puesta a punto de cada cuenta, hecha UNA sola vez por cuenta.</summary>
+    private readonly Dictionary<string, Task> _preparaciones = [];
     private readonly SemaphoreSlim _cerrojo = new(1, 1);
 
     /// <summary>
-    /// Un cliente con la sesión del administrador ya abierta y su contraseña ya cambiada.
+    /// Un cliente con la sesión del administrador ya abierta, su contraseña ya cambiada y su segundo
+    /// factor ya dado de alta.
     ///
-    /// El cambio no es comodidad: hasta que se hace, la API responde 403 MUST_CHANGE_PASSWORD a todo
-    /// lo demás, y cada prueba empezaría tropezando con eso en lugar de probar lo suyo.
+    /// Nada de eso es comodidad: hasta que se hace, la API responde 403 a todo lo demás y cada
+    /// prueba empezaría tropezando con eso en lugar de probar lo suyo.
     /// </summary>
     public async Task<HttpClient> ClienteAdminAsync()
     {
-        await PrepararAdminAsync();
-
-        var cliente = NuevoCliente();
-        var acceso = await cliente.PostAsJsonAsync("/api/auth/login",
-            new LoginRequest("admin", ContrasenaDelAdmin));
-        acceso.EnsureSuccessStatusCode();
-
-        return cliente;
+        await PrepararUnaVezAsync("admin", PrepararAlAdminAsync);
+        return await ClienteConSesionAsync("admin", ContrasenaDelAdmin);
     }
 
-    private async Task PrepararAdminAsync()
+    /// <summary>
+    /// Siembra una cuenta con el rol pedido y devuelve un cliente con su sesión abierta.
+    ///
+    /// Se escribe directamente en la base porque lo que se quiere probar es otra cosa. Lo que importa
+    /// es que la cuenta quede como la dejaría el alta real —activa, con su hash BCrypt y sin cambio
+    /// obligatorio pendiente—, para que el 403 que se prueba venga de la política de rol y no de un
+    /// usuario mal formado ni del alta del segundo factor pendiente.
+    /// </summary>
+    public async Task<HttpClient> ClienteComoAsync(UserRole rol, string usuario)
     {
+        await PrepararUnaVezAsync(usuario, () => SembrarYPrepararAsync(rol, usuario));
+        return await ClienteConSesionAsync(usuario, ContrasenaSembrada);
+    }
+
+    private async Task PrepararUnaVezAsync(string usuario, Func<Task> preparar)
+    {
+        Task tarea;
+
         await _cerrojo.WaitAsync();
         try
         {
-            _preparacion ??= CambiarLaTemporalAsync();
+            if (!_preparaciones.TryGetValue(usuario, out tarea!))
+                _preparaciones[usuario] = tarea = preparar();
         }
         finally
         {
             _cerrojo.Release();
         }
 
-        await _preparacion;
+        await tarea;
     }
 
     /// <summary>
-    /// Siembra una cuenta con el rol pedido y devuelve un cliente con su sesión abierta.
+    /// El primer día del administrador: entra con la temporal, la cambia y da de alta su segundo
+    /// factor.
     ///
-    /// Se escribe directamente en la base porque el alta de usuarios es una pantalla de fase 3 y
-    /// todavía no hay endpoint. Lo que importa es que la cuenta quede como la dejaría el alta real
-    /// —activa, con su hash BCrypt y sin cambio obligatorio pendiente—, para que el 403 que se prueba
-    /// venga de la política de rol y no de un usuario mal formado.
+    /// <para>La temporal solo vale hasta que se cambia, y por eso esto ocurre una vez para toda la
+    /// clase de pruebas: si cada prueba la usara para entrar, la primera en correr funcionaría y el
+    /// resto fallaría con un 401 — y como xUnit no garantiza el orden, «la primera» sería una
+    /// distinta cada vez.</para>
     /// </summary>
-    public async Task<HttpClient> ClienteComoAsync(UserRole rol, string usuario)
+    private async Task PrepararAlAdminAsync()
     {
-        const string contrasena = "OtraClave123";
+        var cliente = ClienteDe("admin");
 
+        var acceso = await cliente.PostAsJsonAsync("/api/auth/login",
+            new LoginRequest("admin", ContrasenaTemporal));
+        acceso.EnsureSuccessStatusCode();
+
+        var cambio = await cliente.PostAsJsonAsync("/api/auth/change-password",
+            new CambioContrasenaRequest(ContrasenaDelAdmin, ContrasenaDelAdmin));
+        cambio.EnsureSuccessStatusCode();
+
+        await DarDeAltaElSegundoFactorAsync(cliente, "admin", ContrasenaDelAdmin);
+    }
+
+    private async Task SembrarYPrepararAsync(UserRole rol, string usuario)
+    {
         using (var ambito = Services.CreateScope())
         {
             var db = ambito.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -128,29 +189,87 @@ public class ApiDePrueba : WebApplicationFactory<Program>, IAsyncLifetime
                     Role = rol,
                     IsActive = true,
                     MustChangePassword = false,
-                    PasswordHash = PasswordHasher.Hash(contrasena)
+                    PasswordHash = PasswordHasher.Hash(ContrasenaSembrada)
                 });
                 await db.SaveChangesAsync();
             }
         }
 
-        var cliente = NuevoCliente();
-        var acceso = await cliente.PostAsJsonAsync("/api/auth/login", new LoginRequest(usuario, contrasena));
+        var cliente = ClienteDe(usuario);
+        var acceso = await cliente.PostAsJsonAsync("/api/auth/login",
+            new LoginRequest(usuario, ContrasenaSembrada));
         acceso.EnsureSuccessStatusCode();
+
+        await DarDeAltaElSegundoFactorAsync(cliente, usuario, ContrasenaSembrada);
+    }
+
+    /// <summary>
+    /// Da de alta el segundo factor por las rutas de verdad y deja este frasco de cookies como equipo
+    /// recordado, para que las demás pruebas no tengan que teclear ningún código.
+    ///
+    /// <para>El acceso de después va con un CÓDIGO DE RESCATE y no con uno del teléfono, y es la
+    /// línea que hay que entender de todo esto: el alta acaba de gastar la ventana de treinta
+    /// segundos en curso, así que un código del teléfono sería rechazado por repetido —y con razón—.
+    /// Los de rescate no dependen del reloj.</para>
+    /// </summary>
+    private async Task DarDeAltaElSegundoFactorAsync(HttpClient cliente, string usuario, string contrasena)
+    {
+        var inicio = await cliente.PostAsync("/api/auth/segundo-factor/alta", null);
+        inicio.EnsureSuccessStatusCode();
+        var alta = await inicio.Content.ReadFromJsonAsync<InicioDeAltaDto>();
+
+        // El código se calcula igual que lo calcularía el teléfono: mismo secreto, misma ventana.
+        var codigo = Totp.Calcular(Base32.Decodificar(alta!.SecretoEnBase32)!,
+                                   Totp.VentanaDe(DateTimeOffset.UtcNow));
+
+        var confirmacion = await cliente.PostAsJsonAsync("/api/auth/segundo-factor/confirmar",
+            new ConfirmarAltaRequest(codigo));
+        confirmacion.EnsureSuccessStatusCode();
+
+        var hecho = await confirmacion.Content.ReadFromJsonAsync<AltaConfirmadaDto>();
+        _codigosDeRescate[usuario] = new Queue<string>(hecho!.CodigosDeRescate);
+
+        // Y ahora sí: se entra de nuevo marcando el equipo como recordado. De aquí en adelante,
+        // cualquier cliente que use este frasco entra solo con la contraseña.
+        await EntrarAsync(cliente, usuario, contrasena);
+    }
+
+    /// <summary>Un cliente sobre el frasco de cookies de esa cuenta, ya con la sesión abierta.</summary>
+    private async Task<HttpClient> ClienteConSesionAsync(string usuario, string contrasena)
+    {
+        var cliente = ClienteDe(usuario);
+        await EntrarAsync(cliente, usuario, contrasena);
         return cliente;
     }
 
-    private async Task CambiarLaTemporalAsync()
-    {
-        var cliente = NuevoCliente();
+    private HttpClient ClienteDe(string usuario) =>
+        CreateDefaultClient(new CookieContainerHandler(
+            _frascos.GetOrAdd(usuario, _ => new CookieContainer())));
 
-        var acceso = await cliente.PostAsJsonAsync("/api/auth/login",
-            new LoginRequest("admin", ContrasenaTemporal));
+    /// <summary>
+    /// El acceso completo: contraseña y, si hace falta, segundo factor.
+    ///
+    /// <para>Lo normal es que no haga falta —el frasco lleva la cookie del equipo recordado—. Cuando
+    /// hace falta se gasta un código de rescate: son ocho por cuenta y solo se llega aquí la primera
+    /// vez de cada una, pero si alguna prueba futura invalidara los equipos recordados, esto seguiría
+    /// funcionando en vez de dejar un fallo incomprensible.</para>
+    /// </summary>
+    private async Task EntrarAsync(HttpClient cliente, string usuario, string contrasena)
+    {
+        var acceso = await cliente.PostAsJsonAsync("/api/auth/login", new LoginRequest(usuario, contrasena));
         acceso.EnsureSuccessStatusCode();
 
-        var cambio = await cliente.PostAsJsonAsync("/api/auth/change-password",
-            new CambioContrasenaRequest(ContrasenaDelAdmin, ContrasenaDelAdmin));
-        cambio.EnsureSuccessStatusCode();
+        var respuesta = await acceso.Content.ReadFromJsonAsync<RespuestaDeAccesoDto>();
+        if (respuesta?.SegundoFactorRequerido != true) return;
+
+        if (!_codigosDeRescate.TryGetValue(usuario, out var codigos) || codigos.Count == 0)
+            throw new InvalidOperationException(
+                $"«{usuario}» necesita segundo factor y no quedan códigos de rescate de prueba. " +
+                "O el equipo recordado dejó de valer, o esta cuenta no pasó por la puesta a punto.");
+
+        var segundo = await cliente.PostAsJsonAsync("/api/auth/login/segundo-factor",
+            new SegundoFactorLoginRequest(respuesta.Tramo!, codigos.Dequeue(), RecordarEquipo: true));
+        segundo.EnsureSuccessStatusCode();
     }
 
     /// <summary>La contraseña temporal que el arranque sembró para el administrador inicial.</summary>

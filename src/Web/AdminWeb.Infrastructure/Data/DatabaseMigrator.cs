@@ -22,18 +22,25 @@ public static class DatabaseMigrator
     /// sobre una tabla que el otro está reconstruyendo). El bloqueo lo pone el llamador y no este
     /// método porque el candado debe abarcar también el arranque que decide migrar.</para>
     /// </summary>
-    public static void EnsureUpToDate(AppDbContext db)
+    /// <summary>
+    /// Deja el esquema al día y devuelve las sentencias que FALLARON, con su motivo.
+    ///
+    /// <para><b>Devuelve algo, y quien llama tiene que mirarlo.</b> Antes no devolvía nada y cada
+    /// fallo se tragaba en silencio; el resultado fue un migrador que se saltó 114 sentencias y
+    /// anunció «Esquema al día». Una lista vacía es la ÚNICA señal honesta de que todo se aplicó.</para>
+    /// </summary>
+    public static IReadOnlyList<string> EnsureUpToDate(AppDbContext db)
     {
         // SQL Server: EF genera el esquema completo con tipos T-SQL correctos.
         // EnsureCreated NO altera BDs ya existentes, así que aplicamos parches idempotentes.
         if (!db.Database.IsSqlite())
         {
             db.Database.EnsureCreated();
-            PatchSqlServer(db);
+            var fallidas = PatchSqlServer(db);
             SembrarVentanaDeCaducidadDeVacaciones(db);
             // Después de los parches: necesita las columnas de horas ya creadas para poder rellenarlas.
             ConvertirPlazosDeDiasAHorasUnaVez(db);
-            return;
+            return fallidas;
         }
 
         // SQLite: crear desde cero si no existe, luego parches idempotentes por fase.
@@ -1225,11 +1232,71 @@ public static class DatabaseMigrator
         // último momento en que sabemos que la persona seguía ahí.
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""WorkSessions"" ADD COLUMN ""LastHeartbeatUtc"" TEXT"); } catch { }
 
+        // ── Segundo factor: código de la aplicación del teléfono ──────────────────────────────
+        //
+        // Tres columnas de ESTADO en Users y dos tablas. El SECRETO no aparece por ningún lado de
+        // este bloque, y no es un descuido: vive cifrado en UserSecrets, con la protección de datos
+        // del servidor y bajo su propio propósito. Una columna en claro aquí sería una llave de
+        // acceso legible para cualquiera que abriera una consulta.
+        //
+        // «Activo» arranca en FALSO para todas las cuentas que ya existen. Es lo que hace que el
+        // segundo factor sea obligatorio sin excepciones al desplegar: nadie lo tiene, y a nadie se
+        // le deja hacer nada más que activarlo.
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Users"" ADD COLUMN ""SegundoFactorActivo"" INTEGER NOT NULL DEFAULT 0"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Users"" ADD COLUMN ""SegundoFactorDesdeUtc"" TEXT"); } catch { }
+        // La última ventana de treinta segundos aceptada: la ANTIRREPETICIÓN. Sin esta columna, un
+        // código visto por encima del hombro sirve durante minuto y medio.
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Users"" ADD COLUMN ""SegundoFactorUltimaVentana"" INTEGER"); } catch { }
+
+        // Los ocho códigos de rescate, uno por fila y HASHEADOS.
+        // Una fila por código y no los ocho juntos en una columna: cada uno se gasta por separado y
+        // hay que poder contar cuántos quedan sin leer, parsear y reescribir el conjunto entero —que
+        // es la forma de que dos intentos a la vez se pisen y un código gastado «reviva».
+        db.Database.ExecuteSqlRaw(@"
+            CREATE TABLE IF NOT EXISTS ""UserRecoveryCodes"" (
+                ""Id""           INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                ""UserId""       INTEGER NOT NULL,
+                ""CodigoHash""   TEXT    NOT NULL,
+                ""CreatedAtUtc"" TEXT    NOT NULL,
+                ""UsadoEnUtc""   TEXT    NULL,
+                CONSTRAINT ""FK_UserRecoveryCode_User"" FOREIGN KEY (""UserId"") REFERENCES ""Users""(""Id"") ON DELETE CASCADE
+            );");
+        // Único por (usuario, hash), con el usuario primero: el mismo índice sirve para buscar al
+        // entrar y para impedir que un código se dé de alta dos veces en la misma cuenta. No hace
+        // falta otro índice solo por UserId — este ya lo lleva de primera columna.
+        try { db.Database.ExecuteSqlRaw(@"CREATE UNIQUE INDEX IF NOT EXISTS ""UX_UserRecoveryCodes_User_Hash"" ON ""UserRecoveryCodes""(""UserId"",""CodigoHash"")"); } catch { }
+
+        // Los navegadores en los que ya no se vuelve a pedir el código durante treinta días.
+        // Se guarda en la base y no solo en una cookie firmada porque hay que poder RETIRAR la
+        // confianza: cuando el líder reinicia el segundo factor de alguien que perdió el teléfono,
+        // los equipos recordados tienen que dejar de valer en ese mismo momento. Una cookie
+        // autosuficiente no se puede alcanzar desde el servidor; una fila se borra.
+        db.Database.ExecuteSqlRaw(@"
+            CREATE TABLE IF NOT EXISTS ""UserTrustedDevices"" (
+                ""Id""           INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                ""UserId""       INTEGER NOT NULL,
+                ""TokenHash""    TEXT    NOT NULL,
+                ""CreatedAtUtc"" TEXT    NOT NULL,
+                ""ExpiraEnUtc""  TEXT    NOT NULL,
+                ""UltimoUsoUtc"" TEXT    NULL,
+                ""Descripcion""  TEXT    NULL,
+                CONSTRAINT ""FK_UserTrustedDevice_User"" FOREIGN KEY (""UserId"") REFERENCES ""Users""(""Id"") ON DELETE CASCADE
+            );");
+        // Único por el testigo solo: son 256 bits aleatorios, identifican al navegador sin ayuda.
+        try { db.Database.ExecuteSqlRaw(@"CREATE UNIQUE INDEX IF NOT EXISTS ""UX_UserTrustedDevices_Token"" ON ""UserTrustedDevices""(""TokenHash"")"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_UserTrustedDevices_User"" ON ""UserTrustedDevices""(""UserId"")"); } catch { }
+
         SembrarVentanaDeCaducidadDeVacaciones(db);
 
         // Al final de la rama, con todas las columnas de horas ya creadas: sin ellas no habría dónde
         // escribir la conversión.
         ConvertirPlazosDeDiasAHorasUnaVez(db);
+
+        // La rama de SQLite no acumula fallos: aquí cada parche va en su propio try/catch porque
+        // SQLite no sabe decir «añade la columna solo si no está», así que el fallo por columna
+        // repetida es lo NORMAL y contarlo sería contar ruido. En SQL Server es al revés: las
+        // sentencias llevan su IF, así que un fallo siempre significa algo.
+        return [];
     }
 
     /// <summary>
@@ -1478,9 +1545,35 @@ VALUES (N'PoolHorasConvertidas', N'1', 0,
     /// esquemas creados por versiones previas): agrega columnas de aprobación a
     /// PointEntries y crea la tabla WorkSessions con sus índices si faltan.
     /// </summary>
-    private static void PatchSqlServer(AppDbContext db)
+    /// <summary>
+    /// Devuelve las sentencias que FALLARON, con su motivo. Una lista vacía es la única señal
+    /// honesta de «esquema al día».
+    ///
+    /// <para><b>Antes esto no devolvía nada y cada fallo se tragaba en silencio</b>, y esa fue la
+    /// causa del peor defecto que ha tenido este migrador: una sentencia con sintaxis de SQLite
+    /// copiada a este método hacía que las 114 siguientes no se aplicaran, y el arranque terminaba
+    /// anunciando que el esquema estaba al día. No falló: mintió, y durante días.</para>
+    ///
+    /// <para>Se sigue tragando la excepción de CADA sentencia —una sola que falle no debe impedir
+    /// que se apliquen las demás, que es justo lo que se busca en un migrador idempotente— pero
+    /// ahora queda constancia y quien llama decide qué hacer con ella.</para>
+    /// </summary>
+    private static List<string> PatchSqlServer(AppDbContext db)
     {
-        void Exec(string sql) { try { db.Database.ExecuteSqlRaw(sql); } catch { } }
+        var fallidas = new List<string>();
+
+        void Exec(string sql)
+        {
+            try { db.Database.ExecuteSqlRaw(sql); }
+            catch (Exception ex)
+            {
+                // La sentencia se recorta: algunas son un CREATE TABLE entero y lo que hace falta
+                // para localizarla es su principio, no sus cuarenta columnas.
+                var recorte = sql.Trim().Replace('\n', ' ').Replace('\r', ' ');
+                if (recorte.Length > 160) recorte = recorte[..160] + "…";
+                fallidas.Add($"{recorte}  →  {ex.GetBaseException().Message}");
+            }
+        }
 
         // Crea un índice solo si NO existe ya uno que empiece por la misma columna.
         //
@@ -1499,6 +1592,30 @@ IF OBJECT_ID(N'[{tabla}]', N'U') IS NOT NULL
         WHERE i.object_id = OBJECT_ID(N'[{tabla}]')
           AND c.name = '{primeraColumna}' AND ic.key_ordinal = 1)
 CREATE INDEX [{indice}] ON [{tabla}]({columnas});");
+
+        // Lo mismo, pero para índices donde la unicidad ES la regla y no una optimización.
+        //
+        // Existe por el mismo motivo que ExecIndex y comete el mismo error si se comprueba por
+        // nombre: en una base RECIÉN CREADA las tablas las hace EnsureCreated a partir del modelo,
+        // y EF ya deja ahí su índice único con su propio nombre (IX_Tabla_Col1_Col2). Un parche que
+        // preguntara «¿existe uno llamado UX_...?» diría que no y crearía un SEGUNDO índice único
+        // sobre las mismas columnas: no rompe nada, pero duplica el trabajo de cada escritura.
+        //
+        // Se comprueba por la PRIMERA COLUMNA, igual que ExecIndex, con el mismo compromiso: si
+        // algún día alguien crea a mano otro índice que empiece por esa columna, este no se crearía
+        // y la unicidad se quedaría sin declarar. Es asumible mientras el modelo de EF sea el que
+        // manda, que es el caso.
+        void ExecIndiceUnico(string tabla, string indice, string primeraColumna, string columnas)
+            => Exec($@"
+IF OBJECT_ID(N'[{tabla}]', N'U') IS NOT NULL
+   AND COL_LENGTH('{tabla}','{primeraColumna}') IS NOT NULL
+   AND NOT EXISTS (
+        SELECT 1 FROM sys.indexes i
+        JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+        JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+        WHERE i.object_id = OBJECT_ID(N'[{tabla}]')
+          AND c.name = '{primeraColumna}' AND ic.key_ordinal = 1)
+CREATE UNIQUE INDEX [{indice}] ON [{tabla}]({columnas});");
 
         // Anti-fuerza-bruta en Users.
         Exec("IF COL_LENGTH('Users','FailedLoginCount') IS NULL ALTER TABLE [Users] ADD [FailedLoginCount] int NOT NULL DEFAULT 0;");
@@ -1652,8 +1769,19 @@ ALTER TABLE [WorkSessions] ADD CONSTRAINT [FK_WS_Act]
     FOREIGN KEY ([ActivityId]) REFERENCES [DevActivities]([Id]);");
         ExecIndex("WorkSessions", "IX_WorkSessions_ActivityId", "ActivityId", "[ActivityId]");
 
-        // Carpeta de destino de la versión en Blob Storage (QA, Productivo, un cliente…).
-        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""AppReleases"" ADD COLUMN ""TargetFolder"" TEXT"); } catch { }
+        // AQUÍ HABÍA UNA SENTENCIA CON SINTAXIS DE SQLITE —comillas dobles, ADD COLUMN … TEXT— metida
+        // en el método de SQL Server. Se copió de la rama de SQLite sin traducirla; el parche bueno
+        // de TargetFolder ya existe más abajo, con su IF COL_LENGTH.
+        //
+        // No era un adorno inofensivo: al ejecutarla contra SQL Server, el resto de ESTE MÉTODO
+        // dejaba de aplicarse —114 sentencias— y el arranque terminaba anunciando «Esquema al día».
+        // Se descubrió porque el segundo factor no se le exigía a nadie: su columna nunca se creó, y
+        // ninguna de las anteriores tampoco.
+        //
+        // Es el peor defecto que puede tener un migrador, porque no falla: MIENTE. El día del corte
+        // habría dejado la base de producción sin más de cien parches, informando de que todo fue
+        // bien. Si vuelves a copiar un parche de la rama de arriba, TRADÚCELO.
+
         // ── Compromisos de SLA ─────────────────────────────────────
         // Sin cascada hacia Developers ni DevActivities: SQL Server rechaza múltiples rutas de
         // cascada que terminan en la misma tabla.
@@ -2358,5 +2486,67 @@ CREATE UNIQUE INDEX [UX_PushSubscriptions_Endpoint] ON [PushSubscriptions]([Endp
         // o habría que descartar el tramo entero. Con el latido, el tiempo se consolida hasta el
         // último momento en que sabemos que la persona seguía ahí.
         Exec("IF COL_LENGTH('WorkSessions','LastHeartbeatUtc') IS NULL ALTER TABLE [WorkSessions] ADD [LastHeartbeatUtc] datetime2 NULL;");
+
+        // ── Segundo factor: código de la aplicación del teléfono ──────────────────────────────
+        //
+        // Tres columnas de ESTADO en Users y dos tablas. El SECRETO no aparece por ningún lado de
+        // este bloque, y no es un descuido: vive cifrado en UserSecrets, con la protección de datos
+        // del servidor y bajo su propio propósito. Una columna en claro aquí sería una llave de
+        // acceso legible para cualquiera que abriera una consulta.
+        //
+        // «Activo» se agrega NOT NULL con DEFAULT 0, así que todas las cuentas que ya existen
+        // quedan SIN segundo factor. Es exactamente lo que se quiere: al desplegar, nadie lo tiene
+        // y a nadie se le deja hacer nada más que activarlo — obligatorio sin excepciones.
+        Exec("IF COL_LENGTH('Users','SegundoFactorActivo') IS NULL ALTER TABLE [Users] ADD [SegundoFactorActivo] bit NOT NULL CONSTRAINT [DF_Users_SegundoFactorActivo] DEFAULT 0;");
+        Exec("IF COL_LENGTH('Users','SegundoFactorDesdeUtc') IS NULL ALTER TABLE [Users] ADD [SegundoFactorDesdeUtc] datetime2 NULL;");
+        // bigint y no int: son segundos desde 1970 divididos entre 30. Hoy caben en 32 bits de
+        // sobra, pero el tipo de una cuenta de tiempo no debería llevar fecha de caducidad escrita.
+        // Es la ANTIRREPETICIÓN: sin esta columna, un código visto por encima del hombro sirve
+        // durante minuto y medio.
+        Exec("IF COL_LENGTH('Users','SegundoFactorUltimaVentana') IS NULL ALTER TABLE [Users] ADD [SegundoFactorUltimaVentana] bigint NULL;");
+
+        // Los ocho códigos de rescate, uno por fila y HASHEADOS.
+        // Una fila por código y no los ocho juntos en una columna: cada uno se gasta por separado y
+        // hay que poder contar cuántos quedan sin leer, parsear y reescribir el conjunto entero —que
+        // es la forma de que dos intentos a la vez se pisen y un código gastado «reviva».
+        Exec(@"
+IF OBJECT_ID(N'[UserRecoveryCodes]', N'U') IS NULL
+CREATE TABLE [UserRecoveryCodes] (
+    [Id] int IDENTITY(1,1) NOT NULL CONSTRAINT [PK_UserRecoveryCodes] PRIMARY KEY,
+    [UserId] int NOT NULL,
+    [CodigoHash] nvarchar(64) NOT NULL,
+    [CreatedAtUtc] datetime2 NOT NULL,
+    [UsadoEnUtc] datetime2 NULL,
+    CONSTRAINT [FK_UserRecoveryCode_User] FOREIGN KEY ([UserId]) REFERENCES [Users]([Id]) ON DELETE CASCADE
+);");
+        // Con el usuario de primera columna, el mismo índice sirve para buscar al entrar y para
+        // impedir que un código se dé de alta dos veces en la misma cuenta; por eso no se crea otro
+        // índice solo por UserId.
+        ExecIndiceUnico("UserRecoveryCodes", "UX_UserRecoveryCodes_User_Hash", "UserId", "[UserId],[CodigoHash]");
+
+        // Los navegadores en los que ya no se vuelve a pedir el código durante treinta días.
+        // Se guarda en la base y no solo en una cookie firmada porque hay que poder RETIRAR la
+        // confianza: cuando el líder reinicia el segundo factor de alguien que perdió el teléfono,
+        // los equipos recordados tienen que dejar de valer en ese mismo momento. Una cookie
+        // autosuficiente no se puede alcanzar desde el servidor; una fila se borra.
+        Exec(@"
+IF OBJECT_ID(N'[UserTrustedDevices]', N'U') IS NULL
+CREATE TABLE [UserTrustedDevices] (
+    [Id] int IDENTITY(1,1) NOT NULL CONSTRAINT [PK_UserTrustedDevices] PRIMARY KEY,
+    [UserId] int NOT NULL,
+    [TokenHash] nvarchar(64) NOT NULL,
+    [CreatedAtUtc] datetime2 NOT NULL,
+    [ExpiraEnUtc] datetime2 NOT NULL,
+    [UltimoUsoUtc] datetime2 NULL,
+    [Descripcion] nvarchar(200) NULL,
+    CONSTRAINT [FK_UserTrustedDevice_User] FOREIGN KEY ([UserId]) REFERENCES [Users]([Id]) ON DELETE CASCADE
+);");
+        // Único por el testigo solo: son 256 bits aleatorios, identifican al navegador sin ayuda.
+        ExecIndiceUnico("UserTrustedDevices", "UX_UserTrustedDevices_Token", "TokenHash", "[TokenHash]");
+        // Y uno normal por usuario, que es como se listan y como se borran todos de golpe al
+        // reiniciarle el segundo factor a alguien.
+        ExecIndex("UserTrustedDevices", "IX_UserTrustedDevices_User", "UserId", "[UserId]");
+
+        return fallidas;
     }
 }

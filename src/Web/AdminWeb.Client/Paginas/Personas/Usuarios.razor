@@ -5,6 +5,10 @@
 @inject ClienteApi Api
 @inject AvisosDeInterfaz Avisos
 @inject Descargas Descargas
+@* La sesión se inyecta por UNA sola razón: saber si la fila que se va a reiniciar es la propia del
+   líder, porque en ese caso la advertencia es distinta (ver ConfirmacionDeReinicio). No se usa para
+   decidir qué se puede hacer: eso lo decide el servidor. *@
+@inject EstadoSesion Sesion
 
 @*
     Cuentas de acceso. Réplica de UserManagementControl.
@@ -18,6 +22,19 @@
         cuenta de líder no se puede borrar, y que el histórico pierde la atribución.
       · «Activar/Desactivar» existe aparte de eliminar y el texto lo dice: si solo quieres quitarle el
         acceso un tiempo, eso es lo que hay que usar.
+
+    Lo que AÑADE la web y el escritorio no tenía: el SEGUNDO FACTOR.
+
+      · La columna «Segundo factor» dice quién lo tiene dado de alta, desde cuándo y cuántos códigos
+        de rescate le quedan. Ese último número es el que avisa antes de la llamada: quien se queda
+        sin códigos y pierde el teléfono ya no tiene ninguna salida por su cuenta.
+      · «Segundo factor» (el botón) lo REINICIA. La cuenta queda como si nunca lo hubiera tenido, así
+        que en la siguiente entrada se le vuelve a exigir darlo de alta — no se queda sin protección.
+        Sus códigos de rescate dejan de valer y los equipos recordados vuelven a pedirle el código.
+      · Pide confirmación y queda en la bitácora a nombre de quien lo pulsó. Es la acción que devuelve
+        el acceso a una cuenta, así que tiene que poder mirarse después.
+      · El botón NO es la barrera. Quien no sea líder recibe un 403 de la API aunque llame a la
+        dirección a mano, y el servicio lo vuelve a comprobar por su cuenta.
 
     Lo que CAMBIA respecto al escritorio, y por qué:
 
@@ -48,6 +65,16 @@
         <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
             @datos.IntentosParaBloquear intentos fallidos bloquean la cuenta @datos.MinutosDeBloqueo minutos.
             «Desbloquear» levanta ese bloqueo sin tocar la contraseña.
+        </RadzenText>
+        @* El segundo factor es obligatorio para todas las cuentas, así que «sin activar» no es un
+           ajuste opcional que alguien decidió no usar: es una cuenta que todavía no ha pasado por el
+           alta y a la que se le exigirá en cuanto entre. Decirlo aquí evita que la columna se lea
+           como un permiso. *@
+        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+            El segundo factor es obligatorio para todas las cuentas: a quien salga como «sin activar»
+            se le pedirá darlo de alta la próxima vez que entre. Cada alta entrega
+            @datos.CodigosDeRescateEmitidos códigos de rescate de un solo uso; «Segundo factor»
+            reinicia el de esa cuenta cuando se queda sin teléfono y sin códigos.
         </RadzenText>
 
         @if (_capturando)
@@ -166,12 +193,29 @@
                         <span style="@EstiloDeAcceso(u)" title="@ExplicacionDeAcceso(u, datos)">@Acceso(u, datos)</span>
                     </Template>
                 </RadzenDataGridColumn>
+                @* Ordenable por SegundoFactorActivo a propósito: con el segundo factor obligatorio,
+                   «enséñame quién falta por darlo de alta» es la pregunta que se hace de verdad en
+                   esta pantalla, y ordenar por la columna la contesta sin filtro ninguno. *@
+                <RadzenDataGridColumn TItem="UsuarioDto" Property="SegundoFactorActivo"
+                                      Title="Segundo factor" Width="210px">
+                    <Template Context="u">
+                        <span style="@EstiloDeSegundoFactor(u, datos)"
+                              title="@ExplicacionDeSegundoFactor(u, datos)">
+                            @* El glifo va aparte del texto porque dentro de una cadena no cabe ningún
+                               componente, y aquí sí se puede: esto es plantilla, no atributo. El
+                               escudo con la marca es el mismo de «verificado» en toda la aplicación;
+                               el triángulo es el aviso de siempre. *@
+                            <RadzenIcon Icon="@(u.SegundoFactorActivo ? "verified_user" : "warning")" />
+                            @SegundoFactor(u, datos)
+                        </span>
+                    </Template>
+                </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="UsuarioDto" Property="AltaUtc" Title="Alta" Width="150px">
                     <Template Context="u">@u.AltaUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</Template>
                 </RadzenDataGridColumn>
-                <RadzenDataGridColumn TItem="UsuarioDto" Title="" Width="380px" Sortable="false">
+                <RadzenDataGridColumn TItem="UsuarioDto" Title="" Width="500px" Sortable="false">
                     <Template Context="u">
-                        @* Los cinco botones llevan ya glifo de la fuente, y hay dos decisiones que
+                        @* Los seis botones llevan ya glifo de la fuente, y hay varias decisiones que
                            conviene conocer antes de tocarlas:
                            · «Desbloquear» lleva el candado ABIERTO. Parece obvio y no lo es: un
                              candado cerrado sobre la palabra «Desbloquear» dice lo contrario de lo
@@ -181,7 +225,16 @@
                              una de las dos, y puestos en la misma línea no pueden desincronizarse:
                              si mañana alguien cambia el texto y no el icono, se ve al leerla.
                            · «vpn_key» (la llave con anilla) y no «key» porque es la que Programas.razor
-                             usa ya para credenciales; las dos llaves de la aplicación se reconocen. *@
+                             usa ya para credenciales; las dos llaves de la aplicación se reconocen.
+                           · «Segundo factor» se llama por lo que TOCA y no por lo que hace, igual que
+                             «Contraseña»: los dos restablecen algo de la cuenta y se leen en la misma
+                             línea. Lo que hace lo dicen el glifo de reinicio y el rótulo emergente,
+                             y lo explica entero el diálogo antes de tocar nada. La fuente recortada
+                             no tiene ningún glifo de teléfono ni de código QR; «restart_alt» es el
+                             que mejor cuenta lo que ocurre: esa cuenta vuelve a empezar de cero.
+                           · El botón se pinta SIEMPRE, también sobre quien no lo tiene activo: sirve
+                             para limpiar un alta que se quedó a medias, y el servidor lo dice en su
+                             respuesta cuando no había nada activo que reiniciar. *@
                         <RadzenButton Text="Editar" Icon="edit" ButtonStyle="ButtonStyle.Light"
                                       Size="ButtonSize.ExtraSmall"
                                       Disabled="@_ocupado" Click="@(() => AbrirEdicion(u))" />
@@ -192,6 +245,9 @@
                         <RadzenButton Text="@(u.Activo ? "Desactivar" : "Activar")" Icon="@(u.Activo ? "block" : "check_circle")"
                                       ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                       Disabled="@_ocupado" Click="@(() => Alternar(u))" />
+                        <RadzenButton Text="Segundo factor" Icon="restart_alt" ButtonStyle="ButtonStyle.Light"
+                                      Size="ButtonSize.ExtraSmall" title="Reinicia el segundo factor de esta cuenta"
+                                      Disabled="@_ocupado" Click="@(() => ReiniciarSegundoFactor(u))" />
                         <RadzenButton Text="Eliminar" Icon="delete" ButtonStyle="ButtonStyle.Danger"
                                       Size="ButtonSize.ExtraSmall"
                                       Disabled="@_ocupado" Click="@(() => Eliminar(u))" />
@@ -342,6 +398,69 @@
         await Enviar<object?>($"api/personas/usuarios/{u.Id}/activo", null);
     }
 
+    /// <summary>
+    /// Reinicia el segundo factor de una cuenta: la salida para quien perdió el teléfono y ya no
+    /// tiene códigos de rescate.
+    ///
+    /// <para>La confirmación no es un trámite. Esta es la acción que DEVUELVE EL ACCESO a una cuenta,
+    /// y el modo en que sale mal no es pulsarla sin querer sino pulsarla convencido: alguien escribe
+    /// por chat haciéndose pasar por un compañero que «cambió de teléfono», y el reinicio le entrega
+    /// la cuenta a quien ya tenía la contraseña. Por eso el texto pide comprobar con quién se está
+    /// hablando antes de aceptar, que es lo único que de verdad lo evita.</para>
+    /// </summary>
+    private async Task ReiniciarSegundoFactor(UsuarioDto u)
+    {
+        if (_datos is not { } datos) return;
+
+        if (!await Avisos.ConfirmarAsync(ConfirmacionDeReinicio(u, datos), "Reiniciar el segundo factor",
+                "Sí, reiniciarlo"))
+            return;
+
+        await Enviar<object?>($"api/personas/usuarios/{u.Id}/segundo-factor/reiniciar", null);
+    }
+
+    /// <summary>
+    /// Lo que se le pregunta al líder antes de reiniciar, que cambia según el caso.
+    ///
+    /// <para><b>Reiniciarse el propio segundo factor lleva un aviso aparte</b>, y no por cortesía. El
+    /// reinicio deja la cuenta obligada a darlo de alta otra vez; si en ese hueco quien lo pulsó se
+    /// queda sin teléfono y sin códigos de rescate, hace falta OTRO administrador que se lo reinicie a
+    /// él. <b>Si no hay ninguno más, no queda nadie</b> —haría falta entrar a la base a mano—, así que
+    /// el aviso se escribe distinto según cuántas cuentas de líder activas haya, que la propia lista
+    /// ya trae. Es la advertencia que EL-CORTE.md pide leer antes de encender todo esto, dicha en el
+    /// único momento en que de verdad importa.</para>
+    /// </summary>
+    private string ConfirmacionDeReinicio(UsuarioDto u, PantallaDeUsuariosDto datos)
+    {
+        var queSePierde = u.SegundoFactorActivo
+            ? $"El segundo factor de «{u.Usuario}» se borra: sus códigos de rescate dejan de valer, " +
+              "los equipos que tenía recordados vuelven a pedirle el código y, la próxima vez que " +
+              "entre, tendrá que darlo de alta otra vez desde cero.\n\n"
+            : $"«{u.Usuario}» no tiene el segundo factor activo. Esto solo limpia lo que hubiera " +
+              "quedado a medias de un alta anterior.\n\n";
+
+        if (Sesion.Usuario?.Id != u.Id)
+            return queSePierde +
+                   "Comprueba antes por una vía que reconozcas —una llamada, en persona— que quien te " +
+                   "lo pide es de verdad esa persona: esto es lo que devuelve el acceso a su cuenta.\n\n" +
+                   "Queda anotado en la bitácora a tu nombre.";
+
+        // Es la propia cuenta. Se cuentan los OTROS líderes activos: son los únicos que podrían
+        // sacarlo del atolladero, y su número cambia el aviso de «tienes a quién pedírselo» a «no
+        // tienes a nadie».
+        var otrosLideres = datos.Usuarios.Count(x => x.Rol == UserRole.Admin && x.Activo && x.Id != u.Id);
+
+        var advertencia = otrosLideres == 0
+            ? "ATENCIÓN: es TU propia cuenta y eres la ÚNICA cuenta de líder activa. Al entrar " +
+              "tendrás que escanear un código nuevo, y si para entonces te has quedado sin teléfono " +
+              "Y sin códigos de rescate, NO queda nadie dentro de la aplicación que pueda " +
+              "devolverte el acceso. Crea otra cuenta de líder antes de hacer esto."
+            : "ATENCIÓN: es TU propia cuenta. Al entrar tendrás que escanear un código nuevo. Si te " +
+              "quedaras sin teléfono y sin códigos de rescate, tendría que reiniciártelo otro líder.";
+
+        return queSePierde + advertencia + "\n\nQueda anotado en la bitácora a tu nombre.";
+    }
+
     private async Task Eliminar(UsuarioDto u)
     {
         // Se avisa ANTES de confirmar, no después: son las dos razones por las que alguien se
@@ -420,6 +539,48 @@
         : u.IntentosFallidos > 0
             ? $"Lleva {u.IntentosFallidos} intento(s) fallido(s). A los {datos.IntentosParaBloquear} " +
               $"la cuenta se bloquea {datos.MinutosDeBloqueo} minutos."
+            : "";
+
+    // ── El segundo factor en la rejilla ──────────────────────────────────────
+    //
+    // Tres estados y no dos, porque el tercero es el que hay que ver a tiempo: activo con pocos
+    // códigos de rescate. Quien llega a cero no se entera de nada hasta el día que pierde el
+    // teléfono, y ese día ya es tarde para prepararse — de ahí que el número se pinte en la lista
+    // del líder y no solo en la pantalla de cada quien.
+
+    private static string SegundoFactor(UsuarioDto u, PantallaDeUsuariosDto datos)
+    {
+        if (!u.SegundoFactorActivo) return "Sin activar";
+
+        var desde = u.SegundoFactorDesdeUtc is DateTime d
+            ? $"Desde {d.ToLocalTime():dd/MM/yyyy}"
+            : "Activo";
+
+        return u.CodigosDeRescateRestantes <= datos.CodigosDeRescateParaAvisar
+            ? $"{desde} — {u.CodigosDeRescateRestantes}/{datos.CodigosDeRescateEmitidos} rescates"
+            : desde;
+    }
+
+    private static string ExplicacionDeSegundoFactor(UsuarioDto u, PantallaDeUsuariosDto datos)
+    {
+        if (!u.SegundoFactorActivo)
+            return "Todavía no ha dado de alta el código de su teléfono. Se le exigirá la próxima " +
+                   "vez que entre, antes de dejarle hacer nada más.";
+
+        var cuando = u.SegundoFactorDesdeUtc is DateTime d
+            ? $"Activo desde el {d.ToLocalTime():dd/MM/yyyy HH:mm}. "
+            : "Activo. ";
+
+        return cuando + (u.CodigosDeRescateRestantes == 0
+            ? $"No le queda ningún código de rescate de los {datos.CodigosDeRescateEmitidos}: si " +
+              "pierde el teléfono, la única salida es que le reinicies el segundo factor."
+            : $"Le quedan {u.CodigosDeRescateRestantes} códigos de rescate de " +
+              $"{datos.CodigosDeRescateEmitidos}.");
+    }
+
+    private static string EstiloDeSegundoFactor(UsuarioDto u, PantallaDeUsuariosDto datos) =>
+        !u.SegundoFactorActivo || u.CodigosDeRescateRestantes <= datos.CodigosDeRescateParaAvisar
+            ? "color:var(--rz-warning)"
             : "";
 
     private static string EstiloDeAcceso(UsuarioDto u) =>

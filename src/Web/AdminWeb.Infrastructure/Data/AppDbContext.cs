@@ -121,6 +121,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<UserPreference> UserPreferences => Set<UserPreference>();
     public DbSet<PushSubscription> PushSubscriptions => Set<PushSubscription>();
 
+    // Segundo factor. El secreto NO está aquí: vive cifrado en UserSecrets. Estas dos tablas son
+    // las piezas que no caben ahí — los ocho códigos de rescate, que se gastan de uno en uno, y los
+    // navegadores en los que ya no hace falta volver a pedir el código durante treinta días.
+    public DbSet<UserRecoveryCode> UserRecoveryCodes => Set<UserRecoveryCode>();
+    public DbSet<UserTrustedDevice> UserTrustedDevices => Set<UserTrustedDevice>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // ── Acceso y bitácora ────────────────────────────────────────────────
@@ -746,6 +752,39 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             // navegador de alguien que ya no entra sería filtrarle movimiento del equipo.
             e.HasOne(p => p.User).WithMany()
                 .HasForeignKey(p => p.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ── Segundo factor ───────────────────────────────────────────────────
+        modelBuilder.Entity<UserRecoveryCode>(e =>
+        {
+            // 64 caracteres exactos: SHA-256 en hexadecimal. El largo fijo mantiene el índice
+            // pequeño y deja claro de un vistazo que ahí no hay ningún código legible.
+            e.Property(c => c.CodigoHash).IsRequired().HasMaxLength(64);
+
+            // Único por (usuario, hash) y con el usuario primero: al entrar se busca por ese par, y
+            // así el mismo índice sirve para la consulta y para impedir que un código se dé de alta
+            // dos veces en la misma cuenta.
+            e.HasIndex(c => new { c.UserId, c.CodigoHash }).IsUnique();
+
+            // En cascada: los códigos de rescate de una cuenta borrada no protegen nada y dejarlos
+            // huérfanos sería dejar hashes de llaves de acceso sin dueño.
+            e.HasOne(c => c.User).WithMany()
+                .HasForeignKey(c => c.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<UserTrustedDevice>(e =>
+        {
+            e.Property(d => d.TokenHash).IsRequired().HasMaxLength(64);
+            e.Property(d => d.Descripcion).HasMaxLength(200);
+
+            // Único por el testigo SOLO: es aleatorio de 256 bits, así que identifica al navegador
+            // sin ayuda de nadie. Buscar por él y no por (usuario, testigo) evita además que una
+            // cookie de una persona pueda probarse contra la cuenta de otra.
+            e.HasIndex(d => d.TokenHash).IsUnique();
+            e.HasIndex(d => d.UserId);
+
+            e.HasOne(d => d.User).WithMany()
+                .HasForeignKey(d => d.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 
         base.OnModelCreating(modelBuilder);

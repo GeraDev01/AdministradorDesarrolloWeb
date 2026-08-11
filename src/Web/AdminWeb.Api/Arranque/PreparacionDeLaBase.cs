@@ -89,8 +89,27 @@ public static class PreparacionDeLaBase
                 }
             }
 
-            DatabaseMigrator.EnsureUpToDate(db);
-            log.LogInformation("Esquema al día.");
+            // «Al día» solo si NO falló ni una sentencia. El mensaje de antes se escribía pasara lo
+            // que pasara, y por eso un migrador que se saltó 114 parches pudo anunciar durante días
+            // que todo estaba correcto. Un aviso por cada sentencia fallida, con su motivo, porque
+            // un resumen «hubo 3 fallos» obliga a ir a buscarlos justo cuando no hay tiempo.
+            var fallidas = DatabaseMigrator.EnsureUpToDate(db);
+
+            if (fallidas.Count == 0)
+            {
+                log.LogInformation("Esquema al día.");
+            }
+            else
+            {
+                log.LogError(
+                    "ESQUEMA INCOMPLETO: {Cuantas} sentencia(s) de migración fallaron. La aplicación " +
+                    "arranca igual —negarse dejaría a todo el equipo fuera por un índice— pero hay " +
+                    "columnas o tablas que NO existen, y lo que dependa de ellas fallará más tarde y " +
+                    "en otro sitio. Revísalo antes de dar el despliegue por bueno.", fallidas.Count);
+
+                foreach (var fallo in fallidas)
+                    log.LogError("Migración fallida: {Sentencia}", fallo);
+            }
 
             await ReconciliarDesplieguesAsync(servicios, db, log, ct);
 

@@ -112,6 +112,29 @@ y es manipulable. La barrera real son las políticas de los endpoints; y detrás
 **El sello de sesión (`SecurityStamp`) es nuevo de la web.** Permite echar a alguien de verdad al
 cambiar su contraseña o desactivar su cuenta; antes la sesión moría con el proceso y no hacía falta.
 
+**El segundo factor es obligatorio para todas las cuentas, y también es nuevo de la web.** El
+escritorio corría dentro de la red de la empresa; una dirección pública es otra cosa, y una
+contraseña filtrada dejaría de ser suficiente. Es el código de seis dígitos de cualquier aplicación
+compatible con TOTP —el estándar—, calculado con lo que ya trae .NET: sin servicio externo, sin SMS y
+sin nada que pagar. Tres decisiones que conviene conocer:
+
+- **El alta se fuerza con el mismo mecanismo que la contraseña temporal** (`SegundoFactorObligatorio`,
+  copiado de `ContrasenaObligatoria`): quien no lo tiene activo no puede tocar nada más que las rutas
+  del alta. Dos mecanismos distintos para el mismo problema serían dos sitios donde mirar el día que
+  algo no corte.
+- **Quien pierde el teléfono tiene dos salidas**: sus ocho códigos de rescate de un solo uso, y el
+  reinicio por parte del líder desde «Usuarios», que deja asiento en la bitácora con quién lo hizo y a
+  quién. La segunda salida es la que **el propio líder no tiene**, y por eso hace falta una segunda
+  cuenta de administrador antes de encender esto: está en
+  [EL-CORTE.md](EL-CORTE.md#hoy-solo-hay-una-cuenta-de-administrador).
+- **El navegador se recuerda 30 días** para no pedir el código en cada entrada. El testigo se guarda
+  como hash y la caducidad la fija el servidor: la de una cookie la cambia cualquiera desde su propio
+  equipo.
+
+El secreto de cada persona va cifrado en `UserSecrets`, con el mismo llavero que los PAT de DevOps —
+lo que sube el precio de perder ese llavero, ver el punto 1.6 de la guía. Los códigos de rescate no:
+se guardan como hash y sobreviven a que el llavero se pierda.
+
 **El cuerpo del foro es TEXTO, y se pinta como texto.** El servidor lo entrega troceado en segmentos
 y con los enlaces ya validados (solo `http`/`https`); el cliente emite cada trozo con `@`, que Blazor
 escapa. Nada de `MarkupString` ni de `innerHTML` sobre contenido escrito por alguien: en el escritorio
@@ -267,14 +290,21 @@ Lo que ya existe:
 
 ### Antes de tocar producción
 
-1. **Ensayar el corte** contra una copia fresca de producción y **medir cuánto tarda el arranque**:
+1. **Crear una segunda cuenta de administrador**, desde el escritorio y antes de encender el segundo
+   factor obligatorio. Con una sola, el líder que pierda su teléfono y sus códigos de rescate se
+   queda fuera sin que nadie pueda devolverle el acceso desde la aplicación. Es el primer punto de
+   [EL-CORTE.md](EL-CORTE.md#hoy-solo-hay-una-cuenta-de-administrador).
+2. **Preparar al equipo para el segundo factor** unos días antes del corte —instalar la aplicación
+   del teléfono y repartir por escrito qué va a pasar—, no el mismo día. Está en la
+   [guía de puesta en marcha](GUIA-DE-PUESTA-EN-MARCHA.md#antes-del-día-del-corte--el-segundo-factor-del-equipo).
+3. **Ensayar el corte** contra una copia fresca de producción y **medir cuánto tarda el arranque**:
    esa es la ventana de mantenimiento. Ver [EL-CORTE.md](EL-CORTE.md).
-2. **Generar las llaves VAPID** de los avisos push y guardarlas donde guardes lo importante; la
+4. **Generar las llaves VAPID** de los avisos push y guardarlas donde guardes lo importante; la
    privada va como ajuste del App Service (no hay Key Vault). Se generan una vez y no se regeneran.
-3. **Configurar el pipeline** ([.github/workflows/web.yml](../../.github/workflows/web.yml)): la
+5. **Configurar el pipeline** ([.github/workflows/web.yml](../../.github/workflows/web.yml)): la
    identidad federada de Azure y el nombre de la aplicación. Despliega a una ranura de ensayo,
    comprueba que arranque contra la base y solo entonces intercambia con producción.
-4. **Probar el cronómetro con cierres sucios** (cerrar la pestaña, dormir el portátil, cortar el
+6. **Probar el cronómetro con cierres sucios** (cerrar la pestaña, dormir el portátil, cortar el
    wifi) y comprobar que el tiempo se consolida hasta el último latido en vez de descartarse.
 
 ### Deuda conocida y anotada

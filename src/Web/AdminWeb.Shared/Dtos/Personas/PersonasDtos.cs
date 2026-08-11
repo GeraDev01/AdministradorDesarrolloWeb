@@ -214,6 +214,12 @@ public record RotacionDto(
 /// <param name="Bloqueado">Bloqueada AHORA por intentos fallidos. Se resuelve en el servidor para no
 /// depender del reloj del navegador.</param>
 /// <param name="IntentosFallidos">Intentos fallidos acumulados. Es lo que avisa antes del bloqueo.</param>
+/// <param name="SegundoFactorActivo">Si esa cuenta ya dio de alta el código de su teléfono. En falso,
+/// la próxima vez que entre se le exigirá darlo de alta antes de nada.</param>
+/// <param name="SegundoFactorDesdeUtc">Desde cuándo lo tiene. Nulo si no lo ha dado de alta.</param>
+/// <param name="CodigosDeRescateRestantes">Cuántos códigos de rescate le quedan sin gastar. En cero
+/// —y con el teléfono perdido— la única salida es que el líder le reinicie el segundo factor, así que
+/// es el número que conviene mirar ANTES de que llegue esa llamada.</param>
 public record UsuarioDto(
     int Id,
     string Usuario,
@@ -227,19 +233,29 @@ public record UsuarioDto(
     DateTime? BloqueadoHastaUtc,
     int IntentosFallidos,
     bool DebeCambiarContrasena,
-    DateTime AltaUtc);
+    DateTime AltaUtc,
+    bool SegundoFactorActivo,
+    DateTime? SegundoFactorDesdeUtc,
+    int CodigosDeRescateRestantes);
 
 /// <summary>
 /// Lo que hace falta para pintar la pantalla de usuarios de una vez: las cuentas, las fichas a las
 /// que se pueden ligar y las reglas de bloqueo, que la pantalla explica al usuario y que tenerlas
 /// escritas a mano en la interfaz garantizaba que un día dejaran de coincidir con el servidor.
 /// </summary>
+/// <param name="CodigosDeRescateEmitidos">Cuántos códigos de rescate se entregan al dar de alta el
+/// segundo factor. Viaja para que la pantalla pueda decir «le quedan 2 de 8» sin escribir el ocho a
+/// mano: el día que el servidor emita otra cantidad, la frase sigue siendo cierta sola.</param>
+/// <param name="CodigosDeRescateParaAvisar">A partir de cuántos restantes conviene avisar. Mismo
+/// motivo: el umbral lo decide el servidor y la pantalla solo lo pinta.</param>
 public record PantallaDeUsuariosDto(
     IReadOnlyList<UsuarioDto> Usuarios,
     IReadOnlyList<OpcionDto> Desarrolladores,
     int IntentosParaBloquear,
     int MinutosDeBloqueo,
-    int LargoMinimoDeContrasena);
+    int LargoMinimoDeContrasena,
+    int CodigosDeRescateEmitidos,
+    int CodigosDeRescateParaAvisar);
 
 /// <summary>
 /// Alta de una cuenta.

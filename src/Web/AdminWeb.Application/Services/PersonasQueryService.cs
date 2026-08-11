@@ -578,6 +578,12 @@ public class PersonasQueryService(
     /// bloqueo que la pantalla explica.
     ///
     /// Ni el hash ni el sello de sesión salen de aquí: ver <see cref="UsuarioDto"/>.
+    ///
+    /// <para><b>Del segundo factor sale el ESTADO y nada más</b>: si está activo, desde cuándo y
+    /// cuántos códigos de rescate quedan. Ni el secreto —que vive cifrado en <c>UserSecrets</c> y no
+    /// se lee aquí— ni los códigos de rescate —que en la base solo están como hash— tienen por qué
+    /// pasar por una lista que se pide para pintar una rejilla. Lo que el líder necesita para decidir
+    /// si reinicia es exactamente esto.</para>
     /// </summary>
     public async Task<PantallaDeUsuariosDto> UsuariosAsync(CancellationToken ct = default)
     {
@@ -589,9 +595,19 @@ public class PersonasQueryService(
             {
                 u.Id, u.Username, u.FullName, u.Role, u.DeveloperId, u.IsActive,
                 u.MustChangePassword, u.FailedLoginCount, u.LockoutUntil, u.CreatedAt,
+                u.SegundoFactorActivo, u.SegundoFactorDesdeUtc,
                 Desarrollador = u.Developer != null ? u.Developer.FullName : null
             })
             .ToListAsync(ct);
+
+        // Los códigos de rescate se cuentan de UNA vez para todas las cuentas y no cuenta por cuenta:
+        // once cuentas serían once viajes a la base para pintar una columna. Solo se agrupan los que
+        // siguen sin gastar; los usados están ahí como constancia, no como saldo.
+        var rescatesDisponibles = await db.UserRecoveryCodes.AsNoTracking()
+            .Where(c => c.UsadoEnUtc == null)
+            .GroupBy(c => c.UserId)
+            .Select(g => new { UserId = g.Key, Cuantos = g.Count() })
+            .ToDictionaryAsync(x => x.UserId, x => x.Cuantos, ct);
 
         var ahora = DateTime.UtcNow;
         var usuarios = cuentas.Select(u => new UsuarioDto(
@@ -605,7 +621,10 @@ public class PersonasQueryService(
             u.LockoutUntil,
             u.FailedLoginCount,
             u.MustChangePassword,
-            u.CreatedAt)).ToList();
+            u.CreatedAt,
+            u.SegundoFactorActivo,
+            u.SegundoFactorDesdeUtc,
+            rescatesDisponibles.GetValueOrDefault(u.Id))).ToList();
 
         var desarrolladores = await db.Developers.AsNoTracking()
             .Where(d => d.IsActive)
@@ -615,7 +634,8 @@ public class PersonasQueryService(
 
         return new PantallaDeUsuariosDto(
             usuarios, desarrolladores,
-            AuthService.MaxFailedAttempts, AuthService.LockoutMinutes, AuthService.MinPasswordLength);
+            AuthService.MaxFailedAttempts, AuthService.LockoutMinutes, AuthService.MinPasswordLength,
+            CodigosDeRescate.Cuantos, SegundoFactorService.CodigosDeRescateParaAvisar);
     }
 
     /// <summary>

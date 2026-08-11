@@ -19,6 +19,13 @@ public class ManejadorDeRespuestas(NavigationManager navegacion, EstadoSesion se
     /// <summary>Lo que devuelve la API cuando la cuenta arrastra una contraseña temporal.</summary>
     private const string CodigoDebeCambiarContrasena = "MUST_CHANGE_PASSWORD";
 
+    /// <summary>
+    /// Y lo que devuelve cuando falta activar el segundo factor. Los dos son 403 y llevan a pantallas
+    /// distintas: por eso el servidor manda un código como DATO y aquí se mira ese código y no el
+    /// texto del mensaje, que se reescribe cualquier día sin que nadie lo relacione con esto.
+    /// </summary>
+    private const string CodigoDebeActivarSegundoFactor = "MUST_ENROLL_2FA";
+
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage peticion, CancellationToken ct)
     {
@@ -39,27 +46,42 @@ public class ManejadorDeRespuestas(NavigationManager navegacion, EstadoSesion se
             return respuesta;
         }
 
-        if (respuesta.StatusCode == HttpStatusCode.Forbidden && await EsCambioObligatorio(respuesta))
-            navegacion.NavigateTo("cambiar-contrasena", replace: true);
+        if (respuesta.StatusCode == HttpStatusCode.Forbidden)
+        {
+            // El cuerpo se lee UNA vez y se decide con lo leído. Preguntar dos veces —una por cada
+            // código— vaciaría el flujo de la respuesta en la primera y la segunda nunca encontraría
+            // nada: el fallo aparecería como «a veces no me lleva a la pantalla».
+            switch (await CodigoDeLaSituacion(respuesta))
+            {
+                case CodigoDebeCambiarContrasena:
+                    navegacion.NavigateTo("cambiar-contrasena", replace: true);
+                    break;
+
+                case CodigoDebeActivarSegundoFactor:
+                    navegacion.NavigateTo("segundo-factor", replace: true);
+                    break;
+            }
+        }
 
         return respuesta;
     }
 
     /// <summary>
-    /// Distingue «no tienes permiso» de «tienes que cambiar tu contraseña»: los dos son 403 y llevan
-    /// a sitios opuestos. Se mira el código del cuerpo y no el texto del mensaje, porque un mensaje
-    /// se reescribe cualquier día y el cliente dejaría de reaccionar sin que nada avise.
+    /// Distingue «no tienes permiso» de las dos situaciones que se arreglan solas yendo a una
+    /// pantalla: la contraseña temporal sin cambiar y el segundo factor sin activar. Los tres casos
+    /// son 403 y llevan a sitios distintos, así que lo que los separa es el código que la API manda
+    /// como dato dentro del cuerpo.
     /// </summary>
-    private static async Task<bool> EsCambioObligatorio(HttpResponseMessage respuesta)
+    private static async Task<string?> CodigoDeLaSituacion(HttpResponseMessage respuesta)
     {
         try
         {
             var problema = await respuesta.Content.ReadFromJsonAsync<ProblemaConCodigo>();
-            return problema?.Code == CodigoDebeCambiarContrasena;
+            return problema?.Code;
         }
         catch
         {
-            return false;
+            return null;
         }
     }
 

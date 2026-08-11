@@ -1,0 +1,520 @@
+@page "/segundo-factor"
+@layout Layout.LayoutVacio
+@attribute [Authorize]
+@inject EstadoSesion Sesion
+@inject NavigationManager Navegacion
+@inject AuthenticationStateProvider ProveedorAuth
+@inject Descargas Portapapeles
+
+<PageTitle>Segundo factor · Administrador de Desarrollo</PageTitle>
+
+@*
+    El alta del segundo factor y, después, el sitio donde se administra.
+
+    SON LA MISMA PANTALLA A PROPÓSITO. La otra opción era una para activarlo y otra para verlo, y
+    entonces la de activarlo sería una dirección a la que nadie vuelve nunca: viviría sin que nadie la
+    mire hasta el día que entre alguien nuevo, que es cuando peor viene descubrir que algo se rompió.
+    Así, la misma pantalla se usa cada vez que alguien revisa sus equipos recordados.
+
+    VA CON EL LAYOUT VACÍO, sin menú ni barra, y esa decisión tiene un motivo concreto. La barra
+    superior monta componentes que consultan la API al pintarse (asistencia, estado); mientras el
+    segundo factor no esté activo, el servidor les contesta 403 a todos, y quien llegara aquí obligado
+    vería la pantalla de activación enterrada bajo una fila de avisos rojos que no puede atender.
+    Sin barra no hay quien pregunte.
+*@
+
+@* Mientras los códigos de rescate están en pantalla, salir es perderlos para siempre: no se guardan
+   en ningún sitio del que se puedan volver a sacar. Esto cierra las dos salidas —la de dentro de la
+   aplicación y la del navegador— hasta que la persona confirme que ya los guardó.
+
+   NavigationLock es de Blazor, no hace falta ni una línea de JavaScript. La confirmación externa la
+   pinta el propio navegador («¿seguro que quieres salir?»), que es el único aviso que un navegador
+   deja mostrar al cerrar una pestaña. *@
+<NavigationLock ConfirmExternalNavigation="@HayQueRetener"
+                OnBeforeInternalNavigation="@RetenerSiHaceFalta" />
+
+<div style="max-width:640px;margin:2rem auto;padding:0 1rem">
+    <RadzenCard>
+        <RadzenStack Gap="1.25rem">
+
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.6rem">
+                <RadzenIcon Icon="shield" />
+                <RadzenText TextStyle="TextStyle.H6" Style="margin:0">Segundo factor</RadzenText>
+            </RadzenStack>
+
+            @if (_cargando)
+            {
+                <RadzenText TextStyle="TextStyle.Body2">Cargando…</RadzenText>
+            }
+            else if (_codigosDeRescate.Count > 0)
+            {
+                @* ── PASO 3: los códigos de rescate, una sola vez ──────────────────── *@
+                <RadzenAlert AlertStyle="AlertStyle.Success" Shade="Shade.Lighter" AllowClose="false">
+                    @_mensaje
+                </RadzenAlert>
+
+                <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+                    <b>Guárdalos ahora.</b> Estos ocho códigos son la única forma de entrar si pierdes
+                    el teléfono. No se vuelven a mostrar: en el servidor solo queda una huella que no
+                    se puede deshacer. Cada uno sirve una vez.
+                </RadzenAlert>
+
+                @* Los códigos en dos columnas y con la clase del dato técnico: ancho fijo y cifras
+                   tabulares. Es lo que permite copiarlos a mano sin confundir caracteres — y por eso
+                   el alfabeto tampoco tiene ni I, ni O, ni cero, ni uno. *@
+                <div class="dato-tecnico"
+                     style="display:grid;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));
+                            gap:.4rem .9rem;padding:.9rem;border:1px solid var(--rz-border-color);
+                            border-radius:var(--rz-border-radius, 4px)">
+                    @foreach (var codigo in _codigosDeRescate)
+                    {
+                        <span>@codigo</span>
+                    }
+                </div>
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" AlignItems="AlignItems.Center"
+                             Wrap="FlexWrap.Wrap">
+                    <RadzenButton Text="Copiar" Icon="content_copy" ButtonStyle="ButtonStyle.Light"
+                                  Size="ButtonSize.Small" Click="@CopiarCodigos" />
+
+                    @* La descarga se arma AQUÍ, en el navegador, con lo que ya está en pantalla, y es
+                       un <a download> con el contenido dentro en vez de un botón que llame a la API.
+                       No hay ningún endpoint que devuelva estos códigos, y no debe haberlo: una
+                       dirección que los sirva es una dirección por la que se pueden volver a pedir, y
+                       entonces «se muestran una sola vez» dejaría de ser verdad. *@
+                    <a href="@EnlaceDeDescarga" download="codigos-de-rescate.txt"
+                       style="color:var(--rz-primary);font-size:.9rem">Descargar como archivo</a>
+                </RadzenStack>
+
+                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                    <RadzenCheckBox TValue="bool" @bind-Value="_losGuarde" Name="losGuarde" />
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin:0">
+                        Ya los guardé en un sitio seguro
+                    </RadzenText>
+                </RadzenStack>
+
+                <RadzenButton Text="Terminar" Icon="check" Disabled="@(!_losGuarde)" Click="@Terminar" />
+            }
+            else if (_estado?.Activo == true)
+            {
+                @* ── YA ESTÁ ACTIVO: el panel ──────────────────────────────────────── *@
+                <RadzenAlert AlertStyle="AlertStyle.Success" Shade="Shade.Lighter" AllowClose="false">
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                        <RadzenIcon Icon="verified_user" />
+                        <span>
+                            Activo desde el @(_estado.DesdeUtc?.ToLocalTime().ToString("dd/MM/yyyy") ?? "—").
+                        </span>
+                    </RadzenStack>
+                </RadzenAlert>
+
+                @* ── Códigos de rescate ── *@
+                <RadzenStack Gap="0.5rem">
+                    <RadzenText TextStyle="TextStyle.Subtitle2" Style="margin:0">Códigos de rescate</RadzenText>
+
+                    @if (_estado.CodigosDeRescateRestantes == 0)
+                    {
+                        <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false">
+                            No te queda ninguno. Si pierdes el teléfono, solo el líder podrá devolverte
+                            el acceso. Emite ocho nuevos ahora.
+                        </RadzenAlert>
+                    }
+                    else
+                    {
+                        <RadzenText TextStyle="TextStyle.Body2" Style="margin:0">
+                            Te quedan <b>@_estado.CodigosDeRescateRestantes</b> sin usar.
+                        </RadzenText>
+                    }
+
+                    <RadzenText TextStyle="TextStyle.Caption">
+                        Emitir ocho nuevos anula los que tengas. Hace falta un código de tu teléfono:
+                        sin él, quien se sentara en tu equipo con la sesión abierta se llevaría ocho
+                        llaves permanentes de tu cuenta.
+                    </RadzenText>
+
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+                        <RadzenTextBox @bind-Value="_codigo" Placeholder="000000"
+                                       aria-label="Código de tu aplicación"
+                                       AutoCompleteType="AutoCompleteType.OneTimeCode"
+                                       Disabled="@_ocupado" Style="width:8rem" />
+                        <RadzenButton Text="Emitir ocho nuevos" Icon="autorenew"
+                                      ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                      Disabled="@_ocupado" Click="@Regenerar" />
+                    </RadzenStack>
+                </RadzenStack>
+
+                @* ── Equipos recordados ── *@
+                <RadzenStack Gap="0.5rem">
+                    <RadzenText TextStyle="TextStyle.Subtitle2" Style="margin:0">
+                        Equipos recordados (@_equipos.Count)
+                    </RadzenText>
+
+                    @if (_equipos.Count == 0)
+                    {
+                        <RadzenText TextStyle="TextStyle.Body2" Style="margin:0">
+                            Ninguno. Se te pide el código cada vez que entras, en cualquier navegador.
+                        </RadzenText>
+                    }
+                    else
+                    {
+                        <RadzenText TextStyle="TextStyle.Caption">
+                            En estos navegadores no se te vuelve a pedir el código hasta la fecha que
+                            se indica. El nombre lo dice el propio navegador, así que es una pista para
+                            reconocerlos y no una identificación.
+                        </RadzenText>
+
+                        <RadzenStack Gap="0.35rem">
+                            @foreach (var equipo in _equipos)
+                            {
+                                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                             Gap="0.5rem">
+                                    <RadzenIcon Icon="dns" Style="font-size:1.05rem" />
+                                    <RadzenText TextStyle="TextStyle.Body2" Style="margin:0">
+                                        @equipo.Descripcion
+                                        <span style="color:var(--rz-text-secondary-color)">
+                                            · hasta el @equipo.ExpiraUtc.ToLocalTime().ToString("dd/MM/yyyy")
+                                            @(equipo.UltimoUsoUtc is DateTime uso
+                                                ? $" · último uso {uso.ToLocalTime():dd/MM/yyyy}"
+                                                : "")
+                                        </span>
+                                    </RadzenText>
+                                </RadzenStack>
+                            }
+                        </RadzenStack>
+
+                        <div>
+                            <RadzenButton Text="Olvidarlos todos" Icon="delete_sweep"
+                                          ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                          Disabled="@_ocupado" Click="@OlvidarEquipos" />
+                        </div>
+
+                        <RadzenText TextStyle="TextStyle.Caption">
+                            Es todo o nada a propósito: tres portátiles con el mismo navegador y el
+                            mismo sistema salen idénticos en esta lista, y quien intentara olvidar solo
+                            uno acabaría olvidando el que no era y creyéndose a salvo.
+                        </RadzenText>
+                    }
+                </RadzenStack>
+
+                @if (_resultado is { } r)
+                {
+                    <RadzenAlert AlertStyle="@(r.ok ? AlertStyle.Success : AlertStyle.Danger)"
+                                 Shade="Shade.Lighter" AllowClose="false">
+                        @r.texto
+                    </RadzenAlert>
+                }
+
+                <div>
+                    <RadzenButton Text="Volver a la aplicación" Icon="home" Click="@AlInicio" />
+                </div>
+            }
+            else
+            {
+                @* ── PASOS 1 y 2: el alta ──────────────────────────────────────────── *@
+                <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+                    Esta cuenta necesita un segundo factor para poder usarse. Hasta que lo actives no
+                    se puede entrar a ninguna pantalla.
+                </RadzenAlert>
+
+                @if (_alta == null)
+                {
+                    <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false">
+                        @(_error ?? "No se pudo preparar el alta.")
+                    </RadzenAlert>
+                    <div>
+                        <RadzenButton Text="Reintentar" Icon="refresh" Click="@Cargar" />
+                    </div>
+                }
+                else
+                {
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin:0">
+                        <b>1.</b> Instala en tu teléfono una aplicación de códigos de acceso —cualquiera
+                        vale— y escanea este código con ella.
+                    </RadzenText>
+
+                    @* El código QR, grande. Fondo blanco fijo y no una variable del tema: lo que hay
+                       que leer aquí no es una interfaz, es un código de barras, y necesita contraste
+                       real entre sus cuadros y su fondo. En el tema oscuro, pintarlo sobre el fondo de
+                       la tarjeta lo dejaría negro sobre negro y ninguna cámara lo leería. La imagen ya
+                       trae su propio blanco dentro; el recuadro es el margen que el estándar exige
+                       alrededor, que sin él tampoco se lee. *@
+                    <div style="text-align:center">
+                        <img src="@_alta.CodigoQrPngBase64" width="280" height="280"
+                             alt="Código QR para dar de alta el segundo factor"
+                             style="background:#fff;padding:12px;border-radius:8px;max-width:100%;height:auto" />
+                    </div>
+
+                    <RadzenText TextStyle="TextStyle.Caption" Style="text-align:center">
+                        ¿No puedes escanear? Escribe esta clave a mano en tu aplicación:
+                    </RadzenText>
+
+                    <div class="dato-tecnico"
+                         style="text-align:center;padding:.6rem;border:1px solid var(--rz-border-color);
+                                border-radius:var(--rz-border-radius, 4px);word-break:break-all">
+                        @_alta.SecretoAgrupado
+                    </div>
+
+                    <div style="text-align:center">
+                        <RadzenButton Text="Copiar la clave" Icon="content_copy"
+                                      ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                      Click="@CopiarSecreto" />
+                    </div>
+
+                    <RadzenText TextStyle="TextStyle.Body2" Style="margin:0">
+                        <b>2.</b> Teclea el código de seis dígitos que te muestre. Hasta que uno
+                        coincida, el segundo factor <b>no</b> queda activado.
+                    </RadzenText>
+
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center">
+                        <RadzenTextBox @ref="_campoCodigo" @bind-Value="_codigo" Placeholder="000000"
+                                       aria-label="Código de seis dígitos"
+                                       AutoCompleteType="AutoCompleteType.OneTimeCode"
+                                       @onkeydown="AlTeclear" Disabled="@_ocupado" Style="width:8rem" />
+                        <RadzenButton Text="@(_ocupado ? "Comprobando…" : "Activar")"
+                                      Disabled="@_ocupado" Click="@Confirmar" />
+                    </RadzenStack>
+
+                    @if (_error != null)
+                    {
+                        <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter" AllowClose="false">
+                            @_error
+                        </RadzenAlert>
+                    }
+
+                    <RadzenText TextStyle="TextStyle.Caption">
+                        Si el código nunca es aceptado, revisa que la hora de tu teléfono esté en
+                        automático: estos códigos se calculan con el reloj, y unos minutos de desfase
+                        bastan para que ninguno coincida.
+                    </RadzenText>
+                }
+            }
+
+        </RadzenStack>
+    </RadzenCard>
+</div>
+
+@code {
+    private bool _cargando = true;
+    private bool _ocupado;
+
+    private EstadoDeSegundoFactorDto? _estado;
+    private InicioDeAltaDto? _alta;
+    private IReadOnlyList<EquipoRecordadoDto> _equipos = [];
+
+    private string _codigo = "";
+
+    /// <summary>Lo que salió mal en el ALTA. Se pinta pegado al campo del código, donde se mira.</summary>
+    private string? _error;
+
+    /// <summary>El encabezado de la pantalla de los códigos de rescate («guárdalos ahora»).</summary>
+    private string? _mensaje;
+
+    /// <summary>
+    /// Cómo terminó lo último que se hizo en el panel (emitir códigos, olvidar equipos). Es UNA
+    /// variable con su resultado dentro y no un par de cadenas sueltas: con dos, el día que una se
+    /// limpie y la otra no, la pantalla enseña un texto de error pintado de verde.
+    /// </summary>
+    private (bool ok, string texto)? _resultado;
+
+    /// <summary>
+    /// Los ocho códigos, EN MEMORIA y solo mientras esta pantalla esté abierta. No se guardan en
+    /// ningún almacenamiento del navegador: ahí quedarían escritos en el disco de la persona, que es
+    /// justo lo que un segundo factor existe para no necesitar.
+    /// </summary>
+    private IReadOnlyList<string> _codigosDeRescate = [];
+
+    /// <summary>La confirmación explícita de que ya se guardaron. Sin ella no se sale de aquí.</summary>
+    private bool _losGuarde;
+
+    private RadzenTextBox? _campoCodigo;
+
+    /// <summary>Hay códigos en pantalla que todavía nadie ha dicho haber guardado.</summary>
+    private bool HayQueRetener => _codigosDeRescate.Count > 0 && !_losGuarde;
+
+    /// <summary>
+    /// Los ocho códigos como archivo de texto, armado en el propio navegador.
+    ///
+    /// <para>Lleva la fecha y una línea de contexto porque este archivo acaba en la carpeta de
+    /// descargas de alguien y se abre meses después: un papel con ocho tiras de letras y nada más no
+    /// se puede identificar, y lo que se hace con lo que no se identifica es borrarlo.</para>
+    /// </summary>
+    private string EnlaceDeDescarga
+    {
+        get
+        {
+            var texto = $"Códigos de rescate · Administrador de Desarrollo\r\n" +
+                        $"Cuenta: {Sesion.Usuario?.Usuario}\r\n" +
+                        $"Emitidos el {DateTime.Now:dd/MM/yyyy HH:mm}\r\n\r\n" +
+                        string.Join("\r\n", _codigosDeRescate) +
+                        "\r\n\r\nCada código sirve UNA vez y sustituye al código del teléfono.\r\n" +
+                        "Guárdalos donde no estén junto a tu contraseña.\r\n";
+
+            return "data:text/plain;charset=utf-8," + Uri.EscapeDataString(texto);
+        }
+    }
+
+    protected override Task OnInitializedAsync() => Cargar();
+
+    protected override async Task OnAfterRenderAsync(bool primerRender)
+    {
+        // El foco al campo del código en cuanto hay uno: quien llega aquí acaba de escanear con el
+        // teléfono en la mano y lo siguiente que hace es teclear.
+        if (primerRender && _campoCodigo is not null) await _campoCodigo.FocusAsync();
+    }
+
+    private async Task Cargar()
+    {
+        _cargando = true;
+        _error = null;
+        StateHasChanged();
+
+        try
+        {
+            // La sesión se relee primero: quien llega aquí puede venir de activar el segundo factor en
+            // otra pestaña, y actuar sobre un estado viejo le enseñaría un alta que ya no procede.
+            await Sesion.RefrescarAsync();
+
+            _estado = await Sesion.EstadoDeSegundoFactorAsync();
+
+            if (_estado?.Activo == true)
+            {
+                _equipos = await Sesion.EquiposRecordadosAsync();
+                return;
+            }
+
+            // Solo si NO está activo se pide el alta, y una sola vez al abrir la pantalla. Pedirla en
+            // cada repintado cambiaría el secreto bajo la cámara del teléfono, y el código escaneado
+            // dejaría de servir sin que nada lo dijera.
+            var (alta, mensaje) = await Sesion.ComenzarAltaAsync();
+            _alta = alta;
+            if (alta == null) _error = mensaje;
+        }
+        finally
+        {
+            _cargando = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task AlTeclear(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await Confirmar();
+    }
+
+    private async Task Confirmar()
+    {
+        if (_ocupado) return;
+        _error = null;
+
+        if (string.IsNullOrWhiteSpace(_codigo))
+        {
+            _error = "Teclea el código de seis dígitos que muestra tu aplicación.";
+            return;
+        }
+
+        _ocupado = true;
+        try
+        {
+            var (ok, mensaje, codigos) = await Sesion.ConfirmarAltaAsync(_codigo.Trim());
+            _codigo = "";
+
+            if (!ok) { _error = mensaje; return; }
+
+            _codigosDeRescate = codigos;
+            _mensaje = mensaje;
+            _losGuarde = false;
+
+            // El menú y el resto de la aplicación ya no tienen por qué creer que falta el segundo
+            // factor: la cookie se reemitió sin ese aviso al confirmar.
+            (ProveedorAuth as ProveedorEstadoAutenticacion)?.Notificar();
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task Regenerar()
+    {
+        if (_ocupado) return;
+        _resultado = null;
+
+        if (string.IsNullOrWhiteSpace(_codigo))
+        {
+            _resultado = (false, "Teclea el código de tu aplicación para poder emitirlos.");
+            return;
+        }
+
+        _ocupado = true;
+        try
+        {
+            var (ok, mensaje, codigos) = await Sesion.RegenerarCodigosAsync(_codigo.Trim());
+            _codigo = "";
+
+            if (!ok) { _resultado = (false, mensaje); return; }
+
+            // Se entra en la misma pantalla de «guárdalos ahora» que en el alta, con su retención de
+            // salida. Son códigos nuevos y los de antes acaban de dejar de valer: perderlos aquí deja
+            // a la persona peor que antes de pulsar el botón.
+            _codigosDeRescate = codigos;
+            _mensaje = mensaje;
+            _losGuarde = false;
+            _resultado = null;
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task OlvidarEquipos()
+    {
+        if (_ocupado) return;
+
+        _ocupado = true;
+        try
+        {
+            var (ok, mensaje) = await Sesion.OlvidarEquiposRecordadosAsync();
+            _resultado = (ok, mensaje);
+            _equipos = await Sesion.EquiposRecordadosAsync();
+        }
+        finally { _ocupado = false; }
+    }
+
+    private async Task CopiarCodigos()
+    {
+        bool copiado = await Portapapeles.CopiarAsync(string.Join(Environment.NewLine, _codigosDeRescate));
+        _mensaje = copiado
+            ? "Copiados. Pégalos donde los vayas a guardar antes de continuar."
+            : "Tu navegador no dejó copiar. Usa la descarga o cópialos a mano.";
+    }
+
+    private async Task CopiarSecreto()
+    {
+        if (_alta == null) return;
+
+        // Se copia la clave SIN los espacios de cortesía: los grupos de cuatro son para leerla, y
+        // pegada con espacios muchas aplicaciones del teléfono la rechazan sin decir por qué.
+        bool copiado = await Portapapeles.CopiarAsync(_alta.SecretoEnBase32);
+        _error = copiado ? null : "Tu navegador no dejó copiar. Escríbela a mano desde la pantalla.";
+    }
+
+    /// <summary>
+    /// Termina el alta. Solo llega aquí quien marcó que ya guardó los códigos: es la casilla la que
+    /// habilita el botón, y la retención de la navegación cubre las otras salidas.
+    /// </summary>
+    private async Task Terminar()
+    {
+        _codigosDeRescate = [];
+        _mensaje = null;
+        _resultado = null;
+        await Cargar();
+    }
+
+    private void AlInicio() => Navegacion.NavigateTo("", replace: true);
+
+    /// <summary>
+    /// Retiene la navegación DENTRO de la aplicación mientras los códigos sigan en pantalla.
+    ///
+    /// <para>La confirmación se le pide a la persona con el diálogo del propio componente: si dice
+    /// que no, la navegación se cancela y los códigos siguen ahí. Es la única salvaguarda posible
+    /// para algo que no se puede volver a consultar.</para>
+    /// </summary>
+    private void RetenerSiHaceFalta(LocationChangingContext contexto)
+    {
+        if (HayQueRetener) contexto.PreventNavigation();
+    }
+}

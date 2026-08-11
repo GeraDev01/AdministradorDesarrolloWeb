@@ -253,6 +253,25 @@ public static class PersonasEndpoints
         })
         .WithSummary("Levanta el bloqueo por intentos fallidos (no toca la contraseña)");
 
+        // El reinicio del segundo factor. Está aquí, junto a «restablecer contraseña» y
+        // «desbloquear», porque es lo mismo que aquellas dos: una acción del líder SOBRE OTRA CUENTA
+        // desde la pantalla de usuarios. Las rutas con las que cada quien administra el SUYO cuelgan
+        // de /api/segundo-factor y son otra cosa — mezclarlas sería tener en un mismo sitio lo que
+        // cualquiera puede hacer consigo mismo y lo que solo el líder puede hacer con los demás.
+        //
+        // Dos barreras, como todo el grupo: la política «SoloAdmin» de la ruta y el
+        // AuthorizationGuard.RequireAdmin dentro del servicio. La primera se puede desactivar con una
+        // línea mal puesta en el arranque; la segunda viaja pegada al dato. Y ninguna de las dos es
+        // el botón: el cliente corre en la máquina de cada persona y esta dirección se puede llamar
+        // a mano sin pasar por él.
+        grupo.MapPost("/usuarios/{userId:int}/segundo-factor/reiniciar", async (
+            int userId, SegundoFactorService segundoFactor, CancellationToken ct) =>
+        {
+            var (ok, mensaje) = await segundoFactor.ReiniciarAsync(userId, ct);
+            return Resultado(ok, mensaje);
+        })
+        .WithSummary("Reinicia el segundo factor de una cuenta: vuelve a tener que darlo de alta");
+
         grupo.MapPost("/usuarios/{userId:int}/eliminar", async (
             int userId, PersonasQueryService personas, CancellationToken ct) =>
         {

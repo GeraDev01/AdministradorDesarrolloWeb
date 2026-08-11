@@ -83,6 +83,18 @@ public static class Menu
             items.Add(new ItemDeMenu("speed", "Dashboard", "dashboard"));
         }
 
+        // El segundo factor lo tiene TODO el mundo —es obligatorio— y por eso esta entrada no depende
+        // del rol. No está aquí para activarlo: eso ocurre solo la primera vez y el servidor lleva a
+        // esa pantalla sin que nadie la busque. Está para lo de después, que es lo que si no no
+        // tendría por dónde alcanzarse: ver en qué navegadores se dejó de pedir el código y dejar de
+        // confiar en ellos, y emitir códigos de rescate nuevos cuando quedan pocos.
+        //
+        // «shield» y no «lock»: el candado ya significa «cerrado / privado» en otras pantallas, y
+        // «key» es lo que se usa para credenciales de integraciones. Comprobado en iconos.txt, que es
+        // la lista de lo que trae el recorte de la fuente; un nombre que no esté ahí no deja hueco,
+        // pinta la PALABRA dentro del menú.
+        items.Add(new ItemDeMenu("shield", "Mi acceso", "segundo-factor"));
+
         return items;
     }
 

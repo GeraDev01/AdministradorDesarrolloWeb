@@ -3,6 +3,7 @@ using System.Text;
 using AdminWeb.Domain.Entities;
 using AdminWeb.Domain.Security;
 using AdminWeb.Infrastructure.Data;
+using AdminWeb.Shared.Dtos.Auth;
 using AdminWeb.Shared.Enums;
 using Microsoft.EntityFrameworkCore;
 
@@ -77,15 +78,86 @@ public class AuthService(AppDbContext db, ICurrentUser currentUser, AuditService
         }
 
         // Éxito: limpiar contadores de bloqueo si los hubiera.
-        if (user.FailedLoginCount != 0 || user.LockoutUntil != null)
+        //
+        // PERO SOLO CUANDO ACERTAR LA CONTRASEÑA ES YA HABER ENTRADO, o sea cuando la cuenta no
+        // tiene segundo factor. Con segundo factor, limpiarlos aquí desarma el bloqueo por intentos
+        // justo contra el atacante para el que existe el segundo factor: quien tiene la contraseña
+        // puede pedir un acceso, fallar cuatro códigos, VOLVER a pedir acceso —que le pondría el
+        // contador a cero—, fallar otros cuatro, y así sin fin. El quinto fallo nunca llega y los
+        // seis dígitos se prueban sin límite. Y peor: como aquí también se borraba LockoutUntil, un
+        // acceso correcto levantaba un bloqueo que acababa de saltar.
+        //
+        // Quien los limpia es quien CIERRA el acceso: SegundoFactorService al aceptar un código o un
+        // código de rescate, y LimpiarBloqueoTrasAccesoCompletoAsync en el camino del equipo
+        // recordado. Si se vuelve a limpiar aquí, hay que borrar el segundo factor entero, porque
+        // deja de proteger.
+        if (!user.SegundoFactorActivo && (user.FailedLoginCount != 0 || user.LockoutUntil != null))
         {
             user.FailedLoginCount = 0;
             user.LockoutUntil = null;
             await db.SaveChangesAsync(ct);
         }
 
-        await audit.RecordAsync(AuditAction.Login, "User", user.Id.ToString(), "Login exitoso.", ct);
+        // El apunte distingue los dos finales posibles, y esa distinción es la mitad del valor de la
+        // bitácora desde que hay segundo factor: «acertó la contraseña» y «entró» dejaron de ser lo
+        // mismo. Una ráfaga de contraseñas acertadas que nunca llegan a una entrada completa es la
+        // señal de que alguien tiene credenciales robadas y se está estrellando contra el código.
+        //
+        // El apunte de la entrada COMPLETA lo pone quien cierra el segundo tramo
+        // (<see cref="RegistrarAccesoCompletadoAsync"/>), porque es el único que sabe cómo terminó.
+        await audit.RecordAsync(AuditAction.Login, "User", user.Id.ToString(),
+            user.SegundoFactorActivo
+                ? "Contraseña correcta; falta el segundo factor."
+                : "Login exitoso.", ct);
+
         return new(true, "OK", user);
+    }
+
+    /// <summary>Las tres formas de pasar el segundo factor. Se escriben tal cual en la bitácora.</summary>
+    public static class ComoSePasoElSegundoFactor
+    {
+        public const string CodigoDelTelefono = "con el código del teléfono";
+        public const string CodigoDeRescate = "con un código de rescate";
+
+        /// <summary>
+        /// Ni siquiera se pidió: este navegador estaba recordado.
+        ///
+        /// <para>Que quede escrito importa más de lo que parece. Si en la bitácora una entrada desde
+        /// un equipo recordado fuera indistinguible de una con el código tecleado, después de un
+        /// incidente no habría forma de saber cuáles fueron accesos con el teléfono delante y cuáles
+        /// se apoyaron en una confianza de hace semanas — que es justo lo que hay que revisar.</para>
+        /// </summary>
+        public const string EquipoRecordado = "desde un equipo recordado, sin pedir código";
+    }
+
+    /// <summary>
+    /// Deja constancia de que alguien terminó de entrar, y de CÓMO pasó el segundo factor.
+    ///
+    /// <para>Se pasa el nombre en el texto a propósito: en este punto la cookie todavía no está
+    /// puesta, así que la bitácora anotaría «sistema» como autor —igual que ya le pasa al apunte de
+    /// la contraseña—. Con el nombre dentro del detalle, el renglón se entiende al leerlo.</para>
+    /// </summary>
+    public Task RegistrarAccesoCompletadoAsync(User user, string comoPaso, CancellationToken ct = default) =>
+        audit.RecordAsync(AuditAction.Login, "User", user.Id.ToString(),
+            $"Login exitoso de «{user.Username}» {comoPaso}.", ct);
+
+    /// <summary>
+    /// Pone a cero los contadores de bloqueo de quien ACABA DE TERMINAR de entrar.
+    ///
+    /// <para>Existe porque <see cref="LoginAsync"/> ya no los limpia cuando la cuenta tiene segundo
+    /// factor —ahí acertar la contraseña es medio acceso, y limpiarlos permitiría probar códigos sin
+    /// límite—. Con el código tecleado los limpia <c>SegundoFactorService</c>; en el único camino que
+    /// no pasa por él, el del equipo recordado, los limpia esto. Sin esta llamada, los fallos de un
+    /// día se sumarían a los del siguiente hasta bloquear una cuenta que nunca hizo nada raro.</para>
+    /// </summary>
+    public async Task LimpiarBloqueoTrasAccesoCompletoAsync(int userId, CancellationToken ct = default)
+    {
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
+        if (user == null || (user.FailedLoginCount == 0 && user.LockoutUntil == null)) return;
+
+        user.FailedLoginCount = 0;
+        user.LockoutUntil = null;
+        await db.SaveChangesAsync(ct);
     }
 
     /// <summary>
@@ -104,7 +176,7 @@ public class AuthService(AppDbContext db, ICurrentUser currentUser, AuditService
 
         user.PasswordHash = PasswordHasher.Hash(newPassword!);
         user.MustChangePassword = false;
-        user.SecurityStamp = NuevoSello();
+        RotarSelloYDejarDeConfiarEnLosEquipos(user);
         await db.SaveChangesAsync(ct);
 
         await audit.RecordAsync(AuditAction.PasswordChange, "User", userId.ToString(), ct: ct);
@@ -128,7 +200,7 @@ public class AuthService(AppDbContext db, ICurrentUser currentUser, AuditService
         user.MustChangePassword = true;
         user.FailedLoginCount = 0;
         user.LockoutUntil = null;
-        user.SecurityStamp = NuevoSello();
+        RotarSelloYDejarDeConfiarEnLosEquipos(user);
         await db.SaveChangesAsync(ct);
 
         await audit.RecordAsync(AuditAction.PasswordChange, "User", user.Id.ToString(),
@@ -194,7 +266,90 @@ public class AuthService(AppDbContext db, ICurrentUser currentUser, AuditService
     public Task<User?> ObtenerAsync(int userId, CancellationToken ct = default) =>
         db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, ct);
 
-    private static string NuevoSello() => Guid.NewGuid().ToString("N");
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    //  EQUIPOS RECORDADOS — los navegadores a los que ya no se les pide el código
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    //
+    // Están AQUÍ y no en el servicio del segundo factor, aunque de él vengan, por una razón muy
+    // concreta: quien los tiene que borrar es el sello de seguridad, y el sello se rota aquí. Tenerlo
+    // repartido garantizaría que un día alguien añada una tercera rotación de sello y se olvide de
+    // los equipos, que es el fallo que deja viva la puerta de atrás justo cuando se cambia la
+    // contraseña porque la robaron.
+
+    /// <summary>
+    /// Los navegadores VIGENTES en los que esta persona ya no tiene que teclear el código.
+    ///
+    /// <para>Los vencidos no se listan aunque su fila siga ahí: la fila se limpia sola cuando alguien
+    /// vuelve a usar ese navegador, y mientras tanto enseñarla haría creer que se confía en un equipo
+    /// en el que ya no se confía.</para>
+    /// </summary>
+    public async Task<IReadOnlyList<EquipoRecordadoDto>> EquiposRecordadosAsync(
+        int userId, CancellationToken ct = default)
+    {
+        var ahora = DateTime.UtcNow;
+
+        return await db.UserTrustedDevices.AsNoTracking()
+            .Where(d => d.UserId == userId && d.ExpiraEnUtc > ahora)
+            .OrderByDescending(d => d.UltimoUsoUtc ?? d.CreatedAtUtc)
+            .Select(d => new EquipoRecordadoDto(
+                d.Descripcion ?? "Equipo sin identificar",
+                d.CreatedAtUtc, d.ExpiraEnUtc, d.UltimoUsoUtc))
+            .ToListAsync(ct);
+    }
+
+    /// <summary>
+    /// Deja de confiar en TODOS los navegadores de una cuenta: el «se me quedó la sesión abierta en
+    /// un equipo que ya no es mío» sin tener que molestar al líder.
+    ///
+    /// <para>Es deliberadamente todo o nada. Un botón por equipo obligaría a distinguirlos, y lo
+    /// único que hay para distinguirlos es lo que el propio navegador dice de sí mismo —tres
+    /// portátiles con el mismo Chrome en el mismo Windows salen idénticos—. Quien duda de uno acaba
+    /// olvidando el que no era y creyendo que ya está a salvo. Olvidarlos todos cuesta un código de
+    /// más la próxima vez en cada equipo y no deja lugar a la duda.</para>
+    /// </summary>
+    public async Task<int> OlvidarEquiposRecordadosAsync(int userId, CancellationToken ct = default)
+    {
+        var filas = await db.UserTrustedDevices.Where(d => d.UserId == userId).ToListAsync(ct);
+        if (filas.Count == 0) return 0;
+
+        db.UserTrustedDevices.RemoveRange(filas);
+        await db.SaveChangesAsync(ct);
+
+        await audit.RecordAsync(AuditAction.Update, "User", userId.ToString(),
+            $"Se dejó de confiar en {filas.Count} equipo(s) recordado(s): volverán a pedir el código", ct);
+
+        return filas.Count;
+    }
+
+    /// <summary>
+    /// Un sello de seguridad nuevo: lo que echa fuera a las sesiones abiertas de una cuenta.
+    ///
+    /// <para>Público porque el reinicio del segundo factor —que vive en <c>SegundoFactorService</c>—
+    /// también tiene que rotarlo, y dos formas de fabricar un sello serían dos formatos que un día
+    /// dejan de coincidir con el que la cookie lleva dentro.</para>
+    /// </summary>
+    public static string NuevoSello() => Guid.NewGuid().ToString("N");
+
+    /// <summary>
+    /// Renueva el sello de seguridad —lo que echa fuera a las sesiones abiertas— y, EN EL MISMO ACTO,
+    /// deja de confiar en los navegadores recordados de esa cuenta.
+    ///
+    /// <para><b>Las dos cosas van juntas o no sirven.</b> Un equipo recordado se salta el segundo
+    /// factor entero; si sobreviviera a un cambio de contraseña, el escenario que esto tiene que
+    /// cubrir —«me robaron la cuenta, cambié la contraseña»— dejaría al ladrón exactamente donde
+    /// estaba: sabe la contraseña vieja, no, pero desde SU navegador el sistema seguiría sin pedirle
+    /// el código, y le bastaría con que la víctima no cambiara nada más. Rotar el sello sin borrar
+    /// estas filas es dejar la puerta de atrás abierta mientras se cambia la cerradura de la de
+    /// delante.</para>
+    ///
+    /// <para>No guarda: entra en el mismo <c>SaveChanges</c> que quien la llama, para que no exista
+    /// un instante con el sello nuevo y los equipos viejos.</para>
+    /// </summary>
+    private void RotarSelloYDejarDeConfiarEnLosEquipos(User user)
+    {
+        user.SecurityStamp = NuevoSello();
+        db.UserTrustedDevices.RemoveRange(db.UserTrustedDevices.Where(d => d.UserId == user.Id));
+    }
 
     /// <summary>
     /// Contraseña temporal de 12 caracteres SIN los que se confunden al dictarla o copiarla a mano

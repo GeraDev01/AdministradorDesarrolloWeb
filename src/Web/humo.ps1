@@ -31,6 +31,9 @@ function Pedir($ruta, $metodo = 'GET', $cuerpo = $null, $sesion = $null) {
     }
 }
 
+# El calculo del codigo del segundo factor. Vive aparte porque humo-docker.ps1 necesita el mismo.
+. (Join-Path $PSScriptRoot "totp-de-humo.ps1")
+
 # Publica en el foro con un cuerpo que lleva un intento de ataque y una url legitima. El testigo va
 # aparte porque la gracia es poder llamar tambien SIN el.
 function PublicarEnForo($sesion, $testigo) {
@@ -108,6 +111,42 @@ try {
     $r = Pedir "/api/auth/change-password" 'POST' (@{ nuevaContrasena = "ClaveNueva123"; confirmacion = "ClaveNueva123" } | ConvertTo-Json) $sesion
     if ($r.Codigo -ne 200) { Write-Output "FALLO: cambio de contrasena -> $($r.Codigo) $($r.Cuerpo)"; exit 1 }
     Write-Output "OK  cambio de contrasena"
+
+    # ── El segundo factor, que es obligatorio para todas las cuentas ────────────────
+    #
+    # El ORDEN de estas comprobaciones es el que importa y por eso van seguidas: mientras la
+    # contrasena temporal seguia sin cambiar, lo que cortaba era MUST_CHANGE_PASSWORD (arriba);
+    # cambiada ya, lo que corta es el alta del segundo factor. Si algun dia se invirtiera el orden del
+    # middleware, quien tuviera una contrasena dictada por chat podria dar de alta SU telefono en la
+    # cuenta de otro. Esto es lo que lo atrapa.
+    $r = Pedir "/api/dashboard" 'GET' $null $sesion
+    if ($r.Codigo -ne 403 -or $r.Cuerpo -notmatch 'MUST_ENROLL_2FA') {
+        Write-Output "FALLO: sin segundo factor -> $($r.Codigo) $($r.Cuerpo)"; exit 1
+    }
+    Write-Output "OK  sin segundo factor bloquea el resto -> 403 MUST_ENROLL_2FA"
+
+    $r = Pedir "/api/auth/segundo-factor/alta" 'POST' $null $sesion
+    if ($r.Codigo -ne 200) { Write-Output "FALLO: alta del segundo factor -> $($r.Codigo) $($r.Cuerpo)"; exit 1 }
+    $alta = $r.Cuerpo | ConvertFrom-Json
+    if (-not $alta.codigoQrPngBase64.StartsWith("data:image/png;base64,")) {
+        Write-Output "FALLO: el codigo QR no llego incrustado"; exit 1
+    }
+    Write-Output "OK  alta del segundo factor con su codigo QR"
+
+    # Un codigo equivocado NO puede activar nada: es la comprobacion que evita dejar a alguien fuera
+    # de su propia cuenta por un escaneo que salio mal.
+    $r = Pedir "/api/auth/segundo-factor/confirmar" 'POST' (@{ codigo = "000000" } | ConvertTo-Json) $sesion
+    if ($r.Codigo -ne 400) { Write-Output "FALLO: un codigo malo devolvio $($r.Codigo), se esperaba 400"; exit 1 }
+    Write-Output "OK  un codigo equivocado no activa el segundo factor"
+
+    $r = Pedir "/api/auth/segundo-factor/confirmar" 'POST' (@{ codigo = (CodigoTotp $alta.secretoEnBase32) } | ConvertTo-Json) $sesion
+    if ($r.Codigo -ne 200) { Write-Output "FALLO: confirmacion del segundo factor -> $($r.Codigo) $($r.Cuerpo)"; exit 1 }
+    $confirmado = $r.Cuerpo | ConvertFrom-Json
+    if ($confirmado.codigosDeRescate.Count -ne 8) {
+        Write-Output "FALLO: se esperaban 8 codigos de rescate, llegaron $($confirmado.codigosDeRescate.Count)"; exit 1
+    }
+    $codigoDeRescate = $confirmado.codigosDeRescate[0]
+    Write-Output "OK  segundo factor activado, con 8 codigos de rescate"
 
     $rutas = @(
         "/api/auth/me", "/api/dashboard", "/api/avisos", "/api/avisos/contador",
@@ -238,6 +277,33 @@ try {
     $r = Pedir "/api/jornada/mia" 'GET' $null $sesion
     if ($r.Codigo -ne 401) { Write-Output "FALLO: tras cerrar sesion -> $($r.Codigo), se esperaba 401"; exit 1 }
     Write-Output "OK  tras cerrar sesion, ruta protegida -> 401"
+
+    # ── El acceso en DOS TRAMOS ────────────────────────────────────────────────────
+    #
+    # Lo que se comprueba aqui no es que el codigo funcione —de eso se encargan las pruebas—, sino que
+    # ENTRE LOS DOS TRAMOS NO QUEDA SESION: acertar la contrasena tiene que dejar la API contestando
+    # 401 a todo. Es el unico fallo de este diseño que no se nota usando la aplicacion, porque con la
+    # puerta abierta todo funcionaria exactamente igual de bien.
+    $r = Pedir "/api/auth/login" 'POST' (@{ usuario = "admin"; contrasena = "ClaveNueva123" } | ConvertTo-Json) $sesion
+    if ($r.Codigo -ne 200) { Write-Output "FALLO: primer tramo -> $($r.Codigo) $($r.Cuerpo)"; exit 1 }
+    $acceso = $r.Cuerpo | ConvertFrom-Json
+    if (-not $acceso.segundoFactorRequerido -or -not $acceso.tramo) {
+        Write-Output "FALLO: la contrasena sola no pidio el segundo factor"; exit 1
+    }
+    $r = Pedir "/api/jornada/mia" 'GET' $null $sesion
+    if ($r.Codigo -ne 401) { Write-Output "FALLO: entre los dos tramos hay sesion -> $($r.Codigo)"; exit 1 }
+    Write-Output "OK  con la contrasena sola no hay sesion -> 401"
+
+    # El codigo de rescate se teclea en el MISMO campo que el del telefono. Se usa este y no uno del
+    # telefono porque no depende del reloj: si el guion llegara aqui dentro de la misma ventana de
+    # treinta segundos en que se activo el segundo factor, el del telefono se rechazaria por repetido
+    # —con razon— y este guion fallaria unas veces si y otras no.
+    $cuerpo = @{ tramo = $acceso.tramo; codigo = $codigoDeRescate; recordarEquipo = $false } | ConvertTo-Json
+    $r = Pedir "/api/auth/login/segundo-factor" 'POST' $cuerpo $sesion
+    if ($r.Codigo -ne 200) { Write-Output "FALLO: segundo tramo -> $($r.Codigo) $($r.Cuerpo)"; exit 1 }
+    $r = Pedir "/api/jornada/mia" 'GET' $null $sesion
+    if ($r.Codigo -ne 200) { Write-Output "FALLO: tras el segundo tramo -> $($r.Codigo)"; exit 1 }
+    Write-Output "OK  acceso en dos tramos completado con un codigo de rescate"
 
     Write-Output "`nTODO OK"
 }

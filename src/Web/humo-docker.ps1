@@ -16,6 +16,20 @@
 $ErrorActionPreference = 'Stop'
 $url = "http://127.0.0.1:8080"
 
+# El calculo del codigo del segundo factor, el mismo que usa humo.ps1.
+. (Join-Path $PSScriptRoot "totp-de-humo.ps1")
+
+# Donde queda guardada la clave del segundo factor de esta cuenta de prueba.
+#
+# HACE FALTA porque este guion se corre VARIAS VECES sobre el mismo contenedor y la base sobrevive
+# entre corridas: la primera da de alta el segundo factor del administrador y las siguientes tienen
+# que poder teclear un codigo. La sesion muere con el guion, pero la cuenta no.
+#
+# Es una clave de una cuenta de prueba en un contenedor desechable, escrita en el temporal de quien
+# corre el guion. No es un secreto de produccion y no debe usarse este mecanismo para ninguno: los de
+# verdad viven cifrados del lado del servidor.
+$archivoDelSecreto = Join-Path $env:TEMP "humo-docker-segundo-factor-admin.txt"
+
 function Pedir($ruta, $metodo = 'GET', $cuerpo = $null, $sesion = $null) {
     $peticion = @{ Uri = "$url$ruta"; Method = $metodo; UseBasicParsing = $true; TimeoutSec = 30 }
     if ($sesion) { $peticion.WebSession = $sesion }
@@ -74,11 +88,56 @@ if ($r.Codigo -eq 200) {
     $r = Pedir "/api/auth/change-password" 'POST' (@{ nuevaContrasena = $definitiva; confirmacion = $definitiva } | ConvertTo-Json) $sesion
     if ($r.Codigo -ne 200) { Write-Output "FALLO: cambio de contrasena -> $($r.Codigo) $($r.Cuerpo)"; exit 1 }
     Write-Output "OK  cambio de contrasena"
+
+    # El segundo factor es obligatorio: mientras no se active, el servidor corta todo lo demas. El
+    # orden de estas dos comprobaciones importa y por eso van seguidas —primero la contrasena, luego
+    # el segundo factor—; invertirlo dejaria que quien conociera una contrasena temporal dictada por
+    # chat diera de alta SU telefono en la cuenta de otro.
+    $r = Pedir "/api/dashboard" 'GET' $null $sesion
+    if ($r.Codigo -ne 403 -or $r.Cuerpo -notmatch 'MUST_ENROLL_2FA') {
+        Write-Output "FALLO: sin segundo factor -> $($r.Codigo) $($r.Cuerpo)"; exit 1
+    }
+    Write-Output "OK  sin segundo factor bloquea el resto -> 403 MUST_ENROLL_2FA"
+
+    $r = Pedir "/api/auth/segundo-factor/alta" 'POST' $null $sesion
+    if ($r.Codigo -ne 200) { Write-Output "FALLO: alta del segundo factor -> $($r.Codigo) $($r.Cuerpo)"; exit 1 }
+    $alta = $r.Cuerpo | ConvertFrom-Json
+
+    $r = Pedir "/api/auth/segundo-factor/confirmar" 'POST' (@{ codigo = (CodigoTotp $alta.secretoEnBase32) } | ConvertTo-Json) $sesion
+    if ($r.Codigo -ne 200) { Write-Output "FALLO: confirmacion del segundo factor -> $($r.Codigo) $($r.Cuerpo)"; exit 1 }
+
+    # La clave se guarda para las corridas siguientes: la base sobrevive y la sesion no.
+    Set-Content -Path $archivoDelSecreto -Value $alta.secretoEnBase32 -Encoding utf8
+    Write-Output "OK  segundo factor activado (clave de prueba guardada en $archivoDelSecreto)"
 }
 else {
     $r = Pedir "/api/auth/login" 'POST' (@{ usuario = "admin"; contrasena = $definitiva } | ConvertTo-Json) $sesion
     if ($r.Codigo -ne 200) { Write-Output "FALLO: login -> $($r.Codigo) $($r.Cuerpo)"; exit 1 }
-    Write-Output "OK  login (la base ya venia iniciada de una corrida anterior)"
+    $acceso = $r.Cuerpo | ConvertFrom-Json
+
+    if ($acceso.segundoFactorRequerido) {
+        # La cuenta ya tiene su segundo factor de una corrida anterior. Aqui se recorre el ACCESO EN
+        # DOS TRAMOS entero, que es justo lo que este guion no podia probar antes: la contrasena sola
+        # tiene que dejar la API contestando 401 hasta que llegue el codigo.
+        $r = Pedir "/api/dashboard" 'GET' $null $sesion
+        if ($r.Codigo -ne 401) { Write-Output "FALLO: entre los dos tramos hay sesion -> $($r.Codigo)"; exit 1 }
+        Write-Output "OK  con la contrasena sola no hay sesion -> 401"
+
+        if (-not (Test-Path $archivoDelSecreto)) {
+            Write-Output "FALLO: la cuenta admin ya tiene segundo factor y no esta $archivoDelSecreto."
+            Write-Output "       Recrea el contenedor con su base (docker compose down -v) y vuelve a correr esto."
+            exit 1
+        }
+
+        $secreto = (Get-Content $archivoDelSecreto -Raw).Trim()
+        $cuerpo = @{ tramo = $acceso.tramo; codigo = (CodigoTotp $secreto); recordarEquipo = $false } | ConvertTo-Json
+        $r = Pedir "/api/auth/login/segundo-factor" 'POST' $cuerpo $sesion
+        if ($r.Codigo -ne 200) { Write-Output "FALLO: segundo tramo -> $($r.Codigo) $($r.Cuerpo)"; exit 1 }
+        Write-Output "OK  acceso en dos tramos completado con el codigo del segundo factor"
+    }
+    else {
+        Write-Output "OK  login (la base ya venia iniciada de una corrida anterior)"
+    }
 }
 
 # Todas las pantallas contra SQL Server. Aqui es donde se ven las consultas que SQLite traducia y

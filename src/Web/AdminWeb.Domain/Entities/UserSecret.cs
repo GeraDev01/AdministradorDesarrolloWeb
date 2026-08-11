@@ -43,4 +43,21 @@ public static class PropositosDeSecreto
 {
     /// <summary>Token personal de Azure DevOps.</summary>
     public const string PatDevOps = "devops.pat";
+
+    /// <summary>
+    /// El secreto del segundo factor YA CONFIRMADO. Solo existe para cuentas cuyo dueño tecleó un
+    /// código válido: es lo que se compara al entrar.
+    /// </summary>
+    public const string SegundoFactor = "2fa.totp";
+
+    /// <summary>
+    /// El secreto del segundo factor de un alta EN CURSO: se acaba de enseñar el código QR y todavía
+    /// nadie ha demostrado que su teléfono lo leyó bien.
+    ///
+    /// <para><b>Que sea un propósito distinto es lo que hace imposible saltarse la comprobación.</b>
+    /// Al entrar solo se mira <see cref="SegundoFactor"/>, y ahí no se escribe nada hasta que un
+    /// código tecleado coincide. Un alta a medias no protege ni estorba: es una fila que caduca
+    /// sola en cuanto la persona vuelve a pedir el QR, porque se sobrescribe.</para>
+    /// </summary>
+    public const string SegundoFactorPendiente = "2fa.totp.pendiente";
 }

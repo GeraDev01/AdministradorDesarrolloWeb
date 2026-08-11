@@ -6,6 +6,12 @@
 **Nada de las fases 0, 1 y 2 toca la base de producción.** Se puede hacer con calma, en varios días,
 sin avisar a nadie y sin ventana de mantenimiento. Solo la fase 3 la toca.
 
+Entre el ensayo y el corte hay además un paso corto que no es una fase pero **tiene que estar hecho
+antes del día**: preparar al equipo para el segundo factor y, sobre todo, **crear una segunda cuenta
+de administrador**. Está en
+[«Antes del día del corte»](#antes-del-día-del-corte--el-segundo-factor-del-equipo). Lo único de ahí
+que toca producción es esa cuenta, y se crea desde la aplicación de escritorio como cualquier otra.
+
 ---
 
 ## Fase 0 — Revisar lo que hay (una tarde)
@@ -192,6 +198,52 @@ vars.AZURE_WEBAPP_NAME           el nombre del App Service
 El pipeline (`.github/workflows/web.yml`) compila, corre las dos suites de pruebas, publica a la
 **ranura de ensayo**, comprueba `/api/health` y solo entonces intercambia con producción.
 
+### 1.6 El segundo factor: qué hace falta en Azure
+
+**Ajustes nuevos: ninguno. Recursos nuevos: ninguno.** El código de seis dígitos se calcula con lo
+que ya trae .NET y el código QR se dibuja en el servidor. No hay servicio externo, no hay SMS, no hay
+nada que pagar ni que permisar. Dicho eso, hay dos cosas que conviene tener claras antes de
+encenderlo, porque las dos se manifiestan de formas que mandan a mirar al sitio equivocado.
+
+#### El reloj del servidor importa, y es lo único que importa
+
+El código del teléfono **no viaja**: el teléfono y el servidor calculan el mismo número por separado,
+a partir del secreto compartido y de **la hora**. La ventana es de 30 segundos y se aceptan la
+anterior y la siguiente, así que hay un margen de aproximadamente **± 30 segundos**. Fuera de ese
+margen, el código es rechazado sin que ni la persona ni la pantalla puedan hacer nada: la aplicación
+del teléfono sigue mostrando números perfectamente válidos que el servidor no reconoce.
+
+- **En un App Service no hay nada que configurar.** El reloj lo mantiene sincronizado la plataforma.
+  Este apartado existe para lo que sí puede pasar: que algún día alguien depure esto en una máquina
+  virtual, en un contenedor propio o en un equipo local con la hora a mano.
+- **`WEBSITE_TIME_ZONE` no tiene nada que ver, y es la trampa.** Parece lo primero que tocar cuando
+  «los códigos no coinciden», y no cambia nada: el cálculo se hace en UTC, así que la zona horaria
+  del proceso no entra en la cuenta. Lo único que cambia son las horas que se ven escritas en
+  pantalla.
+- **El reloj del teléfono también cuenta**, y ese es el desajuste que se ve de verdad en la práctica:
+  un teléfono con la hora puesta a mano. Por eso lo que se le dice al equipo es «deja la hora en
+  automático», y no otra cosa.
+
+#### El llavero pasa a proteger algo más que los PAT
+
+Los secretos del segundo factor se guardan **cifrados con el mismo llavero** que ya protege los PAT
+de Azure DevOps (`AdminWeb__Llavero__Blob` y su certificado, punto 1.3). Eso no añade configuración,
+pero **sube el precio de perderlo**: hasta ahora, un llavero perdido significaba «que cada quien
+vuelva a capturar su PAT»; a partir de ahora significa además que **nadie puede entrar con el código
+de su teléfono**, porque el servidor ya no puede leer con qué compararlo.
+
+Dos cosas amortiguan eso, y conviene conocerlas antes de necesitarlas:
+
+- **Los códigos de rescate NO dependen del llavero.** Se guardan como hash, igual que las
+  contraseñas, así que siguen valiendo aunque el llavero se pierda entero. Son la vía de entrada
+  mientras se arregla.
+- **El líder puede reiniciarle el segundo factor a quien sea** desde «Usuarios», y quien entra por
+  ahí vuelve a darlo de alta como el primer día.
+
+La consecuencia práctica es que `AdminWeb__Llavero__Blob` deja de ser «importante» para pasar a ser
+**crítico**, y que la advertencia del punto 1.3 sobre borrar el certificado viejo al rotar vale ahora
+para el acceso de todo el mundo y no solo para los tokens de DevOps.
+
 ---
 
 ## Fase 2 — El ensayo (medio día) — **esto no es opcional**
@@ -226,6 +278,88 @@ Si algo falló, arréglalo y **vuelve a ensayar**. El ensayo es barato; el corte
 
 ---
 
+## Antes del día del corte — el segundo factor del equipo
+
+**No es una fase: es un paso que tiene que estar hecho antes del día**, y por eso está aquí, entre el
+ensayo y el corte. Nada de lo de aquí toca producción salvo el punto 1, que se hace desde la
+aplicación de escritorio.
+
+### Por qué no se deja para el día del corte
+
+Todo el equipo escaneando un código QR y guardando ocho códigos de rescate, con preguntas, teléfonos
+sin batería y alguien que no tiene aplicación instalada, **el mismo día en que se cambia de sistema**,
+es exactamente lo que no se quiere. Ese día ya está ocupado.
+
+Y hay algo que conviene decir sin adornos, porque es la primera pregunta que aparece: **el alta no se
+puede adelantar contra producción.** Darse de alta escribe en la base, y para escribir ahí la web
+tendría que estar apuntando a producción — que es justo lo que la fase 2 prohíbe mientras el
+escritorio siga vivo (dos migradores, dos juegos de trabajos de fondo). Así que lo que se adelanta es
+todo lo demás, que es casi todo:
+
+### 1. Crear la segunda cuenta de administrador
+
+**Este punto es obligatorio y no admite reordenarse: va antes que nada.** Hoy hay un solo
+administrador, y con el segundo factor obligatorio eso deja al líder sin nadie que pueda desbloquearlo
+si pierde el teléfono y los códigos. El porqué completo y la recomendación concreta están en
+[EL-CORTE.md → «Hoy solo hay una cuenta de administrador»](EL-CORTE.md#hoy-solo-hay-una-cuenta-de-administrador).
+
+Se hace **desde la aplicación de escritorio**, contra producción, en su pantalla de usuarios. No hace
+falta esperar al corte.
+
+### 2. Que todo el mundo instale la aplicación del teléfono, esta semana
+
+Vale **cualquiera compatible con TOTP**, que es el estándar de toda la vida: Google Authenticator,
+Microsoft Authenticator, Authy, 2FAS, o la que ya traiga el gestor de contraseñas de la casa. No hay
+que elegir una para todos ni instalar nada de la empresa.
+
+Instalar y ya. No hay nada que configurar hasta el día que entren.
+
+### 3. Repartir por escrito lo que va a pasar
+
+Un correo corto, unos días antes. Esto es lo que tiene que decir:
+
+- **La primera vez que entres a la web te pedirá dar de alta un segundo factor**, antes de dejarte
+  hacer nada más. Es un código QR: se escanea con la aplicación del teléfono y se teclea el número de
+  seis dígitos que aparezca. Dos minutos.
+- **Al terminar salen ocho códigos de rescate, y se enseñan una sola vez.** Son para el día que no
+  tengas el teléfono a mano. **Guárdalos donde guardes lo importante** —el gestor de contraseñas, la
+  caja fuerte de casa, un papel en un cajón que cierre—, no en el propio teléfono: si el problema es
+  que perdiste el teléfono, los códigos que estaban dentro se perdieron con él. Cada uno sirve una
+  vez.
+- **Deja la hora del teléfono en automático.** Si el reloj se desajusta, los códigos dejan de ser
+  aceptados y no hay forma de adivinar por qué desde la pantalla.
+- **Si cambias de teléfono**: antes de deshacerte del viejo, la mayoría de las aplicaciones permiten
+  exportar o transferir las cuentas al nuevo; si no lo hiciste a tiempo, entra con un código de
+  rescate y pide que te reinicien el segundo factor. Con el reinicio vuelves a dar de alta el aparato
+  nuevo desde cero.
+- **Si te quedas sin teléfono y sin códigos**: se lo pides al líder, que lo reinicia desde
+  «Usuarios». Te lo va a confirmar por teléfono o en persona antes de hacerlo, y no es desconfianza:
+  es que un mensaje pidiendo un reinicio lo puede escribir cualquiera.
+
+### 4. Ensayarlo tú, en el ensayo de la fase 2
+
+Cuando tengas levantada la copia de producción de la fase 2, **da de alta tu propio segundo factor
+ahí**. Sirve para tres cosas: ver la pantalla que va a ver el equipo, cronometrar cuánto tarda una
+persona de verdad, y comprobar que el reloj del sitio donde corre la aplicación está en hora.
+
+**Eso no cuenta como darse de alta.** Esa copia se tira al terminar el ensayo (paso 2.5), así que el
+día del corte tendrás que hacerlo otra vez contra producción, con un secreto nuevo. Conviene decirlo
+porque es la confusión evidente: el teléfono se quedará con una entrada vieja que ya no vale y que
+hay que borrar de la aplicación para no acabar tecleando el código equivocado.
+
+### 5. El día del corte, entra tú primero
+
+Está en el paso 7 de [EL-CORTE.md](EL-CORTE.md): el líder se da de alta antes que nadie. Si algo
+estuviera mal —el reloj, por ejemplo— se descubre con una persona delante y no con todo el equipo
+preguntando a la vez.
+
+**Y si puedes, separa los dos momentos**: haz el corte al final de una jornada y deja que el equipo
+entre a la mañana siguiente, con el sistema ya estable y las altas como lo único pendiente. No
+siempre se puede, pero cuando se puede es la diferencia entre una mañana ocupada y una tarde
+complicada.
+
+---
+
 ## Fase 3 — El corte
 
 A partir de aquí sí tocas producción. El procedimiento completo está en
@@ -242,7 +376,7 @@ El resumen para que sepas a qué te enfrentas:
 | **4** | `GET /api/health` → 200 | Si no, **se para** |
 | **5** | Recapturar los secretos ilegibles | |
 | **6** | Encender los trabajos de fondo | |
-| **7** | Que entre el equipo | |
+| **7** | Que entre el equipo | Tú primero: el alta del segundo factor es lo primero que verán |
 | **8** | La marcha atrás, si hace falta | El escritorio vuelve a abrirse |
 | **9** | Días después: revocar su acceso | |
 
@@ -261,14 +395,21 @@ cerrarlo para siempre.
 Deja el escritorio **instalado y funcionando**. Mientras no hagas el paso 9, la marcha atrás existe
 y es sencilla: los cambios de esquema son aditivos y el escritorio los ignora.
 
-Avisa al equipo de dos cosas, porque ninguna se puede hacer por ellos:
+Avisa al equipo de tres cosas, porque ninguna se puede hacer por ellos:
 
+- **El alta del segundo factor es lo primero que van a ver**, y los ocho códigos de rescate se
+  enseñan una sola vez. Lo que hay que haberles dicho antes está en
+  [«Antes del día del corte»](#antes-del-día-del-corte--el-segundo-factor-del-equipo).
 - **Cada quien tiene que volver a capturar su PAT de Azure DevOps**, en «Mis tickets DevOps». El
   anterior vivía cifrado en su propia máquina y no hay forma de migrarlo. A cambio, el nuevo les
   sigue al cambiar de equipo. Mientras no lo hagan, sus comentarios en DevOps saldrán firmados por la
   cuenta de la instalación.
 - **Acepta el permiso de avisos** la primera vez que abran la web. Sin eso no llegan avisos con la
   pestaña cerrada.
+
+En los primeros días conviene además **mirar la columna «Segundo factor» de la pantalla de
+usuarios**: dice quién lo tiene ya dado de alta y quién no, y avisa en naranja de a quién le quedan
+pocos códigos de rescate. Es la forma de perseguir a quien falta sin ir preguntando uno por uno.
 
 ### Cuando ya esté estable
 
@@ -333,7 +474,10 @@ al equipo de que vuelva a capturar su PAT en «Mis tickets DevOps», igual que d
 - **Regenerar las llaves VAPID** después de que la gente se haya suscrito.
 - **Rotar el certificado del llavero borrando el viejo.** Su huella pasa a
   `AdminWeb__Llavero__CertificadosAnteriores` y el certificado se queda subido unos meses. Sustituirlo
-  de golpe deja ilegible todo lo cifrado hasta ese momento, sin error y sin aviso.
+  de golpe deja ilegible todo lo cifrado hasta ese momento, sin error y sin aviso — y desde que existe
+  el segundo factor, eso ya no son solo los tokens de DevOps: es el acceso de todo el mundo.
+- **Encender el segundo factor obligatorio con una sola cuenta de administrador.** Ver
+  [EL-CORTE.md → «Hoy solo hay una cuenta de administrador»](EL-CORTE.md#hoy-solo-hay-una-cuenta-de-administrador).
 
 ---
 
@@ -348,4 +492,9 @@ al equipo de que vuelva a capturar su PAT en «Mis tickets DevOps», igual que d
 | «Tu token de DevOps no sirve» tras rotar el certificado | El anterior. Vuelve a subirlo y comprueba que su huella esté en `CertificadosAnteriores` **y** en `WEBSITE_LOAD_CERTIFICATES` |
 | Un secreto de configuración sale como «hay que recapturarlo» | Es DPAPI. Recaptúralo en Configuración |
 | No llega ningún aviso con la pestaña cerrada | Las llaves VAPID, o el permiso del navegador |
+| **A una persona** le rechazan el código del teléfono | Su reloj. Que lo ponga en automático. Mientras tanto, que entre con un código de rescate |
+| **A todo el mundo** le rechazan el código | El reloj de donde corre la aplicación, no el de los teléfonos. Punto 1.6 |
+| «No se puede leer tu segundo factor» | El llavero, igual que con los PAT. Los códigos de rescate siguen valiendo: no dependen de él |
+| Alguien perdió el teléfono y sus códigos de rescate | «Usuarios» → «Segundo factor» lo reinicia. Confírmalo antes por una vía que reconozcas |
+| **El líder** perdió el teléfono y sus códigos | Si hay un segundo administrador, él lo resuelve. Si no lo hay, no hay salida dentro de la aplicación: [léelo antes de que pase](EL-CORTE.md#hoy-solo-hay-una-cuenta-de-administrador) |
 | No sé qué versión está corriendo | `GET /api/version`, o el pie del menú lateral |

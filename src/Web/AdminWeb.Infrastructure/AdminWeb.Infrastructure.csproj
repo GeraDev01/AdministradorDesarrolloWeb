@@ -48,6 +48,22 @@
          OJO: rellenar un .docx NO necesita LibreOffice — eso solo hacía falta para convertirlo a PDF. -->
     <PackageReference Include="DocumentFormat.OpenXml" Version="3.0.*" />
     <PackageReference Include="Lib.Net.Http.WebPush" Version="3.*" />
+
+    <!--
+      El dibujo del código QR del segundo factor. MIT, sin binarios nativos y sin dependencias
+      propias en el destino net6.0 que es el que resuelve para net10.0.
+
+      OJO AL ELEGIR VERSIÓN: los destinos net5.0, netstandard2.0 y net6.0-windows de este mismo
+      paquete SÍ arrastran System.Drawing.Common, que es una pieza de Windows y no existe en el
+      contenedor Linux. El destino net6.0 no la lleva, y es el que se usa. Bajar de versión o fijar
+      otro destino reintroduciría esa dependencia y el fallo no saldría al compilar, sino la primera
+      vez que alguien pidiera su código QR en producción.
+
+      Se usa una librería en vez de escribirlo a mano porque un código QR es corrección de errores
+      Reed-Solomon más un patrón de enmascarado: no es criptografía, pero sí es un formato con
+      mucha superficie donde equivocarse y ninguna forma barata de darse cuenta.
+    -->
+    <PackageReference Include="QRCoder" Version="1.6.0" />
   </ItemGroup>
 
   <ItemGroup>

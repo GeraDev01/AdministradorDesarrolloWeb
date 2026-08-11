@@ -13,6 +13,7 @@ using AdminWeb.Infrastructure.Avisos;
 using AdminWeb.Infrastructure.Data;
 using AdminWeb.Infrastructure.Documentos;
 using AdminWeb.Infrastructure.Integraciones;
+using AdminWeb.Infrastructure.Seguridad;
 using AdminWeb.Shared;
 using AdminWeb.Shared.Enums;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -64,6 +65,22 @@ builder.Services.AddScoped<IRequestOrigin, HttpRequestOrigin>();
 // configurada cuyo certificado no aparece tumba el arranque a propósito.
 Llavero.Configurar(builder);
 builder.Services.AddScoped<IProtectorDeSecretos, ProtectorDeSecretos>();
+
+// ── Segundo factor ──────────────────────────────────────────────────────────────
+//
+// El secreto del segundo factor va cifrado en la MISMA tabla de secretos por usuario y con el mismo
+// protector: es un secreto por persona, exactamente como el token de DevOps, y no necesitaba ni
+// tabla ni cifrado propios.
+//
+// El dibujante del código QR es SINGLETON: no guarda estado, recibe un texto y devuelve bytes. Es el
+// único registro que conoce la librería de códigos QR; todo lo demás ve la interfaz.
+builder.Services.AddSingleton<IDibujanteDeCodigoQr, DibujanteDeCodigoQrCoder>();
+builder.Services.AddScoped<SegundoFactorService>();
+
+// Lo que sostiene el acceso a medias entre los dos tramos. Singleton porque solo envuelve al
+// protector de datos, que ya es seguro para usarse desde varios hilos, y porque derivar la llave por
+// propósito en cada petición sería trabajo repetido para nada.
+builder.Services.AddSingleton<TramoDeAcceso>();
 
 // ── Servicios de negocio ────────────────────────────────────────────────────────
 builder.Services.AddScoped<AuditService>();
@@ -403,6 +420,13 @@ app.UseStaticFiles(archivosQueSeRevalidan);
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseContrasenaObligatoria();   // después de autenticar: necesita los claims ya leídos
+
+// Y DESPUÉS de la contraseña, nunca antes. El orden es la decisión: quien arrastra una contraseña
+// temporal Y le falta el segundo factor tiene que cambiar la contraseña PRIMERO. Si fuera al revés,
+// quien hubiera visto esa contraseña temporal —se dicta por chat o en voz alta— podría dar de alta
+// SU teléfono como segundo factor de la cuenta ajena y quedarse con ella para siempre. Está
+// explicado entero en SegundoFactorObligatorio.
+app.UseSegundoFactorObligatorio();
 
 // Sin esta línea, el AddAntiforgery de arriba no valida nada: queda una configuración que PARECE
 // protección y no lo es, que es peor que no tenerla. Va después de autenticar porque el testigo se

@@ -30,5 +30,41 @@ public class User
     /// </summary>
     public string SecurityStamp { get; set; } = Guid.NewGuid().ToString("N");
 
+    // ── Segundo factor (código de la aplicación del teléfono) ────────────────────────────────────
+    //
+    // El SECRETO no está aquí, y no es un olvido: vive cifrado en UserSecrets, con la protección de
+    // datos del servidor. Una columna en claro en esta tabla sería una llave de acceso legible para
+    // cualquiera que consultara la base. Aquí solo queda el ESTADO, que no sirve de nada por sí solo.
+
+    /// <summary>
+    /// Si esta cuenta ya tiene el segundo factor funcionando.
+    ///
+    /// <para><b>Solo se pone en cierto tras haber tecleado un código válido</b>, dentro de
+    /// <c>SegundoFactorService.ConfirmarAltaAsync</c>. Ningún otro sitio lo escribe. Activarlo al
+    /// enseñar el código QR sería la forma de dejar a alguien fuera de su cuenta sin que ni esa
+    /// persona ni nadie se enterara: si el escaneo salió mal, la aplicación del teléfono no muestra
+    /// ningún error — muestra códigos, que simplemente no son los buenos.</para>
+    ///
+    /// <para>Empieza en falso para TODAS las cuentas, incluidas las que ya existían. Es lo que hace
+    /// que el segundo factor sea obligatorio sin excepciones: quien no lo tiene activo no puede
+    /// hacer nada más que activarlo.</para>
+    /// </summary>
+    public bool SegundoFactorActivo { get; set; }
+
+    /// <summary>Cuándo quedó activo. Es dato de bitácora: responde «¿desde cuándo está protegida esta cuenta?».</summary>
+    public DateTime? SegundoFactorDesdeUtc { get; set; }
+
+    /// <summary>
+    /// La última ventana de treinta segundos cuyo código se aceptó. Es la ANTIRREPETICIÓN: un código
+    /// ya usado no vuelve a valer aunque siga vigente.
+    ///
+    /// <para>Es <c>long</c> y no <c>int</c> a propósito: son segundos desde 1970 divididos entre 30,
+    /// y aunque hoy quepan de sobra en 32 bits, el tipo de la cuenta no debería tener fecha de
+    /// caducidad escrita en él.</para>
+    ///
+    /// <para>Nulo mientras la cuenta no haya aceptado ningún código nunca.</para>
+    /// </summary>
+    public long? SegundoFactorUltimaVentana { get; set; }
+
     public Developer? Developer { get; set; }
 }
