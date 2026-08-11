@@ -158,6 +158,10 @@ public static class AusenciasLiderEndpoints
         })
         .WithSummary("Vuelve a la plantilla que trae la aplicación");
 
+        // La comprobación de que la firma del colaborador sigue valiendo NO se hace aquí: vive en
+        // FirmarAsync, junto al resto de las reglas del documento. Repetirla en este endpoint daría
+        // dos sitios donde decidir lo mismo, y el día que uno cambiara el otro seguiría dejando pasar
+        // exactamente lo que el otro prohíbe.
         grupo.MapPost("/vacaciones/{id:int}/documento/firma", async (
             int id, FirmarDocumentoRequest cuerpo, DocumentoDeVacacionesService vacaciones,
             CancellationToken ct) =>
@@ -166,6 +170,18 @@ public static class AusenciasLiderEndpoints
             return Resultado(ok, mensaje);
         })
         .WithSummary("Firma el documento con una firma guardada y lo archiva en la solicitud");
+
+        // La SALIDA del bloqueo anterior, y por eso vive al lado: si firmar el documento puede
+        // negarse porque la firma del colaborador se cayó, tiene que haber a un clic de distancia
+        // la forma de conseguir otra. Sin esto, el rechazo de arriba sería un callejón.
+        grupo.MapPost("/vacaciones/{id:int}/firma-del-colaborador/recordatorio", async (
+            int id, RecordatorioDeFirmaRequest? cuerpo, DocumentoDeVacacionesService vacaciones,
+            CancellationToken ct) =>
+        {
+            var (ok, mensaje) = await vacaciones.PedirQueVuelvaAFirmarAsync(id, cuerpo?.Nota, ct);
+            return Resultado(ok, mensaje);
+        })
+        .WithSummary("Le avisa al colaborador que firme —o que vuelva a firmar— su solicitud");
 
         grupo.MapGet("/vacaciones/{id:int}/documento/firmado", async (
             int id, HttpContext ctx, DocumentoDeVacacionesService vacaciones, CancellationToken ct) =>
@@ -465,7 +481,16 @@ public static class AusenciasLiderEndpoints
         DocumentoDeVacacionesService.SePuedeResolver(v.Estado),
         DocumentoDeVacacionesService.SePuedeCancelar(v.Estado),
         v.DocumentoFirmado,
-        v.FirmadoUtc);
+        v.FirmadoUtc,
+        new FirmaDelColaboradorDto(
+            v.FirmaDelColaborador.Vigente,
+            v.FirmaDelColaborador.DejoDeValer,
+            v.FirmaDelColaborador.FirmadaUtc,
+            v.FirmaDelColaborador.PuedeVolverAFirmar),
+        // La regla la escribe el servicio, igual que SePuedeResolver: si mañana el bloqueo alcanzara
+        // también a las que nadie firmó, el botón se apagaría solo en vez de quedarse encendido por
+        // una copia olvidada aquí. Y es el MISMO método que aplica la barrera al archivar.
+        DocumentoDeVacacionesService.SePuedeArchivar(v.FirmaDelColaborador));
 
     private static FirmaDelLiderDto AFirma(SignatureProfile f) => new(
         f.Id, f.DisplayName, f.IsDefault, f.WidthPx, f.HeightPx, f.CreatedAtUtc);
@@ -562,7 +587,7 @@ public static class AusenciasLiderEndpoints
 
     /// <summary>
     /// La respuesta de una operación de escritura. El mensaje lo escribió el servicio y se manda tal
-    /// cual: explica el motivo en concreto —«Esa solicitud ya está «✅ Aprobada»; no hay nada que
+    /// cual: explica el motivo en concreto —«Esa solicitud ya está «Aprobada»; no hay nada que
     /// resolver»— y eso es lo que permite saber qué hacer después.
     /// </summary>
     private static IResult Resultado(bool ok, string mensaje) =>

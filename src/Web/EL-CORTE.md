@@ -75,7 +75,9 @@ restaurar si hay que volver atrás, y quererlo buscar con prisa es la peor forma
 
 ### 3. Apuntar la web a producción y arrancarla
 
-La cadena de conexión vive en Key Vault; se cambia allí, no en el código. Al arrancar, la API aplica
+La cadena de conexión vive en el ajuste `ConnectionStrings__Default` del App Service; se cambia allí,
+no en el código. **No hay Key Vault en esta suscripción** — lo que eso cuesta y por qué se aceptó está
+en el punto 1.3 de [GUIA-DE-PUESTA-EN-MARCHA.md](GUIA-DE-PUESTA-EN-MARCHA.md). Al arrancar, la API aplica
 sus migraciones pendientes **de una vez y bajo `sp_getapplock`**, de modo que dos instancias no puedan
 migrar a la vez.
 
@@ -134,8 +136,10 @@ Por eso el paso 9 va después de estabilizar, y no el mismo día.
 - **Revocar el acceso a la base del cliente de escritorio.** Con eso el `.exe` viejo queda inerte
   aunque alguien lo conserve en su equipo, que es lo que de verdad cierra la puerta.
 - Archivar el instalador y su certificado de firma.
-- Migrar los secretos de configuración del cifrado compartido a Data Protection con las llaves en
-  Key Vault. Hasta ahora la web escribía con el esquema del escritorio **a propósito**, para que las
+- Migrar los secretos de configuración del cifrado compartido a Data Protection, con el llavero en
+  Blob y **cifrado con un certificado** (no con Key Vault, que esta suscripción no tiene: ver
+  `AdminWeb.Api/Arranque/Llavero.cs` y el punto 1.3 de la guía de puesta en marcha).
+  Hasta ahora la web escribía con el esquema del escritorio **a propósito**, para que las
   dos se entendieran (ver `ProtectorPortable`); retirado el escritorio, esa restricción desaparece y
   conviene pasar a protección de verdad.
 - Quitar de este repositorio las dos pruebas que comprueban que la semilla de cifrado coincide con la

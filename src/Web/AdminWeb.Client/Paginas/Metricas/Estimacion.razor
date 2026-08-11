@@ -174,6 +174,31 @@
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="FilaDeCapacidadDto" Property="DiasDeVacaciones"
                                                       Title="Vacaciones (días)" Width="170px" TextAlign="TextAlign.Right" />
+                                @* El color sigue sobre la PALABRA y no en un punto delante, al revés
+                                   que en las rejillas de estado del resto de la aplicación. No es un
+                                   olvido del lote que repartió los puntos: es que aquí cuesta más de lo
+                                   que parece y sale mejor hacerlo aparte.
+
+                                   Por criterio le tocaría. Son cuatro estados de una persona, la
+                                   etiqueta ya viene sin el semáforo del escritorio (🏖 🟢 🟡 🔴) desde
+                                   que se limpió CapacityStats.EtiquetaEstado, el color sale del ENUM
+                                   —el Tono que decide el servidor— y no de comparar el texto, y ésta es
+                                   literalmente la columna que se barre para contestar «¿a quién le
+                                   asigno lo siguiente?».
+
+                                   Lo que estorba son dos cosas de aquí dentro. Una: el neutro de Color
+                                   es «var(--rz-text-color)», o sea TINTA NORMAL, y está bien así porque
+                                   ese mismo Color pinta el número grande y el filo de las tarjetas de
+                                   arriba —pero de punto sería un círculo casi negro, el más llamativo
+                                   de los cuatro, y le tocaría a «De vacaciones», que es el que menos
+                                   reclama—. Hay que partir el neutro de las tarjetas del neutro de los
+                                   puntos antes de nada. Dos: la columna «Clasificación» de la otra
+                                   pestaña sale del MISMO Color, así que o se convierten las dos o esta
+                                   pantalla acaba hablando dos idiomas.
+
+                                   Mientras tanto la palabra coloreada no engaña a nadie y no ha perdido
+                                   nada con la marcha del emoji: el color ya estaba, el emoji solo lo
+                                   repetía peor. *@
                                 <RadzenDataGridColumn TItem="FilaDeCapacidadDto" Property="Disponibilidad"
                                                       Title="Disponibilidad" Width="200px">
                                     <Template Context="f">

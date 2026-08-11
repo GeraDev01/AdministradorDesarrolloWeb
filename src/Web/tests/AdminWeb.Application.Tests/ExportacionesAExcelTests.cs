@@ -109,7 +109,10 @@ public class ExportacionesAExcelTests
         var fila = Assert.Single(Filas(libro));
         Assert.Equal("Ana", fila[0]);
         Assert.Equal("5", fila[3]);                 // del 1 al 5 de septiembre, contando el primero
-        Assert.Equal("⏳ Pendiente", fila[4]);
+        // La PALABRA SOLA: la etiqueta perdió el emoji que llevaba delante (⏳), por lo mismo que las
+        // de permisos y las de «Mis vacaciones» — lo dibuja el sistema operativo y donde no hay
+        // fuente sale como un cuadro vacío. Lo que se lee y lo que se busca no cambió.
+        Assert.Equal("Pendiente", fila[4]);
     }
 
     [Fact]
@@ -214,20 +217,25 @@ public class ExportacionesAExcelTests
         var fila = Assert.Single(Filas(libro));
         Assert.Equal("Ana", fila[0]);
         Assert.Equal("Soporte a usuario", fila[1]);
-        Assert.Equal("🟢 Abierta", fila[2]);
+        Assert.Equal("Abierta", fila[2]);
     }
 
     [Fact]
     public async Task Actividades_ConFiltroDeEstado_BajaSoloLoQueSeVe()
     {
         var (db, servicio) = EquipoConActividades(UsuarioDePrueba.Como(UserRole.Admin));
-        SembrarActividad(db, AnaId, "Abierta");
-        SembrarActividad(db, BetoId, "Cerrada", DevActivityStatus.Cerrada);
+
+        // Los títulos ya NO se llaman «Abierta» y «Cerrada». Desde que la etiqueta de estado perdió
+        // el círculo, la celda de Estado dice exactamente esas dos palabras: con títulos iguales, la
+        // comprobación de abajo pasaría también si el título se colara en la columna equivocada.
+        SembrarActividad(db, AnaId, "Revisión de logs");
+        SembrarActividad(db, BetoId, "Alta de usuario", DevActivityStatus.Cerrada);
 
         var libro = await servicio.ExcelDelEquipoAsync(estado: DevActivityStatus.Cerrada);
 
         var fila = Assert.Single(Filas(libro));
-        Assert.Equal("⚪ Cerrada", fila[2]);
+        Assert.Equal("Alta de usuario", fila[1]);
+        Assert.Equal("Cerrada", fila[2]);
     }
 
     /// <summary>
@@ -321,7 +329,7 @@ public class ExportacionesAExcelTests
         Assert.Equal("web02", fila[0]);
         Assert.Equal("1.0.0", fila[3]);
         Assert.Equal("1.1.0", fila[4]);
-        Assert.Equal("⚠ Atrasado", fila[5]);
+        Assert.Equal("Atrasado", fila[5]);
     }
 
     [Fact]

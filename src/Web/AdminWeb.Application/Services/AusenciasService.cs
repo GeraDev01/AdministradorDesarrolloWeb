@@ -309,16 +309,29 @@ public class AusenciasService(
     private static int Dias(DateTime inicio, DateTime fin) => (fin.Date - inicio.Date).Days + 1;
 
     /// <summary>
-    /// Etiqueta del estado de una solicitud de vacaciones, con los mismos emojis que el escritorio.
-    /// Vive aquí y no en <see cref="VacationRequestService"/> porque ese servicio se porta sin tocar;
-    /// el COLOR sigue siendo cosa de la pantalla, como en los permisos.
+    /// Etiqueta del estado de una solicitud de vacaciones, con la PALABRA SOLA.
+    ///
+    /// <para>Vive aquí y no en <see cref="VacationRequestService"/> porque ese servicio se porta sin
+    /// tocar; el COLOR sigue siendo cosa de la pantalla, como en los permisos —«Mis vacaciones» ya
+    /// recibe <see cref="VacationStatus"/> en el mismo DTO y colorea a partir de él, no de esta
+    /// palabra.</para>
+    ///
+    /// <para>Traía delante el símbolo del escritorio (⏳ ✅ ❌ 🚫) y se fue, por lo mismo que en los
+    /// permisos: lo dibuja EL SISTEMA OPERATIVO, sale distinto en cada equipo, NO hereda el color del
+    /// texto y donde no hay fuente de emoji instalada sale como un CUADRO VACÍO, cosa que ya se vio
+    /// en una captura. Ésta, a diferencia de la de permisos, no se guarda en ninguna parte: solo
+    /// viaja al DTO de la pantalla.</para>
+    ///
+    /// <para>OJO: <c>DocumentoDeVacacionesService</c> tiene su PROPIA copia de estas cuatro etiquetas
+    /// —la que sale impresa en el documento de vacaciones— y no es ésta. Si algún día se unifican, hay
+    /// que unificarlas a conciencia: aquélla acaba en un PDF que se firma y se archiva.</para>
     /// </summary>
     private static string Etiqueta(VacationStatus estado) => estado switch
     {
-        VacationStatus.Pendiente => "⏳ Pendiente",
-        VacationStatus.Aprobada => "✅ Aprobada",
-        VacationStatus.Rechazada => "❌ Rechazada",
-        _ => "🚫 Cancelada"
+        VacationStatus.Pendiente => "Pendiente",
+        VacationStatus.Aprobada => "Aprobada",
+        VacationStatus.Rechazada => "Rechazada",
+        _ => "Cancelada"
     };
 
     private static string? Limpiar(string? texto) =>

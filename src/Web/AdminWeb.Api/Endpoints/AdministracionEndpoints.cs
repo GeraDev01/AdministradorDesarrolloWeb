@@ -201,7 +201,8 @@ public static class AdministracionEndpoints
         // «arreglando» ahí una conexión rota. Lo que queda es el botón, que ahora prueba la conexión
         // REAL de este servidor — la única pregunta que tenía sentido hacer aquí.
         new("🗄 Base de datos",
-            "La cadena de conexión la pone la configuración del servidor (Key Vault en Azure) y no se "
+            "La cadena de conexión la pone la configuración del servidor (un ajuste del App Service en "
+            + "Azure) y no se "
             + "captura aquí: cambiarla es una operación del despliegue, no de esta pantalla. El botón "
             + "comprueba si este servidor puede hablar ahora mismo con su base.",
         [], PruebaDeConexion.Sql),

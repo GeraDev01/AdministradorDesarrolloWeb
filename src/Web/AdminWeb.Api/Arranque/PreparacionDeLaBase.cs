@@ -92,6 +92,8 @@ public static class PreparacionDeLaBase
             DatabaseMigrator.EnsureUpToDate(db);
             log.LogInformation("Esquema al día.");
 
+            await ReconciliarDesplieguesAsync(servicios, db, log, ct);
+
             // El administrador inicial solo se crea si NO hay ninguna cuenta. Su contraseña temporal
             // se escribe en el registro una única vez porque no hay dónde mostrarla: en el escritorio
             // salía en un cuadro de diálogo al arrancar, aquí el arranque no tiene a nadie delante.
@@ -110,6 +112,97 @@ public static class PreparacionDeLaBase
             if (candadoTomado) await SoltarCandadoAsync(db, ct);
             if (conexionAbiertaAqui) await db.Database.CloseConnectionAsync();
         }
+    }
+
+    /// <summary>
+    /// Cierra los despliegues que se quedaron «En curso» porque el servidor que los estaba corriendo
+    /// se detuvo a media faena. La lógica —a quién se puede cerrar y a quién no— está en
+    /// <see cref="ReconciliacionDeDespliegues"/>; aquí se decide CUÁNDO se le pregunta.
+    ///
+    /// <para><b>Un fallo NO tumba el arranque</b>, por lo mismo que los catálogos: sin reconciliar,
+    /// la aplicación funciona igual y lo único que pasa es que el historial sigue enseñando en marcha
+    /// un despliegue que ya no lo está. Negarse a arrancar por eso dejaría al equipo fuera para
+    /// arreglar un dato de lectura.</para>
+    ///
+    /// <para>Va dentro del candado del migrador, como la siembra, para que dos instancias que
+    /// arranquen a la vez no escriban lo mismo dos veces; y necesariamente DESPUÉS de él, porque
+    /// consulta tablas que el propio migrador podría estar estrenando.</para>
+    /// </summary>
+    private static async Task ReconciliarDesplieguesAsync(
+        IServiceProvider servicios, AppDbContext db, ILogger log, CancellationToken ct)
+    {
+        try
+        {
+            int cerrados = await ReconciliacionDeDespliegues.CerrarInterrumpidosAsync(db, DateTime.UtcNow, ct);
+            if (cerrados > 0)
+                log.LogWarning(
+                    "{n} despliegue(s) se habían quedado «En curso» sin nadie ejecutándolos y se cerraron " +
+                    "como interrumpidos. Su expediente explica hasta dónde se llegó a saber.", cerrados);
+        }
+        catch (Exception ex)
+        {
+            log.LogError(ex,
+                "No se pudieron reconciliar los despliegues interrumpidos. La aplicación arranca igual.");
+        }
+
+        ProgramarSegundaPasada(servicios, log);
+    }
+
+    /// <summary>
+    /// La SEGUNDA pasada, unos minutos después de arrancar. No es un cinturón de más: es la que
+    /// arregla el caso NORMAL.
+    ///
+    /// <para>Un reinicio dura segundos, y la señal de vida del despliegue que murió con el proceso
+    /// anterior tarda <see cref="SenalDeVidaDelDespliegue.Tolerancia"/> en caducar. Cuando esta
+    /// instancia arranca, esa señal todavía parece fresca, así que la primera pasada —con toda la
+    /// razón— no la toca: desde fuera es indistinguible de un despliegue que OTRA instancia está
+    /// corriendo ahora mismo, y cerrarle el trabajo a alguien que está desplegando de verdad sería
+    /// bastante peor que dejar una fila mintiendo un rato. La única forma de distinguirlos es esperar
+    /// a que la señal caduque y volver a mirar: si hay alguien ejecutándolo, la habrá renovado; si no
+    /// la renovó nadie, ya no hay duda posible.</para>
+    ///
+    /// <para><b>No se espera al resultado</b> —el arranque no puede quedarse seis minutos parado— y
+    /// se cancela si la aplicación se detiene antes. No es un trabajo periódico de los que se
+    /// registran en <c>Program</c>: es la segunda mitad de ESTE arranque, ocurre una sola vez y
+    /// carece de sentido fuera de él.</para>
+    /// </summary>
+    private static void ProgramarSegundaPasada(IServiceProvider servicios, ILogger log)
+    {
+        var parada = servicios.GetService<IHostApplicationLifetime>()?.ApplicationStopping
+                     ?? CancellationToken.None;
+
+        // El margen sobre la tolerancia no es simetría: es para que la señal esté caducada con
+        // holgura y no justo en el filo, donde un reloj adelantado decidiría por nosotros.
+        var espera = SenalDeVidaDelDespliegue.Tolerancia + TimeSpan.FromMinutes(1);
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(espera, parada);
+
+                // Ámbito propio: el de PrepararAsync se cerró hace rato y su contexto con él.
+                using var alcance = servicios.CreateScope();
+                var db = alcance.ServiceProvider.GetRequiredService<AppDbContext>();
+
+                int cerrados = await ReconciliacionDeDespliegues.CerrarInterrumpidosAsync(
+                    db, DateTime.UtcNow, parada);
+
+                if (cerrados > 0)
+                    log.LogWarning(
+                        "{n} despliegue(s) que este arranque dejó en observación resultaron interrumpidos " +
+                        "y se cerraron: nadie renovó su señal de vida.", cerrados);
+            }
+            catch (OperationCanceledException)
+            {
+                // La aplicación se detuvo antes. No hay nada que arreglar: el próximo arranque
+                // vuelve a mirar, y esos trabajos seguirán ahí esperándolo.
+            }
+            catch (Exception ex)
+            {
+                log.LogError(ex, "Falló la segunda pasada de reconciliación de despliegues.");
+            }
+        });
     }
 
     /// <summary>

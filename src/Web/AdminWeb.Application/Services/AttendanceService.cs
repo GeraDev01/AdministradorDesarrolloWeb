@@ -48,9 +48,25 @@ public record AsistenciaDelDiaFila(
 /// Del port solo cambia de dónde sale el «equipo» de cada marca: en el escritorio era
 /// <c>MÁQUINA\usuario</c> y aquí sería siempre el servidor, así que lo aporta
 /// <see cref="IRequestOrigin"/> —la IP y el navegador del cliente—, igual que en la bitácora.
+///
+/// <para><b>Quién marca y quién mira.</b> Lo PROPIO —marcar, leer los registros de uno, pedir una
+/// corrección— es del líder y del desarrollador: Operaciones no registra jornada porque su alcance
+/// son los despliegues. Lo comprueban las guardas de aquí, además de la política del grupo
+/// <c>/api/jornada</c>; con solo aquélla, un endpoint nuevo que llamara a estos métodos nacería
+/// abierto y quien lo escribiera no tendría por qué enterarse. El TABLERO del líder sigue siendo
+/// <c>RequireAdmin</c> a secas y no se toca: los días viejos de una cuenta de Operaciones existen,
+/// no se borran, y el líder tiene que poder seguir mirándolos y corrigiéndolos.</para>
 /// </summary>
 public class AttendanceService(AppDbContext db, ICurrentUser currentUser, AuditService audit, IRequestOrigin origin)
 {
+    /// <summary>
+    /// Ámbito con el que hablan las guardas de lo PROPIO, para que el 403 diga de qué se le está
+    /// echando. Es el mismo texto que usa <see cref="PresenceService.MisJornadasAsync"/>: las dos
+    /// mitades del módulo —lo que la persona marca y lo que la aplicación ve— tienen que negar con
+    /// la misma frase, o parecerán dos reglas distintas.
+    /// </summary>
+    private const string Ambito = "de la jornada propia";
+
     /// <summary>
     /// A partir de esta diferencia entre lo marcado y lo que vio la máquina, la fila se resalta.
     /// No es una falta: es el umbral a partir del cual vale la pena mirarlo.
@@ -84,7 +100,7 @@ public class AttendanceService(AppDbContext db, ICurrentUser currentUser, AuditS
     /// </summary>
     public Task<AttendanceRecord?> MiRegistroAbiertoAsync(CancellationToken ct = default)
     {
-        AuthorizationGuard.RequireLoggedIn(currentUser);
+        AuthorizationGuard.RequireAdminOrDesarrollador(currentUser, Ambito);
         if (currentUser.UserId is not int userId) return Task.FromResult<AttendanceRecord?>(null);
 
         return db.AttendanceRecords.AsNoTracking()
@@ -100,7 +116,7 @@ public class AttendanceService(AppDbContext db, ICurrentUser currentUser, AuditS
     /// </summary>
     public async Task<(bool ok, string mensaje)> MarcarEntradaAsync(string? nota = null, CancellationToken ct = default)
     {
-        AuthorizationGuard.RequireLoggedIn(currentUser);
+        AuthorizationGuard.RequireAdminOrDesarrollador(currentUser, Ambito);
         if (currentUser.UserId is not int userId) return (false, "No hay una sesión válida.");
 
         // Primero los olvidos: si quedó una entrada abierta de ayer, se sella con lo que se sepa de
@@ -146,7 +162,7 @@ public class AttendanceService(AppDbContext db, ICurrentUser currentUser, AuditS
     /// <summary>Marca la salida. La hora también es la de ahora, por lo mismo que la entrada.</summary>
     public async Task<(bool ok, string mensaje)> MarcarSalidaAsync(string? nota = null, CancellationToken ct = default)
     {
-        AuthorizationGuard.RequireLoggedIn(currentUser);
+        AuthorizationGuard.RequireAdminOrDesarrollador(currentUser, Ambito);
         if (currentUser.UserId is not int userId) return (false, "No hay una sesión válida.");
 
         // Si otra pestaña de la misma persona ya marcó la salida, esta consulta —hecha en el
@@ -188,7 +204,7 @@ public class AttendanceService(AppDbContext db, ICurrentUser currentUser, AuditS
     public async Task<List<AttendanceRecord>> MisRegistrosAsync(DateTime desdeLocal, DateTime hastaLocal,
         CancellationToken ct = default)
     {
-        AuthorizationGuard.RequireLoggedIn(currentUser);
+        AuthorizationGuard.RequireAdminOrDesarrollador(currentUser, Ambito);
         if (currentUser.UserId is not int userId) return [];
 
         var (desde, hasta) = RangoUtcDelDiaLocal(desdeLocal, hastaLocal);
@@ -206,7 +222,7 @@ public class AttendanceService(AppDbContext db, ICurrentUser currentUser, AuditS
     public async Task<(bool ok, string mensaje)> SolicitarCorreccionAsync(int registroId, string motivo,
         CancellationToken ct = default)
     {
-        AuthorizationGuard.RequireLoggedIn(currentUser);
+        AuthorizationGuard.RequireAdminOrDesarrollador(currentUser, Ambito);
         if (currentUser.UserId is not int userId) return (false, "No hay una sesión válida.");
 
         motivo = (motivo ?? "").Trim();
@@ -550,12 +566,26 @@ public class AttendanceService(AppDbContext db, ICurrentUser currentUser, AuditS
 
     // ── Etiquetas ────────────────────────────────────────────────────────────────
 
-    /// <summary>Cómo se lee un cierre en pantalla, desde el lado de quien marcó.</summary>
+    /// <summary>
+    /// Cómo se lee un cierre en pantalla, desde el lado de quien marcó.
+    ///
+    /// <para><b>Sin pictogramas delante, y no es un olvido.</b> «Olvido» llevaba un triángulo y
+    /// «Corregida», un lápiz. Los dibuja el SISTEMA OPERATIVO: se ven distintos en un Windows, en un
+    /// Mac y en un móvil, no heredan el color del texto —en el tema oscuro siguen con los suyos— y
+    /// donde no hay fuente de emoji instalada salen como un CUADRO VACÍO, que es peor que no poner
+    /// nada. Y no se sustituyen por un icono de la fuente porque esto es una CADENA que las rejillas
+    /// pintan tal cual (no hay dónde colgar un <c>&lt;RadzenIcon&gt;</c>); el aviso que hacía falta
+    /// ya lo da la pantalla, que resalta en ámbar la fila que reclama algo.</para>
+    ///
+    /// <para>Este texto se CONCATENA con el de <c>PersonasQueryService.EstadoDeAsistencia</c>
+    /// («Pide corrección · Olvido (estimada)»), así que los dos se limpiaron a la vez: dejar uno con
+    /// marca y el otro sin ella daba media etiqueta decorada.</para>
+    /// </summary>
     public static string EtiquetaCierre(AttendanceCloseKind? cierre) => cierre switch
     {
         AttendanceCloseKind.Manual => "Marcada",
-        AttendanceCloseKind.Olvido => "⚠ Olvido (estimada)",
-        AttendanceCloseKind.Admin  => "✏ Corregida por el líder",
+        AttendanceCloseKind.Olvido => "Olvido (estimada)",
+        AttendanceCloseKind.Admin  => "Corregida por el líder",
         _                          => "— abierta"
     };
 }

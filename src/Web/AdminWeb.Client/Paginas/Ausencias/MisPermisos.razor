@@ -161,27 +161,40 @@
                         EmptyText="Todavía no has solicitado ningún permiso.">
             <Columns>
                 <RadzenDataGridColumn TItem="SolicitudDePermisoDto" Title="Estado" Property="Estado" Width="130px">
-                    @* AQUÍ FALTA EL PUNTO DE COLOR Y NO ES UN OLVIDO: está BLOQUEADO, y conviene saber
-                       por qué antes de «arreglarlo».
+                    @* El punto de color, que aquí estuvo BLOQUEADO y ya no lo está. Lo bloqueaba el
+                       servidor: la etiqueta llegaba hecha y CON EMOJI («⏳ Pendiente», «✅ Aprobada»…),
+                       así que el punto habría quedado pegado al símbolo —el mismo dato marcado dos
+                       veces, y una de las dos marcas dibujada por el sistema operativo, que no obedece
+                       al tema oscuro y donde no hay fuente de emoji sale como un cuadro vacío—.
+                       LeaveRequestService.Etiqueta ya manda la palabra sola y el bloqueo se levantó.
 
-                       Por criterio le tocaría —cuatro estados en una lista que se recorre buscando el
-                       rechazado—, pero EtiquetaEstado NO la escribe esta pantalla: llega hecha del
-                       servidor y viene CON EMOJI (LeaveRequestService.EtiquetaEstado: «⏳ Pendiente»,
-                       «✅ Aprobada», «❌ Rechazada», «🚫 Cancelada»). Poner el punto dejaría el punto
-                       pegado al emoji, o sea dos marcas para el mismo dato y una de ellas justo la que
-                       este trabajo vino a quitar: la que dibuja el sistema operativo, no obedece al
-                       tema oscuro y donde no hay fuente de emoji sale como un cuadro vacío.
+                       Esta pantalla y la del líder (AusenciasLider/Permisos.razor) fueron A LA VEZ, que
+                       es lo que pedía la nota anterior: es el mismo estado visto por los dos lados y
+                       las dos sacan el color de ColoresDeEstado.ColorDePermiso, en Shared, que es la
+                       única tabla. Si algún día se cambia el criterio, se cambia allí y las dos se
+                       enteran; volver a guardar aquí una copia de las cuatro líneas es justo como
+                       empiezan las que luego discrepan sin que ninguna prueba lo delate.
 
-                       Para desbloquearlo hay que limpiar esa tabla del servidor, y entonces esta
-                       pantalla y la del líder (AusenciasLider/Permisos.razor) van A LA VEZ: el punto
-                       se copia del marcado de Componentes/BotonDeEstado.razor y el color ya está
-                       puesto. Mientras tanto, el color se queda sobre la palabra —pero saliendo YA de
-                       ColoresDeEstado.ColorDePermiso, en Shared, que es la única tabla y la que lee
-                       también la pantalla del líder—. Ese paso no había por qué esperarlo: la copia
-                       que había aquí y la de allá coincidían, que es justo como empiezan las que
-                       luego discrepan. *@
+                       El texto vuelve a TINTA NORMAL y sin negrita. Con el punto delante, colorear
+                       además la palabra sería decir el mismo dato dos veces y dejar dos sitios donde
+                       puede discrepar; la negrita se va con el color porque aquí solo servía para
+                       sostenerlo. Es lo que ya hacen Bitácora, Requerimientos y «Quién está».
+
+                       Marcado copiado de Componentes/BotonDeEstado.razor. El borde gris no es adorno:
+                       si un día falta la variable, el punto se queda hueco pero SE SIGUE VIENDO. La
+                       palabra va SIEMPRE al lado, que es lo que salva a quien no separa el rojo del
+                       verde y a cualquiera que imprima esta lista. Y el color sale del ENUM (p.Estado,
+                       que el DTO trae junto al texto), nunca de comparar la etiqueta: comparar el
+                       texto se rompe en silencio en cuanto alguien reescribe una palabra.
+
+                       Los 130 px se quedan como estaban: la etiqueta más larga es «Rechazada» y con el
+                       punto delante sigue cabiendo. La que obliga a ensanchar es una de trece letras
+                       como «En desarrollo», y aquí no hay ninguna. *@
                     <Template Context="p">
-                        <b style="@($"color:{ColoresDeEstado.ColorDePermiso(p.Estado)}")">@p.EtiquetaEstado</b>
+                        <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
+                            <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@ColoresDeEstado.ColorDePermiso(p.Estado)"></span>
+                            @p.EtiquetaEstado
+                        </span>
                     </Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="SolicitudDePermisoDto" Title="Tipo" Property="EtiquetaTipo" Width="180px" />

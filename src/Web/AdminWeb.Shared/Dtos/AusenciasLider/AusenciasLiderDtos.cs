@@ -49,6 +49,15 @@ public record VacacionesDelLiderDto(
 /// que al final no se toman se cancelan, no se rechazan.</param>
 /// <param name="DocumentoFirmado">Ya hay un PDF firmado guardado para esta solicitud. Se dice para
 /// que la pantalla ofrezca «descargar el firmado» en vez de volver a generarlo.</param>
+/// <param name="FirmaDelColaborador">En qué situación está el trazo que puso quien pidió los días.
+/// No confundir con <paramref name="DocumentoFirmado"/>: aquél es el papel que el líder archivó, éste
+/// es la firma que ese papel lleva dentro.</param>
+/// <param name="SePuedeArchivar">Lo decide el servidor, como <paramref name="SePuedeResolver"/>: el
+/// documento definitivo NO sale mientras haya una firma del colaborador que dejó de valer. La regla
+/// vive en <c>DocumentoDeVacacionesService</c> y viaja ya resuelta para que el botón que se ve y la
+/// operación que se permite no puedan discrepar — pero <b>la barrera de verdad es la del servidor</b>,
+/// porque esta pantalla corre en la máquina de cada quien y un botón deshabilitado no es una regla.
+/// </param>
 public record SolicitudDeVacacionesDelLiderDto(
     int Id,
     int DesarrolladorId,
@@ -64,7 +73,35 @@ public record SolicitudDeVacacionesDelLiderDto(
     bool SePuedeResolver,
     bool SePuedeCancelar,
     bool DocumentoFirmado,
-    DateTime? FirmadoUtc);
+    DateTime? FirmadoUtc,
+    FirmaDelColaboradorDto FirmaDelColaborador,
+    bool SePuedeArchivar);
+
+/// <summary>
+/// La firma de quien pidió las vacaciones, vista por el líder.
+///
+/// <para>Son <b>tres situaciones y no dos</b>, y la tercera es la que motiva todo esto: <b>firmó y su
+/// firma dejó de valer</b>, porque la solicitud cambió después. Enseñarla como «sin firmar» a secas
+/// escondería que hubo una firma y que se cayó, que es justamente lo que el líder necesita saber para
+/// pedir otra en vez de archivar un papel al que le falta.</para>
+///
+/// <para>Es la misma división que el colaborador ve en «Mis vacaciones» (<c>FirmaDeSolicitudDto</c>),
+/// y a propósito: si las dos pantallas contaran la misma firma de dos maneras, la conversación entre
+/// el líder y la persona empezaría con los dos mirando datos distintos.</para>
+/// </summary>
+/// <param name="Firmada">Firmó y su firma <b>sigue valiendo hoy</b>: es la que el documento estampa.
+/// </param>
+/// <param name="DejoDeValer">Firmó, y lo que firmó ya no es lo que la solicitud dice ahora.</param>
+/// <param name="FirmadaUtc">Cuándo puso el trazo. Se manda aunque la firma haya dejado de valer: la
+/// fecha es la que permite entender qué pasó primero.</param>
+/// <param name="PuedeVolverAFirmar">Si hoy podría firmar. Lo decide el servicio con el estado de la
+/// solicitud —solo se firma la petición mientras espera respuesta—, y hace falta aquí porque pedirle
+/// una firma que no puede dar sería mandarlo a una pantalla sin botón.</param>
+public record FirmaDelColaboradorDto(
+    bool Firmada,
+    bool DejoDeValer,
+    DateTime? FirmadaUtc,
+    bool PuedeVolverAFirmar);
 
 /// <summary>
 /// Resolver una solicitud de vacaciones: aprobarla, rechazarla o cancelarla.
@@ -82,6 +119,19 @@ public record ResolucionDeVacacionesRequest(VacationStatus Estado, string? Comen
 /// permitir firmar con cualquier cosa que alguien mande.
 /// </summary>
 public record FirmarDocumentoRequest(int FirmaId);
+
+/// <summary>
+/// Pedirle al colaborador que firme —o que vuelva a firmar— su solicitud.
+///
+/// <para><b>Es la salida del bloqueo.</b> Sin ella, descubrir que la firma no vale dejaría al líder
+/// con un documento que no puede archivar y sin nada que hacer desde donde está, y un bloqueo sin
+/// salida molesta más de lo que protege.</para>
+/// </summary>
+/// <param name="Nota">Lo que el líder quiera añadir al aviso («te cambié las fechas a la semana
+/// siguiente»). Es opcional porque el aviso ya explica solo lo que pasó; existe porque el motivo real
+/// del cambio lo sabe él, y sin un renglón donde escribirlo la persona recibe un «vuelve a firmar»
+/// sin contexto.</param>
+public record RecordatorioDeFirmaRequest(string? Nota);
 
 // ── Firmas reutilizables ────────────────────────────────────────────────────────
 

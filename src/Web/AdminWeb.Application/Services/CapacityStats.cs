@@ -22,9 +22,10 @@ public record CapacityRow(string Developer, int Abiertos, double HorasPendientes
 /// las vacaciones para ver quién está libre, ocupado, sobrecargado o de vacaciones. Lógica pura.
 ///
 /// <para><b>Copia literal del escritorio</b>, con los nombres originales, por el mismo motivo que
-/// <see cref="EstimationStats"/>: mientras las dos aplicaciones convivan, el semáforo de capacidad
-/// tiene que poder cotejarse línea a línea contra el control del que salió. Lo único que cambia es
-/// el espacio de nombres.</para>
+/// <see cref="EstimationStats"/>: mientras las dos aplicaciones convivieron, el semáforo de capacidad
+/// tenía que poder cotejarse línea a línea contra el control del que salió. Los cálculos siguen
+/// siendo los mismos y no se tocan; lo único que ya no calca es el TEXTO de
+/// <see cref="EtiquetaEstado"/>, y ahí abajo está el porqué.</para>
 /// </summary>
 public static class CapacityStats
 {
@@ -54,13 +55,26 @@ public static class CapacityStats
     public static bool EnVacacion(DateTime vacInicio, DateTime vacFin, DateTime dia) =>
         dia.Date >= vacInicio.Date && dia.Date <= vacFin.Date;
 
-    /// <summary>Cómo se lee la disponibilidad en pantalla.</summary>
+    /// <summary>
+    /// Cómo se lee la disponibilidad en pantalla. La palabra va SOLA.
+    ///
+    /// <para>Traía delante el semáforo del escritorio (🏖 🟢 🟡 🔴) y se fue. Esos dibujos no los
+    /// pintamos nosotros: los pinta EL SISTEMA OPERATIVO, así que salen distintos en cada equipo, NO
+    /// heredan el color del texto —en el tema oscuro se quedaban con el suyo mientras la palabra de al
+    /// lado cambiaba— y donde no hay fuente de emoji instalada salen como un CUADRO VACÍO. Lo último
+    /// no es una hipótesis: se vio en una captura, con un cuadro delante de cada palabra.</para>
+    ///
+    /// <para>El semáforo no se pierde, cambia de sitio. Esta cadena viaja al DTO de capacidad junto a
+    /// un tono que sale del ENUM (<c>MetricasQueryService.TonoDeDisponibilidad</c>), y es la pantalla
+    /// quien lo convierte en color con una variable del tema. Por eso aquí no hace falta reponer nada:
+    /// si algún día se echa de menos la señal, se toca el tono, no la palabra.</para>
+    /// </summary>
     public static string EtiquetaEstado(Disponibilidad d) => d switch
     {
-        Disponibilidad.DeVacaciones  => "🏖 De vacaciones",
-        Disponibilidad.Libre         => "🟢 Libre",
-        Disponibilidad.Ocupado       => "🟡 Ocupado",
-        Disponibilidad.Sobrecargado  => "🔴 Sobrecargado",
+        Disponibilidad.DeVacaciones  => "De vacaciones",
+        Disponibilidad.Libre         => "Libre",
+        Disponibilidad.Ocupado       => "Ocupado",
+        Disponibilidad.Sobrecargado  => "Sobrecargado",
         _                            => d.ToString()
     };
 }

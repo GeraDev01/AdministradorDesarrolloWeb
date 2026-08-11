@@ -194,7 +194,8 @@ Tres piezas nuevas que comparten todas:
   esas mismas filas, y un secreto guardado desde el navegador con otro cifrado dejaría al escritorio
   sin poder leerlo —fallando semanas después, al desplegar, con la contraseña equivocada—. Dos
   pruebas leen el código fuente del escritorio y comprueban que la semilla y el prefijo coinciden.
-  Después del corte se sustituye por Data Protection con las llaves en Key Vault.
+  Después del corte se sustituye por Data Protection, con el llavero en Blob y cifrado con un
+  certificado — no con Key Vault, que esta suscripción no tiene; ver `Arranque/Llavero.cs`.
 - **Documentos en PDF con QuestPDF**, detrás de `IGeneradorDeDocumentos`. Se retiró el camino
   anterior —armar un DOCX y convertirlo con LibreOffice instalado en la máquina—, que era la única
   pieza de la web incapaz de correr sola. **Consecuencia aceptada: la plantilla `.docx` deja de ser
@@ -268,8 +269,8 @@ Lo que ya existe:
 
 1. **Ensayar el corte** contra una copia fresca de producción y **medir cuánto tarda el arranque**:
    esa es la ventana de mantenimiento. Ver [EL-CORTE.md](EL-CORTE.md).
-2. **Generar las llaves VAPID** de los avisos push y guardarlas en Key Vault. Se generan una vez y no
-   se regeneran.
+2. **Generar las llaves VAPID** de los avisos push y guardarlas donde guardes lo importante; la
+   privada va como ajuste del App Service (no hay Key Vault). Se generan una vez y no se regeneran.
 3. **Configurar el pipeline** ([.github/workflows/web.yml](../../.github/workflows/web.yml)): la
    identidad federada de Azure y el nombre de la aplicación. Despliega a una ranura de ensayo,
    comprueba que arranque contra la base y solo entonces intercambia con producción.

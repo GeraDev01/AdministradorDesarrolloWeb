@@ -262,19 +262,37 @@ public class NotasService(AppDbContext db, ICurrentUser currentUser, AuditServic
     private static DateTime ADiaDeCalendario(DateTime fecha) =>
         DateTime.SpecifyKind(fecha.Date.AddHours(12), DateTimeKind.Utc);
 
-    /// <summary>Las prioridades con su texto. Las manda el servidor para que la pantalla no lleve una segunda copia.</summary>
+    /// <summary>
+    /// Las prioridades con su texto, para el desplegable del formulario. Las manda el servidor para
+    /// que la pantalla no lleve una segunda copia — y para que el desplegable y la columna de la
+    /// rejilla no puedan discrepar: las dos salen de <see cref="Etiqueta"/>.
+    /// </summary>
     private static readonly IReadOnlyList<PrioridadDeNotaDto> Prioridades =
     [
-        new(NotePriority.Alta,  "🔴 Alta"),
-        new(NotePriority.Media, "🟡 Media"),
-        new(NotePriority.Baja,  "🔵 Baja"),
+        new(NotePriority.Alta,  Etiqueta(NotePriority.Alta)),
+        new(NotePriority.Media, Etiqueta(NotePriority.Media)),
+        new(NotePriority.Baja,  Etiqueta(NotePriority.Baja)),
     ];
 
-    /// <summary>Las mismas etiquetas del escritorio, con su color en el emoji.</summary>
+    /// <summary>
+    /// La prioridad, con la PALABRA SOLA.
+    ///
+    /// <para>Llevaba delante el círculo del escritorio (🔴 🟡 🔵) y se fue. Ese círculo lo dibuja EL
+    /// SISTEMA OPERATIVO y no nosotros: se ve distinto en cada equipo, NO hereda el color del texto
+    /// —en el tema oscuro se quedaba con el suyo mientras la palabra de al lado cambiaba— y donde no
+    /// hay fuente de emoji instalada sale como un CUADRO VACÍO. Eso último está comprobado en una
+    /// captura, no es teoría.</para>
+    ///
+    /// <para>La etiqueta acaba en dos sitios donde un dibujo estorba más de lo que ayuda: el
+    /// desplegable del formulario, que es una CADENA y no admite marcado, y una celda de la
+    /// exportación a Excel, que se abre en un equipo que no controlamos. La urgencia la sigue diciendo
+    /// la fila entera —la rejilla ya pinta en rojo lo atrasado— y el enum viaja en el DTO junto a este
+    /// texto, así que la pantalla puede colorear sin releer la palabra.</para>
+    /// </summary>
     private static string Etiqueta(NotePriority prioridad) => prioridad switch
     {
-        NotePriority.Alta  => "🔴 Alta",
-        NotePriority.Media => "🟡 Media",
-        _                  => "🔵 Baja"
+        NotePriority.Alta  => "Alta",
+        NotePriority.Media => "Media",
+        _                  => "Baja"
     };
 }

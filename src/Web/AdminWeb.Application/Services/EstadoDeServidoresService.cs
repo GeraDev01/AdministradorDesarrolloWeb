@@ -89,8 +89,11 @@ public class EstadoDeServidoresService(AppDbContext db, ICurrentUser currentUser
         int sinDesplegar = filas.Count(f => f.NuncaDesplegado);
         int alDia = filas.Count - atrasados - sinDesplegar;
 
-        var resumen = $"{filas.Count} servidor(es)  ·  ✅ {alDia} al día  ·  ⚠ {atrasados} atrasado(s)  " +
-                      $"·  ○ {sinDesplegar} sin desplegar nunca";
+        // Sin los símbolos que llevaba delante de cada cifra (✅ ⚠ ○), por lo mismo que la etiqueta de
+        // cada fila: los dibuja el sistema operativo y donde falta la fuente salen como cuadros
+        // vacíos. Aquí molestaban el doble, porque eran tres cuadros seguidos en una sola frase.
+        var resumen = $"{filas.Count} servidor(es)  ·  {alDia} al día  ·  {atrasados} atrasado(s)  " +
+                      $"·  {sinDesplegar} sin desplegar nunca";
 
         return new EstadoDeServidoresDto(filas, alDia, atrasados, sinDesplegar, resumen);
     }
@@ -181,13 +184,25 @@ public class EstadoDeServidoresService(AppDbContext db, ICurrentUser currentUser
     }
 
     /// <summary>
-    /// La etiqueta de estado. «Desplegado» a secas cuando no se sabe cuál es la última publicada:
-    /// decir «al día» sin poder compararlo sería afirmar algo que no se comprobó.
+    /// La etiqueta de estado, con la PALABRA SOLA. «Desplegado» a secas cuando no se sabe cuál es la
+    /// última publicada: decir «al día» sin poder compararlo sería afirmar algo que no se comprobó.
+    ///
+    /// <para>Los cuatro estados llevaban delante un símbolo (○ ⚠ ✅, y «Desplegado» ninguno, que ya
+    /// era una incoherencia). Se fueron: los dibuja EL SISTEMA OPERATIVO y no nosotros, así que se ven
+    /// distintos en cada equipo, NO heredan el color del texto y donde no hay fuente de emoji
+    /// instalada salen como un CUADRO VACÍO — comprobado en una captura. En este rack pesaba de más,
+    /// porque la etiqueta también viaja a una celda de la exportación a Excel, que se abre en un
+    /// equipo del que no sabemos nada.</para>
+    ///
+    /// <para>La señal no se pierde. El DTO lleva los booleanos <c>NuncaDesplegado</c> y
+    /// <c>Atrasado</c>, y de ellos —no de comparar esta palabra— sale ya el color de la columna en
+    /// <c>EstadoDeServidores.razor</c>. Nadie coteja esta cadena por igualdad; si alguien empieza a
+    /// hacerlo, que use esos booleanos.</para>
     /// </summary>
     private static string Etiqueta(bool nunca, bool atrasado, string? ultimaDelSistema)
     {
-        if (nunca) return "○ Sin desplegar";
-        if (atrasado) return "⚠ Atrasado";
-        return ultimaDelSistema == null ? "Desplegado" : "✅ Al día";
+        if (nunca) return "Sin desplegar";
+        if (atrasado) return "Atrasado";
+        return ultimaDelSistema == null ? "Desplegado" : "Al día";
     }
 }

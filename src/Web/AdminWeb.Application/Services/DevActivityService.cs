@@ -109,14 +109,28 @@ public class DevActivityService(AppDbContext db, ICurrentUser currentUser, Audit
     }
 
     /// <summary>
-    /// Etiqueta del estado de una actividad, con los emojis del escritorio.
+    /// Etiqueta del estado de una actividad, con la PALABRA SOLA.
     ///
-    /// Vive aquí y no en la pantalla ni en el endpoint porque la escriben los dos —la rejilla y la
-    /// exportación— y dos copias del mismo texto acaban diciendo cosas distintas. El COLOR sí lo pone
-    /// la pantalla: un servicio no debe saber del tema visual.
+    /// <para>Vive aquí y no en la pantalla ni en el endpoint porque la escriben los dos —la rejilla y
+    /// la exportación— y dos copias del mismo texto acaban diciendo cosas distintas. El COLOR sí lo
+    /// pone la pantalla: un servicio no debe saber del tema visual.</para>
+    ///
+    /// <para><b>Llevaba delante un círculo (🟢 / ⚪) y por aquí es por donde más urgía quitarlo.</b>
+    /// Ese círculo lo dibuja EL SISTEMA OPERATIVO, no nosotros: sale distinto en cada equipo, NO
+    /// hereda el color del texto y donde no hay fuente de emoji instalada sale como un CUADRO VACÍO
+    /// —comprobado en una captura, no es teoría—. Y esta etiqueta no se queda en nuestra pantalla:
+    /// <see cref="ExcelDelEquipoAsync"/> la escribe en la columna «Estado» de un .xlsx que se manda
+    /// por correo y se abre en una máquina de la que no sabemos nada. Ahí no hay tema que arreglarlo
+    /// ni captura que nos avise: quien recibe el libro ve un cuadro y ya. La palabra sola se lee y se
+    /// filtra igual en cualquier Excel.</para>
+    ///
+    /// <para>Nadie compara esta cadena por igualdad —el filtro de la pantalla y la consulta van por
+    /// <see cref="DevActivityStatus"/>, que viaja en el DTO al lado de este texto—, así que quitarle
+    /// el círculo no descasa ningún switch. Si alguien necesita decidir por el estado, que use el
+    /// enum; comparar la palabra volvería a atar el color a la ortografía.</para>
     /// </summary>
     public static string Etiqueta(DevActivityStatus estado) =>
-        estado == DevActivityStatus.Abierta ? "🟢 Abierta" : "⚪ Cerrada";
+        estado == DevActivityStatus.Abierta ? "Abierta" : "Cerrada";
 
     /// <summary>Sesiones de cronómetro de una actividad, para ver cómo se acumuló el tiempo.</summary>
     public async Task<List<WorkSession>> SesionesDeAsync(int activityId, CancellationToken ct = default)

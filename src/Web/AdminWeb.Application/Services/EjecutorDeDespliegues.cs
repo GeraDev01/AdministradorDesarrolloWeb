@@ -247,6 +247,257 @@ public sealed class RegistroDeDespliegues
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────
+//  La señal de vida: lo único que una instancia ve de lo que está corriendo otra
+// ─────────────────────────────────────────────────────────────────────────────────
+
+/// <summary>
+/// La prueba, EN LA BASE, de que un despliegue lo está corriendo alguien ahora mismo: una fila que
+/// el servidor que lo ejecuta refresca cada <see cref="Latido"/> mientras dura.
+///
+/// <para><b>Por qué no basta el registro en memoria.</b> <see cref="RegistroDeDespliegues"/> es
+/// memoria de UN proceso. Con la API en dos instancias —o durante los segundos en que conviven la
+/// vieja y la nueva de un intercambio de ranura— cada una solo ve sus propios despliegues, así que
+/// la guarda que impide dos subidas simultáneas a la misma carpeta remota deja de guardar nada justo
+/// cuando más falta hace: dos personas desplegando a la vez desde instancias distintas dejan una
+/// mezcla de dos versiones en el servidor, y sigue sin notarse. Lo único que ven todas las
+/// instancias es la base, así que ahí tiene que estar la prueba.</para>
+///
+/// <para><b>Por qué una señal que CADUCA y no una marca de «está corriendo».</b> Una marca fija
+/// mentiría en cuanto el proceso muriera: el trabajo se quedaría ocupando su servidor para siempre y
+/// nadie podría desplegar ahí sin ir a tocar la base a mano — es decir, arreglar un agujero abriendo
+/// otro peor. Una señal que hay que renovar dice la verdad sola: si nadie la renueva, es que no hay
+/// nadie corriéndolo. Es además el dato con el que <see cref="ReconciliacionDeDespliegues"/>
+/// distingue, al arrancar, un trabajo huérfano de uno que otra instancia está ejecutando.</para>
+///
+/// <para><b>Por qué vive en el log del propio despliegue.</b> No hay tabla nueva —el esquema no se
+/// toca desde aquí— y AppSettings tampoco servía: esa tabla se pinta ENTERA en la pantalla de
+/// Configuración y habría llenado de apuntes internos lo que un líder teclea. Aquí el dato es del
+/// trabajo y se borra en cascada con él. Al terminar se retira; y si el servidor murió a media faena,
+/// esta misma fila se REESCRIBE con lo que pasó de verdad, que es lo que impide que el historial
+/// mienta.</para>
+///
+/// <para><b>Y no se enseña.</b> <c>DespliegueQueryService.ExpedienteAsync</c> la filtra por
+/// <see cref="Marca"/>, porque esto no es un renglón de bitácora sino una reserva, y ese método
+/// alimenta también la evidencia descargable. Es la contrapartida de vivir en una tabla prestada: si
+/// algún día la marca cambia, hay que cambiarla también allí o el apunte interno se asoma al
+/// expediente. La fila REESCRITA por la reconciliación ya no coincide con la marca y sí sale, que es
+/// lo que se pretende.</para>
+/// </summary>
+public static class SenalDeVidaDelDespliegue
+{
+    /// <summary>
+    /// El texto EXACTO de la fila. No es decorativo: es por lo que se la reconoce. Cambiarlo deja
+    /// huérfanas las señales ya escritas —durante un despliegue escalonado, las de la versión
+    /// anterior— y esas se darán por muertas en cuanto caduquen, cerrando en el historial despliegues
+    /// que seguían vivos.
+    /// </summary>
+    public const string Marca = "⏱ Señal de vida: el servidor que está corriendo este despliegue sigue en pie.";
+
+    /// <summary>Cada cuánto se renueva. Corto se puede: es actualizar una fila de una tabla.</summary>
+    public static readonly TimeSpan Latido = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Cuánto se aguanta sin señal antes de dar el despliegue por muerto. Diez latidos, holgado a
+    /// propósito: pasarse de prudente solo retrasa unos minutos el diagnóstico, mientras que pasarse
+    /// de impaciente declara libre un servidor al que todavía se le están subiendo archivos y
+    /// autoriza justo el despliegue simultáneo que todo esto existe para impedir.
+    /// </summary>
+    public static readonly TimeSpan Tolerancia = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Deja constancia de que este despliegue sigue vivo AHORA. Crea la fila la primera vez y la
+    /// actualiza después: es UNA por trabajo y no un rastro de latidos, que serían miles por
+    /// despliegue y dejarían el expediente ilegible.
+    /// </summary>
+    public static async Task RefrescarAsync(
+        AppDbContext db, int jobId, DateTime ahoraUtc, CancellationToken ct = default)
+    {
+        var fila = await db.DeploymentLogEntries
+            .Where(l => l.JobId == jobId && l.Message == Marca)
+            .OrderByDescending(l => l.Timestamp)
+            .FirstOrDefaultAsync(ct);
+
+        if (fila == null)
+            db.DeploymentLogEntries.Add(new DeploymentLogEntry
+            {
+                JobId = jobId,
+                Message = Marca,
+                Level = DeployLogLevel.Info,
+                Timestamp = ahoraUtc
+            });
+        else
+            fila.Timestamp = ahoraUtc;
+
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Retira la señal. Se llama al terminar el despliegue pase lo que pase: una señal que se queda
+    /// puesta después de acabar deja el servidor ocupado a ojos de las demás instancias hasta que
+    /// caduca, y son minutos en los que nadie puede desplegar ahí sin ningún motivo.
+    /// </summary>
+    public static Task<int> RetirarAsync(AppDbContext db, int jobId, CancellationToken ct = default) =>
+        db.DeploymentLogEntries.Where(l => l.JobId == jobId && l.Message == Marca).ExecuteDeleteAsync(ct);
+
+    /// <summary>
+    /// Cuáles de estos servidores están recibiendo un despliegue ahora mismo, lo lance quien lo
+    /// lance y desde la instancia que sea.
+    ///
+    /// <para>El destino de un trabajo se lee de su PERFIL, que es donde queda escrito: la selección
+    /// directa congela uno propio al lanzar (<c>IsAdHoc</c>) justo para que el historial —y esta
+    /// consulta— puedan contestar a dónde iba.</para>
+    ///
+    /// <para>Un trabajo «En curso» cuya señal ya caducó NO cuenta como ocupación, y eso es
+    /// deliberado: si el proceso que lo corría murió, el servidor está libre de verdad y bloquearlo
+    /// hasta que alguien reinicie la aplicación sería peor que el problema. La fila mentirosa la
+    /// arregla la reconciliación; el servidor se libera solo.</para>
+    /// </summary>
+    public static async Task<HashSet<int>> ServidoresOcupadosAsync(
+        AppDbContext db, IReadOnlyCollection<int> candidatos, DateTime ahoraUtc, CancellationToken ct = default)
+    {
+        if (candidatos.Count == 0) return [];
+
+        var limite = ahoraUtc - Tolerancia;
+        var ids = candidatos.ToList();
+
+        var ocupados = await db.DeploymentProfileTargets.AsNoTracking()
+            .Where(pt => ids.Contains(pt.TargetId))
+            .Where(pt => db.DeploymentJobs.Any(j =>
+                j.DeploymentProfileId == pt.ProfileId
+                && j.Status == JobStatus.EnCurso
+                && j.LogEntries.Any(l => l.Message == Marca && l.Timestamp > limite)))
+            .Select(pt => pt.TargetId)
+            .Distinct()
+            .ToListAsync(ct);
+
+        return [.. ocupados];
+    }
+}
+
+/// <summary>
+/// Cierra los despliegues que se quedaron en <see cref="JobStatus.EnCurso"/> sin nadie que los esté
+/// ejecutando. Se llama al arrancar la API.
+///
+/// <para><b>Qué arregla.</b> Un reinicio a media faena mata el proceso que estaba desplegando. El
+/// servidor remoto queda libre —correcto: nadie le está subiendo nada— pero la fila del trabajo se
+/// queda «En curso» para siempre, y el historial acaba con despliegues eternamente en marcha que
+/// nadie puede explicar meses después.</para>
+///
+/// <para><b>Lo que hace difícil esto.</b> Con varias instancias, un arranque NO puede cerrar sin más
+/// todo lo que encuentre en curso: lo más probable es que se esté reiniciando una sola instancia
+/// mientras otra sigue desplegando tan tranquila, y cerrarle el trabajo por debajo dejaría su
+/// historial mintiendo en la otra dirección —y, peor, liberaría su servidor para que un tercero
+/// desplegara encima—. Por eso el criterio no es «está en curso» sino «está en curso y hace rato que
+/// nadie da señales de estarlo corriendo»: ver <see cref="SenalDeVidaDelDespliegue"/>.</para>
+/// </summary>
+public static class ReconciliacionDeDespliegues
+{
+    /// <summary>
+    /// Cierra los interrumpidos y devuelve cuántos eran. Es idempotente: volver a llamarla no
+    /// encuentra nada, porque al cerrar el trabajo deja de estar «En curso» y su señal deja de serlo.
+    /// </summary>
+    public static async Task<int> CerrarInterrumpidosAsync(
+        AppDbContext db, DateTime ahoraUtc, CancellationToken ct = default)
+    {
+        var enCurso = await db.DeploymentJobs.Where(j => j.Status == JobStatus.EnCurso).ToListAsync(ct);
+        if (enCurso.Count == 0) return 0;
+
+        var ids = enCurso.Select(j => j.Id).ToList();
+
+        // Las señales y los hitos por servidor, en dos consultas y no en dos por trabajo: esto corre
+        // en el arranque, y un arranque que hace treinta viajes a una base remota se nota.
+        var senales = (await db.DeploymentLogEntries
+                .Where(l => ids.Contains(l.JobId) && l.Message == SenalDeVidaDelDespliegue.Marca)
+                .ToListAsync(ct))
+            .GroupBy(l => l.JobId)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(l => l.Timestamp).First());
+
+        var hitos = await db.DeploymentLogEntries.AsNoTracking()
+            .Where(l => ids.Contains(l.JobId) && l.TargetId != null
+                        && (l.Level == DeployLogLevel.Exito || l.Level == DeployLogLevel.Error))
+            .Select(l => new { l.JobId, TargetId = l.TargetId!.Value, l.Level })
+            .Distinct()
+            .ToListAsync(ct);
+
+        var limite = ahoraUtc - SenalDeVidaDelDespliegue.Tolerancia;
+        int cerrados = 0;
+
+        foreach (var job in enCurso)
+        {
+            senales.TryGetValue(job.Id, out var senal);
+
+            // Cuándo se supo por última vez de este trabajo. Sin señal ninguna vale su hora de
+            // arranque, y esa equivalencia importa: un trabajo recién lanzado que todavía no tiene
+            // señal puede estar corriéndolo una instancia con la versión ANTERIOR de la aplicación
+            // —los minutos de un despliegue escalonado, cuando conviven las dos—, y cerrárselo sería
+            // el mismo error que cerrárselo a una instancia viva. Uno de hace horas sin señal, en
+            // cambio, no engaña a nadie: o murió antes de dar la primera, o es anterior a que esto
+            // existiera.
+            var cuando = senal?.Timestamp ?? job.StartedAt ?? job.CreatedAt;
+
+            // Reciente = alguien lo está corriendo, aquí o en otra instancia. No se toca.
+            if (cuando > limite) continue;
+
+            // Lo que SÍ se sabe se lee de la bitácora, que se persiste servidor por servidor según
+            // van cayendo: es la diferencia entre «no se sabe nada» y «se sabe esto y falta el
+            // resto», y es lo que convierte el expediente en algo utilizable.
+            int ok = hitos.Count(h => h.JobId == job.Id && h.Level == DeployLogLevel.Exito);
+            int fallidos = hitos.Count(h => h.JobId == job.Id && h.Level == DeployLogLevel.Error);
+
+            // «Fallido» y no otra cosa, a falta de un estado propio. No es «Cancelado»: nadie lo
+            // pidió. No es «Parcial»: eso es el RESULTADO de un despliegue que terminó, y este no
+            // terminó. Y desde luego no se queda «En curso», que es la mentira que estamos quitando.
+            // La verdad completa —que se interrumpió y que hay servidores de los que no se sabe— va
+            // en el renglón de abajo, que sale en el expediente y en la evidencia descargable.
+            job.Status = JobStatus.Fallido;
+            job.TargetsOk = ok;
+            job.TargetsFailed = fallidos;
+
+            // Terminó cuando se le perdió la pista, no cuando lo notamos: fechar el cierre «ahora»
+            // le regalaría al despliegue las horas que la aplicación estuvo caída.
+            job.CompletedAt = cuando;
+
+            // Sin el triángulo que llevaba delante, por lo mismo que las etiquetas de estado: este
+            // renglón acaba en la EVIDENCIA descargable, un .txt que se abre en un equipo del que no
+            // sabemos nada y donde un emoji sin fuente sale como un cuadro vacío. La palabra
+            // «INTERRUMPIDO» en mayúsculas ya grita bastante, y el renglón va además en nivel Error.
+            var explicacion =
+                $"INTERRUMPIDO. El servidor de la aplicación que estaba corriendo este despliegue se " +
+                $"detuvo a media faena (última señal de vida: {cuando:dd/MM/yyyy HH:mm} UTC) y al volver ya no " +
+                $"había nada que retomar. Confirmados en la bitácora: {ok} de {job.TargetsTotal} servidor(es)" +
+                (fallidos > 0 ? $", con {fallidos} fallido(s)" : "") + ". " +
+                "Del resto NO se sabe: el que estuviera recibiendo archivos en ese momento pudo quedarse con " +
+                "una mezcla de dos versiones, así que compruébalo antes de volver a desplegar. Se cierra como " +
+                "«Fallido» porque no terminó, que no es lo mismo que haber fallado al publicar.";
+
+            // La señal se REESCRIBE en vez de borrarse y escribir otra fila: así el renglón conserva
+            // la hora de la última señal —que es cuando de verdad se paró todo— y deja de ser una
+            // señal, de modo que una segunda pasada ya no lo confunde con un despliegue vivo.
+            if (senal != null)
+            {
+                senal.Message = explicacion;
+                senal.Level = DeployLogLevel.Error;
+            }
+            else
+            {
+                db.DeploymentLogEntries.Add(new DeploymentLogEntry
+                {
+                    JobId = job.Id,
+                    Timestamp = cuando,
+                    Level = DeployLogLevel.Error,
+                    Message = explicacion
+                });
+            }
+
+            cerrados++;
+        }
+
+        if (cerrados > 0) await db.SaveChangesAsync(ct);
+        return cerrados;
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────
 //  El motor
 // ─────────────────────────────────────────────────────────────────────────────────
 
@@ -701,6 +952,20 @@ public sealed class EjecutorDeDespliegues(
 
     private async Task CorrerAsync(TrabajoVivo trabajo)
     {
+        // La PRIMERA señal se planta antes de tocar nada, y esperándola. Dejársela al primer latido
+        // costaría poco pero abriría un hueco: el trabajo estaría corriendo unos milisegundos sin
+        // que ninguna otra instancia pudiera saberlo. Al lanzar desde la pantalla eso da igual
+        // —DeploymentService ya la plantó bajo candado, junto con la fila del trabajo—, pero un
+        // despliegue PROGRAMADO no pasa por ahí y esta es toda su reserva.
+        await RefrescarSenalAsync(trabajo.Orden.JobId);
+
+        // A partir de aquí se renueva sola, con un token PROPIO y no con el de la cancelación del
+        // trabajo: cancelar no detiene el despliegue en el acto —se cierra en cuanto termina el
+        // archivo que está subiendo— y si la señal se apagara al pedir la cancelación, otra
+        // instancia daría el servidor por libre mientras todavía se le está escribiendo encima.
+        using var latido = new CancellationTokenSource();
+        var senal = MantenerSenalAsync(trabajo.Orden.JobId, latido.Token);
+
         try
         {
             using var ambito = ambitos.CreateScope();
@@ -737,10 +1002,123 @@ public sealed class EjecutorDeDespliegues(
                 trabajo.Terminar(fin, DateTime.UtcNow);
                 trabajo.Emitir(() => avisos.FinAsync(trabajo.Orden.JobId, fin));
             }
+
+            // La pantalla ya sabe que acabó, pero la FILA seguiría «En curso»: el motor es quien la
+            // cierra y aquí no llegó a correr. Sin esto, un fallo al montar el ámbito dejaba un
+            // trabajo eternamente en marcha hasta el siguiente arranque.
+            await CerrarTrabajoAtascadoAsync(trabajo.Orden.JobId, ex);
         }
         finally
         {
+            latido.Cancel();
+            // Se espera al latido ANTES de retirar la señal: al revés podría volver a escribirla
+            // justo después de borrarla y dejar el servidor ocupado hasta que caducara.
+            await senal;
+            await RetirarSenalAsync(trabajo.Orden.JobId);
+
             trabajo.Cancelacion.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Renueva la señal de vida cada <see cref="SenalDeVidaDelDespliegue.Latido"/> mientras el
+    /// despliegue dura. Empieza durmiendo porque la primera ya la plantó quien arrancó el trabajo.
+    /// </summary>
+    private async Task MantenerSenalAsync(int jobId, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try { await Task.Delay(SenalDeVidaDelDespliegue.Latido, ct); }
+            catch (OperationCanceledException) { return; }
+
+            await RefrescarSenalAsync(jobId, ct);
+        }
+    }
+
+    /// <summary>
+    /// Escribe la señal de vida. Abre su PROPIO ámbito: el contexto del despliegue lo está usando el
+    /// motor y un <c>DbContext</c> no se puede compartir entre dos hilos — el síntoma serían fallos
+    /// aleatorios en mitad de una subida, que es de lo peor que se puede diagnosticar.
+    ///
+    /// <para>Que no se pueda escribir NO tumba el despliegue: se anota y se sigue. La consecuencia
+    /// está asumida y es la menos mala — si la base no contesta durante minutos, el despliegue pasa a
+    /// parecer muerto desde fuera y su servidor queda declarado libre. Detenerlo por eso sería peor:
+    /// se cortaría una subida a medias por un problema que no es suyo.</para>
+    /// </summary>
+    private async Task RefrescarSenalAsync(int jobId, CancellationToken ct = default)
+    {
+        try
+        {
+            using var ambito = ambitos.CreateScope();
+            var db = ambito.ServiceProvider.GetRequiredService<AppDbContext>();
+            await SenalDeVidaDelDespliegue.RefrescarAsync(db, jobId, DateTime.UtcNow, ct);
+        }
+        catch (OperationCanceledException) { /* se acabó el trabajo mientras se escribía */ }
+        catch (Exception ex)
+        {
+            log.LogWarning(ex,
+                "No se pudo refrescar la señal de vida del despliegue {JobId}. Si no se recupera, " +
+                "otra instancia podría dar por libre su servidor.", jobId);
+        }
+    }
+
+    private async Task RetirarSenalAsync(int jobId)
+    {
+        try
+        {
+            using var ambito = ambitos.CreateScope();
+            var db = ambito.ServiceProvider.GetRequiredService<AppDbContext>();
+            await SenalDeVidaDelDespliegue.RetirarAsync(db, jobId, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            // No es grave y no vale la pena insistir: la señal caduca sola y, hasta entonces, lo
+            // único que pasa es que ese servidor no admite otro despliegue durante unos minutos.
+            log.LogWarning(ex, "No se pudo retirar la señal de vida del despliegue {JobId}.", jobId);
+        }
+    }
+
+    /// <summary>
+    /// Cierra en la base un trabajo que ni siquiera llegó a arrancar porque no se pudo montar su
+    /// ámbito (falta un servicio, la base no contesta).
+    ///
+    /// <para>Es el mismo agujero que tapa la reconciliación del arranque, pero visto desde dentro y
+    /// con una ventaja: aquí se sabe POR QUÉ, porque hay una excepción en la mano. Es lo mejor que se
+    /// puede hacer y no una garantía —si lo que falló fue la propia base, esto también falla— y
+    /// entonces sí queda para la reconciliación del próximo arranque.</para>
+    /// </summary>
+    private async Task CerrarTrabajoAtascadoAsync(int jobId, Exception causa)
+    {
+        try
+        {
+            using var ambito = ambitos.CreateScope();
+            var db = ambito.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var job = await db.DeploymentJobs.FirstOrDefaultAsync(j => j.Id == jobId, CancellationToken.None);
+
+            // Solo si sigue abierto: el motor pudo haberlo cerrado ya con su resultado de verdad, y
+            // pisarlo con un «Fallido» genérico perdería el único dato bueno que quedaba.
+            if (job is null || job.Status != JobStatus.EnCurso) return;
+
+            job.Status = JobStatus.Fallido;
+            job.CompletedAt = DateTime.UtcNow;
+
+            db.DeploymentLogEntries.Add(new DeploymentLogEntry
+            {
+                JobId = jobId,
+                Timestamp = DateTime.UtcNow,
+                Level = DeployLogLevel.Error,
+                Message = "El despliegue no llegó a arrancar en el servidor y se cierra sin haber tocado " +
+                          $"ningún destino: {causa.Message}"
+            });
+
+            await db.SaveChangesAsync(CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            log.LogError(ex,
+                "Tampoco se pudo cerrar en la base el despliegue {JobId}, que quedó a medias. " +
+                "Lo cerrará la reconciliación del próximo arranque.", jobId);
         }
     }
 

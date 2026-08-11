@@ -13,7 +13,7 @@ namespace AdminWeb.Infrastructure.Avisos;
 /// <para><b>Las llaves se generan UNA vez y no cambian.</b> El navegador se suscribe atado a la
 /// llave pública: si se regenera el par, todas las suscripciones guardadas dejan de valer de golpe y
 /// nadie vuelve a recibir un aviso hasta que abra la aplicación y acepte otra vez. Van en la
-/// configuración del servidor (y en Azure, en Key Vault), no en el código.</para>
+/// configuración del servidor (y en Azure, en los ajustes del App Service), no en el código.</para>
 ///
 /// <para>Si no están configuradas, esto NO revienta: se comporta como «no hay push». Es lo correcto
 /// —los avisos in-app siguen funcionando y son los que de verdad importan— y evita que una

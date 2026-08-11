@@ -200,6 +200,12 @@ public static class DesplieguesEndpoints
             // El token de la PETICIÓN llega hasta aquí y no más allá: lo que valida y registra el
             // trabajo sí depende de que la petición siga viva; el despliegue en sí, no. Ese es todo
             // el cambio de fondo de esta pantalla respecto al escritorio.
+            //
+            // Lanzar RESERVA los servidores antes de contestar, así que este 400 tiene dos motivos
+            // nuevos que el cliente enseña tal cual: que el destino ya esté recibiendo otro
+            // despliegue —lo vea esta instancia de la API o cualquier otra— y, muy de vez en cuando,
+            // que dos personas hayan pulsado el botón en el mismo instante y a una le toque repetir.
+            // Ninguno de los dos es un error del sistema: son la respuesta correcta.
             var (ok, mensaje, jobId) = await despliegues.LanzarAsync(cuerpo, ct);
             return ok
                 ? Results.Ok(new DespliegueLanzadoDto(jobId!.Value, mensaje))

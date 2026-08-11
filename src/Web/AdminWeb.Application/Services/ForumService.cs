@@ -46,13 +46,17 @@ public record ForumFiltro(
 ///
 /// <para>Lo ven el líder y los desarrolladores. Aquí decía «todo el que tenga sesión — es el punto:
 /// compartir ideas», y esa frase caducó: Operaciones queda fuera porque su alcance son los
-/// despliegues y aquí se habla del trabajo del equipo. <b>Quien lo impide hoy es la política
-/// <c>AdminUDesarrollador</c> del grupo <c>/api/foro</c> —y la gemela de
-/// <c>/api/adjuntos/foro/{id}</c>, por donde salen las capturas—, no una guarda de este archivo:
-/// los métodos de abajo siguen pidiendo solo <c>RequireLoggedIn</c>.</b> Mientras siga así, un
-/// endpoint nuevo que llame aquí nacería abierto; la casa protege dos veces, y ésta es la barrera
-/// que falta. Si se pone, va en los métodos de lectura y escritura, nunca en los que ya son
-/// <c>RequireAdmin</c>, que son más estrictos.</para>
+/// despliegues y aquí se habla del trabajo del equipo. <b>Ahora lo impiden DOS barreras</b>: la
+/// política <c>AdminUDesarrollador</c> del grupo <c>/api/foro</c> —y la gemela de
+/// <c>/api/adjuntos/foro/{id}</c>, por donde salen las capturas— y el
+/// <c>RequireAdminOrDesarrollador</c> con el que abre cada método de lectura y de escritura de este
+/// archivo. La segunda no sobra por tener la primera: con solo la del endpoint, un endpoint nuevo
+/// que llamara aquí nacería abierto y quien lo escribiera no tendría por qué enterarse. Los que ya
+/// piden <c>RequireAdmin</c> se quedan como están, que es más estricto.</para>
+///
+/// <para>La comprobación es POSITIVA por rol —«es líder o es desarrollador»— y no por descarte
+/// —«no es de Operaciones»—: escrita al revés, cualquier rol que se invente mañana heredaría el foro
+/// en silencio, que es exactamente el error del que se viene.</para>
 ///
 /// Cada quien manda sobre lo suyo (editar, retirar); el administrador además puede fijar, cerrar y
 /// retirar cualquier cosa, porque alguien tiene que poder parar un hilo que se descarrila. La
@@ -81,6 +85,14 @@ public record ForumFiltro(
 /// </summary>
 public class ForumService(AppDbContext db, ICurrentUser currentUser, AuditService audit)
 {
+    /// <summary>
+    /// Ámbito con el que hablan las guardas, para que el 403 diga de qué se le está echando y no un
+    /// «no tienes permiso» a secas. Lo comparte <see cref="ForoQueryService"/>: son el mismo módulo
+    /// partido en dos clases, y dos textos distintos para la misma negativa se leerían como dos
+    /// reglas distintas.
+    /// </summary>
+    internal const string Ambito = "del foro del equipo";
+
     public const int MaxTitulo = 200;
     public const int MaxCuerpo = 20_000;
     public const int MaxEtiquetas = 300;
@@ -105,7 +117,7 @@ public class ForumService(AppDbContext db, ICurrentUser currentUser, AuditServic
         string? titulo, string? cuerpo, ForumTopic tema, string? etiquetas = null,
         IReadOnlyList<ForumImagenNueva>? imagenes = null, CancellationToken ct = default)
     {
-        AuthorizationGuard.RequireLoggedIn(currentUser);
+        AuthorizationGuard.RequireAdminOrDesarrollador(currentUser, Ambito);
         if (currentUser.UserId is not int userId) return (false, "No hay una sesión válida.", null);
 
         titulo = (titulo ?? "").Trim();
@@ -152,7 +164,7 @@ public class ForumService(AppDbContext db, ICurrentUser currentUser, AuditServic
         int parentId, string? cuerpo, IReadOnlyList<ForumImagenNueva>? imagenes = null,
         CancellationToken ct = default)
     {
-        AuthorizationGuard.RequireLoggedIn(currentUser);
+        AuthorizationGuard.RequireAdminOrDesarrollador(currentUser, Ambito);
         if (currentUser.UserId is not int userId) return (false, "No hay una sesión válida.", null);
 
         cuerpo = NormalizarCuerpo(cuerpo);
@@ -206,7 +218,7 @@ public class ForumService(AppDbContext db, ICurrentUser currentUser, AuditServic
         IReadOnlyList<ForumImagenNueva>? imagenesNuevas = null, IReadOnlyList<int>? quitarImagenes = null,
         CancellationToken ct = default)
     {
-        AuthorizationGuard.RequireLoggedIn(currentUser);
+        AuthorizationGuard.RequireAdminOrDesarrollador(currentUser, Ambito);
 
         var post = await db.ForumPosts.FirstOrDefaultAsync(p => p.Id == postId, ct);
         if (post == null) return (false, "Esa entrada ya no existe. Actualiza el hilo.");
@@ -267,7 +279,7 @@ public class ForumService(AppDbContext db, ICurrentUser currentUser, AuditServic
     /// </summary>
     public async Task<(bool ok, string mensaje)> RetirarAsync(int postId, CancellationToken ct = default)
     {
-        AuthorizationGuard.RequireLoggedIn(currentUser);
+        AuthorizationGuard.RequireAdminOrDesarrollador(currentUser, Ambito);
 
         var post = await db.ForumPosts.FirstOrDefaultAsync(p => p.Id == postId, ct);
         if (post == null) return (false, "Esa entrada ya no existe. Actualiza el hilo.");
@@ -383,7 +395,7 @@ public class ForumService(AppDbContext db, ICurrentUser currentUser, AuditServic
     /// <summary>Alterna el «me gusta» propio. Devuelve si quedó dado y el total.</summary>
     public async Task<(bool ok, bool meGusta, int total)> MeGustaAsync(int postId, CancellationToken ct = default)
     {
-        AuthorizationGuard.RequireLoggedIn(currentUser);
+        AuthorizationGuard.RequireAdminOrDesarrollador(currentUser, Ambito);
         if (currentUser.UserId is not int userId) return (false, false, 0);
         if (!await db.ForumPosts.AnyAsync(p => p.Id == postId && p.DeletedAtUtc == null, ct)) return (false, false, 0);
 
@@ -405,7 +417,7 @@ public class ForumService(AppDbContext db, ICurrentUser currentUser, AuditServic
     public async Task<List<ForumTarjeta>> MuroAsync(ForumFiltro? filtro = null, int tope = 100,
         CancellationToken ct = default)
     {
-        AuthorizationGuard.RequireLoggedIn(currentUser);
+        AuthorizationGuard.RequireAdminOrDesarrollador(currentUser, Ambito);
         var userId = currentUser.UserId ?? -1;
         filtro ??= new ForumFiltro();
 
@@ -470,7 +482,7 @@ public class ForumService(AppDbContext db, ICurrentUser currentUser, AuditServic
     /// </summary>
     public async Task<List<ForumNodo>> HiloAsync(int rootId, CancellationToken ct = default)
     {
-        AuthorizationGuard.RequireLoggedIn(currentUser);
+        AuthorizationGuard.RequireAdminOrDesarrollador(currentUser, Ambito);
         var userId = currentUser.UserId ?? -1;
 
         var entradas = await db.ForumPosts.AsNoTracking()
@@ -516,7 +528,7 @@ public class ForumService(AppDbContext db, ICurrentUser currentUser, AuditServic
 
     public Task<ForumPost?> ObtenerAsync(int postId, CancellationToken ct = default)
     {
-        AuthorizationGuard.RequireLoggedIn(currentUser);
+        AuthorizationGuard.RequireAdminOrDesarrollador(currentUser, Ambito);
         return db.ForumPosts.AsNoTracking().FirstOrDefaultAsync(p => p.Id == postId, ct);
     }
 
@@ -529,7 +541,7 @@ public class ForumService(AppDbContext db, ICurrentUser currentUser, AuditServic
     public async Task<Dictionary<int, List<ForumImagen>>> ImagenesDeAsync(
         IEnumerable<int> postIds, CancellationToken ct = default)
     {
-        AuthorizationGuard.RequireLoggedIn(currentUser);
+        AuthorizationGuard.RequireAdminOrDesarrollador(currentUser, Ambito);
 
         var ids = postIds as IReadOnlyCollection<int> ?? postIds.ToList();
         if (ids.Count == 0) return [];
@@ -563,7 +575,7 @@ public class ForumService(AppDbContext db, ICurrentUser currentUser, AuditServic
     public async Task<Dictionary<int, int>> ConteoImagenesAsync(
         IEnumerable<int> postIds, CancellationToken ct = default)
     {
-        AuthorizationGuard.RequireLoggedIn(currentUser);
+        AuthorizationGuard.RequireAdminOrDesarrollador(currentUser, Ambito);
 
         var ids = postIds as IReadOnlyCollection<int> ?? postIds.ToList();
         if (ids.Count == 0) return [];
@@ -583,11 +595,17 @@ public class ForumService(AppDbContext db, ICurrentUser currentUser, AuditServic
     ///
     /// Devuelve los BYTES y no escribe nada: en la web quien los sirve es el endpoint, que debe
     /// mandarlos con el <c>tipo</c> devuelto y con <c>X-Content-Type-Options: nosniff</c>.
+    ///
+    /// <para><b>Esta es la puerta de atrás del foro y por eso lleva la misma guarda que el muro.</b>
+    /// Las capturas salen por <c>/api/adjuntos/foro/{id}</c>, que es otra ruta y otro grupo: cerrar
+    /// el muro sin cerrar esto habría dejado las imágenes bajándose por número. La política de aquel
+    /// endpoint sigue haciendo falta —no la quites—; ésta es la gemela que le pedía, y la que hace
+    /// que el día que alguien sirva estos bytes desde otra ruta no vuelva a abrirse el hueco.</para>
     /// </summary>
     public async Task<(byte[] bytes, string nombre, string tipo)> BytesDeImagenAsync(
         int imagenId, CancellationToken ct = default)
     {
-        AuthorizationGuard.RequireLoggedIn(currentUser);
+        AuthorizationGuard.RequireAdminOrDesarrollador(currentUser, Ambito);
 
         var img = await db.ForumAttachments.AsNoTracking()
             .Where(a => a.Id == imagenId)

@@ -414,17 +414,51 @@ public class LeaveRequestService(AppDbContext db, ICurrentUser currentUser, Audi
     private static string Describir(LeaveRequest l) =>
         $"{EtiquetaTipo(l.Type)} {l.Date:dd/MM/yyyy} ({l.DaysCount} día(s))";
 
+    /// <summary>
+    /// En qué situación está la solicitud, con la PALABRA SOLA.
+    ///
+    /// <para>Llevaba delante un símbolo (⏳ ✅ ❌ 🚫) y se fue. Los dibuja EL SISTEMA OPERATIVO y no
+    /// nosotros: se ven distintos en cada equipo, NO heredan el color del texto —en el tema oscuro se
+    /// quedaban con el suyo mientras la palabra de al lado cambiaba— y donde no hay fuente de emoji
+    /// instalada salen como un CUADRO VACÍO. Eso último se vio en una captura; no es una precaución
+    /// inventada.</para>
+    ///
+    /// <para><b>Ojo, que ésta no es solo un adorno de rejilla: SE GUARDA.</b> Va dentro de la
+    /// descripción que <c>ResolverAsync</c> escribe en la BITÁCORA —«Permiso aprobada: …»— y aparece
+    /// además en cuatro mensajes de rechazo. Se cambia igualmente, y el motivo es que aquí solo cae el
+    /// SÍMBOLO: la palabra —que es lo que alguien lee en un asiento viejo y lo que teclea si busca
+    /// «rechazada»— no se toca. Los asientos anteriores dicen «Permiso ✅ aprobada» y los nuevos dirán
+    /// «Permiso aprobada»; los dos se leen igual y una búsqueda por la palabra encuentra los dos. Es
+    /// justo lo contrario de <c>EtiquetasDeCatalogo.PrioridadDelPool</c>, que no se toca porque allí
+    /// cambiaría la PALABRA y eso sí partiría el histórico en dos.</para>
+    ///
+    /// <para>Nadie coteja esta cadena por igualdad: las decisiones se toman sobre
+    /// <see cref="LeaveStatus"/>, que viaja en el DTO al lado del texto. Que siga así.</para>
+    /// </summary>
     public static string Etiqueta(LeaveStatus s) => s switch
     {
-        LeaveStatus.Pendiente => "⏳ Pendiente",
-        LeaveStatus.Aprobada  => "✅ Aprobada",
-        LeaveStatus.Rechazada => "❌ Rechazada",
-        _                     => "🚫 Cancelada"
+        LeaveStatus.Pendiente => "Pendiente",
+        LeaveStatus.Aprobada  => "Aprobada",
+        LeaveStatus.Rechazada => "Rechazada",
+        _                     => "Cancelada"
     };
 
     // El color de cada estado lo pone la UI (ver LeaveStatusUi): un servicio no debe depender del
     // tema visual, y con esto sigue siendo utilizable desde el futuro portal web.
 
+    /// <summary>
+    /// De qué es el permiso.
+    ///
+    /// <para><b>Estos SÍ conservan su emoji, y no es que se olvidaran</b> en la limpieza que dejó
+    /// limpio a <see cref="Etiqueta"/> aquí al lado. La diferencia es dónde acaba cada uno: el tipo
+    /// pasa por <see cref="Describir"/>, y <see cref="Describir"/> está metido en SEIS descripciones
+    /// de bitácora —alta, registro del líder, edición, corrección, cancelación y baja—, o sea que este
+    /// texto ya está grabado en el histórico de casi todo lo que se ha hecho con un permiso. Quitarlo
+    /// sigue siendo defendible con el mismo argumento que allí (cae el símbolo, no la palabra), pero
+    /// el usuario acotó esta tanda a los ESTADOS y ésta no es una decisión que se tome de paso.
+    /// Cuando la pida, se quitan los seis dibujos de aquí abajo y no hace falta nada más: nadie
+    /// compara estas cadenas.</para>
+    /// </summary>
     public static string EtiquetaTipo(LeaveType t) => t switch
     {
         LeaveType.PermisoPersonal => "🙋 Permiso personal",

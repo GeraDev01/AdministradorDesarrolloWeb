@@ -259,7 +259,10 @@ public class ForoQueryServiceTests
         Assert.Equal(2, filas.Count);
         var retirada = filas.Single(f => f.Id == comentario.Id);
         Assert.True(retirada.Retirada);
-        Assert.Equal("🗑 Retirada", retirada.Estado);
+        // Sin el bote de basura que llevaba delante: los pictogramas los dibuja el sistema operativo
+        // y donde no hay fuente de emoji salen como un cuadro vacío. Cae la MARCA, no la palabra, así
+        // que la columna sigue diciendo lo mismo.
+        Assert.Equal("Retirada", retirada.Estado);
         // Ni siquiera al administrador: la vista de auditoría dice QUÉ pasó, no devuelve el original.
         Assert.DoesNotContain("zanahoria", retirada.Texto);
         // Un comentario no sale huérfano: lleva el título de su hilo.

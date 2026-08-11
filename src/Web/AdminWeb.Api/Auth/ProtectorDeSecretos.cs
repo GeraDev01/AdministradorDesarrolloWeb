@@ -8,7 +8,8 @@ namespace AdminWeb.Api.Auth;
 ///
 /// Sustituye al DPAPI del escritorio, que ataba cada secreto a la cuenta de Windows de la máquina
 /// donde se capturó — y por eso el token se perdía al cambiar de computadora. Aquí las llaves las
-/// gestiona el servidor (en Azure, respaldadas por Key Vault), así que el secreto sigue a la persona.
+/// gestiona el servidor —en Azure, un llavero en Blob cifrado con un certificado; ver
+/// <c>Arranque/Llavero.cs</c>—, así que el secreto sigue a la persona.
 ///
 /// El propósito va en el nombre del protector: eso hace que un texto cifrado para un uso no se pueda
 /// descifrar como si fuera de otro, aunque alguien lograra moverlo de fila.

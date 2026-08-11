@@ -2092,7 +2092,7 @@ private static string HistorialDeDemo(params (DateTime CuandoUtc, string Texto)[
             });
 
             // Dani tiene la aplicación abierta pero NO marcó: es el día que aparece en el historial
-            // como «⚠ Sin marcar (solo telemetría)», que es el caso para el que se hizo esa fila.
+            // como «Sin marcar (solo telemetría)», que es el caso para el que se hizo esa fila.
             telemetria.Add(new WorkPresence
             {
                 UserId = b.UsuarioDani.Id, DeveloperId = b.Dani.Id, DisplayName = b.UsuarioDani.FullName,
@@ -2281,7 +2281,7 @@ private static string HistorialDeDemo(params (DateTime CuandoUtc, string Texto)[
 
         MeGusta(db, pistaDelPool, ahora.AddDays(-2), b.UsuarioBeto, b.UsuarioDani, b.Lider);
 
-        // 3. El hilo con más aplausos, y el único editado: enseña la marca de «✏ Editada».
+        // 3. El hilo con más aplausos, y el único editado: enseña la marca de «Editada».
         var leccionWebConfig = Hilo(db, b.UsuarioCaro, ForumTopic.Aprendizaje,
             "Lo que aprendimos del web.config que se nos fue en el último publish",
             "Resumen de lo del martes pasado, para que no se pierda. El publish arrastró el "

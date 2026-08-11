@@ -36,6 +36,11 @@ namespace AdminWeb.Application.Services;
 ///    <see cref="ForumService.ImagenesDeAsync"/>.
 ///
 /// Solo lectura: aquí no se escribe nada.
+///
+/// <para><b>Quién entra.</b> Lo mismo que en <see cref="ForumService"/> y por lo mismo: el líder y
+/// el desarrollador, comprobado AQUÍ además de en la política del grupo <c>/api/foro</c>. Leer el
+/// muro es participar en el foro tanto como escribir en él, así que la lectura no puede ser más
+/// abierta que la escritura. La auditoría sigue siendo solo del administrador, que es más estricto.</para>
 /// </summary>
 public class ForoQueryService(AppDbContext db, ICurrentUser currentUser)
 {
@@ -57,7 +62,7 @@ public class ForoQueryService(AppDbContext db, ICurrentUser currentUser)
         ForumFiltro? filtro = null, int pagina = 1, int tamano = TamanoPaginaPorOmision,
         CancellationToken ct = default)
     {
-        AuthorizationGuard.RequireLoggedIn(currentUser);
+        AuthorizationGuard.RequireAdminOrDesarrollador(currentUser, ForumService.Ambito);
         var userId = currentUser.UserId ?? -1;
         filtro ??= new ForumFiltro();
         (pagina, tamano) = Acotar(pagina, tamano);
@@ -124,7 +129,7 @@ public class ForoQueryService(AppDbContext db, ICurrentUser currentUser)
     /// </summary>
     public async Task<ForoHiloDto?> HiloAsync(int rootId, CancellationToken ct = default)
     {
-        AuthorizationGuard.RequireLoggedIn(currentUser);
+        AuthorizationGuard.RequireAdminOrDesarrollador(currentUser, ForumService.Ambito);
         var userId = currentUser.UserId ?? -1;
 
         var entradas = await db.ForumPosts.AsNoTracking()
@@ -239,7 +244,16 @@ public class ForoQueryService(AppDbContext db, ICurrentUser currentUser)
                 p.EsPublicacion ? $"{ForumService.IconoTema(p.Topic)} Publicación" : "↩ Comentario",
                 p.EsPublicacion ? (p.Title ?? "") : (titulos.TryGetValue(p.RootId, out var t) ? t : $"#{p.RootId}"),
                 texto,
-                p.Eliminado ? "🗑 Retirada" : p.EditedAtUtc != null ? "✏ Editada" : "",
+                // La columna «Estado» es una PALABRA y nada más. Llevaba un pictograma delante (un
+                // bote de basura y un lápiz) y se quitó por lo mismo que se quitaron los de la barra
+                // y el menú: los dibuja el SISTEMA OPERATIVO, así que cambian de forma en cada
+                // equipo, no heredan el color del texto —en el tema oscuro siguen brillando con los
+                // suyos— y donde no hay fuente de emoji salen como un CUADRO VACÍO. Aquí no se
+                // pueden sustituir por un <RadzenIcon>: la rejilla pinta esta cadena tal cual, así
+                // que la marca se quita en vez de cambiarse. No se pierde nada — los dos booleanos
+                // de las líneas de abajo son los que la pantalla puede usar para colorear o para
+                // poner un icono de la fuente el día que quiera.
+                p.Eliminado ? "Retirada" : p.EditedAtUtc != null ? "Editada" : "",
                 p.Eliminado,
                 p.EditedAtUtc != null);
         }).ToList();
@@ -255,7 +269,7 @@ public class ForoQueryService(AppDbContext db, ICurrentUser currentUser)
     /// </summary>
     public async Task<ForoOpcionesDto> OpcionesDelMuroAsync(CancellationToken ct = default)
     {
-        AuthorizationGuard.RequireLoggedIn(currentUser);
+        AuthorizationGuard.RequireAdminOrDesarrollador(currentUser, ForumService.Ambito);
         return new ForoOpcionesDto(Temas(), await AutoresAsync(soloPublicaciones: true, ct));
     }
 

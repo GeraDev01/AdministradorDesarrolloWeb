@@ -417,15 +417,20 @@ public class ForumServiceTests
     }
 
     [Fact]
-    public async Task ElForoLoVeCualquieraConSesion()
+    public async Task ElForoLoVeTodoElEquipoDeDesarrollo()
     {
-        // El punto del foro es compartir: si solo lo viera una parte del equipo, no sería un foro.
+        // El punto del foro es compartir, y lo sigue siendo: dentro del EQUIPO. Esta prueba se
+        // llamaba «ElForoLoVeCualquieraConSesion» y afirmaba que un operativo también veía el muro;
+        // esa decisión se revirtió a propósito —su alcance son los despliegues, no el trabajo del
+        // equipo— y ahora lo niegan las dos barreras, la política del grupo y la guarda del servicio.
+        // No se ablanda la prueba: se le cambia el sujeto, porque lo que afirmaba dejó de ser verdad.
         var db = TestDb.New();
         await Svc(db, Quien(1, "Ana")).PublicarAsync("Tema", "cuerpo del tema", ForumTopic.Idea);
 
         Assert.Single(await Svc(db, Quien(2, "Beto", UserRole.Desarrollador)).MuroAsync());
-        Assert.Single(await Svc(db, Quien(3, "Ops", UserRole.Operaciones)).MuroAsync());
         Assert.Single(await Svc(db, Quien(99, "Jefa", UserRole.Admin)).MuroAsync());
+        await Assert.ThrowsAsync<AuthorizationException>(
+            () => Svc(db, Quien(3, "Ops", UserRole.Operaciones)).MuroAsync());
     }
 
     [Fact]

@@ -31,7 +31,7 @@ services:
       ACCEPT_EULA: "Y"
       # Contraseña de un contenedor desechable que solo escucha en la red interna de Docker. No es
       # un secreto: es un valor fijo para que la prueba sea reproducible. Que esté aquí en claro es
-      # deliberado y solo vale para esto — el de verdad vive en Key Vault.
+      # deliberado y solo vale para esto — el de verdad vive en los ajustes del App Service.
       MSSQL_SA_PASSWORD: "Pruebas_Local_2026!"
       MSSQL_PID: Developer
     # SIN puertos publicados hacia el anfitrión a propósito: no hace falta para probar la aplicación

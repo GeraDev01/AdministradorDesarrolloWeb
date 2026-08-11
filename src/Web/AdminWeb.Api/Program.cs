@@ -33,7 +33,7 @@ RegistroEnArchivo.Configurar(builder);
 var cadena = builder.Configuration.GetConnectionString("Default")
              ?? throw new InvalidOperationException(
                  "Falta la cadena de conexión 'Default'. En desarrollo va en user-secrets o appsettings.Development.json; " +
-                 "en Azure, como referencia a Key Vault.");
+                 "en Azure, como ajuste del App Service llamado ConnectionStrings__Default.");
 
 // El proveedor es configurable porque SQLite hace falta en dos sitios reales: para levantar la
 // aplicación en un equipo sin SQL Server, y para las pruebas de humo, que no deben tocar ninguna
@@ -58,8 +58,10 @@ builder.Services.AddScoped<IRequestOrigin, HttpRequestOrigin>();
 // ── Secretos por usuario ────────────────────────────────────────────────────────
 //
 // Sustituye al archivo cifrado con DPAPI que cada quien tenía en su máquina. Dónde viven las llaves
-// —Blob + Key Vault en Azure, carpeta en local— lo decide Llavero a partir de la configuración; ahí
-// está explicado por qué NO puede quedarse en el sistema de archivos efímero del contenedor.
+// —Blob en Azure, carpeta en local— y con qué se cifran ellas mismas —un certificado, porque esta
+// suscripción no tiene Key Vault— lo decide Llavero a partir de la configuración; ahí está explicado
+// por qué NO pueden quedarse en el sistema de archivos efímero del contenedor, y por qué una huella
+// configurada cuyo certificado no aparece tumba el arranque a propósito.
 Llavero.Configurar(builder);
 builder.Services.AddScoped<IProtectorDeSecretos, ProtectorDeSecretos>();
 
@@ -83,8 +85,10 @@ builder.Services.AddSingleton<IPlantillaDeVacacionesEnWord, PlantillaDeVacacione
 //
 // Sustituyen a los globos de la bandeja del sistema, que era lo único que la web no podía hacer.
 // Las llaves VAPID se generan UNA vez y no cambian: regenerarlas invalida de golpe todas las
-// suscripciones guardadas y nadie vuelve a recibir un aviso hasta que acepte otra vez. En Azure van
-// en Key Vault. Sin llaves configuradas, esto se comporta como «no hay push» y la aplicación
+// suscripciones guardadas y nadie vuelve a recibir un aviso hasta que acepte otra vez. En Azure la
+// privada va como ajuste del App Service, no en un vault: no hay ninguno en esta suscripción, así que
+// además hay que guardarla aparte porque de ahí no se recupera. Sin llaves configuradas, esto se
+// comporta como «no hay push» y la aplicación
 // funciona igual — los avisos dentro de la aplicación son los que de verdad importan.
 builder.Services.AddSingleton(builder.Configuration.GetSection("AdminWeb:Push").Get<OpcionesDeAvisosPush>()
                               ?? new OpcionesDeAvisosPush());

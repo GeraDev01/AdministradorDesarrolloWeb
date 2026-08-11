@@ -67,7 +67,7 @@ public class EstadoDeServidoresServiceTests
 
         var fila = Assert.Single(estado.Servidores);
         Assert.False(fila.Atrasado);
-        Assert.Equal("✅ Al día", fila.EstadoTexto);
+        Assert.Equal("Al día", fila.EstadoTexto);
         Assert.Equal(1, estado.AlDia);
     }
 
@@ -84,7 +84,7 @@ public class EstadoDeServidoresServiceTests
 
         var fila = Assert.Single(estado.Servidores);
         Assert.True(fila.Atrasado);
-        Assert.Equal("⚠ Atrasado", fila.EstadoTexto);
+        Assert.Equal("Atrasado", fila.EstadoTexto);
         Assert.Equal("1.1.0", fila.UltimaVersionDelSistema);
         Assert.Equal(1, estado.Atrasados);
     }
@@ -120,7 +120,7 @@ public class EstadoDeServidoresServiceTests
         var fila = Assert.Single(estado.Servidores);
         Assert.True(fila.NuncaDesplegado);
         Assert.False(fila.Atrasado);
-        Assert.Equal("○ Sin desplegar", fila.EstadoTexto);
+        Assert.Equal("Sin desplegar", fila.EstadoTexto);
         Assert.Equal("—", fila.Antiguedad);
         Assert.Equal(1, estado.SinDesplegar);
     }

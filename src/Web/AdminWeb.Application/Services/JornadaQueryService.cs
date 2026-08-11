@@ -14,6 +14,13 @@ namespace AdminWeb.Application.Services;
 /// tres controles que consultaban por su cuenta contra la base local; aquí cada consulta sería un
 /// viaje de red, y una pantalla que se pinta en cuatro tandas parpadea. Los servicios de fondo
 /// —asistencia, presencia, cronómetro— siguen siendo los dueños de su lógica: esto solo los junta.
+///
+/// <para><b>Aun juntando, comprueba por su cuenta.</b> Cada método abre con la guarda del líder y el
+/// desarrollador, que es la misma que ponen los servicios de fondo. Repetirla parece redundante y no
+/// lo es: esta clase se llama desde <c>/api/jornada</c> pero también desde otros sitios (el
+/// cronómetro lo pide <c>TrabajoQueryService</c>), y una consulta que solo se apoyara en las guardas
+/// de sus dependencias quedaría abierta el día que alguien le añada un dato que no venga de
+/// ninguna de ellas.</para>
 /// </summary>
 public class JornadaQueryService(
     AppDbContext db,
@@ -21,6 +28,13 @@ public class JornadaQueryService(
     AttendanceService asistencia,
     PresenceService presencia)
 {
+    /// <summary>
+    /// Ámbito de las guardas, para que el 403 diga de qué se le está echando. Es el mismo texto que
+    /// usan <see cref="AttendanceService"/> y <see cref="PresenceService.MisJornadasAsync"/>: la
+    /// pantalla es una sola y tiene que negar con una sola frase.
+    /// </summary>
+    private const string Ambito = "de la jornada propia";
+
     /// <summary>Cuántos días atrás enseña el historial por omisión. Un mes cubre el ciclo de nómina.</summary>
     public const int DiasDeHistorial = 30;
 
@@ -35,7 +49,7 @@ public class JornadaQueryService(
     public async Task<MiJornadaDto> MiJornadaAsync(
         DateTime? desdeLocal = null, DateTime? hastaLocal = null, CancellationToken ct = default)
     {
-        AuthorizationGuard.RequireLoggedIn(currentUser);
+        AuthorizationGuard.RequireAdminOrDesarrollador(currentUser, Ambito);
 
         // El rango se acota en el SERVIDOR y no se confía en el que llegue. Sin tope, «desde 1990»
         // traería años de filas por una petición de una línea; y un rango al revés devolvería vacío
@@ -96,7 +110,12 @@ public class JornadaQueryService(
                 null,
                 t.Value.PrimeraSenalUtc, t.Value.UltimaSenalUtc,
                 null, null,
-                "⚠ Sin marcar (solo telemetría)",
+                // Sin el triángulo que llevaba delante. Cae en la MISMA columna que las etiquetas de
+                // AttendanceService.EtiquetaCierre, que ya se limpiaron: media columna con marca y
+                // media sin ella se lee como si significaran cosas distintas. El motivo de fondo está
+                // escrito allí — los emoji los dibuja el sistema operativo, no heredan el color del
+                // texto y donde no hay fuente de emoji salen como un cuadro vacío.
+                "Sin marcar (solo telemetría)",
                 false, null, porDia.GetValueOrDefault(t.Key), t.Value)));
 
         historial = [.. historial.OrderByDescending(h => h.EntradaUtc)];
@@ -125,7 +144,7 @@ public class JornadaQueryService(
     /// </summary>
     public async Task<EstadoDeMarcajeDto> EstadoDeMarcajeAsync(CancellationToken ct = default)
     {
-        AuthorizationGuard.RequireLoggedIn(currentUser);
+        AuthorizationGuard.RequireAdminOrDesarrollador(currentUser, Ambito);
 
         var abierto = await asistencia.MiRegistroAbiertoAsync(ct);
         if (abierto != null) return new EstadoDeMarcajeDto(abierto.CheckInUtc, false);
@@ -139,9 +158,16 @@ public class JornadaQueryService(
     ///
     /// Solo cuenta el ACTIVO: uno pausado no tiene contador que correr en la pantalla y enseñarlo
     /// como si estuviera andando sería mentir sobre el tiempo que se está registrando.
+    ///
+    /// <para><b>La guarda es nueva y no sobra por devolver siempre lo propio.</b> Este método no
+    /// tenía ninguna: se apoyaba en que sin ficha de desarrollador no hay nada que devolver, y eso
+    /// no es un permiso, es una casualidad —el día que una cuenta de Operaciones tenga ficha ligada,
+    /// «no tiene ficha» deja de proteger—. Es además el método más expuesto de la clase, porque lo
+    /// llama <see cref="TrabajoQueryService"/> y no solo el grupo <c>/api/jornada</c>.</para>
     /// </summary>
     public async Task<CronometroDto?> CronometroAsync(CancellationToken ct = default)
     {
+        AuthorizationGuard.RequireAdminOrDesarrollador(currentUser, Ambito);
         if (currentUser.DeveloperId is not int devId) return null;
 
         var s = await db.WorkSessions.AsNoTracking()

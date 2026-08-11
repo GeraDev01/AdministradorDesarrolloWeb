@@ -143,6 +143,23 @@
                 <Template Context="n">@(n.Desarrollador ?? "—")</Template>
             </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="NotaDto" Property="Prioridad" Title="Prioridad" Width="120px">
+                @* La palabra sola, SIN punto de color, y conviene dejarlo escrito porque esta columna
+                   llevaba el círculo del escritorio (🔴 🟡 🔵) hasta que el servidor dejó de mandarlo
+                   —lo dibujaba el sistema operativo, no heredaba el color del texto y donde no hay
+                   fuente de emoji salía como un cuadro vacío— y el hueco invita a reponerlo con un
+                   punto. El enum viaja en el DTO, así que se podría; el motivo de no hacerlo es otro.
+
+                   Esta rejilla YA tiene un lenguaje de color, y es el de Pintar: rojo lo vencido, gris
+                   lo cerrado, el renglón entero. Un punto de prioridad sería un SEGUNDO lenguaje en la
+                   misma tabla y los dos se contradirían a la vista —una nota «Baja» recién vencida
+                   enseñaría punto frío en fila roja, y una «Alta» ya resuelta un punto rojo en una fila
+                   apagada—. Es el mismo razonamiento con el que Catalogos/Programas.razor se quedó sin
+                   punto en su columna de estado, y no es teoría: quien mira esta pantalla viene a ver
+                   qué reclama HOY, y eso lo contesta la fecha, no la prioridad.
+
+                   Lo dice también el servidor en NotasService.Etiqueta, que es de donde sale la
+                   palabra: «la urgencia la sigue diciendo la fila entera». Si algún día la prioridad
+                   pasa a ser lo que se barre, lo que hay que cambiar primero es Pintar, no esta celda. *@
                 <Template Context="n">@n.PrioridadTexto</Template>
             </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="NotaDto" Property="Recordatorio" Title="Recordatorio" Width="130px">

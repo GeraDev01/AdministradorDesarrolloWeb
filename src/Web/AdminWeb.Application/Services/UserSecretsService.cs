@@ -6,9 +6,9 @@ using Microsoft.EntityFrameworkCore;
 namespace AdminWeb.Application.Services;
 
 /// <summary>
-/// Cifra y descifra secretos. La implementación vive en la API (protección de datos de ASP.NET
-/// respaldada por Key Vault); se abstrae aquí para que los servicios no dependan de esa pieza y para
-/// poder probarlos sin ella.
+/// Cifra y descifra secretos. La implementación vive en la API (protección de datos de ASP.NET, con
+/// el llavero en Blob y cifrado con un certificado); se abstrae aquí para que los servicios no
+/// dependan de esa pieza y para poder probarlos sin ella.
 /// </summary>
 public interface IProtectorDeSecretos
 {

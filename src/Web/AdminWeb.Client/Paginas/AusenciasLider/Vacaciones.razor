@@ -23,6 +23,22 @@
         está junto a los desplegables de persona y de estado, y bajar el histórico completo sorprende
         a quien acaba de acotar.
 
+    LA FIRMA DEL COLABORADOR, que es lo último que llegó aquí. El documento definitivo lleva dos
+    firmas: la del jefe, que se elige, y la que la persona puso al pedir sus días. La segunda se
+    invalida sola si la solicitud cambia después de firmada —se guarda una huella de la petición y se
+    recalcula al leerla—, y hasta ahora esta pantalla no lo decía: se podía archivar el papel sin esa
+    firma sin enterarse, y a un documento archivado al que le falta una firma nadie lo mira hasta que
+    hay un problema. Ahora:
+
+      · Son TRES situaciones y no dos, y se cuentan con el motivo delante: firmada, sin firmar, y
+        «firmó pero su firma dejó de valer porque la solicitud cambió después». La tercera escondida
+        dentro de «sin firmar» era la lectura más tranquilizadora posible de un problema.
+      · Con la firma caída NO se archiva. El botón se apaga, pero la barrera es la del servidor
+        (DocumentoDeVacacionesService.FirmarAsync): esta pantalla corre en la máquina de cada quien.
+      · Y hay salida sin moverse de aquí: «Pedir que vuelva a firmar» le manda un aviso a la persona.
+        Se firma la PETICIÓN mientras espera respuesta, así que conviene pedírsela ANTES de resolver
+        la solicitud — resuelta ya no hay dónde firmar, y el servidor lo dice si se intenta.
+
     La pestaña de FIRMAS es el mismo componente que la pantalla «Firmas» de Administración, donde
     viven de verdad: se queda aquí porque cuando alguien descubre que le falta una firma es justo
     mientras va a firmar, y mandarlo a otra pantalla en ese momento le costaría la solicitud abierta.
@@ -111,6 +127,86 @@
                                         </RadzenAlert>
                                     }
 
+                                    @* EL ESTADO DE LA FIRMA DE LA PERSONA, arriba del todo y con el
+                                       motivo escrito. «Firma inválida» no le sirve a nadie: lo que
+                                       hace falta saber es QUÉ pasó —la solicitud cambió después de
+                                       que firmara— porque eso es lo que dice qué hacer a
+                                       continuación. Solo se dibuja cuando hay algo que decir; con la
+                                       firma en regla, un cartel verde permanente enseñaría a
+                                       ignorarlo justo el día que se ponga rojo. *@
+                                    @if (sel.FirmaDelColaborador.DejoDeValer)
+                                    {
+                                        <RadzenAlert AlertStyle="AlertStyle.Danger" Shade="Shade.Lighter"
+                                                     AllowClose="false"
+                                                     Title="@($"La firma de {sel.Desarrollador} dejó de valer")">
+                                            @* La FECHA de la firma va en la frase y no en un rincón:
+                                               es la que deja ver qué pasó primero, y sin ella el
+                                               aviso solo dice que algo se rompió. *@
+                                            @(sel.FirmaDelColaborador.FirmadaUtc is DateTime cuando
+                                                  ? $"Firmó el {cuando.ToLocalTime():dd/MM/yyyy HH:mm}, pero la solicitud cambió después:"
+                                                  : "Firmó, pero la solicitud cambió después:")
+                                            las fechas o el motivo ya no son los que firmó, así que su firma NO
+                                            sale en el documento.
+                                            <b>El documento definitivo no se puede archivar hasta que vuelva a
+                                            firmar.</b>
+                                            @if (sel.FirmaDelColaborador.PuedeVolverAFirmar)
+                                            {
+                                                <text>Pídeselo con el botón de aquí abajo, y hazlo ANTES de
+                                                resolver la solicitud: se firma la petición mientras espera
+                                                respuesta, así que una vez resuelta ya no tendrá dónde
+                                                firmar.</text>
+                                            }
+                                            else
+                                            {
+                                                @* SIN SALIDA, y conviene no endulzarlo: aquí el papel
+                                                   ya no se puede archivar nunca. La pantalla lo dice en
+                                                   vez de ofrecer un botón que solo puede fallar.
+
+                                                   NO es un estado inalcanzable. Se llega usando la
+                                                   aplicación, y por un camino que no toca la
+                                                   solicitud: basta con que alguien borre en «Firmas»
+                                                   el trazo de esa persona —la firma de vacaciones se
+                                                   guarda como un SignatureProfile suyo y aparece en
+                                                   ese gestor—. La clave foránea es SetNull, así que el
+                                                   enlace sobrevive sin imagen y VacationRequestService
+                                                   lo lee, con toda la razón, como una firma que dejó
+                                                   de valer. Si la solicitud ya estaba resuelta, no hay
+                                                   forma de conseguir otra.
+
+                                                   Cerrar ese callejón es una decisión de producto y no
+                                                   una línea de aquí: o se deja volver a firmar una
+                                                   solicitud resuelta cuya firma se cayó (tocar
+                                                   VacationRequestService.PuedeFirmar), o se le da al
+                                                   líder un «descartar la firma caída y archivar sin
+                                                   ella», que es lo que la aplicación hacía antes pero
+                                                   dicho a las claras y con asiento en la bitácora. *@
+                                                <text>Y la solicitud ya está resuelta, así que tampoco puede
+                                                volver a firmarla: se firma la petición mientras espera
+                                                respuesta. Si el papel tiene que llevar su firma, la
+                                                solicitud tiene que volver a pedirse.</text>
+                                            }
+                                        </RadzenAlert>
+                                    }
+                                    else if (!sel.FirmaDelColaborador.Firmada)
+                                    {
+                                        @* Sin firmar NO bloquea, y es a propósito: el escritorio ni
+                                           siquiera guardaba la firma del colaborador, así que
+                                           exigirla dejaría sin poder archivar el histórico entero.
+                                           Lo que se arregla aquí es que el líder lo sepa antes de
+                                           archivar, no que no pueda. *@
+                                        <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter"
+                                                     AllowClose="false"
+                                                     Title="@($"{sel.Desarrollador} todavía no ha firmado")">
+                                            El documento se puede archivar igual, pero saldrá con el hueco de su
+                                            firma en blanco.
+                                            @if (sel.FirmaDelColaborador.PuedeVolverAFirmar)
+                                            {
+                                                <text>Se firma la petición mientras espera respuesta: si la quieres
+                                                en el papel, pídesela antes de resolverla.</text>
+                                            }
+                                        </RadzenAlert>
+                                    }
+
                                     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                                  Gap="0.75rem" Wrap="FlexWrap.Wrap">
                                         <RadzenLabel Text="Firma:" Component="firma" />
@@ -139,11 +235,41 @@
                                         @* «draw» es el acto de firmar y es el mismo icono del menú
                                            «Firmas»: el botón y la pantalla se reconocen como lo
                                            mismo. «verified» queda reservado para PINTAR que algo ya
-                                           está firmado — la insignia de la rejilla, más abajo. *@
+                                           está firmado — la insignia de la rejilla, más abajo.
+
+                                           Quién decide si se puede archivar es el SERVIDOR
+                                           (SePuedeArchivar): apagar el botón aquí solo evita el
+                                           viaje y el rechazo, no es la regla. El title dice por qué
+                                           está apagado, que si no un botón gris es un callejón. *@
                                         <RadzenButton Text="Firmar y archivar" Icon="draw"
                                                       ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small"
-                                                      Disabled="@(_ocupado || _firmaId is null)"
+                                                      Disabled="@(_ocupado || _firmaId is null || !sel.SePuedeArchivar)"
+                                                      title="@(sel.SePuedeArchivar
+                                                                 ? "Emite el documento definitivo y lo archiva en la solicitud."
+                                                                 : "No se puede archivar: la firma del colaborador dejó de valer.")"
                                                       Click="@(() => Firmar(sel))" />
+                                        @* LA SALIDA. Va junto al botón que se apaga, porque un
+                                           bloqueo cuya solución está en otra pantalla acaba siendo
+                                           un bloqueo que nadie resuelve. Aparece también cuando
+                                           todavía no ha firmado: es el mismo recado.
+
+                                           Y solo si la persona PUEDE firmar hoy: se firma la
+                                           petición mientras espera respuesta, así que sobre una
+                                           solicitud ya resuelta este botón únicamente serviría para
+                                           llevarse un rechazo. Ahí lo que hay que hacer lo dice el
+                                           aviso de arriba. *@
+                                        @if (sel.FirmaDelColaborador.PuedeVolverAFirmar
+                                             && (sel.FirmaDelColaborador.DejoDeValer || !sel.FirmaDelColaborador.Firmada))
+                                        {
+                                            <RadzenButton Text="@(sel.FirmaDelColaborador.DejoDeValer
+                                                                    ? "Pedir que vuelva a firmar" : "Pedir que firme")"
+                                                          Icon="send"
+                                                          ButtonStyle="@(sel.SePuedeArchivar
+                                                                           ? ButtonStyle.Light : ButtonStyle.Warning)"
+                                                          Size="ButtonSize.Small" Disabled="@_ocupado"
+                                                          title="Le llega un aviso en la aplicación con el motivo."
+                                                          Click="@(() => PedirFirma(sel))" />
+                                        }
                                         @if (sel.DocumentoFirmado)
                                         {
                                             @* La flecha que sale del marco avisa de que el PDF se
@@ -185,20 +311,39 @@
                                                       Property="Dias" Width="80px" />
                                 <RadzenDataGridColumn TItem="SolicitudDeVacacionesDelLiderDto" Title="Estado"
                                                       Property="Estado" Width="130px">
-                                    @* SIN PUNTO DE COLOR a propósito: BLOQUEADO por el emoji del
-                                       servidor, igual que «Mis vacaciones». El XML de este DTO ya lo
-                                       avisa —dice que la etiqueta viene «con el emoji del escritorio»
-                                       y sigue siendo verdad—: AusenciasService la escribe como
-                                       «⏳ Pendiente», «✅ Aprobada», «❌ Rechazada», «🚫 Cancelada», y
-                                       el punto quedaría pegado a ese símbolo.
+                                    @* El punto de color. Lo bloqueaba la etiqueta, que llegaba hecha
+                                       del servidor y CON EMOJI (⏳ ✅ ❌ 🚫): el punto habría quedado
+                                       pegado a un símbolo que dibuja el sistema operativo, que no
+                                       hereda el color del texto y que donde no hay fuente de emoji
+                                       sale como un cuadro vacío. DocumentoDeVacacionesService era la
+                                       última de las cuatro copias que quedaba con símbolo y ya manda
+                                       la palabra sola, así que el bloqueo se levantó.
 
-                                       Limpiarlo no es cosa de esta pantalla: esa tabla está duplicada
-                                       en el servidor y su copia alimenta documentos generados. Cuando
-                                       se haga, esta pantalla y Ausencias/MisVacaciones.razor cambian a
-                                       la vez con ColoresDeEstado.ColorDeVacaciones, que ya está en
-                                       Shared. *@
+                                       Va A LA VEZ que Ausencias/MisVacaciones.razor, y eso no es
+                                       cosmética: es el MISMO estado de la MISMA solicitud visto por
+                                       los dos lados, y que el líder y la persona lo vieran marcado de
+                                       formas distintas es exactamente lo que hace que una
+                                       conversación empiece con los dos mirando cosas que no parecen
+                                       la misma. Las dos sacan el tono de
+                                       ColoresDeEstado.ColorDeVacaciones, en Shared: no repongas aquí
+                                       una copia de las cuatro líneas.
+
+                                       El texto va en TINTA NORMAL y sin negrita: con el punto
+                                       delante, colorear además la palabra es decir el mismo dato dos
+                                       veces y dejar dos sitios donde puede discrepar. Marcado copiado
+                                       de Componentes/BotonDeEstado.razor —el borde gris deja el punto
+                                       visible aunque un día falte la variable—, con la palabra
+                                       SIEMPRE al lado y el color sacado del ENUM (v.Estado, que el
+                                       DTO trae junto al texto) y nunca de comparar la etiqueta.
+
+                                       Los 130 px no se tocan: la más larga es «Rechazada» y cabe con
+                                       el punto delante, igual que en las otras tres pantallas de
+                                       ausencias. *@
                                     <Template Context="v">
-                                        <b style="@($"color:{ColoresDeEstado.ColorDeVacaciones(v.Estado)}")">@v.EtiquetaEstado</b>
+                                        <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
+                                            <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@ColoresDeEstado.ColorDeVacaciones(v.Estado)"></span>
+                                            @v.EtiquetaEstado
+                                        </span>
                                     </Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="SolicitudDeVacacionesDelLiderDto" Title="Respaldo"
@@ -223,6 +368,43 @@
                                 <RadzenDataGridColumn TItem="SolicitudDeVacacionesDelLiderDto" Title="Mi respuesta"
                                                       Property="RespuestaDelLider">
                                     <Template Context="v">@(v.RespuestaDelLider ?? "—")</Template>
+                                </RadzenDataGridColumn>
+                                @* LA FIRMA DE LA PERSONA, en su propia columna y separada de
+                                   «Documento»: aquélla dice si el líder ya archivó el papel, ésta si
+                                   ese papel lleva dentro la firma de quien pidió los días. Que las
+                                   dos se leyeran como una sola —«Firmado»— es justo lo que dejaba
+                                   archivar un documento incompleto sin que nadie lo notara.
+
+                                   «Dejó de valer» no puede quedarse en un icono discreto: es la
+                                   única de las tres que obliga a hacer algo, así que va en rojo y
+                                   con el motivo en el title. Mismo trato que en «Mis vacaciones»,
+                                   para que el líder y la persona vean lo mismo cuando hablen. *@
+                                <RadzenDataGridColumn TItem="SolicitudDeVacacionesDelLiderDto" Title="Su firma"
+                                                      Width="150px" Sortable="false">
+                                    <Template Context="v">
+                                        @if (v.FirmaDelColaborador.DejoDeValer)
+                                        {
+                                            <span style="color:var(--rz-danger)"
+                                                  title="Firmó, pero la solicitud cambió después: las fechas o el motivo ya no son los que firmó. No se puede archivar el documento hasta que vuelva a firmar.">
+                                                <RadzenIcon Icon="warning" /> Dejó de valer
+                                            </span>
+                                        }
+                                        else if (v.FirmaDelColaborador.Firmada)
+                                        {
+                                            <span style="color:var(--rz-success)"
+                                                  title="@($"Firmada el {v.FirmaDelColaborador.FirmadaUtc?.ToLocalTime():dd/MM/yyyy HH:mm}")">
+                                                <RadzenIcon Icon="verified" /> Firmada
+                                            </span>
+                                        }
+                                        else if (v.FirmaDelColaborador.PuedeVolverAFirmar)
+                                        {
+                                            <span title="Todavía no la ha firmado. Se firma la petición mientras espera respuesta.">Sin firmar</span>
+                                        }
+                                        else
+                                        {
+                                            <span title="No la firmó y ya no puede: se firma la petición mientras espera respuesta, y ésta ya se resolvió.">—</span>
+                                        }
+                                    </Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="SolicitudDeVacacionesDelLiderDto" Title="Documento"
                                                       Width="130px" Sortable="false">
@@ -451,6 +633,14 @@
             ? "Ya hay un documento firmado archivado para esta solicitud y quedará reemplazado.\n\n"
             : "";
 
+        // Que falte la firma de la persona no impide archivar —el escritorio ni la guardaba—, pero sí
+        // hay que decirlo en el momento de decidir: el papel se va al expediente con ese hueco en
+        // blanco y luego nadie lo mira. La que DEJÓ DE VALER no llega hasta aquí: el servidor la
+        // rechaza y el botón ni siquiera está encendido.
+        if (!v.FirmaDelColaborador.Firmada)
+            aviso += $"{v.Desarrollador} no ha firmado su solicitud: el documento se archivará con el " +
+                     "hueco de su firma en blanco.\n\n";
+
         if (!await Avisos.ConfirmarAsync(
             $"{aviso}¿Firmar el documento de {v.Desarrollador} y archivarlo?",
             "Firmar documento", "Sí, firmar"))
@@ -458,6 +648,31 @@
 
         await Enviar($"api/ausencias-lider/vacaciones/{v.Id}/documento/firma",
             new FirmarDocumentoRequest(firmaId));
+    }
+
+    /// <summary>
+    /// La salida del bloqueo: le avisa a la persona que firme —o que vuelva a firmar— sin que el
+    /// líder tenga que salirse de esta pantalla ni buscarla por otro medio.
+    ///
+    /// La nota se pide SIEMPRE y es opcional. El aviso ya explica solo lo que pasó, pero el motivo
+    /// real del cambio —«te moví las fechas a la semana siguiente»— solo lo sabe quien lo hizo, y sin
+    /// un renglón donde escribirlo la persona recibe un «vuelve a firmar» a secas.
+    /// </summary>
+    private async Task PedirFirma(SolicitudDeVacacionesDelLiderDto v)
+    {
+        var nota = await Avisos.PedirTextoAsync(
+            v.FirmaDelColaborador.DejoDeValer
+                ? $"Se le avisará a {v.Desarrollador} que su firma dejó de valer porque la solicitud " +
+                  "cambió.\n\n¿Quieres añadirle el motivo? (opcional)"
+                : $"Se le avisará a {v.Desarrollador} que falta su firma.\n\n" +
+                  "¿Quieres añadirle una nota? (opcional)",
+            "Pedir la firma");
+
+        // Null es «cancelé el diálogo»; vacío es «acepté sin escribir nada» y sí se manda.
+        if (nota is null) return;
+
+        await Enviar($"api/ausencias-lider/vacaciones/{v.Id}/firma-del-colaborador/recordatorio",
+            new RecordatorioDeFirmaRequest(nota));
     }
 
     // ── Apoyo ────────────────────────────────────────────────────────────────

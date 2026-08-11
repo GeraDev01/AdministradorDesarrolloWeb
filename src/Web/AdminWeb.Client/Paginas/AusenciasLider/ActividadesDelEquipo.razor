@@ -162,18 +162,19 @@
                 <RadzenDataGridColumn TItem="ActividadDelEquipoDto" Title="Actividad" Property="Titulo" />
                 <RadzenDataGridColumn TItem="ActividadDelEquipoDto" Title="Estado" Property="Estado" Width="120px">
                     @* AQUÍ NO VA PUNTO DE COLOR, y se deja escrito para que el próximo lote no lo
-                       «arregle» por parecerse a las otras rejillas. Dos motivos independientes.
+                       «arregle» por parecerse a las otras rejillas.
 
-                       Uno: son DOS valores, «Abierta» y «Cerrada». El punto existe para barrer una
-                       escala de cinco o seis estados; con dos no hay nada que barrer, y la aplicación
-                       ya tomó esta misma decisión en el mismo caso —Autocalificacion/MisActividades,
-                       en su columna de actividades libres, deja las dos palabras solas y explica ahí
-                       por qué—. El color sobre la palabra basta y no repite nada.
+                       Son DOS valores, «Abierta» y «Cerrada». El punto existe para barrer una escala de
+                       cinco o seis estados; con dos no hay nada que barrer, y la aplicación ya tomó
+                       esta misma decisión en el mismo caso —Autocalificacion/MisActividades, en su
+                       columna de actividades libres, deja las dos palabras solas y explica ahí por
+                       qué—. El color sobre la palabra basta y no repite nada.
 
-                       Dos: la etiqueta llega hecha del servidor y trae EMOJI (DevActivityService.
-                       Etiqueta: «🟢 Abierta» / «⚪ Cerrada»). Lo que hay que hacer con esa cadena es
-                       QUITARLE el símbolo, no añadirle un punto al lado; y no se puede reescribir
-                       desde aquí porque la comparten la rejilla y la exportación. *@
+                       El segundo motivo que había aquí ya caducó y por eso se borra en vez de dejarlo
+                       confundiendo: la etiqueta traía EMOJI del servidor («🟢 Abierta» / «⚪ Cerrada»)
+                       y DevActivityService.Etiqueta ya manda la palabra sola. Que el estorbo se haya
+                       ido no convierte esto en candidato — lo decide el motivo de arriba, que sigue
+                       siendo verdad. *@
                     <Template Context="a">
                         <b style="@(a.Estado == DevActivityStatus.Abierta
                                       ? "color:var(--rz-success)" : "color:var(--rz-text-secondary-color)")">

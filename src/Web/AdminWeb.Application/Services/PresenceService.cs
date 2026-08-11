@@ -535,12 +535,19 @@ public class PresenceService(AppDbContext db, ICurrentUser currentUser, IRequest
     /// para este mismo enumerado— y que este método desaparezca. Mientras tanto se queda como está: un
     /// emoji feo se lee; media cadena de CSS dentro de una celda, no.</para>
     ///
-    /// <para>Van en el mismo saco, y conviene tocarlos juntos: el «⚪» que <c>PersonasQueryService</c>
-    /// pone a mano a los desconectados, su «⚠ Sin señales», el «⚠ Olvido (estimada)» y el «✏
-    /// Corregida…» de <c>AttendanceService</c>, y el «⚠ Sin marcar (solo telemetría)» de
-    /// <c>JornadaQueryService</c>. Ojo con ese «⚠ Sin señales»: la leyenda de la pantalla de presencia
-    /// lo CITA entre comillas, así que si cambia uno sin el otro la leyenda manda a buscar en pantalla
-    /// algo que ya no está escrito así.</para>
+    /// <para><b>De la lista que había aquí ya solo quedan dos.</b> Las etiquetas de texto que
+    /// acompañaban a estos iconos —el «Olvido (estimada)» y el «Corregida por el líder» de
+    /// <c>AttendanceService</c>, el «Sin marcar (solo telemetría)» de <c>JornadaQueryService</c> y el
+    /// «Sin marcar / Pide corrección» de <c>PersonasQueryService</c>— ya perdieron su símbolo: eran
+    /// PALABRAS con un dibujo delante, así que quitarlo no dejaba la celda sin nada. Los que siguen
+    /// aquí son de otra especie y por eso resisten: son el dato ENTERO, y borrar el emoji dejaría la
+    /// columna vacía.</para>
+    ///
+    /// <para>Quedan, pues, dos y van juntos: este método y el «⚪» que <c>PersonasQueryService</c>
+    /// pone a mano a los desconectados. Y con ellos su «⚠ Sin señales», que es el único texto que
+    /// conservó el triángulo a propósito: la leyenda de la pantalla de presencia lo CITA entre
+    /// comillas, así que si cambia uno sin el otro la leyenda manda a buscar en la rejilla algo que ya
+    /// no está escrito así.</para>
     /// </summary>
     public static string Icono(PresenceState e) => e switch
     {

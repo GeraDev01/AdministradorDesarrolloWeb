@@ -172,30 +172,44 @@
                 <RadzenDataGridColumn TItem="DespliegueProgramadoDto" Property="Sistema" Title="Sistema" Width="160px" />
                 <RadzenDataGridColumn TItem="DespliegueProgramadoDto" Property="Version" Title="Versión" Width="120px" />
                 <RadzenDataGridColumn TItem="DespliegueProgramadoDto" Property="Perfil" Title="Destino" Width="180px" />
-                <RadzenDataGridColumn TItem="DespliegueProgramadoDto" Property="EstadoTexto" Title="Estado" Width="140px">
-                    @* ESTA COLUMNA TODAVÍA NO LLEVA PUNTO DE COLOR, y no es que se pasara por alto
-                       cuando el historial de Despliegues.razor lo recibió: está BLOQUEADA, y lo que
-                       la bloquea no se arregla desde aquí.
+                <RadzenDataGridColumn TItem="DespliegueProgramadoDto" Property="EstadoTexto" Title="Estado" Width="150px">
+                    @* El punto de color, que aquí estuvo bloqueado y ya no lo está. Lo bloqueaba la
+                       ETIQUETA: la escribe el servidor y venía CON EMOJI («🕓 Programado»,
+                       «✅ Completado», «⚠ Perdido»…), así que el punto habría quedado pegado a un
+                       símbolo que dibuja el sistema operativo y no obedece al tema.
+                       ProgramadosService.EtiquetaDeEstado ya devuelve la palabra sola.
 
-                       Le corresponde, y con motivo: son seis estados sin ninguna señal de color, y
-                       «Perdido» —la cita a la que se le pasó la hora sin que nadie la ejecutara— es
-                       justo el fallo silencioso que esta pantalla existe para enseñar. El color ya
-                       está esperando en ColoresDeEstado.ColorDeCitaDeDespliegue, y el DTO trae el
-                       enum al lado del texto.
+                       Le tocaba con motivo: son seis estados que hasta hoy no tenían más marca que la
+                       negrita, y «Perdido» —la cita a la que se le pasó la hora sin que ninguna
+                       aplicación estuviera abierta para ejecutarla— es el fallo silencioso que esta
+                       pantalla existe para enseñar. Va en ROJO, igual que «Fallido», y eso lo decide
+                       ColoresDeEstado.ColorDeCitaDeDespliegue, que es la misma tabla que lee el
+                       historial de Despliegues.razor.
 
-                       Lo que falta es la ETIQUETA: la escribe el servidor CON EMOJI
-                       (ProgramadosService.EtiquetaDeEstado devuelve «🕓 Programado», «✅ Completado»,
-                       «⚠ Perdido»…), así que el punto quedaría pegado al emoji, que es exactamente
-                       lo que este trabajo vino a quitar. Y esa cadena no es solo de pantalla: el
-                       propio servicio la interpola en los mensajes de rechazo y en la bitácora, o
-                       sea que limpiarla es un cambio con alcance propio y ya quedó escrito en
-                       asientos viejos. Cuando se limpie, aquí solo hay que copiar el marcado del
-                       historial de Despliegues.razor y quitar la negrita, que hoy es la única marca
-                       que tiene la columna.
+                       El color sale del ENUM (c.Estado, que el DTO trae junto al texto) y nunca de
+                       comparar la etiqueta —el propio servicio interpola esa cadena en mensajes de
+                       rechazo y en asientos de bitácora ya escritos, así que compararla sería atarse a
+                       un texto que ya cambió una vez—. La negrita se va con el punto: marcar el mismo
+                       dato dos veces deja dos sitios donde puede discrepar. Marcado copiado de
+                       Componentes/BotonDeEstado.razor, con el borde gris que deja el punto visible
+                       aunque falte la variable y la palabra SIEMPRE al lado; seis estados en cinco
+                       colores comparten tono a propósito, así que el color agrupa y el texto
+                       identifica.
 
-                       El opacity de ApagarLasCerradas no estorba ni cuenta como color de estado:
-                       apagar dice «esto ya no está vivo», no en qué punto de su vida está. *@
-                    <Template Context="c"><b>@c.EstadoTexto</b></Template>
+                       Los 140 px pasaron a 150: «En ejecución» son doce letras y con el punto delante
+                       la columna se quedaba justa, y una palabra cortada es exactamente lo que el
+                       punto venía a evitar. 150 es el ancho que ya usa la columna «Estado» de
+                       Requerimientos, que aloja «En desarrollo».
+
+                       El opacity de ApagarLasCerradas no estorba ni compite: apaga la fila entera
+                       —punto incluido, porque opacity se aplica a todo el renglón— y lo que dice es
+                       «esto ya no está vivo», no en qué punto de su vida está. *@
+                    <Template Context="c">
+                        <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
+                            <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@ColoresDeEstado.ColorDeCitaDeDespliegue(c.Estado)"></span>
+                            @c.EstadoTexto
+                        </span>
+                    </Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="DespliegueProgramadoDto" Property="ToleranciaMinutos"
                                       Title="Tolerancia" Width="110px" TextAlign="TextAlign.Right">

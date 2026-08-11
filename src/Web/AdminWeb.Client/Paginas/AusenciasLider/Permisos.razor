@@ -201,21 +201,32 @@
                         EmptyText="No hay permisos que cumplan el filtro.">
             <Columns>
                 <RadzenDataGridColumn TItem="PermisoDelLiderDto" Title="Estado" Property="Estado" Width="130px">
-                    @* SIN PUNTO DE COLOR A PROPÓSITO, por el mismo bloqueo que «Mis permisos»:
-                       EtiquetaEstado llega hecha del servidor y trae EMOJI
-                       (LeaveRequestService.EtiquetaEstado: «⏳ Pendiente», «✅ Aprobada»,
-                       «❌ Rechazada», «🚫 Cancelada»). El punto quedaría pegado a ese símbolo, que es
-                       justo la marca que se está retirando de la aplicación porque la dibuja el
-                       sistema operativo y no obedece al tema.
+                    @* El punto de color. Estuvo bloqueado por el servidor —EtiquetaEstado llegaba con
+                       emoji delante («⏳ Pendiente», «✅ Aprobada»…) y el punto habría quedado pegado a
+                       un símbolo que dibuja el sistema operativo y no obedece al tema—, y se levantó
+                       en cuanto LeaveRequestService.Etiqueta pasó a mandar la palabra sola.
 
-                       Cuando se limpie esa tabla, esta pantalla y Ausencias/MisPermisos.razor se
-                       cambian A LA VEZ: es el mismo estado visto por los dos lados. El color ya no
-                       hay que unificarlo entonces, porque ya lo está: las dos leen de
-                       ColoresDeEstado.ColorDePermiso, en Shared. Antes cada una guardaba su copia de
-                       las cuatro líneas y coincidían, que es como empiezan las que luego discrepan
-                       sin que ninguna prueba lo delate. *@
+                       Se cambió A LA VEZ que Ausencias/MisPermisos.razor, que es lo que exigía la nota
+                       anterior: es el mismo estado visto por los dos lados, y verlo de dos formas
+                       distintas según quién mire es lo que había que evitar. El color no hubo que
+                       unificarlo porque ya lo estaba: las dos leen ColoresDeEstado.ColorDePermiso, en
+                       Shared. No repongas aquí una copia de las cuatro líneas.
+
+                       Ésta es además la rejilla que se barre buscando lo PENDIENTE —el neutro entre
+                       verdes y rojos—, que es la fila sobre la que hay que hacer algo.
+
+                       El texto vuelve a TINTA NORMAL y pierde la negrita: con el punto delante, la
+                       palabra de color sería el mismo dato dicho dos veces. Marcado copiado de
+                       Componentes/BotonDeEstado.razor; el borde gris deja el punto visible aunque
+                       falte la variable, la palabra va SIEMPRE al lado y el color sale del ENUM
+                       (l.Estado, que el DTO trae junto al texto) y nunca de comparar la etiqueta.
+
+                       Los 130 px bastan: la más larga es «Rechazada». *@
                     <Template Context="l">
-                        <b style="@($"color:{ColoresDeEstado.ColorDePermiso(l.Estado)}")">@l.EtiquetaEstado</b>
+                        <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
+                            <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@ColoresDeEstado.ColorDePermiso(l.Estado)"></span>
+                            @l.EtiquetaEstado
+                        </span>
                     </Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="PermisoDelLiderDto" Title="Desarrollador"
@@ -475,7 +486,7 @@
 
     /// <summary>
     /// El envío que comparten las acciones. El mensaje del servidor se enseña TAL CUAL: explica el
-    /// motivo en concreto —«Esa solicitud ya está «🚫 Cancelada»; no hay nada que resolver»— y
+    /// motivo en concreto —«Esa solicitud ya está «Cancelada»; no hay nada que resolver»— y
     /// cambiarlo por un «no se pudo» genérico tiraría lo que el escritorio hacía bien.
     /// </summary>
     private async Task<bool> Enviar<T>(string ruta, T cuerpo)

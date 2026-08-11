@@ -216,11 +216,11 @@ public class MetricasQueryServiceTests
         var deAna = d.Capacidad.Single(c => c.Desarrollador == "Ana");
         Assert.Equal(2, deAna.Abiertos);
         Assert.Equal(50, deAna.HorasPendientes);
-        Assert.Equal("🔴 Sobrecargado", deAna.Disponibilidad);
+        Assert.Equal("Sobrecargado", deAna.Disponibilidad);
         Assert.Equal(TonoDeIndicador.Peligro, deAna.Tono);
 
         var deBeto = d.Capacidad.Single(c => c.Desarrollador == "Beto");
-        Assert.Equal("🟢 Libre", deBeto.Disponibilidad);
+        Assert.Equal("Libre", deBeto.Disponibilidad);
 
         // El sobrecargado va primero: es a quien NO hay que asignarle lo siguiente.
         Assert.Equal("Ana", d.Capacidad[0].Desarrollador);
@@ -244,7 +244,7 @@ public class MetricasQueryServiceTests
         var deAna = (await Svc(db, Lider()).EstimacionYCapacidadAsync(dias: 30))
             .Capacidad.Single(c => c.Desarrollador == "Ana");
 
-        Assert.Equal("🏖 De vacaciones", deAna.Disponibilidad);
+        Assert.Equal("De vacaciones", deAna.Disponibilidad);
         // La ventana es inclusiva y cuenta hoy: del día de hoy al tercero son cuatro.
         Assert.Equal(4, deAna.DiasDeVacaciones);
     }
@@ -265,7 +265,7 @@ public class MetricasQueryServiceTests
 
         var deAna = (await Svc(db, Lider()).EstimacionYCapacidadAsync()).Capacidad.Single();
 
-        Assert.Equal("🟢 Libre", deAna.Disponibilidad);
+        Assert.Equal("Libre", deAna.Disponibilidad);
         Assert.Equal(0, deAna.DiasDeVacaciones);
     }
 

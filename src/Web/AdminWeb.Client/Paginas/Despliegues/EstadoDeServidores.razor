@@ -80,27 +80,41 @@
                                       Title="Última publicada" Width="140px">
                     <Template Context="s">@(s.UltimaVersionDelSistema ?? "—")</Template>
                 </RadzenDataGridColumn>
-                <RadzenDataGridColumn TItem="EstadoDeServidorDto" Property="EstadoTexto" Title="Estado" Width="130px">
-                    @* ESTA COLUMNA NO LLEVA PUNTO DE COLOR TODAVÍA, aunque este rack sea justo lo
-                       que se barre buscando los atrasados y aunque el historial de despliegues de
-                       la pantalla de al lado sí lo lleve. Hay dos cosas que lo impiden y las dos
-                       están fuera de este marcado.
+                <RadzenDataGridColumn TItem="EstadoDeServidorDto" Property="EstadoTexto" Title="Estado" Width="150px">
+                    @* El punto de color. Este rack es justo lo que se barre buscando los atrasados, y
+                       dos cosas lo impedían hasta ahora; las dos se resolvieron.
 
-                       La primera es la etiqueta: la escribe el servidor CON EMOJI
-                       (EstadoDeServidoresService.Etiqueta devuelve «⚠ Atrasado», «✅ Al día», «○ Sin
-                       desplegar»), así que el punto quedaría pegado al símbolo que este trabajo vino
-                       a quitar.
+                       La primera era la etiqueta: la escribe el servidor y venía CON EMOJI («⚠
+                       Atrasado», «✅ Al día», «○ Sin desplegar»), así que el punto habría quedado
+                       pegado al símbolo. EstadoDeServidoresService.Etiqueta ya manda la palabra sola.
 
-                       La segunda es ColorDelEstado, aquí abajo: mezcla tres cosas distintas en un
-                       mismo campo —«color:var(--…)», «opacity:.7» y la cadena vacía—, y eso no se
-                       puede meter en un background. Antes de poner el punto hay que partirla en un
-                       color y un apagado, que son dos ejes.
+                       La segunda estaba aquí abajo: ColorDelEstado mezclaba tres cosas en un mismo
+                       campo —«color:var(--…)», «opacity:.7» y la cadena vacía— y eso no se puede meter
+                       en un background. Se partió en dos ejes que nunca fueron el mismo: ColorDelEstado
+                       devuelve SOLO la variable, para el relleno del punto, y Apagado devuelve el
+                       atenuado. Léelos ahí abajo, que llevan escrito por qué.
 
-                       Lo que NO es un impedimento es la falta de enum. El DTO no trae ninguno, pero
-                       trae los booleanos NuncaDesplegado y Atrasado, y el color ya sale de ellos y
-                       no de comparar la palabra, que es el fondo de la regla. Cuando se limpie el
-                       servidor, esta pantalla sí es candidata. *@
-                    <Template Context="s"><b style="@ColorDelEstado(s)">@s.EstadoTexto</b></Template>
+                       Este DTO no trae enum y aun así la regla se cumple: el color sale de los
+                       BOOLEANOS NuncaDesplegado y Atrasado, que es un dato, no de comparar la palabra,
+                       que es lo que se rompe en silencio cuando alguien reescribe una etiqueta.
+
+                       El texto va en TINTA NORMAL y sin negrita: con el punto delante, la palabra de
+                       color repetiría el dato. Marcado copiado de Componentes/BotonDeEstado.razor —el
+                       borde gris deja el punto visible aunque falte la variable— y la palabra va
+                       SIEMPRE al lado: «Sin desplegar» y «Desplegado» comparten el gris a propósito y
+                       lo único que los separa es lo que está escrito.
+
+                       Los 130 px pasaron a 150: «Sin desplegar» son trece letras y con el punto
+                       delante ya no cabían. Es el mismo ancho con el que la columna «Estado» de
+                       Requerimientos aloja «En desarrollo», que mide igual. Si algún día se añade un
+                       estado más largo, se ensancha la columna — no se quita el punto ni se recorta la
+                       palabra, que es lo que el punto vino a evitar. *@
+                    <Template Context="s">
+                        <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem;@Apagado(s)">
+                            <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@ColorDelEstado(s)"></span>
+                            @s.EstadoTexto
+                        </span>
+                    </Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="EstadoDeServidorDto" Property="DesplegadoUtc"
                                       Title="Últ. actualización" Width="150px">
@@ -186,12 +200,47 @@
         finally { _ocupado = false; }
     }
 
+    /// <summary>
+    /// El color del punto de la columna «Estado». DEVUELVE CSS, NO UN COLOR: la cadena «var(--…)»
+    /// literal solo significa algo dentro de un atributo <c>style</c> de esta página, y quien la
+    /// resuelve es el NAVEGADOR, no .NET. Es lo que hace que se lea igual en tema claro y en oscuro;
+    /// un hex escrito a mano se vería bien en uno e ilegible en el otro sin previo aviso.
+    ///
+    /// <para>Devuelve la variable SOLA —sin el «color:» delante y sin el «opacity:.7» que antes
+    /// viajaba mezclado aquí—, porque un <c>background</c> no admite declaraciones enteras. El
+    /// atenuado se fue a <see cref="Apagado"/>: son dos ejes distintos y meterlos en un mismo campo
+    /// era lo que impedía pintar el punto.</para>
+    ///
+    /// <para>El caso sin color pasó de la CADENA VACÍA al neutro, y el cambio importa: un
+    /// <c>background</c> vacío deja el punto hueco, y un punto hueco no se lee como «neutro» sino como
+    /// que el pintado falló. «Desplegado» —el servidor que tiene algo puesto pero cuyo sistema no
+    /// tiene ninguna versión publicada con la que comparar— comparte ese neutro con «Sin desplegar»
+    /// porque para quien mira significan lo mismo: no hay nada que reclamar y tampoco nada que
+    /// celebrar. Los separa la palabra, que va siempre al lado, y el atenuado del segundo.</para>
+    ///
+    /// <para>No sale de <c>ColoresDeEstado</c> y no es un descuido: este DTO no trae enum, decide con
+    /// dos booleanos que solo existen aquí, y aquel archivo lo comparte el servidor —donde
+    /// <c>var()</c> no resuelve y el texto saldría sin color sin ningún error que lo delatara—. Si un
+    /// día aparece una segunda vista de este mismo rack, esto sube a Shared antes de copiarse.</para>
+    /// </summary>
     private static string ColorDelEstado(EstadoDeServidorDto s)
     {
-        if (s.NuncaDesplegado) return "opacity:.7";
-        if (s.Atrasado) return "color:var(--rz-warning)";
-        return s.UltimaVersionDelSistema == null ? "" : "color:var(--rz-success)";
+        if (s.NuncaDesplegado) return "var(--rz-text-secondary-color)";
+        if (s.Atrasado) return "var(--rz-warning)";
+        return s.UltimaVersionDelSistema == null ? "var(--rz-text-secondary-color)" : "var(--rz-success)";
     }
+
+    /// <summary>
+    /// El atenuado de la celda de estado, que es el otro eje: no dice CÓMO está el servidor sino que
+    /// de éste no hay nada que contar todavía. Lo llevaba mezclado <see cref="ColorDelEstado"/> y por
+    /// eso se separó.
+    ///
+    /// <para>Va en el envoltorio y no en el texto, así que apaga también el punto. Es lo que se
+    /// pretende: un punto a plena intensidad junto a una palabra apagada se leería como dos cosas
+    /// distintas dichas del mismo servidor. Es el mismo recurso —y el mismo razonamiento— que
+    /// <see cref="ApagarLosDadosDeBaja"/>, que apaga el renglón entero.</para>
+    /// </summary>
+    private static string Apagado(EstadoDeServidorDto s) => s.NuncaDesplegado ? "opacity:.7" : "";
 
     private void ApagarLosDadosDeBaja(RowRenderEventArgs<EstadoDeServidorDto> args)
     {

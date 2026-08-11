@@ -103,6 +103,12 @@ public class PersonasQueryService(
             PresenceService.Duracion(j.Duracion),
             j.Abierta,
             j.EndReason == PresenceEnd.SinLatido,
+            // ESTE triángulo SE QUEDA, aunque el de la columna «Estado» de la asistencia se haya
+            // quitado y por los mismos motivos valdría quitarlo aquí. La razón es que la leyenda de
+            // la pantalla de presencia lo CITA entre comillas —«⚠ Sin señales» = la aplicación dejó
+            // de responder…—, así que quitarlo solo aquí dejaría la leyenda mandando a buscar en la
+            // rejilla algo que ya no está escrito así. Los dos cambios van juntos o no van, y el
+            // otro está en Paginas/Personas/Presencia.razor.
             j.EndReason switch
             {
                 PresenceEnd.CierreNormal => "Cerró sesión",
@@ -197,12 +203,29 @@ public class PersonasQueryService(
     private static string Delta(int? minutos) =>
         minutos is null ? "—" : $"{(minutos >= 0 ? "+" : "")}{minutos} min";
 
-    /// <summary>Cómo se lee la fila, con el mismo texto del escritorio.</summary>
+    /// <summary>
+    /// Cómo se lee la fila: el mismo texto del escritorio, ya sin los pictogramas que llevaba
+    /// delante («Sin marcar» tenía un triángulo y «Pide corrección», una mano levantada).
+    ///
+    /// <para>Se quitaron por lo mismo que los del menú y la barra: los dibuja el SISTEMA OPERATIVO,
+    /// así que cambian de forma según el equipo, no heredan el color del texto —en el tema oscuro
+    /// siguen brillando con los suyos— y donde no hay fuente de emoji salen como un CUADRO VACÍO.
+    /// Sustituirlos por un icono de la fuente no se puede: esto es una CADENA que la rejilla imprime
+    /// tal cual, y devolver ahí un nombre de icono pintaría la palabra dentro de la celda.</para>
+    ///
+    /// <para><b>El aviso no se pierde con la marca.</b> La pantalla resalta en ámbar la fila que
+    /// reclama algo usando los booleanos del DTO —olvido, corrección solicitada, sin marcar—, que es
+    /// información que viaja aparte y no depende de que nadie sepa leer un triángulo.</para>
+    ///
+    /// <para>La segunda mitad la escribe <see cref="AttendanceService.EtiquetaCierre"/> y se limpió
+    /// en el mismo lote: se CONCATENAN («Pide corrección · Olvido (estimada)»), así que una sola de
+    /// las dos sin marca habría dejado la etiqueta a medio decorar.</para>
+    /// </summary>
     private static string EstadoDeAsistencia(AsistenciaDelDiaFila f)
     {
-        if (f.RegistroId == null) return f.SinMarcar ? "⚠ Sin marcar" : "Sin actividad";
+        if (f.RegistroId == null) return f.SinMarcar ? "Sin marcar" : "Sin actividad";
         var estado = AttendanceService.EtiquetaCierre(f.Cierre);
-        return f.CorreccionSolicitada ? $"🙋 Pide corrección · {estado}" : estado;
+        return f.CorreccionSolicitada ? $"Pide corrección · {estado}" : estado;
     }
 
     /// <summary>El delta con signo, en minutos enteros: «+12» = marcó después de lo que vio la máquina.</summary>

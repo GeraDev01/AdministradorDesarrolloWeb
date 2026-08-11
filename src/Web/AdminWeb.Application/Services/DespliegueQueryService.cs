@@ -210,8 +210,19 @@ public class DespliegueQueryService(
         var usuarios = await NombresDeAsync(
             trabajo.StartedById is int id ? [id] : [], ct);
 
+        // La SEÑAL DE VIDA se queda fuera, y no es un filtro cosmético. Esa fila no es un renglón de
+        // bitácora: es la reserva que un despliegue en curso mantiene sobre sus servidores, guardada
+        // en esta tabla porque no había otra donde no estorbara (ver SenalDeVidaDelDespliegue). Mide
+        // «alguien lo está corriendo», no «pasó esto», y este método alimenta también la EVIDENCIA
+        // descargable — el .txt que se entrega cuando alguien pregunta qué pasó, y que se abre en un
+        // equipo del que no sabemos nada. Un apunte interno ahí dentro no explica nada y hay que
+        // explicarlo.
+        //
+        // Se filtra por el texto EXACTO de la marca a propósito: cuando la reconciliación cierra un
+        // despliegue interrumpido REESCRIBE esa misma fila con lo que pasó de verdad, y entonces deja
+        // de coincidir con la marca y sí sale — que es justo lo que tiene que salir.
         var renglones = await db.DeploymentLogEntries.AsNoTracking()
-            .Where(l => l.JobId == jobId)
+            .Where(l => l.JobId == jobId && l.Message != SenalDeVidaDelDespliegue.Marca)
             .OrderBy(l => l.Timestamp)
             .Select(l => new RenglonDeBitacoraDto(l.Timestamp, l.TargetName, l.Message, l.Level))
             .ToListAsync(ct);

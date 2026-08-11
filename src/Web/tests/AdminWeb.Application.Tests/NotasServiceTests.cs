@@ -313,7 +313,7 @@ public class NotasServiceTests
         Assert.Equal(2, datos.Notas.Count);
         Assert.Equal("La segunda", datos.Notas[0].Titulo);       // más reciente arriba
         Assert.Equal("Ana", datos.Notas[0].Desarrollador);
-        Assert.Equal("🔴 Alta", datos.Notas[0].PrioridadTexto);
+        Assert.Equal("Alta", datos.Notas[0].PrioridadTexto);
         Assert.Null(datos.Notas[1].Desarrollador);               // sin origen apuntado
         Assert.Equal(3, datos.Prioridades.Count);
     }

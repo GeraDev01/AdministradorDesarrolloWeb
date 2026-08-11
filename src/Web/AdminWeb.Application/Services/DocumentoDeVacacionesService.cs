@@ -27,6 +27,10 @@ namespace AdminWeb.Application.Services;
 /// es justo lo que el documento imprime —la casilla marcada es el estado de la solicitud—: separarlas
 /// haría posible firmar un papel que dijera algo distinto de lo que la base guarda.</para>
 /// </summary>
+/// <param name="avisos">Con qué se le pide al colaborador que vuelva a firmar. <b>Opcional a
+/// propósito</b>, como en los comunicados: es la salida del bloqueo, no la barrera, así que las
+/// pruebas que comprueban que el documento NO se archiva no tienen que montar el envío de avisos para
+/// probar lo que están probando. En la aplicación siempre viene puesto.</param>
 public class DocumentoDeVacacionesService(
     AppDbContext db,
     ICurrentUser usuarioActual,
@@ -35,7 +39,8 @@ public class DocumentoDeVacacionesService(
     IGeneradorDeDocumentos generador,
     IPlantillaDeVacacionesEnWord plantillaWord,
     AuditService auditoria,
-    VacationRequestService solicitudes)
+    VacationRequestService solicitudes,
+    NotificationService? avisos = null)
 {
     /// <summary>
     /// Cultura de las fechas del documento. Fija y no la del servidor: el papel se archiva en el
@@ -45,6 +50,22 @@ public class DocumentoDeVacacionesService(
 
     /// <summary>Aprobar o rechazar solo tiene sentido sobre lo que sigue esperando respuesta.</summary>
     public static bool SePuedeResolver(VacationStatus estado) => estado == VacationStatus.Pendiente;
+
+    /// <summary>
+    /// Si el documento definitivo se puede emitir y archivar. <b>La regla del bloqueo, en un solo
+    /// sitio.</b>
+    ///
+    /// <para>Se prohíbe cuando hay una firma del colaborador que DEJÓ DE VALER, y no cuando falta:
+    /// que nunca haya firmado es el trato de siempre —el escritorio ni siquiera guardaba su firma— y
+    /// bloquearlo dejaría sin poder archivar todo el histórico. Lo que no puede pasar es archivar un
+    /// papel del que la firma se cayó sin que nadie lo note: ahí hubo una firma, la solicitud cambió
+    /// por debajo y el documento saldría con el hueco en blanco pareciendo normal.</para>
+    ///
+    /// <para>La usan la barrera de <see cref="FirmarAsync"/> y el dato que viaja a la pantalla, para
+    /// que el botón que se ve y la operación que se permite no puedan discrepar. <b>La que protege es
+    /// la del servicio</b>: la pantalla corre en la máquina de cada quien.</para>
+    /// </summary>
+    public static bool SePuedeArchivar(FirmaDelColaboradorLeida firma) => !firma.DejoDeValer;
 
     /// <summary>
     /// Cancelar alcanza también a lo <b>ya aprobado</b>: unas vacaciones concedidas que al final no
@@ -100,6 +121,9 @@ public class DocumentoDeVacacionesService(
             .GroupBy(d => d.VacationRequestId)
             .ToDictionary(g => g.Key, g => g.Max(x => x.SignedAtUtc));
 
+        var firmasDelColaborador = await FirmasDelColaboradorAsync(
+            filas.ToDictionary(f => f.Id, f => f.Status), ct);
+
         return filas
             .Select(v => new SolicitudDeVacacionesLeida(
                 v.Id,
@@ -112,8 +136,50 @@ public class DocumentoDeVacacionesService(
                 v.ReviewComment,
                 v.TieneRespaldo,
                 firmados.ContainsKey(v.Id),
-                firmados.GetValueOrDefault(v.Id)))
+                firmados.GetValueOrDefault(v.Id),
+                firmasDelColaborador.GetValueOrDefault(v.Id) ?? FirmaDelColaboradorLeida.Ninguna(v.Status)))
             .ToList();
+    }
+
+    /// <summary>
+    /// En qué situación está la firma del colaborador en cada una de esas solicitudes.
+    ///
+    /// <para><b>Quién decide si una firma sigue valiendo es <see cref="VacationRequestService"/></b>,
+    /// que recalcula la huella de la petición y la compara con la que se guardó al firmar. Aquí no se
+    /// vuelve a razonar sobre eso —solo se traduce a las tres situaciones que la pantalla cuenta—
+    /// para que no haya dos criterios que puedan discrepar: el día que discreparan, uno de los dos
+    /// estaría diciendo que un papel vale cuando no.</para>
+    ///
+    /// <para><b>Y se le pregunta SOLO por las solicitudes que tienen firma</b>, no por la lista
+    /// entera. <c>PapelesDeAsync</c> tiene que releer la solicitud COMPLETA para recalcular la huella,
+    /// y la entidad lleva dentro los bytes del respaldo —hasta 15 MB por fila—. Sin este recorte,
+    /// abrir esta pantalla sin filtro se traería el adjunto de cada solicitud del equipo a la memoria
+    /// de la API para acabar pintando una palabra. La consulta de más sale mucho más barata, y las
+    /// que no aparecen es porque nadie las firmó, que es exactamente lo que hay que enseñar de
+    /// ellas.</para>
+    /// </summary>
+    /// <param name="estados">Las solicitudes por las que se pregunta, con el estado que ya se leyó.
+    /// Viaja en vez de releerse porque quien llama lo tiene siempre en la mano, y una consulta más
+    /// para recuperar un dato que ya está cargado es una consulta que sobra.</param>
+    private async Task<Dictionary<int, FirmaDelColaboradorLeida>> FirmasDelColaboradorAsync(
+        IReadOnlyDictionary<int, VacationStatus> estados, CancellationToken ct)
+    {
+        if (estados.Count == 0) return [];
+
+        var ids = estados.Keys.ToList();
+        var conFirma = await db.VacationDocuments.AsNoTracking()
+            .Where(d => ids.Contains(d.VacationRequestId)
+                     && d.FileName == VacationRequestService.MarcaDeLaFirmaDelColaborador)
+            .Select(d => d.VacationRequestId)
+            .ToListAsync(ct);
+
+        if (conFirma.Count == 0) return [];
+
+        var papeles = await solicitudes.PapelesDeAsync(conFirma, ct);
+
+        return papeles.ToDictionary(
+            p => p.Key,
+            p => FirmaDelColaboradorLeida.De(p.Value, estados[p.Key]));
     }
 
     /// <summary>
@@ -147,12 +213,16 @@ public class DocumentoDeVacacionesService(
             v.DocumentoFirmado,
             // La hora del firmado sí se convierte: es un INSTANTE, no un día del calendario, y quien
             // lo consulta quiere saber a qué hora de su reloj quedó archivado.
-            v.FirmadoUtc?.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+            v.FirmadoUtc?.ToLocalTime().ToString("dd/MM/yyyy HH:mm"),
+            // La firma del colaborador va AL FINAL de la hoja, no junto a la del documento, y no es
+            // capricho: quien ya tiene fórmulas o filtros montados sobre esta exportación los tiene
+            // atados a la posición de cada columna, y meterla en medio se los correría todos.
+            EstadoDeLaFirma(v.FirmaDelColaborador)
         }).ToList();
 
         return HojaDeCalculo.Escribir(
             ["Desarrollador", "Inicio", "Fin", "Días", "Estado", "Comentario", "Respuesta del líder",
-             "Respaldo", "Documento firmado", "Firmado el"],
+             "Respaldo", "Documento firmado", "Firmado el", "Firma del colaborador"],
             filas, "Vacaciones");
     }
 
@@ -372,19 +442,36 @@ public class DocumentoDeVacacionesService(
     ///
     /// Solo se firma lo ya resuelto: un papel firmado con las dos casillas en blanco no dice nada, y
     /// la firma del jefe es justo lo que convierte la decisión en un documento del expediente.
+    ///
+    /// <para><b>Y no se archiva con la firma del colaborador caída.</b> Ésta es la barrera, y va aquí
+    /// —no en el botón— porque la pantalla corre en la máquina de cada quien y a esta operación se
+    /// llega también sin navegador: deshabilitar un control es una cortesía, no una regla. El motivo
+    /// de fondo es que el papel archivado es el que alguien lee dentro de un año, cuando ya nadie se
+    /// acuerda de nada, y uno al que le falta una firma no se descubre hasta que hay un problema.
+    /// </para>
     /// </summary>
     public async Task<(bool ok, string mensaje)> FirmarAsync(int solicitudId, int firmaId,
         CancellationToken ct = default)
     {
         AuthorizationGuard.RequireAdmin(usuarioActual);
 
-        var estado = await db.VacationRequests.AsNoTracking()
-            .Where(v => v.Id == solicitudId).Select(v => (VacationStatus?)v.Status).FirstOrDefaultAsync(ct);
-        if (estado == null) return (false, "La solicitud ya no existe. Actualiza la lista.");
+        var solicitud = await db.VacationRequests.AsNoTracking()
+            .Where(v => v.Id == solicitudId)
+            .Select(v => new { v.Status, v.Developer.FullName })
+            .FirstOrDefaultAsync(ct);
+        if (solicitud == null) return (false, "La solicitud ya no existe. Actualiza la lista.");
 
-        if (estado is VacationStatus.Pendiente)
+        if (solicitud.Status is VacationStatus.Pendiente)
             return (false, "Resuelve la solicitud antes de firmarla: el documento imprime la casilla " +
                            "de autorizada o rechazada, y sin decisión saldrían las dos en blanco.");
+
+        var firmaDelColaborador = await FirmaDelColaboradorAsync(solicitudId, solicitud.Status, ct);
+        if (!SePuedeArchivar(firmaDelColaborador))
+            return (false,
+                $"{solicitud.FullName} firmó esta solicitud, pero la solicitud cambió después: su " +
+                "firma dejó de valer y el documento se archivaría con ese hueco en blanco. Tiene que " +
+                "volver a firmarla —el botón «Pedir que vuelva a firmar» se lo avisa—, y eso solo " +
+                "puede hacerlo mientras la solicitud siga pendiente de respuesta.");
 
         var (datos, nombreArchivo, _, _, error) = await ArmarAsync(solicitudId, firmaId, ct);
         if (datos == null) return (false, error!);
@@ -426,6 +513,93 @@ public class DocumentoDeVacacionesService(
 
         return (true, "Documento firmado y archivado.");
     }
+
+    // ── La salida del bloqueo ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Le pide al colaborador que firme —o que vuelva a firmar— su solicitud, con un aviso in-app.
+    ///
+    /// <para><b>Es la salida, y sin ella el bloqueo sobraría.</b> Descubrir que la firma no vale
+    /// justo al ir a archivar deja al líder con un documento que no puede emitir; si además tuviera
+    /// que salir de la pantalla a buscar a la persona por otro medio, lo que acabaría pasando es que
+    /// nadie usara el documento firmado. Un bloqueo sin salida molesta más de lo que protege.</para>
+    ///
+    /// <para><b>Se niega en vez de mandar un aviso imposible</b> cuando la solicitud ya está
+    /// resuelta: solo se firma la petición mientras espera respuesta, así que pedirle una firma que
+    /// no puede dar sería mandarlo a una pantalla donde no hay botón. El mensaje dice entonces lo
+    /// único que arregla eso de verdad.</para>
+    ///
+    /// <para><b>Sin clave de deduplicación</b>, al revés que los avisos automáticos: éste no lo
+    /// dispara un proceso que puede repetirse solo, lo pulsa una persona a sabiendas. Con clave, el
+    /// segundo recordatorio —el que se manda porque el primero no se atendió— desaparecería en
+    /// silencio y el líder creería haber avisado.</para>
+    /// </summary>
+    /// <param name="nota">Lo que el líder quiera añadir. El aviso ya explica solo lo que pasó; esto
+    /// es para el motivo, que solo lo sabe él.</param>
+    public async Task<(bool ok, string mensaje)> PedirQueVuelvaAFirmarAsync(
+        int solicitudId, string? nota = null, CancellationToken ct = default)
+    {
+        AuthorizationGuard.RequireAdmin(usuarioActual);
+
+        var solicitud = await db.VacationRequests.AsNoTracking()
+            .Where(v => v.Id == solicitudId)
+            .Select(v => new { v.DeveloperId, v.Developer.FullName, v.StartDate, v.EndDate, v.Status })
+            .FirstOrDefaultAsync(ct);
+        if (solicitud == null) return (false, "La solicitud ya no existe. Actualiza la lista.");
+
+        var firma = await FirmaDelColaboradorAsync(solicitudId, solicitud.Status, ct);
+
+        if (firma.Vigente)
+            return (false, $"La firma de {solicitud.FullName} vale para esta solicitud tal como está " +
+                           "hoy: no hay nada que pedirle. Si aun así quieres otra, tiene que volver a " +
+                           "trazarla él desde «Mis vacaciones».");
+
+        if (!firma.PuedeVolverAFirmar)
+            return (false, $"Esa solicitud ya está «{Etiqueta(solicitud.Status)}» y lo que se firma es " +
+                           "la PETICIÓN, mientras espera respuesta. Avisarle ahora no le daría dónde " +
+                           "firmar: si el papel tiene que salir con su firma, la solicitud tiene que " +
+                           "volver a pedirse.");
+
+        var periodo = $"{solicitud.StartDate:dd/MM/yyyy} — {solicitud.EndDate:dd/MM/yyyy}";
+        var quien = usuarioActual.FullName ?? usuarioActual.Username ?? "Tu líder";
+
+        var cuerpo = (firma.DejoDeValer
+                ? $"La solicitud del {periodo} cambió después de que la firmaras, así que tu firma dejó " +
+                  "de valer y ya no sale en el documento. Vuelve a firmarla."
+                : $"Falta tu firma en la solicitud del {periodo}. Sin ella el documento se archiva con " +
+                  "el hueco en blanco.")
+            + (string.IsNullOrWhiteSpace(nota) ? "" : $"\n\n{quien}: {nota.Trim()}");
+
+        // El aviso se manda ANTES de anotar nada: si no llega a nadie no hubo petición que registrar,
+        // y una bitácora que dijera «se le pidió» cuando no se le pidió es peor que no tenerla.
+        var llego = avisos is not null && await avisos.NotifyDeveloperAsync(
+            solicitud.DeveloperId, NotificationKind.General,
+            firma.DejoDeValer ? "Tu firma de vacaciones dejó de valer" : "Falta tu firma en unas vacaciones",
+            cuerpo, url: "mis-vacaciones", ct: ct);
+
+        if (!llego)
+            return (false, $"No se pudo avisar a {solicitud.FullName}: no tiene cuenta activa en la " +
+                           "aplicación, y los avisos se entregan por cuenta. Pídeselo por otro medio.");
+
+        await auditoria.RecordAsync(AuditAction.Update, "VacationRequest", solicitudId.ToString(),
+            $"Se le pidió a {solicitud.FullName} que {(firma.DejoDeValer ? "vuelva a firmar" : "firme")} " +
+            $"sus vacaciones ({periodo})", ct);
+
+        return (true, firma.DejoDeValer
+            ? $"Listo: {solicitud.FullName} tiene el aviso de que su firma dejó de valer. El documento " +
+              "se podrá archivar en cuanto vuelva a firmar."
+            : $"Listo: {solicitud.FullName} tiene el aviso de que falta su firma.");
+    }
+
+    /// <summary>
+    /// La situación de la firma del colaborador en UNA solicitud. Mismo camino que el de la lista, y
+    /// por lo mismo: la barrera y lo que la pantalla enseña tienen que salir del mismo sitio.
+    /// </summary>
+    private async Task<FirmaDelColaboradorLeida> FirmaDelColaboradorAsync(
+        int solicitudId, VacationStatus estado, CancellationToken ct) =>
+        (await FirmasDelColaboradorAsync(new Dictionary<int, VacationStatus> { [solicitudId] = estado }, ct))
+            .GetValueOrDefault(solicitudId)
+            ?? FirmaDelColaboradorLeida.Ninguna(estado);
 
     /// <summary>
     /// El PDF firmado que quedó archivado, si lo hay. Vacío si nunca se firmó.
@@ -621,17 +795,42 @@ public class DocumentoDeVacacionesService(
     public static int Dias(DateTime inicio, DateTime fin) => (fin.Date - inicio.Date).Days + 1;
 
     /// <summary>
-    /// Etiqueta del estado, con los mismos emojis que el escritorio. Vive aquí y no en
+    /// Etiqueta del estado, con la PALABRA SOLA. Vive aquí y no en
     /// <see cref="VacationRequestService"/> porque ese servicio se porta sin tocar; el COLOR sigue
     /// siendo cosa de la pantalla.
+    ///
+    /// <para>Traía delante el símbolo del escritorio (⏳ ✅ ❌ 🚫) y se fue, por lo mismo que en los
+    /// permisos y en «Mis vacaciones»: lo dibuja EL SISTEMA OPERATIVO y no nosotros, así que sale
+    /// distinto en cada equipo, NO hereda el color del texto —en el tema oscuro se quedaba con el
+    /// suyo mientras la palabra de al lado cambiaba— y donde no hay fuente de emoji instalada sale
+    /// como un CUADRO VACÍO. Eso último se vio en una captura; no es una precaución inventada. Era la
+    /// última copia de las cuatro que quedaba con símbolo.</para>
+    ///
+    /// <para><b>Esta etiqueta no es solo adorno de rejilla: SE GUARDA.</b> Va en la descripción que
+    /// <see cref="ResolverAsync"/> escribe en la BITÁCORA —«Vacaciones aprobada: …»—, en la columna
+    /// «Estado» de la exportación a Excel y en dos mensajes de rechazo. Se cambia igualmente, y el
+    /// motivo es que aquí solo cae el SÍMBOLO: la palabra —que es lo que alguien lee en un asiento
+    /// viejo y lo que teclea si busca «rechazada»— no se toca. Los asientos anteriores dicen
+    /// «Vacaciones ✅ aprobada» y los nuevos dirán «Vacaciones aprobada»; los dos se leen igual y una
+    /// búsqueda por la palabra encuentra los dos.</para>
+    ///
+    /// <para>Nadie coteja esta cadena por igualdad: las decisiones se toman sobre
+    /// <see cref="VacationStatus"/>, que viaja en el DTO al lado del texto. Que siga así.</para>
     /// </summary>
     public static string Etiqueta(VacationStatus estado) => estado switch
     {
-        VacationStatus.Pendiente => "⏳ Pendiente",
-        VacationStatus.Aprobada => "✅ Aprobada",
-        VacationStatus.Rechazada => "❌ Rechazada",
-        _ => "🚫 Cancelada"
+        VacationStatus.Pendiente => "Pendiente",
+        VacationStatus.Aprobada => "Aprobada",
+        VacationStatus.Rechazada => "Rechazada",
+        _ => "Cancelada"
     };
+
+    /// <summary>
+    /// Cómo se lee la situación de una firma en una hoja de cálculo, donde no hay color ni icono que
+    /// la maticen: las tres palabras tienen que bastarse solas.
+    /// </summary>
+    private static string EstadoDeLaFirma(FirmaDelColaboradorLeida firma) =>
+        firma.DejoDeValer ? "Dejó de valer" : firma.Vigente ? "Firmada" : "Sin firmar";
 
     private static string Capitalizar(string s) =>
         string.IsNullOrEmpty(s) ? s : char.ToUpper(s[0], Espanol) + s[1..];
@@ -648,6 +847,10 @@ public class DocumentoDeVacacionesService(
 /// Una solicitud tal como sale de la base para la pantalla del líder: <b>sin los bytes</b> del
 /// respaldo ni del documento, solo si los hay.
 /// </summary>
+/// <param name="DocumentoFirmado">El líder ya archivó el documento definitivo.</param>
+/// <param name="FirmaDelColaborador">Otra cosa distinta: el trazo que puso quien pidió los días, que
+/// es lo que ese documento lleva dentro. Confundirlos es exactamente el error que esta pantalla
+/// cometía —enseñaba «Firmado» y nadie miraba si la firma de la persona seguía dentro—.</param>
 public record SolicitudDeVacacionesLeida(
     int Id,
     int DesarrolladorId,
@@ -659,4 +862,41 @@ public record SolicitudDeVacacionesLeida(
     string? RespuestaDelLider,
     bool TieneRespaldo,
     bool DocumentoFirmado,
-    DateTime? FirmadoUtc);
+    DateTime? FirmadoUtc,
+    FirmaDelColaboradorLeida FirmaDelColaborador);
+
+/// <summary>
+/// La firma del colaborador reducida a lo que hay que contar de ella: <b>tres situaciones, no dos</b>.
+///
+/// <para>«Firmada» y «sin firmar» dejaban fuera la que importa —firmó y su firma se cayó— y la
+/// escondían dentro de «sin firmar», que es la lectura más tranquilizadora posible de un problema:
+/// parece que nunca hubo firma, cuando lo que pasó es que la solicitud cambió por debajo de una que
+/// sí existió.</para>
+///
+/// <para>Es una traducción de <see cref="PapelesDeUnaSolicitud"/>, no una segunda verdad: quien
+/// decide si una firma vale sigue siendo <see cref="VacationRequestService"/>, comparando la huella
+/// de lo que se firmó con lo que la solicitud dice ahora.</para>
+/// </summary>
+/// <param name="Vigente">Firmó y su firma sirve HOY: es la que el documento estampa.</param>
+/// <param name="DejoDeValer">Firmó y lo firmado ya no coincide con la solicitud. Es lo que bloquea el
+/// archivado.</param>
+/// <param name="PuedeVolverAFirmar">Si la solicitud admite firma ahora mismo. Sale de
+/// <see cref="VacationRequestService.PuedeFirmar"/> y no de una copia de la regla, porque quien tiene
+/// que poder firmar es la misma persona a la que aquella pantalla le enseña —o le esconde— el botón.
+/// </param>
+public record FirmaDelColaboradorLeida(
+    bool Vigente,
+    bool DejoDeValer,
+    DateTime? FirmadaUtc,
+    bool PuedeVolverAFirmar)
+{
+    public static FirmaDelColaboradorLeida De(PapelesDeUnaSolicitud papeles, VacationStatus estado) =>
+        new(papeles.SigueValiendo,
+            papeles.Firmada && !papeles.SigueValiendo,
+            papeles.FirmadaUtc,
+            VacationRequestService.PuedeFirmar(estado));
+
+    /// <summary>Nadie firmó. Evita que cada llamada tenga que decidir qué significa una ausencia.</summary>
+    public static FirmaDelColaboradorLeida Ninguna(VacationStatus estado) =>
+        new(false, false, null, VacationRequestService.PuedeFirmar(estado));
+}

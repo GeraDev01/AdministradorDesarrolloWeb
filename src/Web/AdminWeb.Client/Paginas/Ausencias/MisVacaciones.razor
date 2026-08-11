@@ -216,22 +216,37 @@
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="SolicitudDeVacacionesDto" Title="Días" Property="Dias" Width="80px" />
                 <RadzenDataGridColumn TItem="SolicitudDeVacacionesDto" Title="Estado" Property="Estado" Width="130px">
-                    @* SIN PUNTO DE COLOR, y está BLOQUEADO, no olvidado. Por criterio le tocaría igual
-                       que a los permisos, pero EtiquetaEstado llega hecha del servidor CON EMOJI
-                       (AusenciasService: «⏳ Pendiente», «✅ Aprobada», «❌ Rechazada»,
-                       «🚫 Cancelada»), y el punto quedaría pegado a él.
+                    @* El punto de color, que aquí estuvo bloqueado por el servidor: EtiquetaEstado
+                       llegaba hecha y con emoji dentro («⏳ Pendiente», «✅ Aprobada»…), y el punto
+                       habría quedado pegado a un símbolo que dibuja el sistema operativo, no obedece al
+                       tema oscuro y donde no hay fuente de emoji sale como un cuadro vacío. Las DOS
+                       tablas del servidor que escribían esa palabra —AusenciasService y la suya propia
+                       de DocumentoDeVacacionesService, que es la que acaba impresa en el papel que se
+                       firma— ya mandan la palabra sola, así que el bloqueo se levantó.
 
-                       Ojo con el alcance antes de ponerse a limpiarlo, porque no es una pantalla: esa
-                       tabla está DUPLICADA en el servidor (DocumentoDeVacacionesService tiene la suya)
-                       y una de las dos alimenta los documentos que se generan, así que quitarle el
-                       emoji cambia también lo que sale impreso en un papel firmado.
+                       Va con el mismo punto que «Mis permisos», que es la pantalla hermana: quien pide
+                       un permiso y quien pide vacaciones es la misma persona y las dos listas están una
+                       al lado de la otra en el menú. Que una marcara el estado y la otra no era la
+                       incoherencia más visible que dejaba este cambio.
 
-                       Cuando se desbloquee, esta pantalla y AusenciasLider/Vacaciones.razor van a la
-                       vez. El color no hará falta unificarlo entonces porque ya lo está: las dos
-                       leen de ColoresDeEstado.ColorDeVacaciones, en Shared, en vez de guardar cada
-                       una su copia de las cuatro líneas. *@
+                       La mitad del líder está cerrada: AusenciasLider/Vacaciones.razor lleva el mismo
+                       punto y quedó pendiente un rato solo porque estaba en otro cambio cuando se hizo
+                       éste. Es la MISMA solicitud vista por los dos lados, así que las dos van juntas
+                       o no van; las dos sacan el tono de ColoresDeEstado.ColorDeVacaciones, en Shared,
+                       y ninguna guarda su copia de las cuatro líneas.
+
+                       El texto va en TINTA NORMAL y sin negrita: con el punto delante, colorear también
+                       la palabra es decir el mismo dato dos veces. Marcado copiado de
+                       Componentes/BotonDeEstado.razor —el borde gris deja el punto visible aunque un
+                       día falte la variable— con la palabra SIEMPRE al lado y el color sacado del ENUM
+                       (v.Estado, que el DTO trae junto al texto), nunca de comparar la etiqueta.
+
+                       Los 130 px no se tocan: la más larga es «Rechazada» y cabe con el punto. *@
                     <Template Context="v">
-                        <b style="@($"color:{ColoresDeEstado.ColorDeVacaciones(v.Estado)}")">@v.EtiquetaEstado</b>
+                        <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
+                            <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@ColoresDeEstado.ColorDeVacaciones(v.Estado)"></span>
+                            @v.EtiquetaEstado
+                        </span>
                     </Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="SolicitudDeVacacionesDto" Title="Respaldo" Width="180px" Sortable="false">

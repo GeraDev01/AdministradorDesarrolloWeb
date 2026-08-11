@@ -25,11 +25,6 @@ namespace AdminWeb.Shared.Enums;
 /// la PALABRA. Lo que el emoji comunicaba de verdad —la urgencia, el ambiente, el acceso denegado— se
 /// recupera EN LA PANTALLA, con un punto de color pintado con una variable del tema y la palabra
 /// siempre al lado; el patrón está en <c>Componentes/BotonDeEstado.razor</c>.
-///
-/// La errata «Utiliería de red» viene del escritorio y de momento SE QUEDA. Ojo con el motivo, porque
-/// ya no es el que había: se conservaba por esa paridad que acaba de caducar, así que hoy no hay
-/// ninguna razón técnica para mantenerla — corregirla es una decisión del usuario, y nadie la ha
-/// tomado todavía. Cámbiala cuando la pida, no de paso.
 /// </summary>
 public static class EtiquetasDeCatalogo
 {
@@ -46,7 +41,11 @@ public static class EtiquetasDeCatalogo
         SoftwareCategory.Seguridad        => "Seguridad",
         SoftwareCategory.DevOps           => "DevOps / CI-CD",
         SoftwareCategory.Productividad    => "Productividad",
-        SoftwareCategory.UtileriaRed      => "Utiliería de red",
+        // «Utilería», con una sola i. Arrastraba la errata del escritorio y solo se conservaba para
+        // que las dos aplicaciones dijeran lo mismo; apagado el escritorio, esa razón desapareció y
+        // el usuario aprobó corregirla. Se puede: esta cadena solo se pinta —en la columna Categoría
+        // y en el desplegable de filtro de Programas—, nunca se guarda ni se compara contra nada.
+        SoftwareCategory.UtileriaRed      => "Utilería de red",
         _                                 => "Otro"
     };
 

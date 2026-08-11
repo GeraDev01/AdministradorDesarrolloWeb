@@ -212,6 +212,13 @@ public class ProgramadosService(
             if (nombres.Count == 0) return (false, "Los servidores seleccionados ya no existen.");
 
             // Etiqueta con los nombres, para reconocer la cita en la lista sin abrir nada.
+            //
+            // El «⏱» SE QUEDA, aunque la limpieza de emoji de este archivo se llevó los de
+            // EtiquetaDeEstado. No es una etiqueta que se calcule al pintar: es el NOMBRE con el que
+            // nace un perfil interno y queda GRABADO en DeploymentProfile.Name. Quitarlo aquí no
+            // repinta los perfiles ya congelados, así que dejaría media lista con reloj y media sin
+            // él — que es peor que tenerlo en todas. Si se decide quitarlo, es una migración de las
+            // filas existentes y no una edición de esta línea.
             var etiqueta = "⏱ " + string.Join(", ", nombres.Take(3)) +
                            (nombres.Count > 3 ? $" (+{nombres.Count - 3})" : "");
             if (etiqueta.Length > 190) etiqueta = etiqueta[..190];
@@ -464,16 +471,31 @@ public class ProgramadosService(
     }
 
     /// <summary>
-    /// La etiqueta de cada estado. La escribe el servidor para que diga lo mismo en la pantalla, en un
-    /// mensaje de rechazo y en la bitácora.
+    /// La etiqueta de cada estado, con la PALABRA SOLA. La escribe el servidor para que diga lo mismo
+    /// en la pantalla y en un mensaje de rechazo.
+    ///
+    /// <para>Los seis llevaban delante un símbolo (🕓 ▶ ✅ ❌ ⚪ ⚠) y se fueron. Los dibuja EL SISTEMA
+    /// OPERATIVO y no nosotros: se ven distintos en cada equipo, NO heredan el color del texto —en el
+    /// tema oscuro se quedaban con el suyo mientras la palabra de al lado cambiaba— y donde no hay
+    /// fuente de emoji instalada salen como un CUADRO VACÍO. Lo último está comprobado en una captura.
+    /// En una agenda de despliegues el precio de eso es alto: el estado es lo ÚNICO que se mira para
+    /// saber si algo se disparó, y un cuadro no distingue «Completado» de «Fallido».</para>
+    ///
+    /// <para>Lo que va a la BITÁCORA no pasa por aquí y no cambia: los asientos de
+    /// <c>EjecutarAsync</c> y <c>MarcarPerdidasAsync</c> se escriben con <c>ResultMessage</c> y con el
+    /// <see cref="JobStatus"/> crudo, que nunca llevaron dibujo. Aquí solo se toca lo que se lee en
+    /// pantalla y en el «No se puede cancelar: está en estado …» de <c>CancelarAsync</c>.</para>
+    ///
+    /// <para>Nadie compara estas cadenas: la pantalla recibe <see cref="ScheduledDeploymentStatus"/>
+    /// en el mismo DTO y decide con el enum. Que siga así.</para>
     /// </summary>
     public static string EtiquetaDeEstado(ScheduledDeploymentStatus estado) => estado switch
     {
-        ScheduledDeploymentStatus.Programado => "🕓 Programado",
-        ScheduledDeploymentStatus.EnEjecucion => "▶ En ejecución",
-        ScheduledDeploymentStatus.Completado => "✅ Completado",
-        ScheduledDeploymentStatus.Fallido => "❌ Fallido",
-        ScheduledDeploymentStatus.Cancelado => "⚪ Cancelado",
-        _ => "⚠ Perdido"
+        ScheduledDeploymentStatus.Programado => "Programado",
+        ScheduledDeploymentStatus.EnEjecucion => "En ejecución",
+        ScheduledDeploymentStatus.Completado => "Completado",
+        ScheduledDeploymentStatus.Fallido => "Fallido",
+        ScheduledDeploymentStatus.Cancelado => "Cancelado",
+        _ => "Perdido"
     };
 }
