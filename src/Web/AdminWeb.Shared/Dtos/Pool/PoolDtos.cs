@@ -41,7 +41,13 @@ public record OpcionDelPoolDto<T>(T? Valor, string Texto) where T : struct;
 /// libre —nadie trabaja sin saber cuánto vale lo que va a hacer—. Vienen congelados de la matriz al
 /// crearse la actividad, así que la pantalla los pinta y no los calcula.
 /// </summary>
-/// <param name="Dias">Días que se conceden desde que se toma. Nulo = los de la matriz.</param>
+/// <param name="Horas">El PLAZO propio de esta actividad, en horas, tal como se capturó: nulo
+/// significa «el de la matriz» y 0 «sin fecha límite». Es el dato crudo, para editar; para ENSEÑAR
+/// se usa <paramref name="HorasEfectivas"/>.</param>
+/// <param name="HorasEfectivas">El plazo YA RESUELTO contra la matriz: lo que de verdad se va a
+/// conceder si se toma ahora. Viaja resuelto desde el servidor porque quien mira el pool tiene que
+/// poder ver que un bug da cuatro horas ANTES de tomarlo —es con lo que decide—, y el navegador no
+/// tiene la matriz para resolverlo por su cuenta. Nulo o 0 = sin fecha límite.</param>
 /// <param name="PuntosMaximos">Base más TODOS los criterios extra. Es lo que está en juego si se
 /// hace todo lo que se pide.</param>
 /// <param name="CriteriosExtra">Lo que además se va a mirar. Viaja antes de tomarla a propósito:
@@ -58,14 +64,20 @@ public record ActividadLibreDto(
     string? Enlace,
     PoolPriority Prioridad,
     string PrioridadTexto,
-    int? Dias,
+    decimal? Horas,
+    decimal? HorasEfectivas,
     int PuntosMaximos,
     IReadOnlyList<CriterioExtraDto> CriteriosExtra);
 
 /// <summary>
 /// Una actividad del pool que ya está a nombre de quien mira la pantalla.
 /// </summary>
-/// <param name="LimiteUtc">Cuándo se espera entregada. Nulo si su celda de la matriz no fija plazo.</param>
+/// <param name="LimiteUtc">Cuándo se espera entregada, ya como INSTANTE. Nulo si no se fijó plazo ni
+/// en la actividad ni en su celda de la matriz. Se calculó al tomarla sumando horas.</param>
+/// <param name="HorasEstimadas">El ESFUERZO estimado, en horas: lo que se dijo que costaría. No es
+/// el plazo —eso es <paramref name="LimiteUtc"/>—, es la carga de trabajo, y es el número contra el
+/// que se va a contrastar el cronómetro. En un bug lo escribió quien la tomó, al tomarla; en una
+/// tarea o un requerimiento lo escribió el líder al publicarla.</param>
 /// <param name="ChecklistHechos">Puntos del checklist ya cumplidos, y <paramref name="ChecklistTotal"/>
 /// cuántos son. Los cuenta el servidor de una sola consulta: pedir el checklist de cada fila para
 /// pintar «3/5» sería un viaje de red por actividad.</param>
@@ -82,6 +94,7 @@ public record MiActividadDelPoolDto(
     DateTime? LimiteUtc,
     bool Vencida,
     bool EnCurso,
+    decimal? HorasEstimadas,
     int ChecklistHechos,
     int ChecklistTotal,
     string? MotivoDeDevolucion,
@@ -111,6 +124,14 @@ public record PoolDelLiderDto(
 /// <param name="QuienLaTiene">Nombre de quien la tomó, o nulo si sigue libre.</param>
 /// <param name="Devoluciones">Cuántas veces volvió al pool. Devolver no se castiga, pero el número
 /// dice algo: una actividad devuelta cinco veces es un problema de la actividad o de quien la toma.</param>
+/// <param name="Horas">El PLAZO propio de la actividad, en horas: cuánto se concede desde que
+/// alguien la toma. Nulo = el de la matriz (solo en tarea y requerimiento; un bug siempre lo trae).
+/// 0 = sin fecha límite. Es el campo que rellena el formulario al editarla.</param>
+/// <param name="HorasEstimadas">El ESFUERZO estimado, en horas. No lo confundas con
+/// <paramref name="Horas"/>: aquél es cuándo hay que entregarlo y éste cuánto trabajo se cree que
+/// cuesta. <b>Quién lo escribió depende del tipo</b>, y se sabe mirando <paramref name="Tipo"/>: en
+/// un Bug es de quien la tomó y se capturó al tomarla; en una Tarea o un Requerimiento es del líder
+/// y se capturó al publicarla. Nulo en un bug que todavía nadie ha tomado.</param>
 public record ActividadDelPoolDto(
     int Id,
     string Titulo,
@@ -129,7 +150,8 @@ public record ActividadDelPoolDto(
     string? Enlace,
     PoolPriority Prioridad,
     string PrioridadTexto,
-    int? Dias,
+    decimal? Horas,
+    decimal? HorasEstimadas,
     int PuntosMaximos,
     int CuantosCriteriosExtra);
 
@@ -185,7 +207,7 @@ public record ConfiguracionDelPoolDto(
 /// <summary>
 /// Una celda de la matriz tipo × complejidad.
 ///
-/// <see cref="Puntos"/> y <see cref="DiasLimite"/> son mutables porque el líder los edita en la
+/// <see cref="Puntos"/> y <see cref="HorasLimite"/> son mutables porque el líder los edita en la
 /// propia rejilla y el mismo objeto vuelve al servidor al guardar; el resto identifica la celda y no
 /// se toca. Cambiar la matriz NO revalúa lo ya publicado: cada actividad lleva sus puntos congelados.
 /// </summary>
@@ -197,8 +219,17 @@ public record CeldaDeMatrizDto(
 {
     public int Puntos { get; set; }
 
-    /// <summary>Días desde que se toma hasta que se espera entregada. 0 = sin fecha límite.</summary>
-    public int DiasLimite { get; set; }
+    /// <summary>
+    /// Horas desde que se toma hasta que se espera entregada. 0 = sin fecha límite.
+    ///
+    /// <para>Son horas de RELOJ, no jornadas: al tomar la actividad se suman sobre el instante de
+    /// ahora, así que 40 h vence pasado mañana y no dentro de cinco días laborales. Conviene que la
+    /// pantalla lo diga, porque es lo que hace comparable el plazo con lo que mide el cronómetro.</para>
+    ///
+    /// <para>De aquí sale el plazo de las TAREAS y los REQUERIMIENTOS. En un BUG no manda: ahí lo
+    /// fija el líder actividad por actividad.</para>
+    /// </summary>
+    public decimal HorasLimite { get; set; }
 }
 
 /// <summary>
@@ -221,15 +252,22 @@ public record PuntoDePlantillaDto(
 /// según el tipo y la complejidad. Aceptarlos aquí permitiría publicar una actividad de 25 puntos
 /// donde la matriz dice 5, que es justo lo que este sistema vino a impedir.
 ///
-/// <para>Lo que sí se decide por actividad son los DÍAS y la PRIORIDAD, y ninguno de los dos toca
-/// los puntos. Es la asimetría a propósito: aflojar el plazo o subir la urgencia no vale puntos,
-/// así que no hay forma de convertirlos en una vía para regalarlos.</para>
+/// <para>Lo que sí se decide por actividad son el PLAZO, el ESFUERZO y la PRIORIDAD, y ninguno de
+/// los tres toca los puntos. Es la asimetría a propósito: aflojar el plazo, estimar más horas o
+/// subir la urgencia no vale puntos, así que no hay forma de convertirlos en una vía para regalarlos.</para>
 ///
 /// <para>Y los CRITERIOS EXTRA, que sí suman —pero solo si se cumplen, y eso se decide al verificar
 /// la entrega, no aquí. Aquí solo se anuncia qué se va a mirar.</para>
 /// </summary>
-/// <param name="Dias">Días para entregarla desde que alguien la toma. Nulo = los de la matriz.
-/// 0 = sin fecha límite.</param>
+/// <param name="Horas">El PLAZO: horas para entregarla desde que alguien la toma. 0 = sin fecha
+/// límite.
+/// <para><b>Obligatorio si el tipo es Bug</b>, porque ahí el plazo lo pone el líder y la matriz no
+/// lo pone por él. En Tarea y Requerimiento es un ajuste opcional y nulo significa «el de la
+/// matriz».</para></param>
+/// <param name="HorasEstimadas">El ESFUERZO: cuántas horas de trabajo se cree que cuesta. No es el
+/// plazo. <b>Obligatorio en Tarea y Requerimiento</b> —lo estima el líder— y <b>rechazado en Bug</b>,
+/// donde lo escribe quien lo tome en el momento de tomarlo: si el líder pudiera precargarlo, a esa
+/// persona no se le preguntaría nunca y el número dejaría de ser suyo.</param>
 /// <param name="CriteriosExtra">Identificadores del catálogo de criterios. Se copian con su nombre y
 /// sus puntos congelados: quien tome la actividad cobra lo que vio, aunque el catálogo cambie.</param>
 public record PublicarActividadRequest(
@@ -239,8 +277,24 @@ public record PublicarActividadRequest(
     PoolComplexity Complejidad,
     string? Enlace,
     PoolPriority Prioridad = PoolPriority.Media,
-    int? Dias = null,
+    decimal? Horas = null,
+    decimal? HorasEstimadas = null,
     IReadOnlyList<int>? CriteriosExtra = null);
+
+/// <summary>
+/// Tomar una actividad del pool. Lleva un solo dato y solo hace falta para los BUGS.
+///
+/// <para><b>Por qué la estimación se pide justo aquí y no antes ni después.</b> En un bug, el
+/// esfuerzo lo estima quien lo toma, y el momento de tomarlo es el ÚNICO en que ese número es
+/// honesto: escrito a mitad del trabajo, quien lo escribe ya sabe lo que le costó, y entonces deja
+/// de ser una estimación y de servir para contrastarla con el cronómetro —que es para lo único que
+/// existe—. Por eso el servidor no deja tomar un bug sin ella.</para>
+///
+/// <para>El cuerpo entero es opcional en la ruta, igual que el motivo de devolver o liberar: quien
+/// toma una tarea o un requerimiento no manda nada, porque ahí el esfuerzo ya lo fijó el líder al
+/// publicarla y mandarlo se rechaza.</para>
+/// </summary>
+public record TomarActividadRequest(decimal? HorasEstimadas);
 
 /// <summary>El líder dice si un criterio extra se cumplió. Solo los cumplidos suman al aceptar.</summary>
 public record EvaluarCriterioRequest(bool Cumplido, string? Comentario);

@@ -758,6 +758,11 @@ public static void SembrarPoolYDesempeno(AppDbContext db, DatosBase b)
         Complexity = PoolComplexity.Media,
         Points = Celda(PoolWorkType.Bug, PoolComplexity.Media).Points,
         Priority = PoolPriority.Alta,
+        // En un BUG el plazo lo pone SIEMPRE el líder y la matriz no lo pone por él: por eso ningún
+        // bug de la demostración aparece sin horas. Veinticuatro de reloj, que con el PAC rechazando
+        // facturas es lo que hay. El ESFUERZO va vacío a propósito: lo estimará quien lo tome, en el
+        // momento de tomarlo, que es el único en que ese número es honesto.
+        HorasLimite = 24m,
         Status = PoolActivityStatus.Disponible,
         ExternalUrl = "https://dev.azure.com/soltum/Interno/_workitems/edit/4187",
         CreatedByUserId = lider,
@@ -773,6 +778,11 @@ public static void SembrarPoolYDesempeno(AppDbContext db, DatosBase b)
         Complexity = PoolComplexity.Baja,
         Points = Celda(PoolWorkType.Tarea, PoolComplexity.Baja).Points,
         Priority = PoolPriority.Baja,
+        // Sin plazo propio: en una TAREA el plazo sale de la matriz, y el campo por actividad solo se
+        // usa cuando hay un motivo para apretarlo. El ESFUERZO, en cambio, lo estima el líder al
+        // publicarla y es obligatorio: es el número contra el que se contrastará el cronómetro.
+        HorasEstimadas = 6m,
+        HorasEstimadasEnUtc = ahora.AddDays(-17),
         Status = PoolActivityStatus.Disponible,
         CreatedByUserId = lider,
         // Lleva más de dos semanas sin que nadie la tome: paga poco y no urge. El pool no se vacía
@@ -789,10 +799,18 @@ public static void SembrarPoolYDesempeno(AppDbContext db, DatosBase b)
         Complexity = PoolComplexity.Alta,
         Points = Celda(PoolWorkType.Requerimiento, PoolComplexity.Alta).Points,
         Priority = PoolPriority.Critica,
-        // La matriz da trece días para un requerimiento alto; aquí se conceden cinco porque el
-        // cierre no espera. El plazo es lo ÚNICO que se ajusta por actividad: los puntos siguen
+        // La matriz da 104 horas para un requerimiento alto; aquí se conceden 40 porque el cierre no
+        // espera. El plazo es lo ÚNICO de la matriz que se ajusta por actividad: los puntos siguen
         // siendo los de la matriz, porque apretar la fecha no vale puntos.
-        DiasLimite = 5,
+        //
+        // Y son horas de RELOJ: 40 h desde que alguien la tome vence pasado mañana, no dentro de
+        // cinco días laborales. Es lo que hace que el plazo se pueda restar de lo que mida el
+        // cronómetro, que también cuenta horas.
+        HorasLimite = 40m,
+        // El esfuerzo lo pone el líder porque es un requerimiento: 72 horas de trabajo dentro de un
+        // plazo de 40 de reloj es exactamente la conversación que esta pantalla tiene que provocar.
+        HorasEstimadas = 72m,
+        HorasEstimadasEnUtc = ahora.AddDays(-1),
         Status = PoolActivityStatus.Disponible,
         ExternalUrl = "https://dev.azure.com/soltum/Interno/_workitems/edit/4203",
         CreatedByUserId = lider,
@@ -812,6 +830,10 @@ public static void SembrarPoolYDesempeno(AppDbContext db, DatosBase b)
         Complexity = PoolComplexity.MuyAlta,
         Points = Celda(PoolWorkType.Tarea, PoolComplexity.MuyAlta).Points,
         Priority = PoolPriority.Media,
+        // Plazo el de la matriz (104 h); el esfuerzo lo estimó el líder en 90, que es casi todo el
+        // plazo: por eso lleva veinticuatro días sin que nadie se anime.
+        HorasEstimadas = 90m,
+        HorasEstimadasEnUtc = ahora.AddDays(-24),
         Status = PoolActivityStatus.Disponible,
         CreatedByUserId = lider,
         // La más cara del pool y ahí sigue: enseña que puntos altos no bastan para que alguien
@@ -832,12 +854,18 @@ public static void SembrarPoolYDesempeno(AppDbContext db, DatosBase b)
         Complexity = PoolComplexity.Alta,
         Points = Celda(PoolWorkType.Bug, PoolComplexity.Alta).Points,
         Priority = PoolPriority.Alta,
+        // Bug: el plazo lo puso el líder, 120 horas de reloj. El plazo empieza a correr cuando se
+        // toma y no cuando se publica, así que tomada hace dos días todavía le quedan tres.
+        HorasLimite = 120m,
+        ClaimDeadlineAt = tomaAna.AddHours(120),
+        // La estimación es de ANA, no del líder, y el sello coincide con ClaimedAt porque se capturó
+        // al tomarla. Es el caso honesto: se dijo antes de saber lo que costaría. Diez horas contra
+        // un cronómetro que ya lleva dos días corriendo es lo que hace útil la comparación.
+        HorasEstimadas = 10m,
+        HorasEstimadasEnUtc = tomaAna,
         Status = PoolActivityStatus.Tomada,
         ClaimedByDeveloperId = b.Ana.Id,
         ClaimedAt = tomaAna,
-        // El plazo empieza a correr cuando se toma, no cuando se publica: son los días de la matriz
-        // contados desde hoy hacia adelante, así que va holgada.
-        ClaimDeadlineAt = tomaAna.AddDays(Celda(PoolWorkType.Bug, PoolComplexity.Alta).DiasLimite),
         ExternalUrl = "https://dev.azure.com/soltum/Interno/_workitems/edit/4174",
         CreatedByUserId = lider,
         CreatedAt = ahora.AddDays(-5)
@@ -853,14 +881,20 @@ public static void SembrarPoolYDesempeno(AppDbContext db, DatosBase b)
         Complexity = PoolComplexity.Media,
         Points = Celda(PoolWorkType.Tarea, PoolComplexity.Media).Points,
         Priority = PoolPriority.Media,
-        DiasLimite = 4,
+        // Tarea con el plazo apretado a mano: 32 horas en vez de las 40 de la matriz.
+        HorasLimite = 32m,
+        // El esfuerzo es del LÍDER, porque es una tarea, y por eso el sello es el de la publicación
+        // y no el de cuando Dani la tomó.
+        HorasEstimadas = 20m,
+        HorasEstimadasEnUtc = ahora.AddDays(-22),
         Status = PoolActivityStatus.Tomada,
         ClaimedByDeveloperId = b.Dani.Id,
         ClaimedAt = tomaDani,
-        // VENCIDA a propósito: el plazo se cumplió hace cinco días y sigue en curso, que es la fila
-        // que la pantalla resalta. Vencer no la libera sola —eso le quitaría el trabajo de las manos
-        // a quien lo está haciendo ahora mismo—, lo decide el líder.
-        ClaimDeadlineAt = tomaDani.AddDays(4),
+        // VENCIDA a propósito: se tomó hace nueve días con 32 horas de plazo, así que se cumplió hace
+        // más de una semana y sigue en curso. Es la fila que la pantalla resalta. Vencer no la libera
+        // sola —eso le quitaría el trabajo de las manos a quien lo está haciendo ahora mismo—, lo
+        // decide el líder.
+        ClaimDeadlineAt = tomaDani.AddHours(32),
         // Ya había estado en manos de alguien y volvió al pool. Devolver no se castiga, pero el
         // número queda a la vista: una actividad que rebota varias veces dice algo.
         ReturnedCount = 1,
@@ -873,7 +907,11 @@ public static void SembrarPoolYDesempeno(AppDbContext db, DatosBase b)
 
     // ── Entregada y esperando verificación ───────────────────────────────────
 
-    var tomaBeto = ahora.AddDays(-6);
+    // Tomada hace dos días y entregada ayer. Con el plazo de la matriz en HORAS (64 para un
+    // requerimiento medio) esas dos fechas tienen que estar cerca: con las de antes —tomada hace
+    // seis días— la entrega habría caído fuera de plazo y la demostración contaría, sin querer, que
+    // aquí se entrega tarde.
+    var tomaBeto = ahora.AddDays(-2);
     var entregaBeto = ahora.AddDays(-1);
     var porVerificar = new PoolActivity
     {
@@ -884,10 +922,14 @@ public static void SembrarPoolYDesempeno(AppDbContext db, DatosBase b)
         Complexity = PoolComplexity.Media,
         Points = Celda(PoolWorkType.Requerimiento, PoolComplexity.Media).Points,
         Priority = PoolPriority.Alta,
+        // Plazo el de la matriz: en un requerimiento no lo pone el líder por actividad salvo que haya
+        // un motivo. El esfuerzo sí lo puso él, al publicarla.
+        HorasEstimadas = 28m,
+        HorasEstimadasEnUtc = ahora.AddDays(-8),
         Status = PoolActivityStatus.EnRevision,
         ClaimedByDeveloperId = b.Beto.Id,
         ClaimedAt = tomaBeto,
-        ClaimDeadlineAt = tomaBeto.AddDays(Celda(PoolWorkType.Requerimiento, PoolComplexity.Media).DiasLimite),
+        ClaimDeadlineAt = tomaBeto.AddHours((double)Celda(PoolWorkType.Requerimiento, PoolComplexity.Media).HorasLimite),
         DeliveredAt = entregaBeto,
         ReviewHistory = HistorialDeDemo(
             (entregaBeto, $"Entregada por {b.Beto.FullName} para verificación.")),
@@ -914,10 +956,18 @@ public static void SembrarPoolYDesempeno(AppDbContext db, DatosBase b)
         Complexity = PoolComplexity.Alta,
         Points = Celda(PoolWorkType.Bug, PoolComplexity.Alta).Points,
         Priority = PoolPriority.Critica,
+        // Bug crítico: 72 horas de reloj puestas por el líder. Se tomó hace diez días, así que está
+        // VENCIDA —también lo estaba con la regla vieja— y además devuelta para corregir: es el caso
+        // peor del tablero y conviene que se vea, porque es el que obliga a decidir algo.
+        HorasLimite = 72m,
+        // La estimación es de CARO, capturada al tomarlo. Sigue puesta porque la actividad NO volvió
+        // al pool: devolverla para corregir no le quita el reclamo, sigue siendo suya.
+        HorasEstimadas = 12m,
+        HorasEstimadasEnUtc = tomaCaro,
         Status = PoolActivityStatus.Devuelta,
         ClaimedByDeveloperId = b.Caro.Id,
         ClaimedAt = tomaCaro,
-        ClaimDeadlineAt = tomaCaro.AddDays(Celda(PoolWorkType.Bug, PoolComplexity.Alta).DiasLimite),
+        ClaimDeadlineAt = tomaCaro.AddHours(72),
         DeliveredAt = entregaCaro,
         ReviewedByUserId = lider,
         ReviewedAt = devolucionCaro,
@@ -957,10 +1007,17 @@ public static void SembrarPoolYDesempeno(AppDbContext db, DatosBase b)
         Complexity = PoolComplexity.Alta,
         Points = Celda(PoolWorkType.Tarea, PoolComplexity.Alta).Points,
         Priority = PoolPriority.Media,
+        // Tarea con el plazo aflojado a 160 horas de reloj: se tomó hace 18 días y se entregó a los
+        // seis, así que se entregó DENTRO de plazo. Con las 64 h de la matriz habría salido tarde, y
+        // una aceptación fuera de plazo no es la historia que esta fila cuenta.
+        HorasLimite = 160m,
+        // Esfuerzo del líder: 32 horas estimadas para una tarea alta.
+        HorasEstimadas = 32m,
+        HorasEstimadasEnUtc = ahora.AddDays(-20),
         Status = PoolActivityStatus.Aceptada,
         ClaimedByDeveloperId = b.Ana.Id,
         ClaimedAt = tomaAnaCerrada,
-        ClaimDeadlineAt = tomaAnaCerrada.AddDays(Celda(PoolWorkType.Tarea, PoolComplexity.Alta).DiasLimite),
+        ClaimDeadlineAt = tomaAnaCerrada.AddHours(160),
         DeliveredAt = entregaAnaCerrada,
         ReviewedByUserId = lider,
         ReviewedAt = aceptacionAna,
@@ -993,10 +1050,17 @@ public static void SembrarPoolYDesempeno(AppDbContext db, DatosBase b)
         Complexity = PoolComplexity.Baja,
         Points = Celda(PoolWorkType.Bug, PoolComplexity.Baja).Points,
         Priority = PoolPriority.Baja,
+        // Bug: el plazo lo puso el líder, 80 horas. Tomada hace 26 días y entregada a los tres:
+        // dentro de plazo.
+        HorasLimite = 80m,
+        // Cuatro horas dichas por DANI al tomarlo, y el sello lo prueba. Es la fila que enseña para
+        // qué sirve el número: se puede contrastar con lo que marcó su cronómetro.
+        HorasEstimadas = 4m,
+        HorasEstimadasEnUtc = tomaDaniCerrada,
         Status = PoolActivityStatus.Aceptada,
         ClaimedByDeveloperId = b.Dani.Id,
         ClaimedAt = tomaDaniCerrada,
-        ClaimDeadlineAt = tomaDaniCerrada.AddDays(Celda(PoolWorkType.Bug, PoolComplexity.Baja).DiasLimite),
+        ClaimDeadlineAt = tomaDaniCerrada.AddHours(80),
         DeliveredAt = entregaDaniCerrada,
         ReviewedByUserId = lider,
         ReviewedAt = aceptacionDani,
@@ -1020,6 +1084,10 @@ public static void SembrarPoolYDesempeno(AppDbContext db, DatosBase b)
         Complexity = PoolComplexity.Baja,
         Points = Celda(PoolWorkType.Tarea, PoolComplexity.Baja).Points,
         Priority = PoolPriority.Baja,
+        // Se publicó como tarea, así que llevaba la estimación del líder. Se conserva aunque esté
+        // retirada: es lo que se dijo que costaba cuando se publicó.
+        HorasEstimadas = 4m,
+        HorasEstimadasEnUtc = ahora.AddDays(-15),
         // Se retiró antes de que nadie la tomara, que es la única forma de quitar algo del pool sin
         // dejar a nadie a medias.
         Status = PoolActivityStatus.Retirada,

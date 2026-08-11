@@ -546,6 +546,20 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(p => p.Title).IsRequired().HasMaxLength(200);
             e.Property(p => p.ExternalUrl).HasMaxLength(500);
             e.Property(p => p.ReviewComment).HasMaxLength(1000);
+            // Precisión DECLARADA, y con el mismo texto que usa el migrador —decimal(6,2)—. Sin
+            // declararla, EF levanta DecimalTypeDefaultWarning en cada arranque y mapea decimal(18,2)
+            // por su cuenta: una base creada por EnsureCreated y otra parcheada por el migrador
+            // dejarían de ser la misma base. 6,2 da hasta 9999.99 h, muy por encima de los topes
+            // validados (2920 h de plazo, 1000 h de esfuerzo), y dos decimales cubren el cuarto de
+            // hora, que es la granularidad con la que ya se estima en DevOps.
+            //
+            // AVISO PARA QUIEN ESCRIBA CONSULTAS: en SQLite EF guarda decimal como TEXT (igual que
+            // DeveloperProfiles.Salary). Ordenar o filtrar por estas columnas DENTRO de un LINQ
+            // traducido compararía texto — "9.0" saldría mayor que "40.0" — así que toda comparación
+            // (horas > 0, rangos, validaciones) va en C# sobre objetos ya materializados. Hoy no hay
+            // ninguna consulta que ordene por el plazo; que siga así.
+            e.Property(p => p.HorasLimite).HasPrecision(6, 2);
+            e.Property(p => p.HorasEstimadas).HasPrecision(6, 2);
             e.Ignore(p => p.EnCurso);
             e.Ignore(p => p.Vencida);
             e.HasOne(p => p.ClaimedBy).WithMany()
@@ -558,6 +572,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         {
             e.Property(m => m.WorkType).HasConversion<int>();
             e.Property(m => m.Complexity).HasConversion<int>();
+            // Misma precisión y por el mismo motivo que en PoolActivity: el tipo declarado aquí y el
+            // que escribe el migrador tienen que ser el mismo texto, decimal(6,2).
+            e.Property(m => m.HorasLimite).HasPrecision(6, 2);
             // Único: dos celdas para el mismo par harían que el valor de una actividad dependiera
             // de cuál se leyera primero.
             e.HasIndex(m => new { m.WorkType, m.Complexity }).IsUnique();

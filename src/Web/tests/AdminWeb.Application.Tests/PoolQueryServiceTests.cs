@@ -71,13 +71,20 @@ public class PoolQueryServiceTests : IDisposable
     private static UsuarioDePrueba Dev(int? developerId) =>
         UsuarioDePrueba.Como(UserRole.Desarrollador, developerId, userId: 1);
 
+    /// <summary>El plazo que el líder le pone al bug de estas pruebas; en un bug es obligatorio.</summary>
+    private const decimal PlazoDelBug = 16m;
+
+    /// <summary>Lo que dice quien lo toma: en cuántas horas cree resolverlo. Sin esto no se puede tomar.</summary>
+    private const decimal EstimacionAlTomar = 4m;
+
     private async Task<PoolActivity> PublicarAsync(AppDbContext db, ICurrentUser admin)
     {
         var (ok, mensaje, actividad) = await Pool(db, admin).CrearAsync(new PoolActivity
         {
             Title = "Corregir el cálculo de facturación",
             WorkType = PoolWorkType.Bug,
-            Complexity = PoolComplexity.Alta
+            Complexity = PoolComplexity.Alta,
+            HorasLimite = PlazoDelBug
         });
         Assert.True(ok, mensaje);
         return actividad!;
@@ -105,7 +112,7 @@ public class PoolQueryServiceTests : IDisposable
         var dev = Dev(devId);
 
         var actividad = await PublicarAsync(db, Admin());
-        var (tomada, mensaje) = await Pool(db, dev).TomarAsync(actividad.Id, devId);
+        var (tomada, mensaje) = await Pool(db, dev).TomarAsync(actividad.Id, devId, EstimacionAlTomar);
         Assert.True(tomada, mensaje);
 
         var puntos = await Pool(db, dev).ChecklistDeAsync(actividad.Id);
@@ -160,7 +167,7 @@ public class PoolQueryServiceTests : IDisposable
         var admin = Admin();
 
         var actividad = await PublicarAsync(db, admin);
-        await Pool(db, dev).TomarAsync(actividad.Id, devId);
+        await Pool(db, dev).TomarAsync(actividad.Id, devId, EstimacionAlTomar);
         await CompletarChecklistAsync(db, dev, actividad.Id, devId);
         await Pool(db, dev).EntregarAsync(actividad.Id, devId);
 
@@ -191,7 +198,7 @@ public class PoolQueryServiceTests : IDisposable
         var admin = Admin();
 
         var actividad = await PublicarAsync(db, admin);
-        await Pool(db, dev).TomarAsync(actividad.Id, devId);
+        await Pool(db, dev).TomarAsync(actividad.Id, devId, EstimacionAlTomar);
         await CompletarChecklistAsync(db, dev, actividad.Id, devId);
         await Pool(db, dev).EntregarAsync(actividad.Id, devId);
         await Pool(db, admin).RechazarAsync(actividad.Id, "Falta la prueba en producción.");
@@ -207,6 +214,75 @@ public class PoolQueryServiceTests : IDisposable
         var enElPool = Assert.Single(datos.Actividades);
         Assert.Equal("Ana Ruiz", enElPool.QuienLaTiene);
         Assert.Equal(actividad.Points, enElPool.Puntos);
+    }
+
+    // ── El plazo que se enseña antes de tomarla ──────────────────────────────────
+
+    /// <summary>
+    /// El plazo EFECTIVO que se enseña en el pool tiene que ser el mismo que se va a aplicar al
+    /// tomar la actividad. La regla —«el de la actividad manda; si no hay, el de su celda»— está
+    /// escrita en dos sitios: la resuelve esta capa para pintarla y la vuelve a resolver
+    /// <c>TomarAsync</c> para calcular el instante. Dos copias de una regla divergen tarde o
+    /// temprano, y aquí la divergencia sería de las peores: alguien tomaría una actividad creyendo
+    /// que tiene un plazo y se encontraría con otro.
+    ///
+    /// <para>Por eso la prueba no compara la vista contra un número escrito a mano, sino contra el
+    /// plazo REAL que quedó tras tomarla. Así, si una de las dos copias cambia, esto se pone rojo.</para>
+    /// </summary>
+    [Fact]
+    public async Task MiPool_ElPlazoQueSeEnsena_EsElMismoQueSeAplicaAlTomarla()
+    {
+        var db = await BaseConPoolAsync();
+        int devId = NuevoDesarrollador(db);
+        var dev = Dev(devId);
+        var admin = Admin();
+
+        // Una TAREA, que es el caso donde el plazo no está en la actividad sino en la matriz: es
+        // justo el que se rompería si esta capa se olvidara de resolverlo.
+        var (creada, mensaje, actividad) = await Pool(db, admin).CrearAsync(new PoolActivity
+        {
+            Title = "Migrar el reporte mensual",
+            WorkType = PoolWorkType.Tarea,
+            Complexity = PoolComplexity.Media,
+            HorasEstimadas = 6m
+        });
+        Assert.True(creada, mensaje);
+
+        var enElPool = Assert.Single((await Consultas(db, dev).MiPoolAsync()).Disponibles);
+        Assert.Null(enElPool.Horas);                 // no tiene plazo propio…
+        Assert.NotNull(enElPool.HorasEfectivas);     // …pero se le enseña el de su celda, ya resuelto
+        Assert.Equal(PoolSeed.Matriz.Single(m => m.Tipo == PoolWorkType.Tarea &&
+                                                 m.Complejidad == PoolComplexity.Media).Horas,
+                     enElPool.HorasEfectivas);
+
+        var antesDeTomar = DateTime.UtcNow;
+        Assert.True((await Pool(db, dev).TomarAsync(actividad!.Id, devId)).ok);
+
+        var mia = Assert.Single((await Consultas(db, dev).MiPoolAsync()).Mias);
+        Assert.NotNull(mia.LimiteUtc);
+        var concedidas = (mia.LimiteUtc!.Value - antesDeTomar).TotalHours;
+        Assert.InRange(concedidas, (double)enElPool.HorasEfectivas! - 0.1, (double)enElPool.HorasEfectivas! + 0.1);
+    }
+
+    /// <summary>
+    /// El líder ve el ESFUERZO que escribió quien tomó el bug. Es el pago de todo el cambio: sin ese
+    /// número en su pantalla, no hay nada que contrastar con lo que marque el cronómetro.
+    /// </summary>
+    [Fact]
+    public async Task PoolDelLider_MuestraElPlazoYLaEstimacionDeQuienLoTomo()
+    {
+        var db = await BaseConPoolAsync();
+        int devId = NuevoDesarrollador(db, "Ana Ruiz");
+        var dev = Dev(devId);
+        var admin = Admin();
+
+        var actividad = await PublicarAsync(db, admin);
+        Assert.True((await Pool(db, dev).TomarAsync(actividad.Id, devId, 3.5m)).ok);
+
+        var enElPool = Assert.Single((await Consultas(db, admin).PoolDelLiderAsync()).Actividades);
+        Assert.Equal(PlazoDelBug, enElPool.Horas);          // el plazo lo puso él
+        Assert.Equal(3.5m, enElPool.HorasEstimadas);        // el esfuerzo lo puso quien lo tomó
+        Assert.Equal("Ana Ruiz", enElPool.QuienLaTiene);
     }
 
     // ── Configuración ────────────────────────────────────────────────────────────

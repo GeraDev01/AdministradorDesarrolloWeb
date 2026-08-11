@@ -21,6 +21,20 @@
       · Devolver al pool NO se castiga, y el texto lo dice: penalizarlo haría que nadie se atreviera
         con lo difícil, que es lo contrario de lo que se busca.
 
+    Y la regla que ordena los números: TODO VA EN HORAS, y el PLAZO y el ESFUERZO nunca comparten
+    columna.
+
+      · PLAZO es cuándo hay que entregarlo —«Plazo» en la lista de disponibles, «Entregar antes de»
+        en la propia—; ESFUERZO es cuánto trabajo se dijo que costaba. Un rótulo común tipo «Tiempo»
+        dejaría un número de horas sin decir de qué, que es justo la distinción que este modelo trajo.
+      · En horas y no en días porque estos números existen para contrastarse con los CRONÓMETROS, que
+        miden horas. Un plazo en días no se compara con un cronómetro sin inventarse cuánto dura un
+        día, y ese invento es lo que hacía incomparables los números.
+      · UN BUG NO SE PUEDE TOMAR SIN ESTIMARLO. El número lo pone quien lo toma, y se le pide en el
+        momento de tomarlo porque es el único en que es honesto: escrito más tarde, quien lo escribe
+        ya sabe lo que le costó. Por eso «Tomar esta» abre un panel con el plazo delante en vez de un
+        «¿seguro?», y el botón no deja seguir sin número.
+
     Lo que cambia respecto al escritorio: el enlace del ticket es un enlace de verdad y lo abre el
     navegador. Allí era un botón que lanzaba el proceso del sistema porque no había otra forma.
 *@
@@ -96,13 +110,36 @@
                                         </span>
                                     </Template>
                                 </RadzenDataGridColumn>
+                                @*
+                                    El PLAZO y el ESFUERZO, en dos columnas y nunca en una.
+
+                                    «Entregar antes de» es CUÁNDO vence; «Esfuerzo» es CUÁNTO trabajo se dijo
+                                    que costaba. Son las dos cantidades que este modelo separa a propósito, y
+                                    juntarlas bajo un rótulo común dejaría un número de horas sin decir de qué.
+                                *@
                                 <RadzenDataGridColumn TItem="MiActividadDelPoolDto" Property="LimiteUtc"
-                                                      Title="Entregar antes de" Width="150px">
+                                                      Title="Entregar antes de" Width="160px">
                                     @* Vencida se resalta y no dispara nada: la actividad sigue siendo suya
-                                       hasta que el líder decida liberarla. *@
+                                       hasta que el líder decida liberarla.
+
+                                       CON LA HORA, no solo el día. Cuando el pool iba en días bastaba la
+                                       fecha; con plazos de cuatro u ocho horas, «hoy» no dice si vence a las
+                                       once de la mañana o a las siete de la tarde, y quien lo lea creerá que
+                                       le queda el día entero — y llegará tarde por culpa de la pantalla. *@
                                     <Template Context="a">
                                         <span style="@(a.Vencida ? "color:var(--rz-warning)" : "")">
-                                            @(a.LimiteUtc?.ToLocalTime().ToString("dd/MM/yyyy") ?? "—")
+                                            @HorasDelPool.Limite(a.LimiteUtc)
+                                        </span>
+                                    </Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="MiActividadDelPoolDto" Property="HorasEstimadas"
+                                                      Title="Esfuerzo" Width="110px" TextAlign="TextAlign.Right">
+                                    @* Es lo que se prometió y contra lo que se va a contrastar el cronómetro,
+                                       así que tiene que estar delante mientras se trabaja: es la única forma
+                                       de que el número sirva de algo antes de que sea tarde. *@
+                                    <Template Context="a">
+                                        <span title="Esfuerzo estimado: las horas de trabajo que se dijo que costaría. No es el plazo.">
+                                            @HorasDelPool.Esfuerzo(a.HorasEstimadas)
                                         </span>
                                     </Template>
                                 </RadzenDataGridColumn>
@@ -152,6 +189,22 @@
                                         <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
                                             <b>@a.Titulo</b> — @a.Puntos pts. @EstadoExplicado(a)
                                         </RadzenText>
+                                    }
+
+                                    @if (a.HorasEstimadas is decimal estimadas)
+                                    {
+                                        @* El número prometido, delante mientras se trabaja. Va también aquí y
+                                           no solo en la columna porque éste es el panel al que se vuelve para
+                                           mirar qué falta, y comparar contra el cronómetro exige tener el
+                                           número a la vista antes de acabar, no después. *@
+                                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem"
+                                                     AlignItems="AlignItems.Center" Wrap="FlexWrap.Wrap">
+                                            <RadzenIcon Icon="timer" />
+                                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                                Esfuerzo estimado: <b>@HorasDelPool.Escribir(estimadas)</b>.
+                                                Es con lo que se comparará el tiempo que registre tu cronómetro.
+                                            </RadzenText>
+                                        </RadzenStack>
                                     }
 
                                     @if (!string.IsNullOrWhiteSpace(a.Detalle))
@@ -243,6 +296,97 @@
                             <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@ResumenDeLibres(d)</RadzenText>
                         </RadzenStack>
 
+                        @if (Tomando is { } t)
+                        {
+                            @*
+                                TOMAR UNA ACTIVIDAD, EN UN PANEL Y NO EN UN CUADRO DE CONFIRMACIÓN.
+
+                                Antes esto era un «¿seguro?» del navegador. Ya no puede serlo: un BUG no se
+                                puede tomar sin decir en cuántas horas se cree resolverlo, y en un cuadro de
+                                sí/no no se teclea un número. Las otras dos salidas tampoco servían: el prompt
+                                del navegador no valida nada, no distingue cancelar de dejarlo en blanco y,
+                                sobre todo, tapa la pantalla justo cuando hay que mirar el plazo para decidir.
+
+                                Por eso el panel enseña PRIMERO lo que hay que saber —cuánto vale y cuánto
+                                tiempo hay— y sólo después pide el número; y el botón de tomarla no se habilita
+                                sin él. Ese orden es el que hace que la estimación sea una decisión y no un
+                                trámite para quitarse el formulario de encima.
+
+                                Se usa para TODOS los tipos, no solo para los bugs, aunque en tarea y
+                                requerimiento no haya nada que capturar: así «Tomar esta» hace siempre lo mismo,
+                                y de paso el plazo —que el viejo cuadro no decía— pasa a verse siempre.
+
+                                Va como tarjeta dentro de la pantalla y no como ventana modal por lo mismo que
+                                el formulario de PoolAdmin.razor: en el navegador una modal encima de otra
+                                pantalla se pierde detrás del propio navegador con demasiada facilidad.
+                            *@
+                            <RadzenCard>
+                                <RadzenStack Gap="0.75rem">
+                                    <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                                        Tomar «@t.Titulo»
+                                    </RadzenText>
+
+                                    <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                                        Vale <b>@t.Puntos puntos</b>@if (t.PuntosMaximos > t.Puntos)
+                                        {
+                                            <text>, hasta <b>@t.PuntosMaximos</b> si cumples además los criterios extra</text>
+                                        }. Queda a tu nombre.
+                                    </RadzenText>
+
+                                    @* EL PLAZO A LA VISTA, que es lo que hay que mirar para decidir. Y con la
+                                       fecha en que caería, no solo las horas: son horas de RELOJ y cuentan
+                                       noches y fines de semana, así que 32 h no son cuatro jornadas. Quien lo
+                                       descubra al día siguiente ya se comprometió. *@
+                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem"
+                                                 AlignItems="AlignItems.Center" Wrap="FlexWrap.Wrap">
+                                        <RadzenIcon Icon="schedule" />
+                                        <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                                            @TextoDelPlazo(t)
+                                        </RadzenText>
+                                    </RadzenStack>
+
+                                    @if (t.Tipo == PoolWorkType.Bug)
+                                    {
+                                        <RadzenStack Gap="0.25rem">
+                                            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem"
+                                                         AlignItems="AlignItems.Center" Wrap="FlexWrap.Wrap">
+                                                @* «timer», el cronómetro: es literalmente contra lo que se va a
+                                                   comparar este número, y lo distingue del reloj de pared del
+                                                   plazo, dos líneas más arriba. *@
+                                                <RadzenIcon Icon="timer" />
+                                                <RadzenLabel Text="¿En cuántas horas crees resolverlo?"
+                                                             Component="estimacionAlTomar" />
+                                                <RadzenNumeric TValue="decimal?" @bind-Value="_estimacion"
+                                                               Name="estimacionAlTomar"
+                                                               Min="@HorasDelPool.MinEsfuerzo"
+                                                               Max="@HorasDelPool.MaxEsfuerzo"
+                                                               Step="@HorasDelPool.Salto" Placeholder="horas"
+                                                               Style="width:8rem" />
+                                            </RadzenStack>
+                                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                                @AyudaDeLaEstimacion()
+                                            </RadzenText>
+                                        </RadzenStack>
+                                    }
+
+                                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                        Puedes devolverla al pool si no vas a poder con ella; eso no te resta nada.
+                                    </RadzenText>
+
+                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                                        @* El botón no deja seguir sin número: en un bug, sin estimación no hay
+                                           nada que contrastar con el cronómetro, y el servidor la rechazaría
+                                           igual. Deshabilitarlo aquí lo dice antes y sin gastar un viaje. *@
+                                        <RadzenButton Text="Tomarla" Icon="pan_tool"
+                                                      Disabled="@(_ocupado || !PuedeTomar(t))"
+                                                      Click="@(() => ConfirmarTomar(t))" />
+                                        <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                                                      Disabled="@_ocupado" Click="@(() => _tomandoId = null)" />
+                                    </RadzenStack>
+                                </RadzenStack>
+                            </RadzenCard>
+                        }
+
                         <RadzenDataGrid TItem="ActividadLibreDto" Data="@d.Disponibles" IsLoading="@_ocupado"
                                         AllowSorting="true" AllowPaging="true" PageSize="15"
                                         EmptyText="No hay actividades libres en el pool ahora mismo.">
@@ -276,6 +420,25 @@
                                                      BadgeStyle="@EstiloDePrioridad(a.Prioridad)" />
                                     </Template>
                                 </RadzenDataGridColumn>
+                                @*
+                                    EL PLAZO, antes de tomar nada. Es un dato con el que se decide, igual que
+                                    los puntos: cuatro horas y treinta y dos horas por los mismos puntos no son
+                                    la misma actividad, y sin esta columna eso solo se descubría al tomarla.
+
+                                    Viene YA RESUELTO contra la matriz desde el servidor (HorasEfectivas) y no
+                                    se calcula aquí: el navegador no tiene la matriz, y si la regla —el plazo de
+                                    la actividad manda, si no el de su celda— se escribiera también en esta
+                                    pantalla, el día que cambie habría dos sitios que corregir y uno se quedaría
+                                    atrás.
+                                *@
+                                <RadzenDataGridColumn TItem="ActividadLibreDto" Property="HorasEfectivas"
+                                                      Title="Plazo" Width="120px" TextAlign="TextAlign.Right">
+                                    <Template Context="a">
+                                        <span title="Plazo: el tiempo que tendrás para entregarla, contado desde que la tomes.">
+                                            @HorasDelPool.Plazo(a.HorasEfectivas)
+                                        </span>
+                                    </Template>
+                                </RadzenDataGridColumn>
                                 @* Lo que se pide DE MÁS, visible antes de tomarla. Es la razón de que este
                                    dato viaje en la lista y no solo al abrirla: enterarse después de que
                                    «además había que documentarla» convertiría el extra en una trampa. *@
@@ -304,8 +467,10 @@
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="ActividadLibreDto" Title="" Width="190px" Sortable="false">
                                     <Template Context="a">
+                                        @* Abre el panel de arriba; no toma nada todavía. La confirmación —y en
+                                           un bug la estimación obligatoria— viven allí, con el plazo delante. *@
                                         <RadzenButton Text="Tomar esta" Icon="pan_tool" Size="ButtonSize.ExtraSmall"
-                                                      Disabled="@(_ocupado || !d.TieneFicha)" Click="@(() => Tomar(a))" />
+                                                      Disabled="@(_ocupado || !d.TieneFicha)" Click="@(() => AbrirTomar(a))" />
                                         @if (!string.IsNullOrWhiteSpace(a.Enlace))
                                         {
                                             <a href="@a.Enlace" target="_blank" rel="noopener" title="Abrir el ticket">
@@ -342,6 +507,26 @@
     private MiActividadDelPoolDto? Abierta =>
         _abiertaId is int id ? _datos?.Mias.FirstOrDefault(a => a.Id == id) : null;
 
+    /// <summary>
+    /// Cuál se está a punto de tomar, si es que hay alguna. Por identificador y no por instancia, por
+    /// lo mismo que <see cref="_abiertaId"/>: cada recarga trae objetos nuevos.
+    ///
+    /// <para>Y tiene un efecto que interesa: si mientras se decidía la tomó otra persona, la
+    /// actividad desaparece de «Disponibles» y el panel se cierra solo en la siguiente carga, en vez
+    /// de quedarse ofreciendo algo que ya no está.</para>
+    /// </summary>
+    private int? _tomandoId;
+
+    /// <summary>
+    /// Las horas que quien va a tomar el bug cree que le va a costar. En blanco hasta que las
+    /// escriba, y el botón de tomarla no se habilita sin ellas: el servidor tampoco lo permite.
+    /// </summary>
+    private decimal? _estimacion;
+
+    /// <summary>La actividad que se está a punto de tomar, resuelta contra la última carga.</summary>
+    private ActividadLibreDto? Tomando =>
+        _tomandoId is int id ? _datos?.Disponibles.FirstOrDefault(a => a.Id == id) : null;
+
     protected override Task OnInitializedAsync() => Cargar();
 
     private async Task Cargar()
@@ -377,18 +562,80 @@
 
     // ── Acciones ─────────────────────────────────────────────────────────────
 
-    private async Task Tomar(ActividadLibreDto actividad)
+    /// <summary>
+    /// Abre el panel de tomar. La estimación arranca SIEMPRE en blanco y no se recuerda de la
+    /// actividad anterior: un número heredado de otro bug se aceptaría de un clic y dejaría de ser
+    /// una estimación de éste.
+    /// </summary>
+    private void AbrirTomar(ActividadLibreDto actividad)
     {
-        // Con confirmación, y con el texto del escritorio: lo que hay que dejar claro antes de
-        // aceptar es cuánto vale y que devolverla no cuesta nada.
-        if (!await Avisos.ConfirmarAsync(
-            $"¿Tomar «{actividad.Titulo}»? Vale {actividad.Puntos} puntos y queda a tu nombre. " +
-            "Puedes devolverla al pool si no vas a poder con ella; eso no te resta nada.",
-            "Tomar actividad", "Sí, tomarla"))
-            return;
-
-        await Enviar<object?>($"api/pool/{actividad.Id}/tomar", null);
+        _tomandoId = actividad.Id;
+        _estimacion = null;
     }
+
+    /// <summary>
+    /// Si con lo que hay escrito se puede tomar. En una tarea o un requerimiento no hay nada que
+    /// escribir —el esfuerzo lo fijó el líder— y en un BUG hace falta la estimación, dentro del rango
+    /// que el servidor acepta: dejar pasar un 0 o un 5000 solo serviría para que lo rebotara después.
+    /// </summary>
+    private bool PuedeTomar(ActividadLibreDto actividad) =>
+        actividad.Tipo != PoolWorkType.Bug
+        || (_estimacion is decimal h
+            && h >= HorasDelPool.MinEsfuerzo && h <= HorasDelPool.MaxEsfuerzo);
+
+    /// <summary>
+    /// Toma la actividad de verdad. La estimación viaja SOLO en los bugs: en una tarea o un
+    /// requerimiento el servidor rechaza que se mande, porque ese número ya lo puso el líder al
+    /// publicarla y cambiarlo al tomarla sería quitárselo.
+    /// </summary>
+    private async Task ConfirmarTomar(ActividadLibreDto actividad)
+    {
+        var cuerpo = new TomarActividadRequest(
+            actividad.Tipo == PoolWorkType.Bug ? _estimacion : null);
+
+        if (await Enviar($"api/pool/{actividad.Id}/tomar", cuerpo))
+        {
+            _tomandoId = null;
+            _estimacion = null;
+            return;
+        }
+
+        // Salió mal, así que se RECARGA y el panel se queda abierto con lo que ya estaba escrito.
+        //
+        // Los dos casos se resuelven solos con eso, y por eso el panel se acuerda de un
+        // identificador y no de una instancia: si la tomó otra persona mientras se decidía, la
+        // actividad ya no está en «Disponibles», «Tomando» no la encuentra y el panel se cierra él
+        // mismo; si el rechazo fue por otra cosa —el tope de actividades sin entregar, una
+        // estimación fuera de rango—, sigue estando, el panel sigue abierto y las horas tecleadas
+        // siguen ahí para corregirlas. Cerrarlo siempre obligaría a volver a escribirlas para nada.
+        await Cargar();
+    }
+
+    /// <summary>
+    /// El plazo de la actividad que se está a punto de tomar, con la fecha en la que caería.
+    ///
+    /// <para>La fecha se calcula y se enseña porque el plazo son horas de RELOJ: se suman sobre el
+    /// momento de tomarla e incluyen noches y fines de semana, así que 32 h no son cuatro jornadas
+    /// sino un día y ocho horas. Ese es el dato con el que se decide si se puede con ella, y
+    /// descubrirlo al día siguiente ya es tarde: la actividad está tomada.</para>
+    /// </summary>
+    private static string TextoDelPlazo(ActividadLibreDto a) =>
+        a.HorasEfectivas is not decimal h || h <= 0
+            ? "Sin fecha límite: nadie te la va a vencer."
+            : $"Tendrás {HorasDelPool.Escribir(h)} para entregarla. Si la tomas ahora, vence alrededor " +
+              $"del {HorasDelPool.CaeriaEl(h)} — son horas de reloj, cuentan noches y fines de semana.";
+
+    /// <summary>
+    /// Por qué se pide la estimación justo aquí. Hace falta decirlo: si no, se lee como un trámite
+    /// más y se rellena con cualquier cosa, que es exactamente lo que la deja sin servir.
+    /// </summary>
+    private string AyudaDeLaEstimacion() =>
+        _estimacion is null
+            ? "Obligatorio, y se te pregunta AHORA a propósito: es el único momento en que este " +
+              "número sirve de algo. A mitad del trabajo ya sabrás lo que te costó, y entonces deja " +
+              "de ser una estimación. No es el plazo: es cuánto trabajo crees que cuesta."
+            : $"Se guardará que dijiste {HorasDelPool.Escribir(_estimacion.Value)}, y es con eso con " +
+              "lo que se comparará el tiempo que registre tu cronómetro. No te resta nada equivocarte.";
 
     private async Task Entregar(MiActividadDelPoolDto actividad) =>
         await Enviar<object?>($"api/pool/{actividad.Id}/entregar", null);
@@ -433,8 +680,12 @@
     /// El envío que comparten todas las acciones. El mensaje del servidor se enseña TAL CUAL: dice el
     /// motivo concreto («alguien más la tomó primero», «te faltan 2 puntos del checklist»), y
     /// cambiarlo por un «no se pudo» genérico tiraría lo que el escritorio hacía bien.
+    ///
+    /// <para>Devuelve si salió bien. Casi ninguna llamada lo mira —les basta con el aviso y la
+    /// recarga—, pero tomar una actividad sí: necesita saberlo para decidir si cierra su panel o lo
+    /// deja abierto con lo que ya se había escrito.</para>
     /// </summary>
-    private async Task Enviar<T>(string ruta, T cuerpo, bool avisarExito = true)
+    private async Task<bool> Enviar<T>(string ruta, T cuerpo, bool avisarExito = true)
     {
         _ocupado = true;
         try
@@ -442,6 +693,7 @@
             var (ok, r) = await Api.EnviarAsync<T, ResultadoDto>(ruta, cuerpo, _cancelacion.Token);
             if (ok && avisarExito && r is not null) Avisos.Exito(r.Mensaje);
             if (ok) await Cargar();
+            return ok;
         }
         finally { _ocupado = false; }
     }

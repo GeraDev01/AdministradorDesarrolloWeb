@@ -30,6 +30,8 @@ public static class DatabaseMigrator
         {
             db.Database.EnsureCreated();
             PatchSqlServer(db);
+            // Después de los parches: necesita las columnas de horas ya creadas para poder rellenarlas.
+            ConvertirPlazosDeDiasAHorasUnaVez(db);
             return;
         }
 
@@ -991,6 +993,9 @@ public static class DatabaseMigrator
                 ""ClaimedByDeveloperId"" INTEGER,
                 ""ClaimedAt""            TEXT,
                 ""ClaimDeadlineAt""      TEXT,
+                ""HorasLimite""          TEXT,
+                ""HorasEstimadas""       TEXT,
+                ""HorasEstimadasEnUtc""  TEXT,
                 ""ReturnedCount""        INTEGER NOT NULL DEFAULT 0,
                 ""DeliveredAt""          TEXT,
                 ""ReviewedByUserId""     INTEGER,
@@ -1008,7 +1013,17 @@ public static class DatabaseMigrator
         // declarada, y suponerlas críticas o irrelevantes sería inventar información.
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivities"" ADD COLUMN ""Priority"" INTEGER NOT NULL DEFAULT 1"); } catch { }
         // Nula: significa «usa los días de la matriz», que es lo que se hacía antes de existir.
+        // OBSOLETA para la web desde el paso a horas; se conserva porque el ESCRITORIO la lee en
+        // producción hasta el corte. Se puede tirar DESPUÉS del corte, junto con la de PoolPointsMatrix.
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivities"" ADD COLUMN ""DiasLimite"" INTEGER"); } catch { }
+        // Plazo y esfuerzo en HORAS. Se AÑADEN al lado de DiasLimite en vez de renombrarla: renombrar
+        // una columna que el escritorio lee lo rompe en producción el mismo día del despliegue.
+        // TEXT y no REAL: EF Core guarda decimal en SQLite como TEXT (igual que DeveloperProfiles.Salary,
+        // más abajo). Una columna REAL leída como decimal acaba dependiendo de qué convertidor toque
+        // primero; MonthlyCostEstimate REAL es la incoherencia que ya hay ahí y no el patrón a copiar.
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivities"" ADD COLUMN ""HorasLimite"" TEXT"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivities"" ADD COLUMN ""HorasEstimadas"" TEXT"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivities"" ADD COLUMN ""HorasEstimadasEnUtc"" TEXT"); } catch { }
 
         db.Database.ExecuteSqlRaw(@"
             CREATE TABLE IF NOT EXISTS ""PoolPointsMatrix"" (
@@ -1017,10 +1032,16 @@ public static class DatabaseMigrator
                 ""Complexity""      INTEGER NOT NULL,
                 ""Points""          INTEGER NOT NULL DEFAULT 0,
                 ""DiasLimite""      INTEGER NOT NULL DEFAULT 0,
+                ""HorasLimite""     TEXT    NOT NULL DEFAULT '0.0',
                 ""UpdatedAt""       TEXT    NOT NULL,
                 ""UpdatedByUserId"" INTEGER
             );");
         try { db.Database.ExecuteSqlRaw(@"CREATE UNIQUE INDEX IF NOT EXISTS ""UX_PoolMatrix"" ON ""PoolPointsMatrix""(""WorkType"",""Complexity"")"); } catch { }
+        // NOT NULL con un default CONSTANTE: es lo único que admite ALTER TABLE ADD COLUMN en SQLite.
+        // '0.0' y no '0' porque ése es el texto exacto que escribe Microsoft.Data.Sqlite al guardar un
+        // decimal, y conviene que lo que rellena el migrador y lo que escribe la aplicación tengan la
+        // misma forma. DiasLimite se queda al lado, intacta, para el escritorio.
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolPointsMatrix"" ADD COLUMN ""HorasLimite"" TEXT NOT NULL DEFAULT '0.0'"); } catch { }
 
         db.Database.ExecuteSqlRaw(@"
             CREATE TABLE IF NOT EXISTS ""PoolChecklistTemplateItems"" (
@@ -1188,6 +1209,104 @@ public static class DatabaseMigrator
         // o habría que descartar el tramo entero. Con el latido, el tiempo se consolida hasta el
         // último momento en que sabemos que la persona seguía ahí.
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""WorkSessions"" ADD COLUMN ""LastHeartbeatUtc"" TEXT"); } catch { }
+
+        // Al final de la rama, con todas las columnas de horas ya creadas: sin ellas no habría dónde
+        // escribir la conversión.
+        ConvertirPlazosDeDiasAHorasUnaVez(db);
+    }
+
+    /// <summary>
+    /// Convierte a HORAS —multiplicando por ocho, que es la jornada— los plazos que el pool guardaba
+    /// en DÍAS. <b>Una sola vez en la vida de la base.</b>
+    ///
+    /// <para><b>Por qué la marca va en AppSettings y no en una condición sobre los propios datos.</b>
+    /// Ése es el punto entero. Las dos condiciones que uno escribiría primero están mal, y las dos
+    /// fallan del mismo modo: deshaciendo en silencio una decisión que alguien acababa de tomar.</para>
+    /// <list type="bullet">
+    ///   <item><c>WHERE HorasLimite = 0</c> en la matriz: 0 es un valor LEGÍTIMO y significa «sin
+    ///         fecha límite». El día que el líder ponga 0 a mano en una celda cuya DiasLimite vieja
+    ///         dice 5, el arranque siguiente le resucitaría 40 horas.</item>
+    ///   <item><c>WHERE HorasLimite IS NULL</c> en la actividad: NULL también es legítimo y significa
+    ///         «usa el de la matriz». El líder vacía el campo a propósito y el arranque siguiente le
+    ///         vuelve a meter las horas del DiasLimite congelado que dejó ahí el escritorio.</item>
+    /// </list>
+    /// <para>La conversión no es un estado deducible de las filas: es un HECHO que ocurrió una vez, y
+    /// se registra como tal. Con la marca puesta no vuelve a correr nunca, se toque después lo que se
+    /// toque. Mismo patrón que usa <c>TemplateSeed</c> para no resembrar plantillas.</para>
+    ///
+    /// <para><b>Las columnas de DÍAS no se tocan ni se borran</b>: el escritorio sigue leyéndolas en
+    /// producción hasta el corte.</para>
+    ///
+    /// <para>En una base NUEVA actualiza 0 filas y deja la marca, que es lo correcto: la siembra
+    /// escribirá las horas directamente y nadie debe multiplicarlas después por ocho.</para>
+    /// </summary>
+    private static void ConvertirPlazosDeDiasAHorasUnaVez(AppDbContext db)
+    {
+        bool esSqlite = db.Database.IsSqlite();
+
+        try
+        {
+            // La lectura de la marca, los UPDATE y la escritura de la marca van en la MISMA
+            // transacción: si el proceso muere entre medias, o se hizo todo o no se hizo nada. Sin
+            // eso, un reinicio en el hueco volvería a multiplicar por ocho lo ya convertido.
+            using var tx = db.Database.BeginTransaction();
+
+            // Todo por SQL crudo y nada por el ChangeTracker, a propósito: el contexto del arranque
+            // es el MISMO que después siembra los catálogos, así que una entidad marcada como
+            // «Added» que se quedara colgando aquí tras un fallo la cometería el SaveChanges de la
+            // siembra — y la base acabaría marcada como convertida sin haberse convertido.
+            int yaEsta = db.Database.SqlQueryRaw<int>(
+                esSqlite
+                    ? @"SELECT COUNT(*) AS ""Value"" FROM ""AppSettings"" WHERE ""Key"" = 'PoolHorasConvertidas'"
+                    : "SELECT COUNT(*) AS [Value] FROM [AppSettings] WHERE [Key] = 'PoolHorasConvertidas';")
+                .AsEnumerable().First();
+
+            // Sale sin cometer nada: al salir del «using», la transacción se deshace sola.
+            if (yaEsta > 0) return;
+
+            if (esSqlite)
+            {
+                // printf('%.1f', …) escribe el mismo texto que escribiría la aplicación al guardar un
+                // decimal, porque en SQLite EF guarda los decimales como TEXT.
+                // min(…, 9999) es un tope de seguridad, no una regla de negocio: la matriz vieja no
+                // acotaba los días por arriba, y un valor absurdo (1 250 días o más) no cabe en el
+                // decimal(6,2) de SQL Server. Sin el tope, una sola celda disparatada abortaría la
+                // conversión ENTERA y dejaría la base a medias en el otro dialecto.
+                db.Database.ExecuteSqlRaw(
+                    @"UPDATE ""PoolPointsMatrix"" SET ""HorasLimite"" = printf('%.1f', min(""DiasLimite"" * 8, 9999))");
+                db.Database.ExecuteSqlRaw(
+                    @"UPDATE ""PoolActivities"" SET ""HorasLimite"" = printf('%.1f', min(""DiasLimite"" * 8, 9999)) WHERE ""DiasLimite"" IS NOT NULL");
+            }
+            else
+            {
+                db.Database.ExecuteSqlRaw(
+                    "UPDATE [PoolPointsMatrix] SET [HorasLimite] = CASE WHEN [DiasLimite] > 1249 THEN 9999.00 ELSE [DiasLimite] * 8.0 END;");
+                db.Database.ExecuteSqlRaw(
+                    "UPDATE [PoolActivities] SET [HorasLimite] = CASE WHEN [DiasLimite] > 1249 THEN 9999.00 ELSE [DiasLimite] * 8.0 END WHERE [DiasLimite] IS NOT NULL;");
+            }
+
+            // [Key] siempre entre corchetes: KEY es palabra reservada en T-SQL. La tabla AppSettings
+            // existe seguro en las dos bases —es de la Fase 0 y la crea EnsureCreated— y su índice
+            // único sobre Key es una red extra: dos marcas no caben.
+            if (esSqlite)
+                db.Database.ExecuteSqlRaw(@"
+                    INSERT INTO ""AppSettings"" (""Key"", ""Value"", ""IsSecret"", ""Description"")
+                    VALUES ('PoolHorasConvertidas', '1', 0,
+                            'Los plazos del pool ya se convirtieron de días a horas (× 8). NO BORRAR esta fila: sin ella, el próximo arranque volvería a multiplicar por ocho y dejaría todos los plazos ocho veces más largos.')");
+            else
+                db.Database.ExecuteSqlRaw(@"
+INSERT INTO [AppSettings] ([Key], [Value], [IsSecret], [Description])
+VALUES (N'PoolHorasConvertidas', N'1', 0,
+        N'Los plazos del pool ya se convirtieron de días a horas (× 8). NO BORRAR esta fila: sin ella, el próximo arranque volvería a multiplicar por ocho y dejaría todos los plazos ocho veces más largos.');");
+
+            tx.Commit();
+        }
+        catch
+        {
+            // La base sigue usable con los plazos viejos y sin marca, así que el intento se repite en
+            // el arranque siguiente. El arranque no debe caerse por esto: sin la web no hay a dónde
+            // volver, y el escritorio —que lee los días— sigue funcionando igual.
+        }
     }
 
     private static bool SqliteTieneColumna(AppDbContext db, string tabla, string columna)
@@ -1892,6 +2011,9 @@ CREATE TABLE [PoolActivities] (
     [ClaimedByDeveloperId] int NULL,
     [ClaimedAt] datetime2 NULL,
     [ClaimDeadlineAt] datetime2 NULL,
+    [HorasLimite] decimal(6,2) NULL,
+    [HorasEstimadas] decimal(6,2) NULL,
+    [HorasEstimadasEnUtc] datetime2 NULL,
     [ReturnedCount] int NOT NULL DEFAULT 0,
     [DeliveredAt] datetime2 NULL,
     [ReviewedByUserId] int NULL,
@@ -1909,7 +2031,16 @@ CREATE TABLE [PoolActivities] (
         // crítica o irrelevante sería inventar información sobre trabajo que ya está en el pool.
         Exec("IF COL_LENGTH('PoolActivities','Priority') IS NULL ALTER TABLE [PoolActivities] ADD [Priority] int NOT NULL DEFAULT 1;");
         // Nula = usa los días de la matriz, que es exactamente lo que se hacía antes de existir.
+        // OBSOLETA para la web desde el paso a horas; se conserva porque el ESCRITORIO la lee en
+        // producción hasta el corte. Se puede tirar DESPUÉS del corte, junto con la de PoolPointsMatrix.
         Exec("IF COL_LENGTH('PoolActivities','DiasLimite') IS NULL ALTER TABLE [PoolActivities] ADD [DiasLimite] int NULL;");
+        // Plazo y esfuerzo en HORAS. Se AÑADEN al lado de DiasLimite, nunca en su lugar: renombrarla
+        // rompería el escritorio en producción el mismo día. decimal(6,2) es el mismo texto que
+        // declara AppDbContext, para que una base creada por EnsureCreated y una parcheada aquí
+        // tengan exactamente la misma columna.
+        Exec("IF COL_LENGTH('PoolActivities','HorasLimite') IS NULL ALTER TABLE [PoolActivities] ADD [HorasLimite] decimal(6,2) NULL;");
+        Exec("IF COL_LENGTH('PoolActivities','HorasEstimadas') IS NULL ALTER TABLE [PoolActivities] ADD [HorasEstimadas] decimal(6,2) NULL;");
+        Exec("IF COL_LENGTH('PoolActivities','HorasEstimadasEnUtc') IS NULL ALTER TABLE [PoolActivities] ADD [HorasEstimadasEnUtc] datetime2 NULL;");
 
         Exec(@"
 IF OBJECT_ID(N'[PoolPointsMatrix]', N'U') IS NULL
@@ -1919,9 +2050,13 @@ CREATE TABLE [PoolPointsMatrix] (
     [Complexity] int NOT NULL,
     [Points] int NOT NULL DEFAULT 0,
     [DiasLimite] int NOT NULL DEFAULT 0,
+    [HorasLimite] decimal(6,2) NOT NULL DEFAULT 0,
     [UpdatedAt] datetime2 NOT NULL,
     [UpdatedByUserId] int NULL
 );");
+        // El plazo de la matriz en HORAS, al lado de los días y sin sustituirlos: el escritorio los
+        // sigue leyendo hasta el corte. NOT NULL con default 0, que ya significa «sin fecha límite».
+        Exec("IF COL_LENGTH('PoolPointsMatrix','HorasLimite') IS NULL ALTER TABLE [PoolPointsMatrix] ADD [HorasLimite] decimal(6,2) NOT NULL DEFAULT 0;");
         // El índice ÚNICO va con Exec y no con ExecIndex: aquel crea índices normales, y aquí la
         // unicidad es la regla (dos celdas del mismo par harían que el valor de una actividad
         // dependiera de cuál se leyera primero).

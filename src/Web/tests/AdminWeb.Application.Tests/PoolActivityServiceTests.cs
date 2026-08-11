@@ -72,9 +72,37 @@ public class PoolActivityServiceTests : IDisposable
     private static UsuarioDePrueba Dev(int developerId, int userId = 1) =>
         UsuarioDePrueba.Como(UserRole.Desarrollador, developerId, userId);
 
+    /// <summary>
+    /// El PLAZO que el líder concede a un bug, en horas. En un bug es obligatorio y lo pone él:
+    /// publicarlo sin este número se rechaza, y por eso el borrador de abajo lo trae siempre.
+    /// </summary>
+    private const decimal PlazoDelBug = 16m;
+
+    /// <summary>El ESFUERZO que el líder estima al publicar una tarea o un requerimiento, en horas.</summary>
+    private const decimal EsfuerzoDelLider = 6m;
+
+    /// <summary>
+    /// Lo que dice quien toma un BUG: en cuántas horas cree resolverlo. Aparece en cada
+    /// <c>TomarAsync</c> de este archivo porque sin él el bug no se puede tomar — esa regla se prueba
+    /// aparte, en <see cref="PoolHorasTests"/>; aquí solo hace falta que las tomas sean válidas.
+    /// </summary>
+    private const decimal EstimacionAlTomar = 4m;
+
+    /// <summary>
+    /// Un borrador VÁLIDO del tipo que se pida, con el número que ese tipo exige y solo ése:
+    /// el BUG lleva plazo del líder y ninguna estimación (la pone quien lo tome); la tarea y el
+    /// requerimiento llevan estimación del líder y ningún plazo a mano (sale de la matriz).
+    /// </summary>
     private static PoolActivity Borrador(string titulo = "Corregir el cálculo de facturación",
         PoolWorkType tipo = PoolWorkType.Bug, PoolComplexity complejidad = PoolComplexity.Alta) =>
-        new() { Title = titulo, WorkType = tipo, Complexity = complejidad };
+        new()
+        {
+            Title          = titulo,
+            WorkType       = tipo,
+            Complexity     = complejidad,
+            HorasLimite    = tipo == PoolWorkType.Bug ? PlazoDelBug : null,
+            HorasEstimadas = tipo == PoolWorkType.Bug ? null : EsfuerzoDelLider
+        };
 
     /// <summary>Crea una actividad y devuelve la entidad ya persistida.</summary>
     private async Task<PoolActivity> PublicarAsync(AppDbContext db, ICurrentUser admin, PoolActivity? borrador = null)
@@ -168,7 +196,7 @@ public class PoolActivityServiceTests : IDisposable
         var admin = Admin();
         int dev = NuevoDesarrollador(db, "Ana");
         var actividad = await PublicarAsync(db, admin);
-        Assert.True((await Svc(db, Dev(dev)).TomarAsync(actividad.Id, dev)).ok);
+        Assert.True((await Svc(db, Dev(dev)).TomarAsync(actividad.Id, dev, EstimacionAlTomar)).ok);
 
         var (ok, mensaje) = await Svc(db, admin).EditarAsync(actividad.Id, Borrador("Otro título"));
 
@@ -199,7 +227,7 @@ public class PoolActivityServiceTests : IDisposable
         int dev = NuevoDesarrollador(db, "Ana");
         var libre = await PublicarAsync(db, admin);
         var tomada = await PublicarAsync(db, admin, Borrador("Otra"));
-        Assert.True((await Svc(db, Dev(dev)).TomarAsync(tomada.Id, dev)).ok);
+        Assert.True((await Svc(db, Dev(dev)).TomarAsync(tomada.Id, dev, EstimacionAlTomar)).ok);
 
         Assert.True((await Svc(db, admin).RetirarAsync(libre.Id)).ok);
         Assert.False((await Svc(db, admin).RetirarAsync(tomada.Id)).ok);
@@ -214,7 +242,7 @@ public class PoolActivityServiceTests : IDisposable
         int dev = NuevoDesarrollador(db, "Ana");
         var actividad = await PublicarAsync(db, Admin());
 
-        Assert.True((await Svc(db, Dev(dev)).TomarAsync(actividad.Id, dev)).ok);
+        Assert.True((await Svc(db, Dev(dev)).TomarAsync(actividad.Id, dev, EstimacionAlTomar)).ok);
 
         var checklist = await Svc(db, Dev(dev)).ChecklistDeAsync(actividad.Id);
         int esperados = PoolSeed.Checklists.Count(c => c.Tipo == PoolWorkType.Bug);
@@ -237,7 +265,7 @@ public class PoolActivityServiceTests : IDisposable
         var admin = Admin();
         int dev = NuevoDesarrollador(db, "Ana");
         var actividad = await PublicarAsync(db, admin);
-        Assert.True((await Svc(db, Dev(dev)).TomarAsync(actividad.Id, dev)).ok);
+        Assert.True((await Svc(db, Dev(dev)).TomarAsync(actividad.Id, dev, EstimacionAlTomar)).ok);
         int antes = (await Svc(db, Dev(dev)).ChecklistDeAsync(actividad.Id)).Count;
 
         Assert.True((await Svc(db, admin).GuardarPlantillaItemAsync(new PoolChecklistTemplateItem
@@ -258,11 +286,11 @@ public class PoolActivityServiceTests : IDisposable
         for (int i = 0; i < PoolActivityService.MaxTomadasPorOmision; i++)
         {
             var a = await PublicarAsync(db, admin, Borrador($"Actividad {i}"));
-            Assert.True((await Svc(db, Dev(dev)).TomarAsync(a.Id, dev)).ok);
+            Assert.True((await Svc(db, Dev(dev)).TomarAsync(a.Id, dev, EstimacionAlTomar)).ok);
         }
 
         var extra = await PublicarAsync(db, admin, Borrador("Una más"));
-        var (ok, mensaje) = await Svc(db, Dev(dev)).TomarAsync(extra.Id, dev);
+        var (ok, mensaje) = await Svc(db, Dev(dev)).TomarAsync(extra.Id, dev, EstimacionAlTomar);
 
         Assert.False(ok);
         Assert.Contains("tope", mensaje);
@@ -275,9 +303,9 @@ public class PoolActivityServiceTests : IDisposable
         int ana = NuevoDesarrollador(db, "Ana");
         int beto = NuevoDesarrollador(db, "Beto");
         var actividad = await PublicarAsync(db, Admin());
-        Assert.True((await Svc(db, Dev(ana)).TomarAsync(actividad.Id, ana)).ok);
+        Assert.True((await Svc(db, Dev(ana)).TomarAsync(actividad.Id, ana, EstimacionAlTomar)).ok);
 
-        var (ok, mensaje) = await Svc(db, Dev(beto, userId: 2)).TomarAsync(actividad.Id, beto);
+        var (ok, mensaje) = await Svc(db, Dev(beto, userId: 2)).TomarAsync(actividad.Id, beto, EstimacionAlTomar);
 
         Assert.False(ok);
         Assert.Contains("Actualiza la lista", mensaje);
@@ -291,7 +319,7 @@ public class PoolActivityServiceTests : IDisposable
         int beto = NuevoDesarrollador(db, "Beto");
         var actividad = await PublicarAsync(db, Admin());
 
-        await Assert.ThrowsAsync<AuthorizationException>(() => Svc(db, Dev(ana)).TomarAsync(actividad.Id, beto));
+        await Assert.ThrowsAsync<AuthorizationException>(() => Svc(db, Dev(ana)).TomarAsync(actividad.Id, beto, EstimacionAlTomar));
     }
 
     // ── Checklist y entrega ──────────────────────────────────────────────────────
@@ -303,7 +331,7 @@ public class PoolActivityServiceTests : IDisposable
         int dev = NuevoDesarrollador(db, "Ana");
         var actividad = await PublicarAsync(db, Admin());
         var svc = Svc(db, Dev(dev));
-        Assert.True((await svc.TomarAsync(actividad.Id, dev)).ok);
+        Assert.True((await svc.TomarAsync(actividad.Id, dev, EstimacionAlTomar)).ok);
 
         var conEvidencia = (await svc.ChecklistDeAsync(actividad.Id)).First(c => c.RequiereEvidencia);
         var (ok, mensaje) = await svc.MarcarItemAsync(conEvidencia.Id, dev, true, null);
@@ -319,7 +347,7 @@ public class PoolActivityServiceTests : IDisposable
         int dev = NuevoDesarrollador(db, "Ana");
         var actividad = await PublicarAsync(db, Admin());
         var svc = Svc(db, Dev(dev));
-        Assert.True((await svc.TomarAsync(actividad.Id, dev)).ok);
+        Assert.True((await svc.TomarAsync(actividad.Id, dev, EstimacionAlTomar)).ok);
 
         var item = (await svc.ChecklistDeAsync(actividad.Id)).First(c => c.RequiereEvidencia);
         var (ok, _) = await svc.MarcarItemAsync(item.Id, dev, true, "file:///C:/evidencia.txt");
@@ -335,7 +363,7 @@ public class PoolActivityServiceTests : IDisposable
         int ana = NuevoDesarrollador(db, "Ana");
         int beto = NuevoDesarrollador(db, "Beto");
         var actividad = await PublicarAsync(db, Admin());
-        Assert.True((await Svc(db, Dev(ana)).TomarAsync(actividad.Id, ana)).ok);
+        Assert.True((await Svc(db, Dev(ana)).TomarAsync(actividad.Id, ana, EstimacionAlTomar)).ok);
         int itemId = (await Svc(db, Dev(ana)).ChecklistDeAsync(actividad.Id)).First().Id;
 
         var (ok, mensaje) = await Svc(db, Dev(beto, userId: 2)).MarcarItemAsync(itemId, beto, true, null);
@@ -351,7 +379,7 @@ public class PoolActivityServiceTests : IDisposable
         int dev = NuevoDesarrollador(db, "Ana");
         var actividad = await PublicarAsync(db, Admin());
         var svc = Svc(db, Dev(dev));
-        Assert.True((await svc.TomarAsync(actividad.Id, dev)).ok);
+        Assert.True((await svc.TomarAsync(actividad.Id, dev, EstimacionAlTomar)).ok);
 
         var (ok, mensaje) = await svc.EntregarAsync(actividad.Id, dev);
 
@@ -369,7 +397,7 @@ public class PoolActivityServiceTests : IDisposable
 
         var actividad = await PublicarAsync(db, Admin());
         var cu = Dev(dev);
-        Assert.True((await Svc(db, cu).TomarAsync(actividad.Id, dev)).ok);
+        Assert.True((await Svc(db, cu).TomarAsync(actividad.Id, dev, EstimacionAlTomar)).ok);
         await CompletarChecklistAsync(db, cu, actividad.Id, dev);
 
         Assert.True((await Svc(db, cu).EntregarAsync(actividad.Id, dev)).ok);
@@ -390,7 +418,7 @@ public class PoolActivityServiceTests : IDisposable
         int dev = NuevoDesarrollador(db, "Ana");
         var actividad = await PublicarAsync(db, admin);
         var cu = Dev(dev);
-        Assert.True((await Svc(db, cu).TomarAsync(actividad.Id, dev)).ok);
+        Assert.True((await Svc(db, cu).TomarAsync(actividad.Id, dev, EstimacionAlTomar)).ok);
         await CompletarChecklistAsync(db, cu, actividad.Id, dev);
         Assert.True((await Svc(db, cu).EntregarAsync(actividad.Id, dev)).ok);
 
@@ -420,7 +448,7 @@ public class PoolActivityServiceTests : IDisposable
         int dev = NuevoDesarrollador(db, "Ana");
         var actividad = await PublicarAsync(db, admin);
         var cu = Dev(dev);
-        Assert.True((await Svc(db, cu).TomarAsync(actividad.Id, dev)).ok);
+        Assert.True((await Svc(db, cu).TomarAsync(actividad.Id, dev, EstimacionAlTomar)).ok);
         await CompletarChecklistAsync(db, cu, actividad.Id, dev);
         Assert.True((await Svc(db, cu).EntregarAsync(actividad.Id, dev)).ok);
         Assert.True((await Svc(db, admin).AceptarAsync(actividad.Id)).ok);
@@ -449,7 +477,7 @@ public class PoolActivityServiceTests : IDisposable
 
         var actividad = await PublicarAsync(db, admin);
         var cu = Dev(ana);
-        Assert.True((await Svc(db, cu).TomarAsync(actividad.Id, ana)).ok);
+        Assert.True((await Svc(db, cu).TomarAsync(actividad.Id, ana, EstimacionAlTomar)).ok);
         await CompletarChecklistAsync(db, cu, actividad.Id, ana);
         Assert.True((await Svc(db, cu).EntregarAsync(actividad.Id, ana)).ok);
         Assert.True((await Svc(db, admin).AceptarAsync(actividad.Id)).ok);
@@ -471,7 +499,7 @@ public class PoolActivityServiceTests : IDisposable
         int dev = NuevoDesarrollador(db, "Ana");
         var actividad = await PublicarAsync(db, admin);
         var cu = Dev(dev);
-        Assert.True((await Svc(db, cu).TomarAsync(actividad.Id, dev)).ok);
+        Assert.True((await Svc(db, cu).TomarAsync(actividad.Id, dev, EstimacionAlTomar)).ok);
         await CompletarChecklistAsync(db, cu, actividad.Id, dev);
         Assert.True((await Svc(db, cu).EntregarAsync(actividad.Id, dev)).ok);
 
@@ -500,8 +528,8 @@ public class PoolActivityServiceTests : IDisposable
         int beto = NuevoDesarrollador(db, "Beto");
         var actividad = await PublicarAsync(db, Admin());
 
-        var r1 = await Svc(db, Dev(ana)).TomarAsync(actividad.Id, ana);
-        var r2 = await Svc(db, Dev(beto, userId: 2)).TomarAsync(actividad.Id, beto);
+        var r1 = await Svc(db, Dev(ana)).TomarAsync(actividad.Id, ana, EstimacionAlTomar);
+        var r2 = await Svc(db, Dev(beto, userId: 2)).TomarAsync(actividad.Id, beto, EstimacionAlTomar);
 
         Assert.True(r1.ok);
         Assert.False(r2.ok);
@@ -521,7 +549,7 @@ public class PoolActivityServiceTests : IDisposable
         int dev = NuevoDesarrollador(db, "Ana");
         var actividad = await PublicarAsync(db, Admin());
         var cu = Dev(dev);
-        Assert.True((await Svc(db, cu).TomarAsync(actividad.Id, dev)).ok);
+        Assert.True((await Svc(db, cu).TomarAsync(actividad.Id, dev, EstimacionAlTomar)).ok);
         Assert.True((await Svc(db, cu).DevolverAsync(actividad.Id, dev, null)).ok);
 
         // La segunda no procede (ya no es suya) y no debe volver a contar.
@@ -537,7 +565,7 @@ public class PoolActivityServiceTests : IDisposable
         int dev = NuevoDesarrollador(db, "Ana");
         var actividad = await PublicarAsync(db, Admin());
         var cu = Dev(dev);
-        Assert.True((await Svc(db, cu).TomarAsync(actividad.Id, dev)).ok);
+        Assert.True((await Svc(db, cu).TomarAsync(actividad.Id, dev, EstimacionAlTomar)).ok);
         Assert.True((await Svc(db, cu).DevolverAsync(actividad.Id, dev, "no alcanzo")).ok);
 
         Assert.Equal(DevActivityStatus.Cerrada, db.DevActivities.AsNoTracking().Single().Status);
@@ -550,7 +578,7 @@ public class PoolActivityServiceTests : IDisposable
         int dev = NuevoDesarrollador(db, "Ana");
         var actividad = await PublicarAsync(db, Admin());
         var cu = Dev(dev);
-        Assert.True((await Svc(db, cu).TomarAsync(actividad.Id, dev)).ok);
+        Assert.True((await Svc(db, cu).TomarAsync(actividad.Id, dev, EstimacionAlTomar)).ok);
 
         // Un checklist vacío no prueba nada: entregar así sería cobrar los puntos sin verificación.
         db.PoolActivityChecklistItems.RemoveRange(
@@ -571,7 +599,7 @@ public class PoolActivityServiceTests : IDisposable
         var admin = Admin();
         int dev = NuevoDesarrollador(db, "Ana");
         var actividad = await PublicarAsync(db, admin);
-        Assert.True((await Svc(db, Dev(dev)).TomarAsync(actividad.Id, dev)).ok);
+        Assert.True((await Svc(db, Dev(dev)).TomarAsync(actividad.Id, dev, EstimacionAlTomar)).ok);
 
         var (ok, _) = await Svc(db, admin).AceptarAsync(actividad.Id);
 
@@ -599,7 +627,7 @@ public class PoolActivityServiceTests : IDisposable
         int dev = NuevoDesarrollador(db, "Ana");
         var actividad = await PublicarAsync(db, admin);
         var cu = Dev(dev);
-        Assert.True((await Svc(db, cu).TomarAsync(actividad.Id, dev)).ok);
+        Assert.True((await Svc(db, cu).TomarAsync(actividad.Id, dev, EstimacionAlTomar)).ok);
         await CompletarChecklistAsync(db, cu, actividad.Id, dev);
         Assert.True((await Svc(db, cu).EntregarAsync(actividad.Id, dev)).ok);
 
@@ -629,7 +657,7 @@ public class PoolActivityServiceTests : IDisposable
         int dev = NuevoDesarrollador(db, "Ana");
         var actividad = await PublicarAsync(db, admin);
         var cu = Dev(dev);
-        Assert.True((await Svc(db, cu).TomarAsync(actividad.Id, dev)).ok);
+        Assert.True((await Svc(db, cu).TomarAsync(actividad.Id, dev, EstimacionAlTomar)).ok);
         await CompletarChecklistAsync(db, cu, actividad.Id, dev);
         Assert.True((await Svc(db, cu).EntregarAsync(actividad.Id, dev)).ok);
         Assert.True((await Svc(db, admin).RechazarAsync(actividad.Id, "falta evidencia")).ok);
@@ -648,7 +676,7 @@ public class PoolActivityServiceTests : IDisposable
         int dev = NuevoDesarrollador(db, "Ana");
         var actividad = await PublicarAsync(db, Admin());
         var cu = Dev(dev);
-        Assert.True((await Svc(db, cu).TomarAsync(actividad.Id, dev)).ok);
+        Assert.True((await Svc(db, cu).TomarAsync(actividad.Id, dev, EstimacionAlTomar)).ok);
 
         var (ok, _) = await Svc(db, cu).DevolverAsync(actividad.Id, dev, "me asignaron otra cosa");
         Assert.True(ok);
@@ -671,7 +699,7 @@ public class PoolActivityServiceTests : IDisposable
         int ana = NuevoDesarrollador(db, "Ana");
         int beto = NuevoDesarrollador(db, "Beto");
         var actividad = await PublicarAsync(db, Admin());
-        Assert.True((await Svc(db, Dev(ana)).TomarAsync(actividad.Id, ana)).ok);
+        Assert.True((await Svc(db, Dev(ana)).TomarAsync(actividad.Id, ana, EstimacionAlTomar)).ok);
 
         var (ok, mensaje) = await Svc(db, Dev(beto, userId: 2)).DevolverAsync(actividad.Id, beto, null);
 
@@ -689,7 +717,7 @@ public class PoolActivityServiceTests : IDisposable
         db.SaveChanges();
 
         var actividad = await PublicarAsync(db, admin);
-        Assert.True((await Svc(db, Dev(dev, userId: 5)).TomarAsync(actividad.Id, dev)).ok);
+        Assert.True((await Svc(db, Dev(dev, userId: 5)).TomarAsync(actividad.Id, dev, EstimacionAlTomar)).ok);
 
         await Assert.ThrowsAsync<AuthorizationException>(
             () => Svc(db, Dev(dev, userId: 5)).LiberarAsync(actividad.Id, "porque sí"));
@@ -755,7 +783,7 @@ public class PoolActivityServiceTests : IDisposable
         Assert.True((await Svc(db, admin).DesactivarPlantillaItemAsync(item.Id)).ok);
 
         var actividad = await PublicarAsync(db, admin, Borrador("Nueva tras desactivar"));
-        Assert.True((await Svc(db, Dev(dev)).TomarAsync(actividad.Id, dev)).ok);
+        Assert.True((await Svc(db, Dev(dev)).TomarAsync(actividad.Id, dev, EstimacionAlTomar)).ok);
 
         var checklist = await Svc(db, Dev(dev)).ChecklistDeAsync(actividad.Id);
         Assert.DoesNotContain(checklist, c => c.Text == item.Text);
@@ -774,7 +802,7 @@ public class PoolActivityServiceTests : IDisposable
         var bug = await PublicarAsync(db, admin, Borrador("Un bug", PoolWorkType.Bug, PoolComplexity.Media));
         await PublicarAsync(db, admin, Borrador("Una tarea", PoolWorkType.Tarea, PoolComplexity.Media));
         var tomada = await PublicarAsync(db, admin, Borrador("Otro bug", PoolWorkType.Bug, PoolComplexity.Baja));
-        Assert.True((await Svc(db, Dev(dev)).TomarAsync(tomada.Id, dev)).ok);
+        Assert.True((await Svc(db, Dev(dev)).TomarAsync(tomada.Id, dev, EstimacionAlTomar)).ok);
 
         var soloBugs = await Svc(db, Dev(dev)).DisponiblesAsync(PoolWorkType.Bug);
 
@@ -791,8 +819,8 @@ public class PoolActivityServiceTests : IDisposable
         int beto = NuevoDesarrollador(db, "Beto");
         var deAna = await PublicarAsync(db, admin, Borrador("De Ana"));
         var deBeto = await PublicarAsync(db, admin, Borrador("De Beto"));
-        Assert.True((await Svc(db, Dev(ana)).TomarAsync(deAna.Id, ana)).ok);
-        Assert.True((await Svc(db, Dev(beto, userId: 2)).TomarAsync(deBeto.Id, beto)).ok);
+        Assert.True((await Svc(db, Dev(ana)).TomarAsync(deAna.Id, ana, EstimacionAlTomar)).ok);
+        Assert.True((await Svc(db, Dev(beto, userId: 2)).TomarAsync(deBeto.Id, beto, EstimacionAlTomar)).ok);
 
         var mias = await Svc(db, Dev(ana)).MisDelPoolAsync(ana);
 
@@ -809,7 +837,7 @@ public class PoolActivityServiceTests : IDisposable
         int dev = NuevoDesarrollador(db, "Ana");
         var actividad = await PublicarAsync(db, admin);
         var cu = Dev(dev);
-        Assert.True((await Svc(db, cu).TomarAsync(actividad.Id, dev)).ok);
+        Assert.True((await Svc(db, cu).TomarAsync(actividad.Id, dev, EstimacionAlTomar)).ok);
         Assert.Equal(0, await Svc(db, admin).CuentaPendientesDeVerificarAsync());
 
         await CompletarChecklistAsync(db, cu, actividad.Id, dev);

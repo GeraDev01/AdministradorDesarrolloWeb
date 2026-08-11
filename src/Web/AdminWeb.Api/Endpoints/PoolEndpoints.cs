@@ -19,6 +19,11 @@ namespace AdminWeb.Api.Endpoints;
 ///
 /// Los puntos NO viajan en ninguna petición de escritura. Se leen de la matriz al publicar y quedan
 /// congelados en la actividad; aceptar los que mandara el cliente sería regalar el sistema entero.
+///
+/// <b>Tampoco viaja el esfuerzo desde quien TOMA una tarea o un requerimiento</b>, ni desde el líder
+/// cuando publica un bug: cada uno de esos números tiene un solo autor válido y el servicio rechaza
+/// al otro en voz alta. Todo el pool se maneja en HORAS —plazo y esfuerzo— para que lo prometido y
+/// lo que miden los cronómetros sean la misma unidad y se puedan restar.
 /// </summary>
 public static class PoolEndpoints
 {
@@ -48,15 +53,20 @@ public static class PoolEndpoints
         .RequireAuthorization(PoliticaDelPool)
         .WithSummary("El checklist de una actividad, con su evidencia");
 
+        // El cuerpo va OPCIONAL, igual que el motivo de devolver y liberar: quien toma una tarea o un
+        // requerimiento no manda nada. En un bug sí hace falta —lleva la estimación de quien lo
+        // toma—, y un cuerpo ausente llega hasta el servicio a propósito: es él quien explica por qué
+        // un bug no se puede tomar sin estimarlo, y ese texto es el que ve la persona.
         grupo.MapPost("/{id:int}/tomar", async (
-            int id, PoolActivityService pool, ICurrentUser quien, CancellationToken ct) =>
+            int id, TomarActividadRequest? cuerpo, PoolActivityService pool, ICurrentUser quien,
+            CancellationToken ct) =>
         {
             if (quien.DeveloperId is not int developerId) return SinFicha();
-            var (ok, mensaje) = await pool.TomarAsync(id, developerId, ct);
+            var (ok, mensaje) = await pool.TomarAsync(id, developerId, cuerpo?.HorasEstimadas, ct);
             return Resultado(ok, mensaje);
         })
         .RequireAuthorization(PoliticaDelPool)
-        .WithSummary("Toma una actividad libre del pool y la deja a mi nombre");
+        .WithSummary("Toma una actividad libre del pool (un bug, con la estimación de quien lo toma)");
 
         grupo.MapPost("/{id:int}/devolver", async (
             int id, MotivoRequest? cuerpo, PoolActivityService pool, ICurrentUser quien,
@@ -192,7 +202,7 @@ public static class PoolEndpoints
                 .Select(c => new PoolPointsMatrixEntry
                 {
                     WorkType = c.Tipo, Complexity = c.Complejidad,
-                    Points = c.Puntos, DiasLimite = c.DiasLimite
+                    Points = c.Puntos, HorasLimite = c.HorasLimite
                 })
                 .ToList();
 
@@ -255,6 +265,10 @@ public static class PoolEndpoints
     /// El borrador que se le pasa al servicio. Sigue SIN llevar puntos: los pone la matriz.
     /// Los criterios extra van aparte y no aquí, porque no son un campo de la actividad sino filas
     /// propias que hay que resolver contra el catálogo antes de congelarlas.
+    ///
+    /// <para>El esfuerzo de un bug sí se copia aquí aunque el líder no deba mandarlo: quien lo
+    /// rechaza es el servicio, con un mensaje que explica que ese número lo escribe quien lo toma.
+    /// Descartarlo en silencio en este punto dejaría al líder creyendo que se guardó.</para>
     /// </summary>
     private static PoolActivity ABorrador(PublicarActividadRequest c) => new()
     {
@@ -263,7 +277,8 @@ public static class PoolEndpoints
         WorkType = c.Tipo,
         Complexity = c.Complejidad,
         Priority = c.Prioridad,
-        DiasLimite = c.Dias,
+        HorasLimite = c.Horas,
+        HorasEstimadas = c.HorasEstimadas,
         ExternalUrl = c.Enlace
     };
 }

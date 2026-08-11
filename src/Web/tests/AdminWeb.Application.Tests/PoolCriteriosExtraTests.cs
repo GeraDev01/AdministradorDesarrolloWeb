@@ -9,14 +9,19 @@ using Xunit;
 namespace AdminWeb.Application.Tests;
 
 /// <summary>
-/// Lo que se decide al PUBLICAR una actividad del pool: su urgencia, cuántos días se conceden y qué
-/// criterios extra se van a evaluar.
+/// Lo que se decide al PUBLICAR una actividad del pool: su urgencia, cuántas HORAS de plazo se
+/// conceden y qué criterios extra se van a evaluar.
 ///
-/// <para>El archivo entero gira alrededor de una asimetría deliberada: <b>los días y la prioridad se
+/// <para>El archivo entero gira alrededor de una asimetría deliberada: <b>el plazo y la prioridad se
 /// ajustan por actividad, los puntos base NO.</b> Aflojar un plazo o subir una urgencia no vale
 /// puntos, así que ninguno de los dos sirve para regalarlos; los criterios extra sí suman, pero solo
 /// si el líder los da por cumplidos al verificar la entrega, que es lo que los separa de un aumento
 /// de puntos disfrazado.</para>
+///
+/// <para>El plazo se dice en HORAS y no en días: es lo que permite contrastarlo con lo que miden los
+/// cronómetros, que registran horas. Las reglas completas del modelo de horas —quién pone cada
+/// número y qué pasa al tomar— viven en <see cref="PoolHorasTests"/>; aquí solo la parte que se
+/// decide al publicar.</para>
 ///
 /// <para>Va en archivo aparte de <see cref="PoolActivityServiceTests"/> porque prueba una decisión
 /// distinta: aquélla cuida que el valor esté congelado antes de trabajar; ésta, que lo que se añade
@@ -88,8 +93,19 @@ public class PoolCriteriosExtraTests : IDisposable
         return c.Id;
     }
 
+    /// <summary>El plazo que el líder concede al bug de estas pruebas, en horas.</summary>
+    private const decimal PlazoDelBug = 16m;
+
+    /// <summary>Lo que dice quien toma el bug: en cuántas horas cree resolverlo. Sin esto no se puede tomar.</summary>
+    private const decimal EstimacionAlTomar = 4m;
+
+    /// <summary>Un bug válido: con su plazo en horas, que en un bug lo pone el líder y es obligatorio.</summary>
     private static PoolActivity Borrador(string titulo = "Corregir el cálculo de facturación") =>
-        new() { Title = titulo, WorkType = PoolWorkType.Bug, Complexity = PoolComplexity.Alta };
+        new()
+        {
+            Title = titulo, WorkType = PoolWorkType.Bug, Complexity = PoolComplexity.Alta,
+            HorasLimite = PlazoDelBug
+        };
 
     /// <summary>Publica, la toma, completa el checklist y la entrega: la deja lista para verificar.</summary>
     private async Task<PoolActivity> HastaRevisionAsync(
@@ -99,7 +115,7 @@ public class PoolCriteriosExtraTests : IDisposable
         Assert.True(ok, mensaje);
 
         var cu = Dev(dev);
-        Assert.True((await Svc(db, cu).TomarAsync(actividad!.Id, dev)).ok);
+        Assert.True((await Svc(db, cu).TomarAsync(actividad!.Id, dev, EstimacionAlTomar)).ok);
 
         var svc = Svc(db, cu);
         foreach (var item in await svc.ChecklistDeAsync(actividad.Id))
@@ -116,22 +132,26 @@ public class PoolCriteriosExtraTests : IDisposable
     private static List<PoolActivityExtraCriterion> ExtrasDe(AppDbContext db, int actividadId) =>
         [.. db.PoolActivityExtraCriteria.AsNoTracking().Where(x => x.PoolActivityId == actividadId)];
 
-    // ── Prioridad y días ─────────────────────────────────────────────────────────
+    // ── Prioridad y plazo ────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task Crear_GuardaLaPrioridadYLosDiasPropios()
+    public async Task Crear_GuardaLaPrioridadYElPlazoPropioEnHoras()
     {
         var db = await BaseConPoolAsync();
         var borrador = Borrador();
         borrador.Priority = PoolPriority.Critica;
-        borrador.DiasLimite = 2;
+        borrador.HorasLimite = 2m;
 
         var (ok, mensaje, actividad) = await Svc(db, Admin()).CrearAsync(borrador);
         Assert.True(ok, mensaje);
 
         var guardada = db.PoolActivities.AsNoTracking().Single(a => a.Id == actividad!.Id);
         Assert.Equal(PoolPriority.Critica, guardada.Priority);
-        Assert.Equal(2, guardada.DiasLimite);
+        Assert.Equal(2m, guardada.HorasLimite);
+
+        // Y la columna vieja de DÍAS se queda como estaba. La web ya no la escribe: mantener las dos
+        // sería mantener dos verdades sobre lo mismo, que se contradirían a la primera edición.
+        Assert.Null(guardada.DiasLimite);
     }
 
     /// <summary>
@@ -139,66 +159,73 @@ public class PoolCriteriosExtraTests : IDisposable
     /// publicar «Crítica» sería la manera de regalarlos y la matriz dejaría de significar nada.
     /// </summary>
     [Fact]
-    public async Task NiLaPrioridadNiLosDias_MuevenLosPuntos()
+    public async Task NiLaPrioridadNiElPlazo_MuevenLosPuntos()
     {
         var db = await BaseConPoolAsync();
         var (_, _, normal) = await Svc(db, Admin()).CrearAsync(Borrador("Normal"));
 
         var urgente = Borrador("Urgente");
         urgente.Priority = PoolPriority.Critica;
-        urgente.DiasLimite = 1;
+        urgente.HorasLimite = 1m;
         var (_, _, apurada) = await Svc(db, Admin()).CrearAsync(urgente);
 
         Assert.Equal(normal!.Points, apurada!.Points);
     }
 
     [Fact]
-    public async Task Los_dias_de_la_actividad_mandan_sobre_los_de_la_matriz()
+    public async Task Las_horas_de_la_actividad_mandan_sobre_las_de_la_matriz()
     {
         var db = await BaseConPoolAsync();
         int dev = NuevoDesarrollador(db, "Ana");
 
+        // La celda Bug/Alta de la matriz da 64 h; este bug dice 10 y son las que valen.
         var borrador = Borrador();
-        borrador.DiasLimite = 10;
+        borrador.HorasLimite = 10m;
         var (_, _, actividad) = await Svc(db, Admin()).CrearAsync(borrador);
 
         var antesDeTomar = DateTime.UtcNow;
-        Assert.True((await Svc(db, Dev(dev)).TomarAsync(actividad!.Id, dev)).ok);
+        Assert.True((await Svc(db, Dev(dev)).TomarAsync(actividad!.Id, dev, EstimacionAlTomar)).ok);
 
         var tomada = db.PoolActivities.AsNoTracking().Single(a => a.Id == actividad.Id);
         Assert.NotNull(tomada.ClaimDeadlineAt);
         // El plazo cuenta desde que se TOMA y no desde que se publicó: si contara desde la
         // publicación, una actividad que esperó dos semanas en el pool llegaría ya vencida.
-        Assert.InRange((tomada.ClaimDeadlineAt!.Value - antesDeTomar).TotalDays, 9.9, 10.1);
+        Assert.InRange((tomada.ClaimDeadlineAt!.Value - antesDeTomar).TotalHours, 9.9, 10.1);
     }
 
     [Fact]
-    public async Task Cero_dias_significa_SIN_fecha_limite()
+    public async Task Cero_horas_significa_SIN_fecha_limite()
     {
         var db = await BaseConPoolAsync();
         int dev = NuevoDesarrollador(db, "Ana");
 
         var borrador = Borrador();
-        borrador.DiasLimite = 0;
+        borrador.HorasLimite = 0m;
         var (_, _, actividad) = await Svc(db, Admin()).CrearAsync(borrador);
-        Assert.True((await Svc(db, Dev(dev)).TomarAsync(actividad!.Id, dev)).ok);
+        Assert.True((await Svc(db, Dev(dev)).TomarAsync(actividad!.Id, dev, EstimacionAlTomar)).ok);
 
         Assert.Null(db.PoolActivities.AsNoTracking().Single(a => a.Id == actividad.Id).ClaimDeadlineAt);
     }
 
+    /// <summary>
+    /// El tope de arriba, 2 920 h, son los 365 días de antes por una jornada de ocho: el mismo techo
+    /// dicho en la unidad nueva, para que el cambio de unidad no ampliara de tapadillo lo que se
+    /// puede prometer.
+    /// </summary>
     [Theory]
     [InlineData(-1)]
-    [InlineData(366)]
-    public async Task Unos_dias_fuera_de_rango_se_rechazan(int dias)
+    [InlineData(2921)]
+    public async Task Un_plazo_fuera_de_rango_se_rechaza(int horas)
     {
         var db = await BaseConPoolAsync();
         var borrador = Borrador();
-        borrador.DiasLimite = dias;
+        borrador.HorasLimite = horas;
 
         var (ok, mensaje, _) = await Svc(db, Admin()).CrearAsync(borrador);
 
         Assert.False(ok);
-        Assert.Contains("entre 0 y 365", mensaje);
+        Assert.Contains("entre 0 y 2920 horas", mensaje);
+        Assert.Empty(db.PoolActivities.AsNoTracking());
     }
 
     // ── Los criterios extra, al publicar ─────────────────────────────────────────

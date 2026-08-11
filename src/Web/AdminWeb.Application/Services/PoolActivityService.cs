@@ -41,6 +41,28 @@ public class PoolActivityService(
     /// <summary>Tope del motivo de una devolución. Da para explicarse, no para un ensayo.</summary>
     public const int MaxMotivo = 1000;
 
+    /// <summary>
+    /// Tope del PLAZO, en horas: 2 920 = los 365 días de antes por una jornada de ocho. Es el mismo
+    /// techo que ya había, dicho en la unidad nueva, para no ampliar de tapadillo lo que se podía
+    /// prometer.
+    /// </summary>
+    public const decimal MaxHorasDePlazo = 2920m;
+
+    /// <summary>
+    /// Tope del ESFUERZO, en horas. El mismo que <see cref="RequirementService.MaxHoras"/>: mil horas
+    /// son medio año de una persona, y a partir de ahí no es una actividad, es un proyecto que hay
+    /// que partir. Que los dos topes coincidan importa porque los dos números acaban comparándose
+    /// contra las mismas <c>WorkSession</c>.
+    /// </summary>
+    public const decimal MaxHorasEstimadas = RequirementService.MaxHoras;
+
+    /// <summary>
+    /// Piso del ESFUERZO: el cuarto de hora, que es la granularidad con la que ya se estima en la
+    /// pantalla de tickets. Con un piso de cero, «0» pasaría por estimación y dejaría la comparación
+    /// contra el cronómetro sin nada al otro lado.
+    /// </summary>
+    public const decimal MinHorasEstimadas = 0.25m;
+
     // ── Consultas ────────────────────────────────────────────────────────────────
 
     /// <summary>Lo que hay libre en el pool ahora mismo, de lo más valioso a lo menos.</summary>
@@ -150,19 +172,30 @@ public class PoolActivityService(
         var (extraOk, extraError, extras) = await MaterializarCriteriosExtraAsync(criteriosExtra, ct);
         if (!extraOk) return (false, extraError, null);
 
+        // El esfuerzo solo se escribe cuando NO es un bug: en un bug lo pone quien lo tome, y la
+        // validación de arriba ya rechazó que viniera. El sello acompaña siempre al número, para que
+        // después se pueda saber cuándo se capturó y no solo cuánto se dijo.
+        var esfuerzo = borrador.WorkType == PoolWorkType.Bug ? null : Redondear(borrador.HorasEstimadas);
+
+        // DiasLimite NO se escribe: la web ya no lo usa. Durante la convivencia, el escritorio verá
+        // las actividades publicadas desde aquí como «sin plazo propio» y les aplicará los días de su
+        // propia matriz. Se asume a sabiendas; escribir además el equivalente en días sería mantener
+        // dos verdades sobre lo mismo y que se contradijeran a la primera edición.
         var actividad = new PoolActivity
         {
-            Title           = borrador.Title.Trim(),
-            Description     = Limpiar(borrador.Description),
-            WorkType        = borrador.WorkType,
-            Complexity      = borrador.Complexity,
-            Points          = celda!.Points,
-            Priority        = borrador.Priority,
-            DiasLimite      = borrador.DiasLimite,
-            Status          = PoolActivityStatus.Disponible,
-            ExternalUrl     = enlace,
-            CreatedByUserId = currentUser.UserId,
-            CreatedAt       = DateTime.UtcNow
+            Title               = borrador.Title.Trim(),
+            Description         = Limpiar(borrador.Description),
+            WorkType            = borrador.WorkType,
+            Complexity          = borrador.Complexity,
+            Points              = celda!.Points,
+            Priority            = borrador.Priority,
+            HorasLimite         = Redondear(borrador.HorasLimite),
+            HorasEstimadas      = esfuerzo,
+            HorasEstimadasEnUtc = esfuerzo is null ? null : DateTime.UtcNow,
+            Status              = PoolActivityStatus.Disponible,
+            ExternalUrl         = enlace,
+            CreatedByUserId     = currentUser.UserId,
+            CreatedAt           = DateTime.UtcNow
         };
         foreach (var extra in extras) actividad.ExtraCriteria.Add(extra);
 
@@ -217,14 +250,51 @@ public class PoolActivityService(
         var (extraOk, extraError, extras) = await MaterializarCriteriosExtraAsync(criteriosExtra, ct);
         if (!extraOk) return (false, extraError);
 
+        // ── LA LIMPIEZA AL CAMBIAR DE TIPO ───────────────────────────────────────
+        //
+        // Va AQUÍ, y solo aquí, porque éste es el ÚNICO punto de la aplicación donde el tipo de una
+        // actividad ya guardada cambia (CrearAsync da de alta, y el resto de los sitios que escriben
+        // WorkType construyen objetos en memoria: el borrador de los endpoints, las filas de la
+        // matriz, la demostración y las pruebas).
+        //
+        // Al cruzar la frontera bug / no-bug, la estimación cambia de dueño y el número capturado se
+        // quedaría atribuido a quien no lo escribió:
+        //  · un bug que pasa a tarea puede llevar la estimación de QUIEN LO TOMÓ, y en una tarea la
+        //    estimación es del líder: conservarla sería atribuirle un número que no escribió;
+        //  · una tarea que pasa a bug lleva la estimación DEL LÍDER, y en un bug es de quien lo toma:
+        //    también se borra, y se le pedirá al tomarlo.
+        // Tarea ↔ Requerimiento NO cruza esa frontera y no dispara nada: en los dos el autor es el
+        // líder, y borrar ahí le haría recapturar un número que sigue siendo suyo.
+        //
+        // Es lo que sostiene que el autor de HorasEstimadas se pueda DERIVAR del tipo en vez de
+        // guardarse en una columna aparte. Aquí la actividad sigue Disponible —lo exige la guarda de
+        // arriba—, así que nadie la tenía tomada y a nadie que esté trabajando se le quita su número.
+        bool cambiaElAutorDeLaEstimacion =
+            (actividad.WorkType == PoolWorkType.Bug) != (cambios.WorkType == PoolWorkType.Bug);
+        if (cambiaElAutorDeLaEstimacion)
+        {
+            actividad.HorasEstimadas      = null;
+            actividad.HorasEstimadasEnUtc = null;
+        }
+
         actividad.Title       = cambios.Title.Trim();
         actividad.Description = Limpiar(cambios.Description);
         actividad.WorkType    = cambios.WorkType;
         actividad.Complexity  = cambios.Complexity;
         actividad.Points      = celda!.Points;
         actividad.Priority    = cambios.Priority;
-        actividad.DiasLimite  = cambios.DiasLimite;
+        actividad.HorasLimite = Redondear(cambios.HorasLimite);
         actividad.ExternalUrl = enlace;
+
+        // El esfuerzo del líder se reescribe solo cuando le toca ponerlo. En un bug la validación ya
+        // garantizó que no viene ninguno, y lo que quede es lo que escribió quien lo tomó (o el nulo
+        // que acaba de dejar la limpieza de arriba): pisarlo con null aquí borraría, en cada edición
+        // de un bug, la estimación de otra persona.
+        if (cambios.WorkType != PoolWorkType.Bug)
+        {
+            actividad.HorasEstimadas      = Redondear(cambios.HorasEstimadas);
+            actividad.HorasEstimadasEnUtc = DateTime.UtcNow;
+        }
 
         // Los criterios extra se REEMPLAZAN por completo. Se puede porque aquí la actividad sigue
         // Disponible —nadie la ha tomado— así que nadie los ha visto todavía para decidir si la
@@ -354,8 +424,16 @@ public class PoolActivityService(
     /// no lleva condición de estado— y acabarían con la actividad a nombre del último y el checklist
     /// duplicado. Con el UPDATE condicional, la base decide quién gana: solo uno afecta una fila.
     /// </summary>
+    /// <param name="horasEstimadas">
+    /// En cuántas horas cree resolverlo quien la toma. <b>Obligatorio en los BUGS</b> y rechazado en
+    /// tareas y requerimientos, donde el esfuerzo lo fijó el líder al publicar.
+    ///
+    /// <para>Va con valor por omisión y ANTES del token de cancelación para no romper las firmas
+    /// existentes: un bug tomado sin él falla en voz alta con un mensaje que explica el porqué, que
+    /// es exactamente lo que se busca, en vez de reclamarse en silencio sin estimación.</para>
+    /// </param>
     public async Task<(bool ok, string mensaje)> TomarAsync(
-        int id, int developerId, CancellationToken ct = default)
+        int id, int developerId, decimal? horasEstimadas = null, CancellationToken ct = default)
     {
         AuthorizationGuard.RequireLoggedIn(currentUser);
         AuthorizationGuard.RequireOwnershipOrAdmin(currentUser, developerId);
@@ -376,11 +454,45 @@ public class PoolActivityService(
         var celda = await CeldaDeMatrizAsync(actividad.WorkType, actividad.Complexity, ct);
         var ahora = DateTime.UtcNow;
 
-        // Los días de ESTA actividad mandan sobre los de la matriz; si no se fijaron, la matriz.
-        // El plazo empieza a contar AHORA y no al publicarla, para que una actividad que esperó dos
-        // semanas en el pool no llegue con el plazo ya consumido.
-        int dias = actividad.DiasLimite ?? celda?.DiasLimite ?? 0;
-        DateTime? limite = dias > 0 ? ahora.AddDays(dias) : null;
+        // ── LA ESTIMACIÓN OBLIGATORIA DEL BUG ────────────────────────────────────
+        //
+        // Se pide AQUÍ y en ningún otro momento. Escrita a mitad del trabajo ya no es una estimación:
+        // quien la escribe sabe lo que le costó, y el número deja de servir para contrastarlo con el
+        // cronómetro, que es para lo único que existe.
+        //
+        // Se valida ANTES del UPDATE condicional, así que quien mande una estimación inválida se va
+        // sin haber reclamado nada: la actividad sigue Disponible y sin dueño.
+        decimal? estimacion = null;
+        if (actividad.WorkType == PoolWorkType.Bug)
+        {
+            if (horasEstimadas is not decimal propuesta)
+                return (false, "Antes de tomar un bug tienes que decir en cuántas horas crees " +
+                               "resolverlo. Es el único momento en que ese número sirve de algo: " +
+                               "después ya sabrás lo que te costó.");
+            if (propuesta < MinHorasEstimadas || propuesta > MaxHorasEstimadas)
+                return (false, $"La estimación tiene que estar entre {MinHorasEstimadas} y " +
+                               $"{MaxHorasEstimadas:0} horas.");
+            estimacion = Redondear(propuesta);
+        }
+        else if (horasEstimadas is not null)
+        {
+            return (false, "El esfuerzo de una tarea o un requerimiento lo fija el líder al " +
+                           "publicarla; al tomarla no se cambia.");
+        }
+
+        // El plazo de ESTA actividad manda sobre el de la matriz; si no se fijó, la matriz. Sigue
+        // contando desde AHORA y no desde que se publicó, para que una actividad que esperó dos
+        // semanas en el pool no llegue con el plazo ya consumido. Lo que cambia es la UNIDAD: se
+        // suman HORAS, para que lo que se promete y lo que mide el cronómetro sean el mismo número.
+        // Son horas de reloj —incluyen noches y fines de semana—, que es lo coherente con medir
+        // contra un cronómetro; contar solo jornadas hábiles exigiría un calendario laboral entero.
+        decimal horas = actividad.HorasLimite ?? celda?.HorasLimite ?? 0m;
+        DateTime? limite = horas > 0 ? ahora.AddHours((double)horas) : null;
+
+        // El sello viaja junto al número y con la misma forma nula, para que el UPDATE de abajo pueda
+        // dejar los dos como estaban con un COALESCE y no con un condicional que EF tendría que
+        // traducir sobre un parámetro.
+        DateTime? selloDeLaEstimacion = estimacion is null ? null : ahora;
 
         int ganadas = await db.PoolActivities
             .Where(a => a.Id == id && a.Status == PoolActivityStatus.Disponible)
@@ -388,7 +500,17 @@ public class PoolActivityService(
                 .SetProperty(a => a.Status, PoolActivityStatus.Tomada)
                 .SetProperty(a => a.ClaimedByDeveloperId, developerId)
                 .SetProperty(a => a.ClaimedAt, ahora)
-                .SetProperty(a => a.ClaimDeadlineAt, limite), ct);
+                .SetProperty(a => a.ClaimDeadlineAt, limite)
+                // La estimación entra en el MISMO update que gana el reclamo, no en un guardado
+                // posterior. Si fuera un segundo paso, dos personas mandando su estimación a la vez
+                // acabarían con la actividad a nombre de una y el número de la otra: quien pierde la
+                // carrera no debe poder escribir nada, y así no escribe nada.
+                //
+                // El COALESCE no es un adorno: en una tarea o un requerimiento «estimacion» es null y
+                // la columna YA trae el número del líder desde que se publicó. Escribir null la
+                // borraría al tomarla, y quien la tomó se quedaría sin nada contra qué comparar.
+                .SetProperty(a => a.HorasEstimadas, a => estimacion ?? a.HorasEstimadas)
+                .SetProperty(a => a.HorasEstimadasEnUtc, a => selloDeLaEstimacion ?? a.HorasEstimadasEnUtc), ct);
         if (ganadas == 0) return (false, "Alguien más la tomó primero. Actualiza la lista.");
 
         // El reclamo ya es firme; a partir de aquí se trabaja sobre la entidad rastreada. Se lee de
@@ -410,11 +532,16 @@ public class PoolActivityService(
         await audit.RecordAsync(AuditAction.Update, "PoolActivity", id.ToString(),
             $"Tomada del pool ({actividad.Points} pts)", ct);
 
+        // Con la HORA y no solo el día: con plazos de cuatro u ocho horas, enseñar la fecha a secas
+        // es enseñar un plazo falso —«hoy» no dice si vence a las once o a las siete—.
         var textoLimite = limite is DateTime f
-            ? $" Fecha esperada de entrega: {f.ToLocalTime():dd/MM/yyyy}."
+            ? $" Entrega esperada: {f.ToLocalTime():dd/MM/yyyy HH:mm} ({horas:0.##} h)."
             : "";
-        return (true, $"La actividad es tuya: {actividad.Points} puntos al aceptarse.{textoLimite} " +
-                      "Completa el checklist para poder entregarla.");
+        var textoEstimacion = estimacion is decimal e
+            ? $" Dijiste que te tomaría {e:0.##} h; eso es lo que se comparará con tu cronómetro."
+            : "";
+        return (true, $"La actividad es tuya: {actividad.Points} puntos al aceptarse.{textoLimite}" +
+                      $"{textoEstimacion} Completa el checklist para poder entregarla.");
     }
 
     /// <summary>
@@ -749,31 +876,41 @@ public class PoolActivityService(
             if (f.Points <= 0)
                 return (false, $"{PoolSeed.Etiqueta(f.WorkType)} / {PoolSeed.Etiqueta(f.Complexity)}: " +
                                "los puntos tienen que ser mayores que cero.");
-            if (f.DiasLimite < 0)
+            // El plazo de la matriz, en HORAS. Con tope por arriba, que antes no había: sin él una
+            // celda podía guardar un número que después no cabe en la columna, y el error saltaba
+            // al guardar y no al capturarlo, donde se puede corregir.
+            if (f.HorasLimite < 0)
                 return (false, $"{PoolSeed.Etiqueta(f.WorkType)} / {PoolSeed.Etiqueta(f.Complexity)}: " +
-                               "los días no pueden ser negativos.");
+                               "las horas no pueden ser negativas. 0 = sin fecha límite.");
+            if (f.HorasLimite > MaxHorasDePlazo)
+                return (false, $"{PoolSeed.Etiqueta(f.WorkType)} / {PoolSeed.Etiqueta(f.Complexity)}: " +
+                               $"el plazo no puede pasar de {MaxHorasDePlazo:0} horas.");
         }
 
         var actuales = await db.PoolPointsMatrix.ToListAsync(ct);
         int cambios = 0;
         foreach (var f in filas)
         {
+            var horas = Math.Round(f.HorasLimite, 2, MidpointRounding.AwayFromZero);
+
             var fila = actuales.FirstOrDefault(m => m.WorkType == f.WorkType && m.Complexity == f.Complexity);
             if (fila == null)
             {
+                // Sin DiasLimite: la web ya no lo escribe. Queda en 0, y en la práctica esta rama no
+                // corre nunca contra una base con datos, porque las doce combinaciones ya existen.
                 db.PoolPointsMatrix.Add(new PoolPointsMatrixEntry
                 {
                     WorkType = f.WorkType, Complexity = f.Complexity,
-                    Points = f.Points, DiasLimite = f.DiasLimite,
+                    Points = f.Points, HorasLimite = horas,
                     UpdatedAt = DateTime.UtcNow, UpdatedByUserId = currentUser.UserId
                 });
                 cambios++;
                 continue;
             }
 
-            if (fila.Points == f.Points && fila.DiasLimite == f.DiasLimite) continue;
+            if (fila.Points == f.Points && fila.HorasLimite == horas) continue;
             fila.Points          = f.Points;
-            fila.DiasLimite      = f.DiasLimite;
+            fila.HorasLimite     = horas;
             fila.UpdatedAt       = DateTime.UtcNow;
             fila.UpdatedByUserId = currentUser.UserId;
             cambios++;
@@ -872,11 +1009,43 @@ public class PoolActivityService(
             return (false, $"{PoolSeed.Etiqueta(b.WorkType)} / {PoolSeed.Etiqueta(b.Complexity)} vale " +
                            "0 puntos: corrige la matriz antes de publicar.", null, null);
 
-        // Los días SÍ se pueden ajustar por actividad; los puntos no. La asimetría es deliberada:
-        // aflojar el plazo no vale puntos, y el plazo real depende del trabajo concreto —un bug
-        // medio con un cliente esperando no admite los mismos tres días que uno cualquiera—.
-        if (b.DiasLimite is { } dias && (dias < 0 || dias > 365))
-            return (false, "Los días para entregar tienen que estar entre 0 y 365. 0 = sin fecha límite.", null, null);
+        // ── PLAZO ────────────────────────────────────────────────────────────────
+        //
+        // El plazo SÍ se ajusta por actividad; los puntos no. La asimetría es deliberada: aflojar el
+        // plazo no vale puntos, y el plazo real depende del trabajo concreto —un bug medio con un
+        // cliente esperando no admite las mismas horas que uno cualquiera—.
+        //
+        // En un BUG el plazo es OBLIGATORIO y lo pone el líder: es el trato del modelo. Si se dejara
+        // caer a la matriz cuando viene vacío, «cuando sea Bug, el plazo se lo pongo yo» dejaría de
+        // ser cierto sin que nadie lo notara.
+        if (b.WorkType == PoolWorkType.Bug && b.HorasLimite is null)
+            return (false, "Un bug lleva el plazo que tú decidas, en horas. Escríbelo: la matriz no lo " +
+                           "pone por ti. 0 = sin fecha límite.", null, null);
+
+        if (b.HorasLimite is { } plazo && (plazo < 0 || plazo > MaxHorasDePlazo))
+            return (false, $"El plazo tiene que estar entre 0 y {MaxHorasDePlazo:0} horas. " +
+                           "0 = sin fecha límite.", null, null);
+
+        // ── ESFUERZO ─────────────────────────────────────────────────────────────
+        //
+        // En una TAREA o un REQUERIMIENTO lo estima el líder aquí, y es obligatorio: si fuera
+        // opcional, el número del que depende toda la comparación con el cronómetro sería el primero
+        // en saltarse el día que alguien tenga prisa.
+        //
+        // En un BUG se RECHAZA en vez de ignorarse. Si el líder pudiera precargarlo, a quien lo toma
+        // no se le preguntaría nunca y el número dejaría de ser suyo — que es lo único que lo hace
+        // comparable, porque se escribe antes de saber lo que costó.
+        if (b.WorkType == PoolWorkType.Bug)
+        {
+            if (b.HorasEstimadas is not null)
+                return (false, "El esfuerzo de un bug lo estima quien lo toma, en el momento de tomarlo. " +
+                               "Tú pones el plazo.", null, null);
+        }
+        else if (b.HorasEstimadas is not { } esfuerzo || esfuerzo < MinHorasEstimadas || esfuerzo > MaxHorasEstimadas)
+        {
+            return (false, $"Escribe el esfuerzo estimado, entre {MinHorasEstimadas} y {MaxHorasEstimadas:0} " +
+                           "horas. Sin ese número no hay nada que contrastar con el cronómetro.", null, null);
+        }
 
         // El mismo validador que la autocalificación: solo http/https, porque el líder abre el
         // enlace con el navegador al verificar.
@@ -1014,6 +1183,12 @@ public class PoolActivityService(
         catch { /* ver el resumen: es cortesía y va al final, así que no arrastra nada */ }
     }
 
+    /// <summary>
+    /// Devuelve la actividad al pool y la deja como estaba antes de que nadie la tomara. Pasan por
+    /// aquí los dos caminos que sueltan un reclamo: <see cref="DevolverAsync"/> (lo suelta quien la
+    /// tenía) y <see cref="LiberarAsync"/> (se lo quita el líder), y por eso la limpieza se escribe
+    /// una sola vez.
+    /// </summary>
     private void SoltarReclamo(PoolActivity actividad)
     {
         actividad.Status               = PoolActivityStatus.Disponible;
@@ -1023,6 +1198,19 @@ public class PoolActivityService(
         actividad.DeliveredAt          = null;
         actividad.ReviewComment        = null;
         actividad.LinkedDevActivityId  = null;
+
+        // La estimación de un BUG es de quien lo tenía tomado, así que se va con él. Dejarla puesta
+        // haría dos daños: quien lo tome después heredaría el número de otro, y la comprobación de
+        // «un bug no se toma sin estimarlo» quedaría satisfecha por algo que esa persona no escribió.
+        //
+        // En tarea y requerimiento NO se toca: ahí la estimación es del líder y sigue siendo válida
+        // con la actividad de vuelta en el pool. Es la segunda de las dos invariantes que permiten
+        // derivar el autor de HorasEstimadas del tipo (la otra está en EditarAsync).
+        if (actividad.WorkType == PoolWorkType.Bug)
+        {
+            actividad.HorasEstimadas      = null;
+            actividad.HorasEstimadasEnUtc = null;
+        }
     }
 
     private Task<string?> PrimeraEvidenciaAsync(int poolActivityId, CancellationToken ct) =>
@@ -1084,6 +1272,17 @@ public class PoolActivityService(
             ? await db.Developers.AsNoTracking().Where(d => d.Id == id)
                   .Select(d => d.FullName).FirstOrDefaultAsync(ct) ?? "(sin ficha)"
             : "(sin dueño)";
+
+    /// <summary>
+    /// Deja unas horas con dos decimales, que es lo que cabe en la columna <c>decimal(6,2)</c>.
+    ///
+    /// <para>El redondeo se hace AQUÍ, a la vista y con la regla escrita —el medio sube—, y no se le
+    /// deja a la base: si lo hiciera la columna, el mismo 1.005 podría guardarse como 1.00 en un
+    /// motor y como 1.01 en otro, y nadie sabría de dónde salió la diferencia. Además así la persona
+    /// ve al releer exactamente el número que se guardó.</para>
+    /// </summary>
+    private static decimal? Redondear(decimal? horas) =>
+        horas is decimal h ? Math.Round(h, 2, MidpointRounding.AwayFromZero) : null;
 
     private static string? Limpiar(string? texto)
     {

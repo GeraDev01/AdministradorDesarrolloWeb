@@ -58,29 +58,39 @@ public static class PoolSeed
     };
 
     /// <summary>
-    /// Valores de partida de la matriz: (tipo, complejidad, puntos, días para entregar).
+    /// Valores de partida de la matriz: (tipo, complejidad, puntos, HORAS para entregar).
     ///
-    /// La progresión no es lineal a propósito (5-8-12-18): si «muy alta» valiera solo el doble que
-    /// «baja», salir del pool tomando lo fácil sería siempre la mejor estrategia. Los requerimientos
-    /// valen más que las tareas del mismo nivel porque incluyen entender qué se pide y validarlo con
-    /// quien lo pidió, no solo programarlo.
+    /// <para>La progresión de puntos no es lineal a propósito (5-8-12-18): si «muy alta» valiera solo
+    /// el doble que «baja», salir del pool tomando lo fácil sería siempre la mejor estrategia. Los
+    /// requerimientos valen más que las tareas del mismo nivel porque incluyen entender qué se pide y
+    /// validarlo con quien lo pidió, no solo programarlo.</para>
+    ///
+    /// <para><b>Las horas son las de antes multiplicadas por ocho</b> —3/5/8/13/20 días con jornada de
+    /// ocho horas— y ese ocho tiene que ser EL MISMO que usa la conversión de datos del migrador
+    /// (<c>ConvertirPlazosDeDiasAHorasUnaVez</c>). Si los dos números divergieran, una base nueva y
+    /// una migrada arrancarían con matrices distintas y nadie sabría cuál es la buena.</para>
+    ///
+    /// <para>Son horas de RELOJ: al tomar la actividad se suman con <c>AddHours</c> sobre el instante
+    /// de ahora, así que 40 h es pasado mañana y no dentro de cinco días laborales. Es lo coherente
+    /// con medir contra el cronómetro, que también cuenta horas; contar solo jornadas hábiles exigiría
+    /// un calendario laboral con festivos, que es una funcionalidad nueva y no una conversión.</para>
     /// </summary>
-    public static readonly (PoolWorkType Tipo, PoolComplexity Complejidad, int Puntos, int Dias)[] Matriz =
+    public static readonly (PoolWorkType Tipo, PoolComplexity Complejidad, int Puntos, decimal Horas)[] Matriz =
     [
-        (PoolWorkType.Bug,           PoolComplexity.Baja,    5,  3),
-        (PoolWorkType.Bug,           PoolComplexity.Media,   8,  5),
-        (PoolWorkType.Bug,           PoolComplexity.Alta,   12,  8),
-        (PoolWorkType.Bug,           PoolComplexity.MuyAlta, 18, 13),
+        (PoolWorkType.Bug,           PoolComplexity.Baja,    5,  24m),
+        (PoolWorkType.Bug,           PoolComplexity.Media,   8,  40m),
+        (PoolWorkType.Bug,           PoolComplexity.Alta,   12,  64m),
+        (PoolWorkType.Bug,           PoolComplexity.MuyAlta, 18, 104m),
 
-        (PoolWorkType.Tarea,         PoolComplexity.Baja,    3,  3),
-        (PoolWorkType.Tarea,         PoolComplexity.Media,   6,  5),
-        (PoolWorkType.Tarea,         PoolComplexity.Alta,   10,  8),
-        (PoolWorkType.Tarea,         PoolComplexity.MuyAlta, 15, 13),
+        (PoolWorkType.Tarea,         PoolComplexity.Baja,    3,  24m),
+        (PoolWorkType.Tarea,         PoolComplexity.Media,   6,  40m),
+        (PoolWorkType.Tarea,         PoolComplexity.Alta,   10,  64m),
+        (PoolWorkType.Tarea,         PoolComplexity.MuyAlta, 15, 104m),
 
-        (PoolWorkType.Requerimiento, PoolComplexity.Baja,    8,  5),
-        (PoolWorkType.Requerimiento, PoolComplexity.Media,  12,  8),
-        (PoolWorkType.Requerimiento, PoolComplexity.Alta,   18, 13),
-        (PoolWorkType.Requerimiento, PoolComplexity.MuyAlta, 25, 20),
+        (PoolWorkType.Requerimiento, PoolComplexity.Baja,    8,  40m),
+        (PoolWorkType.Requerimiento, PoolComplexity.Media,  12,  64m),
+        (PoolWorkType.Requerimiento, PoolComplexity.Alta,   18, 104m),
+        (PoolWorkType.Requerimiento, PoolComplexity.MuyAlta, 25, 160m),
     ];
 
     /// <summary>
@@ -158,12 +168,15 @@ public static class PoolSeed
             .ToHashSet();
 
         int agregadas = 0;
-        foreach (var (tipo, complejidad, puntos, dias) in Matriz)
+        foreach (var (tipo, complejidad, puntos, horas) in Matriz)
         {
             if (existentes.Contains((tipo, complejidad))) continue;
+            // Solo HorasLimite. DiasLimite se queda en su 0 por omisión a propósito: la web ya no lo
+            // escribe, y una celda nueva solo aparece en una base recién creada —donde el escritorio
+            // no está mirando—, porque las doce combinaciones ya existen en cualquier base con datos.
             db.PoolPointsMatrix.Add(new PoolPointsMatrixEntry
             {
-                WorkType = tipo, Complexity = complejidad, Points = puntos, DiasLimite = dias
+                WorkType = tipo, Complexity = complejidad, Points = puntos, HorasLimite = horas
             });
             agregadas++;
         }

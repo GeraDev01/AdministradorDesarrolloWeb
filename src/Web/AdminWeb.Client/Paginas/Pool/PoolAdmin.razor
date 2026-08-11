@@ -22,6 +22,18 @@
       · La pestaña de configuración es la que define el sistema entero y avisa de su alcance: cambiar
         la matriz NO revalúa lo ya publicado.
 
+    Y la regla que ordena toda la captura: TODO VA EN HORAS, y el PLAZO y el ESFUERZO son dos cosas
+    distintas que nunca comparten sitio.
+
+      · PLAZO es cuándo hay que entregarlo; ESFUERZO es cuánto trabajo cuesta. En un Bug el plazo lo
+        pone el líder y el esfuerzo lo estima quien lo toma; en una Tarea o un Requerimiento el plazo
+        sale de la matriz y el esfuerzo lo estima el líder. Por eso el formulario tiene UN campo que
+        cambia de rótulo con el tipo, y la rejilla DOS columnas separadas: juntarlas en una sola
+        llamada «Tiempo» borraría la distinción entera y también de quién es cada número.
+      · En horas y no en días porque estos números existen para contrastarse con los CRONÓMETROS, que
+        miden horas. Si vuelve a aparecer un «día» en un rótulo de esta pantalla, esa comparación se
+        rompe sin que falle nada.
+
     Lo que cambia respecto al escritorio: el alta y la edición se hacen en un panel dentro de la
     misma pantalla en vez de en una ventana modal aparte. Es el mismo formulario y las mismas reglas
     —el servidor sigue siendo quien valida y quien pone los puntos—, pero en el navegador una ventana
@@ -77,7 +89,12 @@
                                     <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap"
                                                  AlignItems="AlignItems.Center">
                                         <RadzenLabel Text="Tipo:" Component="tipoNuevo" />
-                                        <RadzenDropDown TValue="PoolWorkType?" @bind-Value="_tipoCapturado" Name="tipoNuevo"
+                                        @* Enlazado a la PROPIEDAD y no al campo, y eso es carga útil: el campo de
+                                           horas de abajo significa una cosa u otra según este desplegable, y el
+                                           set de TipoCapturado es quien lo vacía al cruzar la frontera bug /
+                                           no-bug. Volver a enlazarlo a _tipoCapturado se compila igual y deja
+                                           pasar plazos publicados como esfuerzos. *@
+                                        <RadzenDropDown TValue="PoolWorkType?" @bind-Value="TipoCapturado" Name="tipoNuevo"
                                                         Data="@cfg.Tipos" TextProperty="Texto" ValueProperty="Valor"
                                                         Style="min-width:12rem" />
 
@@ -93,16 +110,80 @@
                                         <RadzenDropDown TValue="PoolPriority" @bind-Value="_prioridad" Name="prioridadNueva"
                                                         Data="@Prioridades" TextProperty="Texto" ValueProperty="Valor"
                                                         Style="min-width:10rem" />
+                                    </RadzenStack>
 
-                                        <RadzenLabel Text="Días para entregar:" Component="diasNuevos" />
-                                        <RadzenNumeric TValue="int?" @bind-Value="_dias" Name="diasNuevos"
-                                                       Min="0" Max="365" Placeholder="Matriz"
-                                                       Style="width:7rem" />
-                                        @* Los días SÍ se ajustan; los puntos no. La asimetría es la regla: aflojar
-                                           el plazo no vale puntos, así que no sirve para regalarlos. *@
+                                    @*
+                                        UN SOLO campo de horas, y lo que pide cambia con el tipo:
+
+                                          · Bug            → el PLAZO. Lo pone el líder y es obligatorio; el
+                                                             esfuerzo lo estimará quien lo tome, al tomarlo.
+                                          · Tarea / Requerimiento → el ESFUERZO. Lo pone el líder y es obligatorio;
+                                                             el plazo lo pone la matriz.
+
+                                        Es un campo y no dos con uno apagado a propósito: dos casillas siempre a la
+                                        vista, con una inútil según el tipo, invitan a llenar la que no toca, y
+                                        entonces el servidor rechaza la publicación con un mensaje que suena a
+                                        capricho. Con uno solo no hay forma de equivocarse de casilla.
+
+                                        Y el rótulo NOMBRA cuál de las dos cosas es, en vez de decir «Horas» a
+                                        secas: plazo y esfuerzo son cantidades distintas —cuándo vence contra
+                                        cuánto trabajo cuesta— que el usuario separó a propósito, y un rótulo
+                                        neutro las volvería a mezclar justo en el sitio donde se capturan.
+                                    *@
+                                    <RadzenStack Gap="0.25rem">
+                                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem"
+                                                     Wrap="FlexWrap.Wrap" AlignItems="AlignItems.Center">
+                                            @* «schedule» es el reloj de pared —el plazo, cuándo vence— y «timer»
+                                               el cronómetro —el esfuerzo, contra el que se contrastan las
+                                               sesiones de trabajo—. El mismo par se repite en las cabeceras de
+                                               las rejillas, para que las dos cantidades se reconozcan por el
+                                               dibujo sin tener que leer el rótulo entero. *@
+                                            <RadzenIcon Icon="@(EsBug ? "schedule" : "timer")" />
+                                            <RadzenLabel Text="@RotuloDeLasHoras()" Component="horasNuevas" />
+                                            <RadzenNumeric TValue="decimal?" @bind-Value="_horas" Name="horasNuevas"
+                                                           Min="@(EsBug ? 0m : HorasDelPool.MinEsfuerzo)"
+                                                           Max="@(EsBug ? HorasDelPool.MaxPlazo : HorasDelPool.MaxEsfuerzo)"
+                                                           Step="@HorasDelPool.Salto" Placeholder="horas"
+                                                           Style="width:8rem" />
+                                        </RadzenStack>
+
                                         <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
-                                            @TextoDeLosDias()
+                                            @AyudaDeLasHoras()
                                         </RadzenText>
+
+                                        @if (!EsBug && _plazoPropio is decimal heredado)
+                                        {
+                                            @*
+                                                Una tarea o un requerimiento no captura plazo: lo pone la matriz.
+                                                Pero puede TRAER uno propio de antes —lo tenía en días y la
+                                                migración lo pasó a horas, o lo puso el escritorio—, y eso hay que
+                                                enseñarlo y conservarlo.
+
+                                                Sin esto, guardar mandaría el plazo en blanco y borraría en
+                                                silencio una decisión que alguien tomó: la actividad pasaría a
+                                                regirse por la matriz sin que nadie lo pidiera ni se enterara. Y
+                                                sin el botón, ese plazo heredado no habría forma de quitarlo desde
+                                                aquí nunca más.
+
+                                                No es «el segundo campo» que se acaba de descartar: solo aparece
+                                                cuando el plazo propio EXISTE, no se teclea, y su único gesto es
+                                                renunciar a él.
+                                            *@
+                                            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem"
+                                                         Wrap="FlexWrap.Wrap" AlignItems="AlignItems.Center">
+                                                <RadzenIcon Icon="schedule" />
+                                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                                    @TextoDelPlazoHeredado(heredado)
+                                                </RadzenText>
+                                                @* «clear» y no «undo»: la fuente va RECORTADA y «undo» no está
+                                                   en fuentes/iconos.txt, así que pintaría la palabra dentro del
+                                                   botón. «clear» es además el glifo con el que esta aplicación
+                                                   ya quita lo que estaba puesto. *@
+                                                <RadzenButton Text="Usar el de la matriz" Icon="clear"
+                                                              ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                                              Disabled="@_ocupado" Click="@(() => _plazoPropio = null)" />
+                                            </RadzenStack>
+                                        }
                                     </RadzenStack>
 
                                     @* El valor no se teclea: sale de la matriz y se ve antes de guardar. *@
@@ -228,11 +309,54 @@
                                                       Title="Quién la tiene" Width="180px">
                                     <Template Context="a">@(a.QuienLaTiene ?? "—")</Template>
                                 </RadzenDataGridColumn>
+                                @*
+                                    PLAZO y ESFUERZO en DOS columnas, nunca en una sola llamada «Tiempo».
+
+                                    Son las dos cantidades que este modelo existe para separar —cuándo hay que
+                                    entregarlo contra cuánto trabajo cuesta— y quien las junte en una celda
+                                    devuelve el pool a donde estaba: un número de horas sin decir de qué. Además
+                                    cada una la escribe alguien distinto según el tipo, así que mezclarlas
+                                    borraría también de quién es cada número.
+                                *@
+                                <RadzenDataGridColumn TItem="ActividadDelPoolDto" Title="Plazo"
+                                                      Width="130px" TextAlign="TextAlign.Right"
+                                                      Sortable="false">
+                                    @* Sin Property y sin ordenar a propósito: lo que se pinta NO es
+                                       a.Horas sino el plazo ya resuelto contra la matriz, y ordenar
+                                       por una columna que enseña otro número es una trampa. Para saber
+                                       qué vence antes está «Entrega esperada», que sí ordena por el
+                                       instante de verdad. *@
+                                    <Template Context="a">
+                                        <span title="Plazo: cuánto tiempo hay para entregarla desde que alguien la toma.">
+                                            @HorasDelPool.Plazo(PlazoEfectivo(a))@if (a.Horas is null)
+                                            {
+                                                @* Se dice de dónde sale cuando NO es propio: si no,
+                                                   el líder no puede saber si tocar la matriz cambia
+                                                   esta fila o no la toca. *@
+                                                <span style="opacity:.7"> (matriz)</span>
+                                            }
+                                        </span>
+                                    </Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="ActividadDelPoolDto" Property="HorasEstimadas"
+                                                      Title="Esfuerzo" Width="120px" TextAlign="TextAlign.Right">
+                                    <Template Context="a">
+                                        @* El guion no es «cero horas»: en un bug que nadie ha tomado
+                                           todavía es «aún no hay estimación», porque la escribe quien
+                                           lo tome. El título del hover lo dice, que es donde cabe. *@
+                                        <span title="@TituloDelEsfuerzo(a)">@HorasDelPool.Esfuerzo(a.HorasEstimadas)</span>
+                                    </Template>
+                                </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="ActividadDelPoolDto" Property="LimiteUtc"
-                                                      Title="Entrega esperada" Width="150px">
+                                                      Title="Entrega esperada" Width="160px">
+                                    @* CON LA HORA, no solo el día. Cuando esto iba en días bastaba la
+                                       fecha; con plazos de cuatro u ocho horas, «hoy» no dice si vence
+                                       a las once de la mañana o a las siete de la tarde, y quien lo
+                                       lea creerá que le queda el día entero. Es el mismo criterio con
+                                       el que el servicio redacta el mensaje al tomar la actividad. *@
                                     <Template Context="a">
                                         <span style="@(a.Vencida ? "color:var(--rz-warning)" : "")">
-                                            @(a.LimiteUtc?.ToLocalTime().ToString("dd/MM/yyyy") ?? "—")
+                                            @HorasDelPool.Limite(a.LimiteUtc)
                                         </span>
                                     </Template>
                                 </RadzenDataGridColumn>
@@ -491,9 +615,33 @@
                                 <RadzenButton Text="Guardar matriz" Icon="save" Disabled="@_ocupado" Click="@GuardarMatriz" />
                             </RadzenStack>
                             <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
-                                Edita los puntos y los días, luego «Guardar matriz». Cambiarlo NO revalúa lo ya
-                                publicado: cada actividad conserva el valor con el que salió.
+                                Edita los puntos y las horas, luego «Guardar matriz». Cambiarlo NO revalúa lo ya
+                                publicado: cada actividad conserva el valor con el que salió, y los plazos ya
+                                concedidos tampoco se recalculan.
                             </RadzenText>
+
+                            @*
+                                Este aviso es obligatorio y no adorno. La conversión a horas multiplicó cada
+                                celda por ocho —una jornada—, así que las celdas siguen diciendo lo mismo en
+                                jornadas de TRABAJO pero el plazo se mide contra el RELOJ DE PARED, que incluye
+                                noches y fines de semana. El efecto es que todo plazo que se hubiera pensado en
+                                días naturales quedó apretado a un tercio, y si nadie lo dice aquí, eso pasa sin
+                                que nadie lo haya decidido y se descubre cuando la gente empiece a vencer.
+
+                                Va como RadzenAlert y no como una línea más de texto pequeño porque hay que
+                                leerlo una vez, y una vez leído y repasada la matriz deja de aplicar.
+                            *@
+                            <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false">
+                                <b>Son horas de RELOJ, no jornadas.</b> Se suman sobre el momento en que alguien
+                                toma la actividad, con noches y fines de semana dentro: 64 h no vencen dentro de
+                                ocho jornadas, vencen dentro de dos días y dieciséis horas. Es lo que hace que el
+                                plazo y el cronómetro hablen del mismo número.
+                                <br />
+                                Al pasar el pool a horas, cada celda se convirtió multiplicando por ocho los días
+                                que tenía: donde decía «8 días» ahora dice «64 h». <b>Repasa las celdas.</b> Esa
+                                cuenta traduce jornadas de trabajo, así que si aquí querías cinco días de
+                                calendario, escribe 120, no 40.
+                            </RadzenAlert>
 
                             <RadzenDataGrid TItem="CeldaDeMatrizDto" Data="@cfg.Matriz" IsLoading="@_ocupado"
                                             AllowSorting="false" EmptyText="No hay matriz configurada.">
@@ -506,10 +654,25 @@
                                             <RadzenNumeric TValue="int" @bind-Value="c.Puntos" Min="1" Style="width:7rem" />
                                         </Template>
                                     </RadzenDataGridColumn>
-                                    <RadzenDataGridColumn TItem="CeldaDeMatrizDto" Property="DiasLimite"
-                                                          Title="Días para entregar">
+                                    <RadzenDataGridColumn TItem="CeldaDeMatrizDto" Property="HorasLimite"
+                                                          Title="Horas para entregar">
                                         <Template Context="c">
-                                            <RadzenNumeric TValue="int" @bind-Value="c.DiasLimite" Min="0" Style="width:7rem" />
+                                            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem"
+                                                         AlignItems="AlignItems.Center" Wrap="FlexWrap.Wrap">
+                                                @* Max acotado al mismo techo que el servidor (2 920 h = los 365
+                                                   días de antes por ocho): sin él se puede teclear un plazo que
+                                                   la publicación va a rebotar después. El paso va en cuartos de
+                                                   hora, la granularidad de todo el pool. *@
+                                                <RadzenNumeric TValue="decimal" @bind-Value="c.HorasLimite"
+                                                               Min="0" Max="@HorasDelPool.MaxPlazo"
+                                                               Step="@HorasDelPool.Salto" Style="width:7rem" />
+                                                @* El cero está cargado de significado y hay que decirlo en la
+                                                   propia celda: no es «entrégalo ya», es «sin fecha límite». *@
+                                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                                                            Style="opacity:.7">
+                                                    @TextoDeLaCelda(c)
+                                                </RadzenText>
+                                            </RadzenStack>
                                         </Template>
                                     </RadzenDataGridColumn>
                                 </Columns>
@@ -593,11 +756,86 @@
     private string _titulo = "";
     private string _detalle = "";
     private string _enlace = "";
-    private PoolWorkType? _tipoCapturado = PoolWorkType.Bug;
     private PoolComplexity? _complejidadCapturada = PoolComplexity.Media;
     private PoolPriority _prioridad = PoolPriority.Media;
-    /// <summary>Nulo = usar los días de la matriz. Es el único número de la matriz que se ajusta.</summary>
-    private int? _dias;
+
+    /// <summary>
+    /// El tipo que se está capturando. Respaldo de <see cref="TipoCapturado"/>: se le asigna DIRECTO
+    /// al cargar el formulario, que es cuando no hay que limpiar nada porque no se está cambiando
+    /// nada, solo trayendo lo que ya estaba publicado.
+    /// </summary>
+    private PoolWorkType? _tipoCapturado = PoolWorkType.Bug;
+
+    /// <summary>
+    /// El tipo, para el desplegable. Es una propiedad y no el campo porque cambiarlo tiene una
+    /// consecuencia que no se puede olvidar en ningún sitio: el campo de horas pasa a pedir otra cosa
+    /// y hay que vaciarlo.
+    ///
+    /// <para>Está aquí, en el <c>set</c>, y no colgado del evento <c>Change</c> del desplegable, para
+    /// no depender de si Radzen avisa antes o después de escribir el valor. Si avisara antes, el
+    /// vaciado leería el tipo VIEJO, decidiría que no se cruzó ninguna frontera y dejaría el número
+    /// puesto — y entonces un plazo de 40 h se publicaría como un esfuerzo de 40 h sin que nadie lo
+    /// escribiera y sin que nada fallase, porque el número tiene la misma pinta y el servidor lo
+    /// acepta. Con la limpieza dentro del <c>set</c>, el orden deja de importar: quien cambie el
+    /// tipo, lo cambie desde donde lo cambie, limpia.</para>
+    /// </summary>
+    private PoolWorkType? TipoCapturado
+    {
+        get => _tipoCapturado;
+        set
+        {
+            if (value == _tipoCapturado) return;
+
+            // La frontera que importa es bug / no-bug, y es la MISMA que hace al servicio borrar la
+            // estimación en EditarAsync: a un lado del número lo pone el líder y al otro quien tome
+            // la actividad, y además una vez es un PLAZO y la otra un ESFUERZO.
+            //
+            // Tarea ↔ Requerimiento NO la cruza y no se limpia nada: en los dos el número es el
+            // esfuerzo y lo pone el líder, así que borrarlo le haría recapturar algo que sigue
+            // siendo suyo.
+            bool eraBug = (_tipoCapturado ?? PoolWorkType.Bug) == PoolWorkType.Bug;
+            bool seraBug = (value ?? PoolWorkType.Bug) == PoolWorkType.Bug;
+
+            _tipoCapturado = value;
+            if (eraBug == seraBug) return;
+
+            _horas = null;
+
+            // En un bug el plazo ES el campo de horas: conservar además el plazo propio que la
+            // actividad traía de su vida anterior dejaría dos plazos a la vez, y ganaría el que no
+            // se ve.
+            _plazoPropio = null;
+        }
+    }
+
+    /// <summary>
+    /// El ÚNICO número de horas que se captura, y lo que significa depende de
+    /// <see cref="_tipoCapturado"/>: en un <b>Bug</b> es el PLAZO —lo pone el líder, la matriz no lo
+    /// pone por él— y en una <b>Tarea</b> o un <b>Requerimiento</b> es el ESFUERZO estimado —el plazo
+    /// lo pone la matriz—.
+    ///
+    /// <para>Un campo y no dos porque dos casillas, con una siempre inútil según el tipo, invitan a
+    /// llenar la que no toca; el servidor rechaza esa combinación y el rechazo suena a capricho. Por
+    /// lo mismo, al cruzar la frontera bug / no-bug hay que VACIARLO: el número cambia de significado
+    /// y arrastrarlo convertiría un plazo de 40 h en un esfuerzo de 40 h sin que nadie lo escribiera.
+    /// Eso lo hace <see cref="CambiarDeTipo"/>.</para>
+    /// </summary>
+    private decimal? _horas;
+
+    /// <summary>
+    /// El plazo PROPIO de una tarea o un requerimiento que ya lo traía —de cuando esto iba en días, o
+    /// puesto por el escritorio—. No se captura desde aquí: en tarea y requerimiento el plazo es el
+    /// de la matriz, que es lo que decidió el usuario.
+    ///
+    /// <para>Existe para no BORRARLO sin querer. El servicio escribe el plazo con lo que llegue en la
+    /// petición, así que mandarlo en blanco al editar tiraría en silencio una decisión que alguien
+    /// tomó y la actividad pasaría a regirse por la matriz sin que nadie lo hubiera pedido. Se lee al
+    /// abrir el formulario, se enseña, y se devuelve tal cual salvo que el líder renuncie a él.</para>
+    /// </summary>
+    private decimal? _plazoPropio;
+
+    /// <summary>Si lo que se está capturando es un bug, que es lo que decide qué pide el campo de horas.</summary>
+    private bool EsBug => (_tipoCapturado ?? PoolWorkType.Bug) == PoolWorkType.Bug;
 
     /// <summary>El catálogo de criterios que se pueden pedir como extra. Se carga una vez.</summary>
     private List<CriterioDisponibleDto> _criteriosDisponibles = [];
@@ -723,7 +961,8 @@
         _tipoCapturado = PoolWorkType.Bug;
         _complejidadCapturada = PoolComplexity.Media;
         _prioridad = PoolPriority.Media;
-        _dias = null;
+        _horas = null;
+        _plazoPropio = null;
         _criteriosElegidos.Clear();
         _capturando = true;
     }
@@ -734,10 +973,32 @@
         _titulo = actividad.Titulo;
         _detalle = actividad.Detalle ?? "";
         _enlace = actividad.Enlace ?? "";
+        // Al CAMPO y no a la propiedad, a propósito: aquí no se está cambiando el tipo de nada, se
+        // está trayendo el que la actividad ya tiene publicado. El set de TipoCapturado vaciaría el
+        // campo de horas justo antes de rellenarlo, y aunque hoy el orden lo salvaría, bastaría con
+        // mover dos líneas para que el formulario abriera en blanco sin que nada fallara.
         _tipoCapturado = actividad.Tipo;
         _complejidadCapturada = actividad.Complejidad;
         _prioridad = actividad.Prioridad;
-        _dias = actividad.Dias;
+
+        // El campo de horas se rellena con lo que ese tipo captura, que no es lo mismo en los dos
+        // casos: en un bug, el PLAZO que puso el líder; en lo demás, el ESFUERZO que estimó. Poner
+        // siempre el mismo dato dejaría el formulario cargado con el número equivocado y guardar lo
+        // publicaría como si fuera el otro.
+        if (actividad.Tipo == PoolWorkType.Bug)
+        {
+            _horas = actividad.Horas;
+            _plazoPropio = null;
+        }
+        else
+        {
+            _horas = actividad.HorasEstimadas;
+
+            // El plazo propio de una tarea o un requerimiento no se captura, pero si lo trae hay que
+            // devolverlo intacto: al guardar, el servicio escribe el plazo con lo que llegue, y
+            // mandarlo en blanco lo borraría en silencio.
+            _plazoPropio = actividad.Horas;
+        }
 
         // Los criterios ya elegidos se traen de la actividad y no del formulario anterior: editar
         // tiene que partir de lo que está publicado, no de lo que se capturó la última vez.
@@ -766,41 +1027,104 @@
 
     private int MaximoAlcanzable() => ValorDeLaMatriz() + PuntosExtraElegidos();
 
-    /// <summary>
-    /// Qué significa el campo de días tal como está. En blanco NO es «sin plazo» —eso es un 0— sino
-    /// «los que diga la matriz», y confundirlos publicaría actividades sin fecha límite sin querer.
-    /// </summary>
-    private string TextoDeLosDias()
-    {
-        if (_dias is null)
-            return CeldaElegida() is { } celda
-                ? celda.DiasLimite > 0
-                    ? $"En blanco: se usan los {celda.DiasLimite} de la matriz."
-                    : "En blanco: la matriz no fija plazo para esta combinación."
-                : "En blanco: se usan los de la matriz.";
+    /// <summary>Cómo se llama el campo de horas con el tipo que está elegido ahora mismo.</summary>
+    private string RotuloDeLasHoras() =>
+        EsBug ? "Plazo para entregar (horas):" : "Esfuerzo estimado (horas):";
 
-        return _dias == 0 ? "0 = sin fecha límite." : $"{_dias} días desde que alguien la tome.";
+    /// <summary>
+    /// El plazo propio que una tarea o un requerimiento arrastra de antes. El CERO se redacta aparte
+    /// porque no es un número, es una decisión —«sin fecha límite»— y encajarlo en la misma frase
+    /// daría «un plazo propio de sin límite», que además de mal escrito se lee como si faltara el
+    /// dato en vez de como lo que es: alguien decidió que esta actividad no venciera.
+    /// </summary>
+    private static string TextoDelPlazoHeredado(decimal horas) =>
+        horas <= 0
+            ? "Esta actividad viene marcada SIN FECHA LÍMITE por decisión propia, y eso manda sobre " +
+              "la matriz. Se conserva tal cual."
+            : $"Esta actividad trae un plazo propio de {HorasDelPool.Escribir(horas)}, y manda sobre " +
+              "la matriz. Se conserva tal cual.";
+
+    /// <summary>
+    /// Qué está pidiendo el campo de horas y qué va a pasar con lo que se escriba. Cambia con el tipo
+    /// porque la cantidad que pide también cambia, y explicar el plazo mientras se captura un
+    /// esfuerzo sería peor que no explicar nada.
+    /// </summary>
+    private string AyudaDeLasHoras()
+    {
+        if (EsBug)
+        {
+            // El esfuerzo se nombra aunque no se capture aquí: si no, el líder busca dónde estimarlo
+            // y no lo encuentra. Que no esté es la regla, no un olvido.
+            const string dequien =
+                " El esfuerzo de un bug no se captura aquí: lo estima quien lo tome, en el momento de tomarlo.";
+
+            if (_horas is not decimal plazo)
+                return "Obligatorio: en un bug el plazo lo pones tú y la matriz no lo pone por ti. " +
+                       "0 = sin fecha límite." + dequien;
+
+            if (plazo <= 0)
+                return "0 = sin fecha límite: nadie va a vencer esta actividad." + dequien;
+
+            // La fecha de vencimiento se calcula y se enseña porque el plazo son horas de RELOJ:
+            // 64 h no son ocho jornadas, son dos días y dieciséis horas. Sin esta línea, el líder
+            // teclea pensando en jornadas y promete un tercio de lo que cree.
+            return $"{HorasDelPool.Escribir(plazo)} desde que alguien la tome; si la tomaran ahora " +
+                   $"caería el {HorasDelPool.CaeriaEl(plazo)}. Son horas de reloj: cuentan noches y " +
+                   "fines de semana." + dequien;
+        }
+
+        // En tarea y requerimiento el plazo NO se captura: sale de la matriz. Se dice cuál es, para
+        // que quien estima el esfuerzo sepa contra qué plazo se va a entregar.
+        var plazoDeLaMatriz = CeldaElegida() is { } celda
+            ? $" El plazo lo pone la matriz: {HorasDelPool.Plazo(celda.HorasLimite)}."
+            : " El plazo lo pone la matriz, que todavía no tiene esta combinación.";
+
+        if (_horas is null)
+            return "Obligatorio: cuántas horas de trabajo crees que cuesta. Es el número contra el " +
+                   "que se contrastará el cronómetro." + plazoDeLaMatriz;
+
+        return "Cuánto trabajo cuesta, no cuándo vence: es el número contra el que se contrastará el " +
+               "cronómetro de quien la tome." + plazoDeLaMatriz;
     }
 
     private async Task GuardarActividad()
     {
-        // Solo lo evidente se comprueba aquí; el resto —el enlace, la celda de la matriz, los puntos—
-        // lo valida el servicio, que es donde la regla tiene que vivir.
+        // Solo lo evidente se comprueba aquí; el resto —el enlace, la celda de la matriz, los puntos,
+        // los rangos— lo valida el servicio, que es donde la regla tiene que vivir, y su mensaje se
+        // enseña tal cual.
         if (string.IsNullOrWhiteSpace(_titulo))
         {
             Avisos.Aviso("Escribe qué hay que hacer: es lo que va a leer quien la tome.");
             return;
         }
 
+        // El campo vacío sí se ataja aquí, y solo ése: es lo único que se sabe sin conocer la matriz,
+        // y hacer un viaje al servidor para que conteste «te falta un número» es un viaje de más. El
+        // texto dice CUÁL de las dos cantidades falta, porque el campo es uno y el rótulo cambia.
+        if (_horas is null)
+        {
+            Avisos.Aviso(EsBug
+                ? "Escribe el plazo en horas: en un bug lo pones tú y la matriz no lo pone por ti. " +
+                  "0 = sin fecha límite."
+                : "Escribe el esfuerzo estimado en horas. Sin ese número no hay nada que contrastar " +
+                  "con el cronómetro.");
+            return;
+        }
+
+        // Aquí se reparte el único número capturado entre las dos propiedades del contrato, que son
+        // cosas distintas y el servidor las valida por separado: en un bug manda el PLAZO y rechaza
+        // que venga esfuerzo; en lo demás manda el ESFUERZO y el plazo viaja solo si la actividad ya
+        // traía uno propio (ver _plazoPropio).
         var cuerpo = new PublicarActividadRequest(
-            _titulo,
-            _detalle,
-            _tipoCapturado ?? PoolWorkType.Bug,
-            _complejidadCapturada ?? PoolComplexity.Media,
-            _enlace,
-            _prioridad,
-            _dias,
-            [.. _criteriosElegidos]);
+            Titulo: _titulo,
+            Detalle: _detalle,
+            Tipo: _tipoCapturado ?? PoolWorkType.Bug,
+            Complejidad: _complejidadCapturada ?? PoolComplexity.Media,
+            Enlace: _enlace,
+            Prioridad: _prioridad,
+            Horas: EsBug ? _horas : _plazoPropio,
+            HorasEstimadas: EsBug ? null : _horas,
+            CriteriosExtra: [.. _criteriosElegidos]);
 
         var ruta = _editandoId is int id ? $"api/pool/{id}/editar" : "api/pool/publicar";
         if (await Enviar(ruta, cuerpo)) _capturando = false;
@@ -919,22 +1243,71 @@
 
     /// <summary>
     /// Lo que va a valer la actividad que se está capturando, leído de la matriz. Es la misma
-    /// etiqueta en vivo del escritorio: enseña el valor y el plazo antes de guardar.
+    /// etiqueta en vivo del escritorio: enseña el valor antes de guardar.
+    ///
+    /// <para>Ya NO enseña el plazo, y eso es deliberado. La matriz solo manda en el plazo de las
+    /// tareas y los requerimientos; en un bug lo pone el líder en el campo de arriba. Escribir aquí
+    /// «la matriz da 64 h» mientras se captura un bug anunciaría un plazo que no se va a aplicar. El
+    /// plazo que corresponda lo dice <see cref="AyudaDeLasHoras"/>, que sí sabe de qué tipo se trata.</para>
     /// </summary>
-    private string ValorSegunLaMatriz()
-    {
-        if (CeldaElegida() is not { } celda)
+    private string ValorSegunLaMatriz() =>
+        CeldaElegida() is { } celda
+            ? $"Vale {celda.Puntos} puntos"
             // Sin triángulo: esto es una cadena que se pinta como texto plano y no hay dónde colgar un
             // componente. La frase ya dice el problema Y qué hacer, que es lo que hace falta; si
             // además tiene que verse como aviso, eso lo decide el color de quien la pinta, no un
             // carácter metido dentro del texto y dibujado por la fuente del sistema.
-            return "Esa combinación no tiene puntos configurados. Captúrala en la pestaña de configuración.";
+            : "Esa combinación no tiene puntos configurados. Captúrala en la pestaña de configuración.";
 
-        var plazo = celda.DiasLimite > 0
-            ? $"  ·  {celda.DiasLimite} días para entregarla"
-            : "  ·  sin fecha límite";
-        return $"Vale {celda.Puntos} puntos{plazo}";
+    /// <summary>
+    /// La coletilla de cada celda de la matriz. El 0 no puede quedarse como un número más: significa
+    /// «sin fecha límite» y leído como cero se entiende justo lo contrario, «entrégalo ya».
+    ///
+    /// <para>En los BUGS estas horas casi nunca se aplican, y hay que decirlo donde se editan: desde
+    /// que el plazo del bug lo pone el líder al publicarlo, la celda solo alcanza a los bugs
+    /// anteriores, que se quedaron sin plazo propio. Sin este aviso, el líder ajusta la fila «Bug /
+    /// Alta» esperando cambiar algo y no cambia nada.</para>
+    /// </summary>
+    private static string TextoDeLaCelda(CeldaDeMatrizDto celda)
+    {
+        var plazo = celda.HorasLimite <= 0
+            ? "sin fecha límite"
+            : $"caería el {HorasDelPool.CaeriaEl(celda.HorasLimite)}";
+
+        return celda.Tipo == PoolWorkType.Bug
+            ? $"{plazo}  ·  solo alcanza a los bugs publicados sin plazo propio"
+            : plazo;
     }
+
+    /// <summary>
+    /// El plazo que de verdad se le va a conceder a esta actividad: el suyo si lo tiene, y si no el
+    /// de su celda de la matriz. Es la misma precedencia que aplica <c>TomarAsync</c> al calcular la
+    /// fecha de entrega.
+    ///
+    /// <para>Se resuelve aquí y no en el servidor porque esta pantalla ya tiene la matriz cargada
+    /// —la necesita para enseñar los puntos en vivo—, así que resolverlo cuesta cero viajes. La
+    /// pantalla del desarrollador NO la tiene, y por eso allá el plazo efectivo viaja ya resuelto en
+    /// el DTO.</para>
+    /// </summary>
+    private decimal PlazoEfectivo(ActividadDelPoolDto a) =>
+        a.Horas
+        ?? _configuracion?.Matriz
+               .FirstOrDefault(m => m.Tipo == a.Tipo && m.Complejidad == a.Complejidad)?.HorasLimite
+        ?? 0m;
+
+    /// <summary>
+    /// Por qué una actividad puede no tener esfuerzo estimado, para el hover de la columna. Sin esto,
+    /// el guion de un bug libre se lee como «alguien se saltó la estimación» cuando es lo normal: en
+    /// un bug la escribe quien lo toma, y todavía no lo ha tomado nadie.
+    /// </summary>
+    private static string TituloDelEsfuerzo(ActividadDelPoolDto a) =>
+        a.HorasEstimadas is decimal h
+            ? a.Tipo == PoolWorkType.Bug
+                ? $"Esfuerzo: {HorasDelPool.Escribir(h)}, estimadas por quien lo tomó al tomarlo."
+                : $"Esfuerzo: {HorasDelPool.Escribir(h)}, estimadas por el líder al publicarla."
+            : a.Tipo == PoolWorkType.Bug
+                ? "Todavía sin estimar: en un bug lo estima quien lo toma, en el momento de tomarlo."
+                : "Sin estimar.";
 
     private string EstiloDelValor() =>
         CeldaElegida() is { Puntos: > 0 } ? "color:var(--rz-success)" : "color:var(--rz-warning)";

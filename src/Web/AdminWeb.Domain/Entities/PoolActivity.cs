@@ -48,19 +48,79 @@ public class PoolActivity
     public PoolPriority Priority { get; set; } = PoolPriority.Media;
 
     /// <summary>
-    /// Días concedidos para entregarla, decididos al publicarla. Nulo = usar los de la matriz.
+    /// <b>OBSOLETA PARA LA WEB. NO LA LEAS NI LA ESCRIBAS DESDE AQUÍ.</b> Días concedidos para
+    /// entregarla; la sustituye <see cref="HorasLimite"/>.
     ///
-    /// <para>Es lo ÚNICO de la matriz que se puede ajustar por actividad, y a propósito: los días
-    /// dependen del trabajo concreto —un bug medio detrás de un cliente que espera no admite los
-    /// mismos tres días que uno cualquiera— mientras que los puntos deben depender solo del tipo y
-    /// la complejidad. Aflojar los días no vale puntos; aflojar los puntos sí, y por eso ésos siguen
+    /// <para>Sigue mapeada —y no marcada con <c>Ignore()</c>— porque la APLICACIÓN DE ESCRITORIO
+    /// continúa en producción leyendo esta misma base hasta el día del corte, y es esta columna la
+    /// que lee para saber el plazo. Ignorarla haría que <c>EnsureCreated</c> dejara de crearla en
+    /// una base nueva y el escritorio apuntado ahí reventaría al primer SELECT; renombrarla lo
+    /// rompería el mismo día del despliegue, y nadie lo relacionaría con este cambio.</para>
+    ///
+    /// <para><b>Se puede tirar DESPUÉS del corte</b>, junto con
+    /// <see cref="PoolPointsMatrixEntry.DiasLimite"/>, que es su gemela en la otra tabla. Las dos, o
+    /// ninguna: el escritorio las usa juntas —el plazo de la actividad cae al de su celda cuando
+    /// está vacío— y quitarle solo una lo dejaría calculando plazos a medias.</para>
+    /// </summary>
+    public int? DiasLimite { get; set; }
+
+    /// <summary>
+    /// Horas concedidas para entregarla, decididas al publicarla. Nulo = usar las de la matriz.
+    /// 0 = sin fecha límite.
+    ///
+    /// <para>En HORAS y no en días porque el plazo tiene que poder contrastarse con lo que miden los
+    /// CRONÓMETROS, que registran horas. Una estimación en días no se compara con un cronómetro sin
+    /// inventarse cuánto dura un día, y ese invento es justo lo que hacía incomparables los números.</para>
+    ///
+    /// <para>Es lo ÚNICO de la matriz que se puede ajustar por actividad, y a propósito: el plazo
+    /// depende del trabajo concreto —un bug medio detrás de un cliente que espera no admite las
+    /// mismas horas que uno cualquiera— mientras que los puntos deben depender solo del tipo y la
+    /// complejidad. Aflojar el plazo no vale puntos; aflojar los puntos sí, y por eso ésos siguen
     /// sin poder tocarse.</para>
     ///
-    /// <para>Se guarda el NÚMERO DE DÍAS y no una fecha porque el plazo empieza a correr cuando
+    /// <para>En un BUG este número es OBLIGATORIO y lo pone el líder: ahí la matriz no manda. En una
+    /// tarea o un requerimiento es opcional y en blanco significa «la matriz».</para>
+    ///
+    /// <para>Se guarda el NÚMERO DE HORAS y no una fecha porque el plazo empieza a correr cuando
     /// alguien la toma, no cuando se publica: una actividad que espera dos semanas en el pool no
     /// debe llegar con el plazo ya consumido.</para>
     /// </summary>
-    public int? DiasLimite { get; set; }
+    public decimal? HorasLimite { get; set; }
+
+    /// <summary>
+    /// Esfuerzo estimado en HORAS: cuánto trabajo se cree que cuesta, no cuándo hay que entregarlo.
+    /// Es el número contra el que se contrasta el cronómetro.
+    ///
+    /// <para><b>Quién lo escribe depende del tipo</b>, y no hace falta guardarlo porque se deriva:
+    /// en un BUG es siempre de quien la tiene tomada (<see cref="ClaimedByDeveloperId"/>) y se
+    /// captura AL TOMARLA; en una tarea o un requerimiento es siempre del líder y se captura al
+    /// publicarla. Esa derivación solo vale mientras se sostengan sus dos invariantes, y por eso
+    /// están escritas donde se aplican, en <c>PoolActivityService</c>:</para>
+    /// <list type="number">
+    ///   <item>al CAMBIAR EL TIPO entre bug y no-bug se borra (<c>EditarAsync</c>): el número
+    ///         quedaría atribuido a quien no lo escribió;</item>
+    ///   <item>al SOLTAR EL RECLAMO de un bug se borra (<c>SoltarReclamo</c>, y con él devolver y
+    ///         liberar): la estimación se va con quien la escribió, para que el siguiente no herede
+    ///         un número ajeno ni dé por satisfecha la obligación de estimar.</item>
+    /// </list>
+    ///
+    /// <para><b>UN solo campo y no dos</b> (uno del líder y otro de quien la toma) porque lo único
+    /// que se hace con este número es restarlo de lo que midan las <c>WorkSession</c> de la
+    /// actividad enlazada: eso es UN número contra UN número. Con dos columnas, cada sitio que
+    /// compare tendría que escribir <c>DelLider ?? DeQuienLaTomo</c>, y el día que a alguien se le
+    /// olvidara ese coalesce la comparación no fallaría: saldría vacía o con la mitad de las
+    /// actividades. Un error que no se ve es peor que uno que se ve.</para>
+    /// </summary>
+    public decimal? HorasEstimadas { get; set; }
+
+    /// <summary>
+    /// Cuándo se capturó <see cref="HorasEstimadas"/>. Existe para poder AUDITAR que la estimación
+    /// de un bug se escribió al tomarlo —sello ≈ <see cref="ClaimedAt"/>— y no a mitad del trabajo,
+    /// cuando quien la escribe ya sabe lo que le costó y el número deja de servir para comparar.
+    /// Sin este sello, «la estimación es honesta porque se pide al tomar» es una afirmación que
+    /// nadie puede comprobar después.
+    /// </summary>
+    public DateTime? HorasEstimadasEnUtc { get; set; }
 
     public PoolActivityStatus Status { get; set; } = PoolActivityStatus.Disponible;
 
@@ -76,9 +136,25 @@ public class PoolActivity
     public DateTime? ClaimedAt { get; set; }
 
     /// <summary>
-    /// Hasta cuándo se espera que esté entregada, calculado al tomarla con los días de la matriz.
-    /// Vencerla no dispara nada automático: se resalta y el líder decide si la libera. Liberar sola
-    /// una actividad que alguien está trabajando ahora mismo sería peor que el problema.
+    /// Hasta cuándo se espera que esté entregada, calculado AL TOMARLA sumando las HORAS del plazo
+    /// —las de la actividad si las tiene, si no las de su celda de la matriz—.
+    ///
+    /// <para>Vencerla no dispara nada automático: se resalta y el líder decide si la libera. Liberar
+    /// sola una actividad que alguien está trabajando ahora mismo sería peor que el problema.</para>
+    ///
+    /// <para><b>Los plazos ya escritos con la regla vieja (sumando DÍAS) NO se recalculan.</b> La
+    /// migración a horas convierte la CONFIGURACIÓN —la matriz y el plazo de cada actividad—, nunca
+    /// este instante ya materializado, por tres motivos: es un compromiso que quien la tomó ya vio y
+    /// tiene en su pantalla, y moverlo es cambiar el trato a medio camino —lo mismo que
+    /// <c>EditarAsync</c> ya se niega a hacer con los puntos—; el recálculo siempre iría hacia atrás
+    /// y mucho (cinco días naturales pasan a cuarenta horas de reloj), así que la mañana siguiente
+    /// al despliegue habría un puñado de actividades pintadas de vencidas señalando a gente que no
+    /// hizo nada mal; y vencer no es cosmético: es lo que invita al líder a liberar la actividad, o
+    /// sea a quitársela de las manos a quien la trabaja.</para>
+    ///
+    /// <para>Consecuencia aceptada: durante un tiempo conviven plazos calculados con las dos reglas.
+    /// No hace falta distinguirlos —los dos son instantes y los dos se comparan igual—; quien
+    /// quiera hacerlo, los separa por <see cref="ClaimedAt"/> respecto de la fecha del despliegue.</para>
     /// </summary>
     public DateTime? ClaimDeadlineAt { get; set; }
 
@@ -208,7 +284,7 @@ public class PoolActivityExtraCriterion
 
 /// <summary>
 /// Una celda de la matriz de puntos: cuánto vale un tipo de trabajo con una complejidad dada, y en
-/// cuántos días se espera terminarlo.
+/// cuántas HORAS se espera terminarlo.
 ///
 /// Es una tabla y no un ajuste en JSON porque cada celda se edita, se consulta y se audita por
 /// separado, y porque la unicidad de (tipo, complejidad) la debe garantizar la base y no la
@@ -224,8 +300,27 @@ public class PoolPointsMatrixEntry
     /// <summary>Puntos que otorga. Debe ser mayor que cero: una actividad que no suma no es trabajo.</summary>
     public int Points { get; set; }
 
-    /// <summary>Días desde que se toma hasta que se espera entregada. 0 = sin fecha límite.</summary>
+    /// <summary>
+    /// <b>OBSOLETA PARA LA WEB. NO LA LEAS NI LA ESCRIBAS DESDE AQUÍ.</b> Días desde que se toma
+    /// hasta que se espera entregada; la sustituye <see cref="HorasLimite"/>.
+    ///
+    /// <para>Sigue mapeada por lo mismo que <see cref="PoolActivity.DiasLimite"/>: la aplicación de
+    /// escritorio la lee en producción hasta el día del corte. <b>Se puede tirar DESPUÉS del
+    /// corte</b>, a la vez que la de <c>PoolActivities</c> y no antes.</para>
+    /// </summary>
     public int DiasLimite { get; set; }
+
+    /// <summary>
+    /// Horas desde que se toma hasta que se espera entregada. 0 = sin fecha límite.
+    ///
+    /// <para>Es la fuente del plazo de las TAREAS y los REQUERIMIENTOS; en los BUGS no manda, porque
+    /// ahí el plazo lo fija el líder actividad por actividad.</para>
+    ///
+    /// <para>No es nulable: una celda sin plazo se escribe como 0, que ya significa «sin fecha
+    /// límite». Con un nulo habría dos formas de decir lo mismo y cada consulta tendría que tratar
+    /// las dos.</para>
+    /// </summary>
+    public decimal HorasLimite { get; set; }
 
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     public int? UpdatedByUserId { get; set; }

@@ -15,6 +15,53 @@ namespace AdminWeb.Application.Tests;
 /// </summary>
 internal static class TestDb
 {
+    /// <summary>
+    /// Borra las bases que dejaron las EJECUCIONES ANTERIORES. Corre una sola vez, antes de crear la
+    /// primera de esta tanda, porque es un constructor estático.
+    ///
+    /// <para><b>Hace falta porque nadie borra estos archivos.</b> Cada prueba crea el suyo en el
+    /// temporal y al terminar el contexto se cierra, pero el archivo se queda: son unos 1 500 y cerca
+    /// de 400 MB por ejecución completa. Tras unos meses de trabajo eso llena el disco.</para>
+    ///
+    /// <para>Y el modo en que se manifiesta es lo que obliga a arreglarlo aquí: cuando el disco se
+    /// llena, la suite NO falla donde está el problema. Fallan cientos de pruebas sin ninguna
+    /// relación entre sí con <c>SQLite Error 13: database or disk is full</c> lanzado desde
+    /// <c>EnsureCreated</c>, que señala a cualquier sitio menos al verdadero; y quien lo vea
+    /// pensará que el cambio que acaba de hacer rompió medio sistema.</para>
+    ///
+    /// <para><b>Al EMPEZAR y no al terminar</b>, y solo lo de hace más de una hora. Borrar al
+    /// terminar exigiría que las ~1 500 pruebas cerraran su contexto —muchas no lo hacen, y SQLite
+    /// mantiene el archivo tomado mientras viva la conexión—. El corte de una hora garantiza además
+    /// que nunca se toca un archivo de la tanda en curso, ni aunque haya dos corriendo a la vez.</para>
+    ///
+    /// <para>El tope de borrados acota lo que puede tardar el barrido: con un rezago de cientos de
+    /// miles de archivos, enumerar el temporal entero costaría minutos y parecería un cuelgue. Con
+    /// tope, el rezago se drena en unas cuantas ejecuciones y ninguna se nota.</para>
+    /// </summary>
+    static TestDb()
+    {
+        // Nada de esto puede tumbar la suite: un fallo en el barrido saldría como
+        // TypeInitializationException en TODAS las pruebas, que es peor que no barrer.
+        try
+        {
+            var limite = DateTime.UtcNow.AddHours(-1);
+            int borrados = 0;
+
+            foreach (var archivo in Directory.EnumerateFiles(Path.GetTempPath(), "adminweb_*"))
+            {
+                if (borrados >= 20_000) break;
+                try
+                {
+                    if (File.GetLastWriteTimeUtc(archivo) > limite) continue;
+                    File.Delete(archivo);
+                    borrados++;
+                }
+                catch { /* tomado por otro proceso o ya borrado: no es asunto de esta tanda */ }
+            }
+        }
+        catch { /* sin temporal accesible se sigue igual; el barrido es higiene, no una regla */ }
+    }
+
     public static AppDbContext New()
     {
         var path = Path.Combine(Path.GetTempPath(), "adminweb_" + Guid.NewGuid().ToString("N") + ".db");

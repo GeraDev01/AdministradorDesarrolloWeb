@@ -34,7 +34,17 @@ public class PoolQueryService(AppDbContext db, ICurrentUser currentUser, PoolAct
     {
         AuthorizationGuard.RequireLoggedIn(currentUser);
 
-        var disponibles = (await pool.DisponiblesAsync(tipo, ct: ct)).Select(AVistaLibre).ToList();
+        // La matriz se lee UNA vez —son doce filas— para poder resolver el plazo efectivo de cada
+        // actividad libre antes de mandarla. Sin esto, quien mira el pool no puede ver en cuántas
+        // horas se le va a pedir un bug hasta DESPUÉS de tomarlo, que es justo cuando ya no le sirve
+        // para decidir. Resolverlo en el navegador exigiría mandarle la matriz entera y repetir ahí
+        // la regla de precedencia, que es la clase de duplicado que acaba desincronizándose.
+        var plazoDeLaMatriz = (await pool.ObtenerMatrizAsync(ct))
+            .ToDictionary(m => (m.WorkType, m.Complexity), m => m.HorasLimite);
+
+        var disponibles = (await pool.DisponiblesAsync(tipo, ct: ct))
+            .Select(a => AVistaLibre(a, plazoDeLaMatriz))
+            .ToList();
 
         if (currentUser.DeveloperId is not int developerId)
             return new MiPoolDto(TieneFicha: false, TiposDeTrabajo, disponibles, []);
@@ -92,7 +102,7 @@ public class PoolQueryService(AppDbContext db, ICurrentUser currentUser, PoolAct
                 m.Complexity, PoolSeed.Etiqueta(m.Complexity))
             {
                 Puntos = m.Points,
-                DiasLimite = m.DiasLimite
+                HorasLimite = m.HorasLimite
             })
             .ToList();
 
@@ -152,14 +162,24 @@ public class PoolQueryService(AppDbContext db, ICurrentUser currentUser, PoolAct
     /// Lo que ve quien todavía no la ha tomado. Lleva la urgencia, el plazo y los criterios extra
     /// porque son exactamente los datos con los que se decide si tomarla: enterarse después de que
     /// «además había que documentarla» convertiría el extra en una trampa.
+    ///
+    /// <para>El plazo viaja dos veces y no es redundancia: el crudo (nulo = «el de la matriz») y el
+    /// EFECTIVO, ya resuelto con la misma precedencia que aplicará <c>TomarAsync</c> —el de la
+    /// actividad manda; si no hay, el de su celda—. El segundo es el que se enseña, y por eso se
+    /// resuelve aquí y no en la pantalla: si la regla se escribiera también allá, el día que cambie
+    /// habría dos sitios que corregir y uno se quedaría atrás.</para>
     /// </summary>
-    private static ActividadLibreDto AVistaLibre(PoolActivity a) => new(
+    private static ActividadLibreDto AVistaLibre(
+        PoolActivity a, IReadOnlyDictionary<(PoolWorkType, PoolComplexity), decimal> plazoDeLaMatriz) => new(
         a.Id, a.Title, a.Description,
         a.WorkType, PoolSeed.Etiqueta(a.WorkType),
         a.Complexity, PoolSeed.Etiqueta(a.Complexity),
         a.Points, a.ExternalUrl,
         a.Priority, EtiquetasDeCatalogo.PrioridadDelPool(a.Priority),
-        a.DiasLimite,
+        a.HorasLimite,
+        a.HorasLimite ?? (plazoDeLaMatriz.TryGetValue((a.WorkType, a.Complexity), out var deLaMatriz)
+            ? deLaMatriz
+            : 0m),
         a.Points + a.ExtraCriteria.Sum(c => c.Points),
         [.. a.ExtraCriteria
               .OrderByDescending(c => c.Points).ThenBy(c => c.Name)
@@ -171,6 +191,9 @@ public class PoolQueryService(AppDbContext db, ICurrentUser currentUser, PoolAct
         a.Points,
         a.Status, PoolSeed.Etiqueta(a.Status),
         a.ClaimDeadlineAt, a.Vencida, a.EnCurso,
+        // Lo que se prometió, para poder verlo junto al avance: es contra este número contra el que
+        // se va a contrastar el cronómetro, y quien la trabaja debería tenerlo delante.
+        a.HorasEstimadas,
         avance.Hechos, avance.Total,
         // El motivo solo acompaña a una devolución: en cualquier otro estado es el comentario de una
         // vuelta anterior ya resuelta, y enseñarlo haría creer que sigue habiendo algo que corregir.
@@ -188,7 +211,11 @@ public class PoolQueryService(AppDbContext db, ICurrentUser currentUser, PoolAct
         a.ReturnedCount,
         a.ExternalUrl,
         a.Priority, EtiquetasDeCatalogo.PrioridadDelPool(a.Priority),
-        a.DiasLimite,
+        // Los dos números de horas, y son cosas distintas: el PLAZO (cuándo se espera entregada) y el
+        // ESFUERZO (cuánto trabajo se cree que cuesta). Quién escribió el segundo se deduce del tipo
+        // que va unas líneas más arriba: en un bug es de quien la tomó, en lo demás es del líder.
+        a.HorasLimite,
+        a.HorasEstimadas,
         // El máximo alcanzable, para que se vea de un vistazo cuánto está realmente en juego. Suma
         // TODOS los extra, cumplidos o no: mientras nadie los haya evaluado, todos siguen en juego.
         a.Points + a.ExtraCriteria.Sum(c => c.Points),
