@@ -93,6 +93,12 @@ pasar los códigos, y los ocho papeles de rescate acaban en el mismo cajón que 
 - Se puede hacer **hoy mismo, desde la aplicación de escritorio**, contra producción: su pantalla de
   usuarios ya permite crear cuentas con rol de administrador. No hace falta esperar al corte, y de
   hecho conviene que ya exista cuando el equipo empiece a darse de alta.
+- **Y conviene hacerlo pronto, porque ese camino se cierra.** Vale mientras el escritorio siga
+  encendido en alguna máquina. En cuanto se apague del todo, la única forma de crear esa cuenta será
+  desde la web —y la web no toca producción hasta el corte, porque apuntarla ahí dispara el migrador
+  y eso *es* el corte—. Si se llega al día sin la segunda cuenta, hay que crearla **en el corte
+  mismo, como primera acción después de entrar y antes de que nadie más se dé de alta**, que deja una
+  ventana de minutos en la que un solo administrador tiene su teléfono como único acceso.
 - **Que sea de una persona de verdad**, con su propio nombre y su propia contraseña. Una cuenta
   compartida «de emergencia» que todo el mundo conoce es un agujero, no un respaldo: la contraseña
   circula, nadie la cambia y en la bitácora todas las acciones salen a nombre de nadie.
