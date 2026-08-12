@@ -41,7 +41,8 @@
 
     @if (_datos is { } d)
     {
-        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
+        <RadzenStack data-recorrido="sla-resumen"
+                     Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
             @* Las tres tarjetas se quedan solo con su palabra, igual que las de CumplimientoSla: los
                dos tableros de SLA tienen que leerse igual. Tarjeta() toma el título como cadena, así
                que no cabría un componente, pero es que el color ya va por parámetro y es una variable
@@ -57,15 +58,18 @@
             <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                          Gap="1rem" Wrap="FlexWrap.Wrap">
                 <RadzenLabel Text="Estado:" Component="estado" />
-                <RadzenDropDown TValue="SlaStatus?" @bind-Value="_estado" Name="estado"
+                <RadzenDropDown data-recorrido="sla-estado"
+                                TValue="SlaStatus?" @bind-Value="_estado" Name="estado"
                                 Data="@Estados" TextProperty="Texto" ValueProperty="Valor"
                                 AllowClear="true" Placeholder="Todos" Disabled="@_ocupado"
                                 Change="@(_ => Cargar())" Style="min-width:11rem" />
 
-                <RadzenButton Text="Asignar SLA" Icon="add" Disabled="@_ocupado" Click="@AbrirFormulario" />
+                <RadzenButton data-recorrido="sla-asignar"
+                              Text="Asignar SLA" Icon="add" Disabled="@_ocupado" Click="@AbrirFormulario" />
                 @* «autorenew» y no «refresh»: esto no vuelve a leer la lista, vuelve a EVALUAR los
                    vencimientos y escala lo que encuentre incumplido. Escribe, y el glifo lo dice. *@
-                <RadzenButton Text="Revisar vencidos" Icon="autorenew" ButtonStyle="ButtonStyle.Light"
+                <RadzenButton data-recorrido="sla-revisar"
+                              Text="Revisar vencidos" Icon="autorenew" ButtonStyle="ButtonStyle.Light"
                               Disabled="@_ocupado" Click="@RevisarVencidos" />
 
                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0" Style="margin-left:auto">
@@ -137,7 +141,8 @@
             </RadzenCard>
         }
 
-        <RadzenDataGrid TItem="SlaCompromisoDto" Data="@d.Compromisos" IsLoading="@_ocupado"
+        <RadzenDataGrid data-recorrido="sla-rejilla"
+                        TItem="SlaCompromisoDto" Data="@d.Compromisos" IsLoading="@_ocupado"
                         AllowSorting="true" AllowPaging="true" PageSize="20"
                         RowRender="@PintarFueraDePlazo"
                         EmptyText="No hay compromisos con ese filtro.">
@@ -248,7 +253,7 @@
             </Columns>
         </RadzenDataGrid>
 
-        <RadzenCard>
+        <RadzenCard data-recorrido="sla-politicas">
             <RadzenStack Gap="0.75rem">
                 @* El glifo va como <RadzenIcon> porque RadzenText no tiene parámetro Icon. Y no es
                    capricho cambiar el carácter ⚙ por él: ese carácter lo resuelven en muchos equipos

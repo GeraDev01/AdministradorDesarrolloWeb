@@ -56,7 +56,7 @@
                ACCIÓN de editar, que aquí mismo aparece en varios botones; una pestaña que se lo
                quede haría creer que edita algo. «extension» es la pieza de rompecabezas que ya lleva
                esta misma sección en el menú lateral. *@
-            <RadzenTabs>
+            <RadzenTabs data-recorrido="actividades-vistas">
                 <Tabs>
                     <RadzenTabsItem Text="Actividades y puntos" Icon="checklist">
                         @PanelDePuntos(d)
@@ -134,7 +134,8 @@
         <RadzenStack Gap="0.75rem" class="rz-mt-2">
             <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                          Gap="0.75rem" Wrap="FlexWrap.Wrap">
-                <RadzenButton Text="Registrar actividad" Icon="add" ButtonStyle="ButtonStyle.Primary"
+                <RadzenButton data-recorrido="actividades-registrar"
+                              Text="Registrar actividad" Icon="add" ButtonStyle="ButtonStyle.Primary"
                               Click="@AbrirRegistro" Disabled="@(_ocupado || !HayCriterios(d))" />
                 @* El nivel decide qué actividades tocan: varias son «(Junior)», «(Mid)» o «(Senior)»
                    y sin tenerlo a la vista no se sabe cuáles son las propias. *@
@@ -160,7 +161,8 @@
                 @FormularioDeRespuesta(d, r)
             }
 
-            <RadzenDataGrid TItem="AutocalificacionDto" Data="@d.Autocalificaciones" IsLoading="@_ocupado"
+            <RadzenDataGrid data-recorrido="actividades-lista"
+                            TItem="AutocalificacionDto" Data="@d.Autocalificaciones" IsLoading="@_ocupado"
                             AllowSorting="true" AllowPaging="true" PageSize="15"
                             EmptyText="Todavía no has registrado ninguna actividad.">
                 <Columns>
@@ -255,7 +257,8 @@
                             <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" Wrap="FlexWrap.Wrap">
                                 @if (e.SePuedeCorregir)
                                 {
-                                    <RadzenButton Text="Corregir" Icon="edit" ButtonStyle="ButtonStyle.Light"
+                                    <RadzenButton data-recorrido="actividades-corregir"
+                                                  Text="Corregir" Icon="edit" ButtonStyle="ButtonStyle.Light"
                                                   Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                   Click="@(() => AbrirCorreccion(e))" />
                                 }
@@ -266,7 +269,8 @@
                                        rechazó —abre el cuadro de argumento y la manda otra vez a
                                        revisión. Hay destinatario humano, que es justo la condición
                                        de la flecha de responder. No lo cambies a copiar. *@
-                                    <RadzenButton Text="Replicar" Icon="reply" ButtonStyle="ButtonStyle.Secondary"
+                                    <RadzenButton data-recorrido="actividades-replicar"
+                                                  Text="Replicar" Icon="reply" ButtonStyle="ButtonStyle.Secondary"
                                                   Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                   Click="@(() => AbrirReplica(e))"
                                                   title="Argumenta y vuelve a mandarla a revisión." />
@@ -560,7 +564,8 @@
         <RadzenStack Gap="0.75rem" class="rz-mt-2">
             <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                          Gap="0.75rem" Wrap="FlexWrap.Wrap">
-                <RadzenButton Text="Nueva actividad" Icon="add" ButtonStyle="ButtonStyle.Primary"
+                <RadzenButton data-recorrido="actividades-libre-nueva"
+                              Text="Nueva actividad" Icon="add" ButtonStyle="ButtonStyle.Primary"
                               Click="@(() => AbrirActividad(null))" Disabled="@_ocupado" />
                 <RadzenCheckBox @bind-Value="_verCerradas" Name="cerradas" />
                 <RadzenLabel Text="Ver cerradas" Component="cerradas" />
@@ -644,7 +649,8 @@
                                 }
                                 @* Habilitado también en las cerradas: se pueden CONSULTAR sus
                                    evidencias; el servidor es quien impide cambiarlas. *@
-                                <RadzenButton Text="Evidencia" Icon="attach_file" ButtonStyle="ButtonStyle.Light"
+                                <RadzenButton data-recorrido="actividades-evidencia"
+                                              Text="Evidencia" Icon="attach_file" ButtonStyle="ButtonStyle.Light"
                                               Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                               Click="@(() => VerEvidencia(a))" />
                                 <RadzenButton Text="@(a.EstaAbierta ? "Cerrar" : "Reabrir")"

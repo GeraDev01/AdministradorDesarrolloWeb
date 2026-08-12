@@ -37,7 +37,8 @@
         <RadzenButton Text="Volver" Icon="chevron_left" ButtonStyle="ButtonStyle.Light"
                       Size="ButtonSize.Small" Click="@(() => Navegacion.NavigateTo("conocimiento"))" />
         <RadzenText TextStyle="TextStyle.H5" Style="margin:0">Cola de revisión</RadzenText>
-        <RadzenButton Text="Actualizar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+        <RadzenButton data-recorrido="revision-actualizar"
+                      Text="Actualizar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
                       Size="ButtonSize.Small" Click="@CargarColaAsync" />
     </RadzenStack>
 
@@ -58,7 +59,7 @@
                      Wrap="FlexWrap.Wrap" Gap="1rem">
 
             @* ── La cola ────────────────────────────────────────────────────────── *@
-            <div style="flex:1 1 320px;min-width:290px;max-width:420px">
+            <div data-recorrido="revision-cola" style="flex:1 1 320px;min-width:290px;max-width:420px">
                 <RadzenStack Gap="0.4rem">
                     @foreach (var f in _cola)
                     {
@@ -97,7 +98,7 @@
             </div>
 
             @* ── El artículo abierto ────────────────────────────────────────────── *@
-            <div style="flex:2 1 420px;min-width:300px">
+            <div data-recorrido="revision-articulo" style="flex:2 1 420px;min-width:300px">
                 @if (_cargandoArticulo)
                 {
                     <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" />
@@ -148,7 +149,7 @@
                         {
                             @* En una segunda o tercera vuelta, lo primero que hace falta es lo que se
                                le pidió la vez anterior: sin eso no se puede juzgar si lo corrigió. *@
-                            <RadzenCard>
+                            <RadzenCard data-recorrido="revision-historial">
                                 <RadzenText TextStyle="TextStyle.Body2" Style="margin:0 0 .3rem">
                                     <RadzenIcon Icon="history" /> Lo que ya se le dijo
                                 </RadzenText>

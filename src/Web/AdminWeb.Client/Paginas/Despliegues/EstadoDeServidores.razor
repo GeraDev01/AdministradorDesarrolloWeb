@@ -41,10 +41,12 @@
         <RadzenButton Text="Actualizar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
                       Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
 
-        <RadzenCheckBox TValue="bool" @bind-Value="_soloAtrasados" Name="soloAtrasados" />
+        <RadzenCheckBox data-recorrido="servidores-atrasados"
+                        TValue="bool" @bind-Value="_soloAtrasados" Name="soloAtrasados" />
         <RadzenLabel Text="Solo atrasados" Component="soloAtrasados" />
 
-        <RadzenCheckBox TValue="bool" @bind-Value="_incluirDadosDeBaja" Name="incluirBajas"
+        <RadzenCheckBox data-recorrido="servidores-bajas"
+                        TValue="bool" @bind-Value="_incluirDadosDeBaja" Name="incluirBajas"
                         Change="@(_ => Cargar())" Disabled="@_ocupado" />
         <RadzenLabel Text="Incluir dados de baja" Component="incluirBajas" />
 
@@ -52,7 +54,8 @@
            enseñando y no el inventario entero. *@
         @* El icono dice la ACCIÓN —sale un archivo— y no el formato, que ya lo dice el texto: es el
            mismo botón de descargar y exportar en las 53 pantallas. *@
-        <RadzenButton Text="Excel" Icon="download" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+        <RadzenButton data-recorrido="servidores-excel"
+                      Text="Excel" Icon="download" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                       Disabled="@_ocupado" Style="margin-left:auto"
                       Click="@(() => Descargas.DesdeApiAsync(RutaDelFiltro("/excel")))" />
     </RadzenStack>
@@ -63,7 +66,8 @@
             @d.Resumen@(_soloAtrasados ? $"      (mostrando {Filtrados.Count()})" : "")
         </RadzenText>
 
-        <RadzenDataGrid TItem="EstadoDeServidorDto" Data="@Filtrados" IsLoading="@_ocupado"
+        <RadzenDataGrid data-recorrido="servidores-rejilla"
+                        TItem="EstadoDeServidorDto" Data="@Filtrados" IsLoading="@_ocupado"
                         AllowSorting="true" AllowPaging="true" PageSize="25"
                         RowRender="@ApagarLosDadosDeBaja"
                         EmptyText="No hay servidores que cumplan el filtro.">

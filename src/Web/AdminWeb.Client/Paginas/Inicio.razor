@@ -16,14 +16,15 @@
         Hola@(Sesion.Usuario is { } u ? $", {u.NombreCompleto}" : "")
     </RadzenText>
 
-    <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false"
+    <RadzenAlert data-recorrido="inicio-aviso"
+                 AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false"
                  Title="Esta todavía no es la aplicación de producción">
         La aplicación de escritorio sigue siendo la oficial hasta el corte. Lo que registres aquí
         puede no ser lo que cuente: confírmalo con tu líder antes de usarla para tu jornada o tus
         actividades.
     </RadzenAlert>
 
-    <RadzenCard>
+    <RadzenCard data-recorrido="inicio-donde-esta-todo">
         <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0">
             Todas las pantallas están disponibles en el menú. Si algo no responde como esperas,
             dilo: es justo lo que hace falta encontrar antes del cambio.

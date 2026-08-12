@@ -52,10 +52,12 @@
     </RadzenCard>
 
     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
-        <RadzenButton Text="Nuevo" Icon="add" Disabled="@_ocupado" Click="@AbrirNuevo" />
+        <RadzenButton data-recorrido="programas-nuevo"
+                      Text="Nuevo" Icon="add" Disabled="@_ocupado" Click="@AbrirNuevo" />
         <RadzenButton Text="Editar" Icon="edit" ButtonStyle="ButtonStyle.Light"
                       Disabled="@(_ocupado || _elegido is null)" Click="@AbrirEdicion" />
-        <RadzenButton Text="Ver clave" Icon="visibility" ButtonStyle="ButtonStyle.Light"
+        <RadzenButton data-recorrido="programas-ver-clave"
+                      Text="Ver clave" Icon="visibility" ButtonStyle="ButtonStyle.Light"
                       Disabled="@(_ocupado || _elegido is null)" Click="@VerClave" />
     </RadzenStack>
 
@@ -118,7 +120,8 @@
 
                 <RadzenStack Gap="0.25rem">
                     <RadzenLabel Text="Clave de licencia" Component="claveProg" />
-                    <RadzenTextBox @bind-Value="_clave" Name="claveProg" MaxLength="250"
+                    <RadzenTextBox data-recorrido="programas-clave"
+                                   @bind-Value="_clave" Name="claveProg" MaxLength="250"
                                    Style="width:100%"
                                    Placeholder="Déjala en blanco para conservar la que ya tiene" />
                     <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
@@ -162,7 +165,8 @@
         </RadzenCard>
     }
 
-    <RadzenDataGrid TItem="ProgramaDto" Data="@_filas" IsLoading="@_cargando"
+    <RadzenDataGrid data-recorrido="programas-rejilla"
+                    TItem="ProgramaDto" Data="@_filas" IsLoading="@_cargando"
                     AllowSorting="true" AllowPaging="true" PageSize="25"
                     SelectionMode="DataGridSelectionMode.Single" @bind-Value="@_seleccion"
                     RowDoubleClick="@(_ => AbrirEdicion())"

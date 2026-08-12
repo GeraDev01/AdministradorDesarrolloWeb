@@ -76,7 +76,8 @@
                     <RadzenStack Gap="0.75rem">
                         <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@ResumenDeLasMias(d)</RadzenText>
 
-                        <RadzenDataGrid TItem="MiActividadDelPoolDto" Data="@d.Mias" IsLoading="@_ocupado"
+                        <RadzenDataGrid data-recorrido="mi-pool-mias"
+                                        TItem="MiActividadDelPoolDto" Data="@d.Mias" IsLoading="@_ocupado"
                                         AllowSorting="true" AllowPaging="true" PageSize="10"
                                         SelectionMode="DataGridSelectionMode.Single"
                                         Value="@_seleccion" ValueChanged="@Seleccionar"
@@ -155,9 +156,11 @@
                                     <Template Context="a">
                                         @if (a.EnCurso)
                                         {
-                                            <RadzenButton Text="Entregar" Icon="outbox" Size="ButtonSize.ExtraSmall"
+                                            <RadzenButton data-recorrido="mi-pool-entregar"
+                                                          Text="Entregar" Icon="outbox" Size="ButtonSize.ExtraSmall"
                                                           Disabled="@_ocupado" Click="@(() => Entregar(a))" />
-                                            <RadzenButton Text="Devolver al pool" ButtonStyle="ButtonStyle.Light"
+                                            <RadzenButton data-recorrido="mi-pool-devolver"
+                                                          Text="Devolver al pool" ButtonStyle="ButtonStyle.Light"
                                                           Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                           Click="@(() => Devolver(a))" />
                                         }
@@ -248,7 +251,8 @@
                                     *@
                                     <VinculoConDevOps ActividadId="@a.Id" Cancelacion="@_cancelacion.Token" />
 
-                                    <RadzenDataGrid TItem="PuntoDeChecklistDto" Data="@_checklist" IsLoading="@_ocupado"
+                                    <RadzenDataGrid data-recorrido="mi-pool-checklist"
+                                                    TItem="PuntoDeChecklistDto" Data="@_checklist" IsLoading="@_ocupado"
                                                     AllowSorting="false"
                                                     EmptyText="Esta actividad se quedó sin checklist: devuélvela al pool y vuelve a tomarla.">
                                         <Columns>
@@ -414,7 +418,8 @@
                             </RadzenCard>
                         }
 
-                        <RadzenDataGrid TItem="ActividadLibreDto" Data="@d.Disponibles" IsLoading="@_ocupado"
+                        <RadzenDataGrid data-recorrido="mi-pool-disponibles"
+                                        TItem="ActividadLibreDto" Data="@d.Disponibles" IsLoading="@_ocupado"
                                         AllowSorting="true" AllowPaging="true" PageSize="15"
                                         EmptyText="No hay actividades libres en el pool ahora mismo.">
                             <Columns>
@@ -496,7 +501,8 @@
                                     <Template Context="a">
                                         @* Abre el panel de arriba; no toma nada todavía. La confirmación —y en
                                            un bug la estimación obligatoria— viven allí, con el plazo delante. *@
-                                        <RadzenButton Text="Tomar esta" Icon="pan_tool" Size="ButtonSize.ExtraSmall"
+                                        <RadzenButton data-recorrido="mi-pool-tomar"
+                                                      Text="Tomar esta" Icon="pan_tool" Size="ButtonSize.ExtraSmall"
                                                       Disabled="@(_ocupado || !d.TieneFicha)" Click="@(() => AbrirTomar(a))" />
                                         @if (!string.IsNullOrWhiteSpace(a.Enlace))
                                         {

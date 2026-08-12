@@ -35,7 +35,7 @@
 <RadzenStack Gap="1rem">
     <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Desempeño</RadzenText>
 
-    <RadzenCard>
+    <RadzenCard data-recorrido="desempeno-periodo">
         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                      Gap="0.75rem" Wrap="FlexWrap.Wrap">
             @* El período solo manda en los rankings: la cola de revisión no se filtra por él. *@
@@ -50,7 +50,7 @@
             @* El nivel Lead no compite (reparte parte de los puntos y no se mide contra los niveles
                que evalúa), pero el administrador necesita poder verlo: entra fuera de concurso, con
                corona y sin ocupar lugar. *@
-            <RadzenCheckBox @bind-Value="_incluirNivelLead" Name="lead"
+            <RadzenCheckBox data-recorrido="desempeno-lead" @bind-Value="_incluirNivelLead" Name="lead"
                             Change="@((bool _) => CargarRanking())" Disabled="@_ocupado" />
             <RadzenLabel Text="Incluir nivel Lead (fuera de concurso)" Component="lead" />
 
@@ -59,7 +59,7 @@
         </RadzenStack>
     </RadzenCard>
 
-    <RadzenTabs>
+    <RadzenTabs data-recorrido="desempeno-vistas">
         <Tabs>
             @* Los rótulos de las pestañas llevaban emoji. Un emoji lo dibuja el sistema operativo con
                su propia paleta y no hereda el color del texto, así que la pestaña activa y la
@@ -134,7 +134,8 @@
                         de aprobar. Se puede marcar más de una fila.
                     </RadzenText>
 
-                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+                    <RadzenStack data-recorrido="desempeno-acciones"
+                                 Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
                         @* Aprobar y rechazar se distinguían solo por el COLOR del botón, y en tema
                            oscuro el verde y el rojo se acercan lo suficiente como para pulsar el que
                            no era. La palomita en círculo y el aspa en círculo se distinguen por
@@ -149,7 +150,8 @@
                                       Size="ButtonSize.Small" Click="@CargarPendientes" Disabled="@_ocupado" />
                     </RadzenStack>
 
-                    <RadzenDataGrid TItem="PuntoPendienteDto" Data="@_pendientes" IsLoading="@_ocupado"
+                    <RadzenDataGrid data-recorrido="desempeno-cola"
+                                    TItem="PuntoPendienteDto" Data="@_pendientes" IsLoading="@_ocupado"
                                     AllowSorting="true" AllowPaging="true" PageSize="15"
                                     SelectionMode="DataGridSelectionMode.Multiple"
                                     Value="@_marcadas" ValueChanged="@Marcar"
@@ -222,7 +224,7 @@
 
                     @* La ficha de evidencia va SIEMPRE a la vista, debajo de la lista y no detrás de
                        un botón: revisar es mirar esto. *@
-                    <RadzenCard>
+                    <RadzenCard data-recorrido="desempeno-evidencia">
                         @if (Abierta is not { } entrada)
                         {
                             <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">

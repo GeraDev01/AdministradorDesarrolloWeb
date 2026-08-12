@@ -41,7 +41,7 @@
 
     @if (_datos is { } d)
     {
-        <RadzenCard>
+        <RadzenCard data-recorrido="jornada-marcaje">
             <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                          Gap="1rem" Wrap="FlexWrap.Wrap">
                 @if (d.EntradaUtc is DateTime entrada)
@@ -86,7 +86,7 @@
 
         @if (d.Cronometro is { } c)
         {
-            <RadzenCard Style="border-left:5px solid var(--rz-info)">
+            <RadzenCard data-recorrido="jornada-cronometro" Style="border-left:5px solid var(--rz-info)">
                 <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                              Gap="1rem" Wrap="FlexWrap.Wrap">
                     <RadzenStack Gap="0.15rem">
@@ -105,7 +105,8 @@
 
         @* El rango, con los mismos atajos del escritorio. Antes el historial eran 30 días fijos:
            para revisar el mes pasado no había forma de llegar. *@
-        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center"
+        <RadzenStack data-recorrido="jornada-rango"
+                     Orientation="Orientation.Horizontal" Gap="0.5rem" AlignItems="AlignItems.Center"
                      Wrap="FlexWrap.Wrap">
             <RadzenButton Text="Hoy" Size="ButtonSize.Small" Disabled="@_ocupado"
                           ButtonStyle="@Estilo(Rango.Hoy)" Click="@(() => Ir(Rango.Hoy))" />
@@ -159,7 +160,7 @@
                         }
                         else
                         {
-                            <RadzenStack Gap="0.1rem">
+                            <RadzenStack data-recorrido="jornada-app-abierta" Gap="0.1rem">
                                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                                     @t.PrimeraSenalUtc.ToLocalTime().ToString("HH:mm")
                                     – @t.UltimaSenalUtc.ToLocalTime().ToString("HH:mm")
@@ -191,7 +192,8 @@
                         }
                         else if (f.Id is not null)
                         {
-                            <RadzenButton Text="Pedir corrección" ButtonStyle="ButtonStyle.Light"
+                            <RadzenButton data-recorrido="jornada-correccion"
+                                          Text="Pedir corrección" ButtonStyle="ButtonStyle.Light"
                                           Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                           Click="@(() => PedirCorreccion(f))" />
                         }

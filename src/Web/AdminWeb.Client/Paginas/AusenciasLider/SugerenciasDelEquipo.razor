@@ -55,12 +55,14 @@
                             Change="@(_ => Cargar())" Style="min-width:12rem" />
 
             <RadzenLabel Text="Quién la ve:" Component="visibilidad" />
-            <RadzenDropDown TValue="SuggestionVisibility?" @bind-Value="_visibilidad" Name="visibilidad"
+            <RadzenDropDown data-recorrido="sugerencias-visibilidad"
+                            TValue="SuggestionVisibility?" @bind-Value="_visibilidad" Name="visibilidad"
                             Data="@d.Visibilidades" TextProperty="Texto" ValueProperty="Valor"
                             AllowClear="true" Placeholder="Todas" Disabled="@_ocupado"
                             Change="@(_ => Cargar())" Style="min-width:14rem" />
 
-            <RadzenCheckBox TValue="bool" @bind-Value="_topVotos" Name="votos"
+            <RadzenCheckBox data-recorrido="sugerencias-votos"
+                            TValue="bool" @bind-Value="_topVotos" Name="votos"
                             Change="@(_ => Cargar())" Disabled="@_ocupado" />
             <RadzenLabel Text="Más votadas primero" Component="votos" />
         </RadzenStack>
@@ -120,7 +122,7 @@
                     <Template Context="s">@s.CreadaUtc.ToLocalTime().ToString("dd/MM/yyyy")</Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="SugerenciaDelLiderDto" Title="De" Width="170px" Sortable="false">
-                    <Template Context="s">@Autor(s)</Template>
+                    <Template Context="s"><span data-recorrido="sugerencias-autor">@Autor(s)</span></Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="SugerenciaDelLiderDto" Title="Categoría"
                                       Property="CategoriaEtiqueta" Width="130px" Sortable="false" />
@@ -190,10 +192,12 @@
                 <RadzenDataGridColumn TItem="SugerenciaDelLiderDto" Title="" Width="220px" Sortable="false">
                     <Template Context="s">
                         <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" Wrap="FlexWrap.Wrap">
-                            <RadzenButton Text="Atender" ButtonStyle="ButtonStyle.Primary"
+                            <RadzenButton data-recorrido="sugerencias-atender"
+                                          Text="Atender" ButtonStyle="ButtonStyle.Primary"
                                           Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                           Click="@(() => Atender(s))" />
-                            <RadzenButton Text="Eliminar" Icon="delete" ButtonStyle="ButtonStyle.Danger"
+                            <RadzenButton data-recorrido="sugerencias-eliminar"
+                                          Text="Eliminar" Icon="delete" ButtonStyle="ButtonStyle.Danger"
                                           Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                           Click="@(() => Eliminar(s))" />
                         </RadzenStack>

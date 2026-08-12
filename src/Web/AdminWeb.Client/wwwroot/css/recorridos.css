@@ -1,0 +1,231 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   Los recorridos guiados: el botón de la barra y el aspecto de los globos.
+
+   Driver.js trae su propia hoja (driver.css) con un aspecto neutro, blanco y con
+   Helvetica. Aquí se le pone la ropa de la aplicación. Es un archivo aparte y no
+   una edición de driver.css a propósito: driver.css es la hoja del paquete tal
+   como viene, y el día que se actualice hay que poder sustituirla sin rescatar
+   nada de dentro. index.html la carga DESPUÉS, así que estas reglas mandan.
+
+   Como en el resto del proyecto: ni un color escrito a mano. Todo sale de las
+   variables del tema, que es lo que hace que el globo funcione igual en claro y
+   en oscuro sin tener que acordarse de nada. Un blanco literal aquí se vería
+   perfecto durante el desarrollo y sería un cuadrado deslumbrante en modo
+   oscuro, que es como aparecen estos fallos: tarde y en la pantalla de otro.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* ── El botón de la barra superior ──────────────────────────────────────────── */
+
+/* Deliberadamente IGUAL que .interruptor-tema (app.css): son dos botones de
+   icono, vecinos, y en la misma barra. Cualquier diferencia de tamaño o de
+   redondeo entre ellos se lee como un descuido antes que como una intención. */
+.boton-recorrido {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--rz-header-color);
+    cursor: pointer;
+    font-size: 1.15rem;
+    line-height: 1;
+    transition: background-color .15s ease, opacity .15s ease;
+}
+
+.boton-recorrido:hover {
+    /* El mismo velo blanco translúcido que el interruptor de tema. No es un color
+       de la paleta: es un realce sobre el grafito de la barra, y funciona igual
+       en los dos modos porque la barra es grafito en los dos. */
+    background: rgba(255, 255, 255, .12);
+}
+
+.boton-recorrido:focus-visible {
+    outline: 2px solid var(--rz-primary-light);
+    outline-offset: 2px;
+}
+
+/* Apagado: la pantalla no tiene recorrido. Se APAGA, no se esconde — y el globo
+   del title es el que explica por qué, así que el botón sigue recibiendo el
+   ratón (por eso es aria-disabled y no disabled; ver BotonDeRecorrido.razor). */
+.boton-recorrido[aria-disabled="true"] {
+    opacity: .38;
+    cursor: default;
+}
+
+.boton-recorrido[aria-disabled="true"]:hover {
+    background: transparent;
+}
+
+/* El punto de «hay un recorrido que no has visto». Invita sin imponer, que es la
+   única forma en que la ayuda se usa: nada salta solo, pero el botón deja de
+   ser un icono más entre los de la barra. Al lanzarlo una vez, desaparece. */
+.boton-recorrido--sin-estrenar::after {
+    content: "";
+    position: absolute;
+    top: .3rem;
+    right: .3rem;
+    width: .45rem;
+    height: .45rem;
+    border-radius: 50%;
+    background: var(--rz-primary-light);
+}
+
+/* ── El globo ───────────────────────────────────────────────────────────────── */
+
+/* La clase la pone el envoltorio (popoverClass), y sirve para dos cosas: subir la
+   especificidad por encima de driver.css sin depender del orden de carga, y dejar
+   claro al leer el DOM qué globo es nuestro. */
+.driver-popover.recorrido-adminweb {
+    background-color: var(--rz-card-background-color);
+    color: var(--rz-text-color);
+    border: 1px solid var(--rz-border-color);
+    border-radius: var(--rz-border-radius);
+    box-shadow: var(--rz-shadow-4);
+    padding: 1rem 1.15rem;
+    /* Ancho de lectura. Los dos límites llevan el calc() para que en una ventana
+       estrecha el globo se estreche en vez de salirse por el borde: driver.css fija
+       un mínimo de 250 px que en un móvil deja el texto cortado. */
+    min-width: min(17rem, calc(100vw - 2rem));
+    max-width: min(24rem, calc(100vw - 2rem));
+}
+
+/* driver.css impone Helvetica a TODO lo de dentro con `.driver-popover *`, así que
+   hay que recuperar la tipografía de la aplicación con la misma arma. */
+.driver-popover.recorrido-adminweb * {
+    font-family: var(--rz-text-font-family);
+}
+
+.recorrido-adminweb .driver-popover-title {
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--rz-text-color);
+    /* Sitio para la «×», que va en posición absoluta sobre la esquina. */
+    padding-right: 1.5rem;
+}
+
+/* El selector lleva las DOS clases del globo a propósito: driver.css coloca el
+   margen de este párrafo con `.driver-popover-title[style*=block]+…`, que pesa
+   tres clases. Con una sola aquí, el margen que ganaría sería el suyo. */
+.driver-popover.recorrido-adminweb .driver-popover-description {
+    margin-top: .45rem;
+    font-size: .875rem;
+    font-weight: 400;
+    line-height: 1.55;
+    color: var(--rz-text-secondary-color);
+}
+
+.recorrido-adminweb .driver-popover-close-btn {
+    width: 1.9rem;
+    height: 1.9rem;
+    font-size: 1.1rem;
+    color: var(--rz-text-secondary-color);
+}
+
+.recorrido-adminweb .driver-popover-close-btn:hover,
+.recorrido-adminweb .driver-popover-close-btn:focus {
+    color: var(--rz-text-color);
+}
+
+/* ── El pie: paso actual y botones ──────────────────────────────────────────── */
+
+.recorrido-adminweb .driver-popover-footer {
+    margin-top: 1rem;
+    gap: .75rem;
+}
+
+.recorrido-adminweb .driver-popover-progress-text {
+    font-size: .75rem;
+    color: var(--rz-text-secondary-color);
+}
+
+.recorrido-adminweb .driver-popover-footer button {
+    padding: .3rem .75rem;
+    border: 1px solid var(--rz-border-color);
+    border-radius: var(--rz-border-radius);
+    background-color: transparent;
+    color: var(--rz-text-color);
+    font-size: .8rem;
+    font-weight: 500;
+    line-height: 1.4;
+    /* driver.css le pone un realce blanco al texto para que resalte sobre su fondo
+       claro. Sobre la tarjeta oscura eso deja las letras con halo y borrosas. */
+    text-shadow: none;
+}
+
+.recorrido-adminweb .driver-popover-footer button:hover,
+.recorrido-adminweb .driver-popover-footer button:focus {
+    background-color: var(--rz-base-200);
+}
+
+/* El «Siguiente» / «Terminar» es la acción evidente y se pinta con el acento. El
+   acento vive en el cromo interactivo y este es cromo interactivo, así que aquí
+   sí toca (ver la nota 3 de tema.css sobre acento y aviso).
+
+   El selector repite `.driver-popover-footer button` en vez de ir directo al
+   botón, y no es palabrería: la regla de arriba —la de todos los botones del
+   pie— pesa MÁS que `.recorrido-adminweb .driver-popover-next-btn`, porque lleva
+   una clase más. Escrito de la forma corta, el botón principal se quedaba gris,
+   y en el estado de hover se volvía gris solo al pasar el ratón por encima, que
+   es de las cosas que uno mira tres veces sin creérselo. */
+.recorrido-adminweb .driver-popover-footer button.driver-popover-next-btn {
+    background-color: var(--rz-primary);
+    border-color: var(--rz-primary);
+    color: var(--rz-on-primary);
+}
+
+.recorrido-adminweb .driver-popover-footer button.driver-popover-next-btn:hover,
+.recorrido-adminweb .driver-popover-footer button.driver-popover-next-btn:focus {
+    background-color: var(--rz-primary-dark);
+    border-color: var(--rz-primary-dark);
+    color: var(--rz-on-primary);
+}
+
+/* ── La flecha ──────────────────────────────────────────────────────────────── */
+
+/* driver.css la dibuja con `border: 5px solid #fff` y luego pone en transparente
+   los tres lados que no se ven. Ese blanco es el fondo del globo, así que hay que
+   repintar el lado visible de cada orientación — si no, en modo oscuro queda una
+   punta blanca colgando de una tarjeta gris. El nombre del lado es dónde está el
+   ELEMENTO respecto del globo, no hacia dónde apunta la punta.
+
+   El GROSOR se deja como viene (5 px). driver.css centra la punta con un
+   `margin: -5px` escrito a mano, así que cambiarlo aquí la descoloca justo la
+   diferencia. */
+.recorrido-adminweb .driver-popover-arrow-side-left {
+    border-left-color: var(--rz-card-background-color);
+}
+
+.recorrido-adminweb .driver-popover-arrow-side-right {
+    border-right-color: var(--rz-card-background-color);
+}
+
+.recorrido-adminweb .driver-popover-arrow-side-top {
+    border-top-color: var(--rz-card-background-color);
+}
+
+.recorrido-adminweb .driver-popover-arrow-side-bottom {
+    border-bottom-color: var(--rz-card-background-color);
+}
+
+/* ── Lo señalado ────────────────────────────────────────────────────────────── */
+
+/* El recorte del velo ya destaca el control, pero en modo oscuro la diferencia
+   entre «iluminado» y «tapado» es poca: el velo negro sobre un fondo ya oscuro
+   apenas separa. El anillo del acento lo deja sin dudas en los dos modos.
+
+   El desplazamiento es menor que el margen del recorte (stagePadding: 6) para que
+   el anillo quede DENTRO de la ventana iluminada y no partido por su borde.
+
+   Y NO se le toca el redondeo: el contorno ya sigue solo el que tenga el control,
+   y forzarle uno significaría que un control cuadrado cambia de forma mientras se
+   le está señalando — precisamente en el momento en que alguien lo está mirando
+   para aprender a reconocerlo. */
+body.driver-active .driver-active-element {
+    outline: 2px solid var(--rz-primary);
+    outline-offset: 2px;
+}

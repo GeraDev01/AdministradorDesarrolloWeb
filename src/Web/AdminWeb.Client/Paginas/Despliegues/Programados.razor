@@ -47,9 +47,11 @@
         @* El despertador, el mismo de la entrada «Programados» del menú: programar un despliegue es
            poner una hora a la que algo se dispara solo. Un calendario a secas no diría si es una
            cita, un festivo o un plazo. *@
-        <RadzenButton Text="Programar despliegue" Icon="alarm" Disabled="@_ocupado" Click="@AbrirFormulario" />
+        <RadzenButton data-recorrido="programados-nueva"
+                      Text="Programar despliegue" Icon="alarm" Disabled="@_ocupado" Click="@AbrirFormulario" />
 
-        <RadzenCheckBox TValue="bool" @bind-Value="_soloPendientes" Name="soloPendientes"
+        <RadzenCheckBox data-recorrido="programados-pendientes"
+                        TValue="bool" @bind-Value="_soloPendientes" Name="soloPendientes"
                         Change="@(_ => Cargar())" Disabled="@_ocupado" />
         <RadzenLabel Text="Solo pendientes" Component="soloPendientes" />
     </RadzenStack>
@@ -58,7 +60,8 @@
     {
         @if (!d.TrabajoDeFondoActivo)
         {
-            <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+            <RadzenAlert data-recorrido="programados-disparador"
+                         AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
                 El disparador de despliegues programados está APAGADO en este servidor. Lo que se
                 agende aquí quedará esperando y se marcará como perdido al pasar su tolerancia.
                 Mientras la aplicación de escritorio siga en producción es lo correcto: son sus
@@ -161,7 +164,8 @@
 
         <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@Resumen()</RadzenText>
 
-        <RadzenDataGrid TItem="DespliegueProgramadoDto" Data="@d.Citas" IsLoading="@_ocupado"
+        <RadzenDataGrid data-recorrido="programados-citas"
+                        TItem="DespliegueProgramadoDto" Data="@d.Citas" IsLoading="@_ocupado"
                         AllowSorting="true" AllowPaging="true" PageSize="15"
                         RowRender="@ApagarLasCerradas"
                         EmptyText="No hay despliegues programados.">

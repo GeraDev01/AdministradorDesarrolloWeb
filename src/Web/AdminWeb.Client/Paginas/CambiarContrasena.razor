@@ -10,12 +10,14 @@
 
         @if (Sesion.Usuario?.DebeCambiarContrasena == true)
         {
-            <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+            <RadzenAlert data-recorrido="contrasena-temporal"
+                         AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
                 Estás usando una contraseña temporal. Cámbiala para poder continuar.
             </RadzenAlert>
         }
 
-        <RadzenPassword @bind-Value="_nueva" Placeholder="Nueva contraseña" Disabled="@_ocupado" />
+        <RadzenPassword data-recorrido="contrasena-nueva"
+                        @bind-Value="_nueva" Placeholder="Nueva contraseña" Disabled="@_ocupado" />
         <RadzenPassword @bind-Value="_confirmacion" Placeholder="Repite la contraseña" Disabled="@_ocupado" />
 
         <RadzenText TextStyle="TextStyle.Caption">
@@ -30,7 +32,8 @@
             </RadzenAlert>
         }
 
-        <RadzenButton Text="@(_ocupado ? "Guardando…" : "Guardar")" Disabled="@_ocupado" Click="@Guardar" />
+        <RadzenButton data-recorrido="contrasena-guardar"
+                      Text="@(_ocupado ? "Guardando…" : "Guardar")" Disabled="@_ocupado" Click="@Guardar" />
     </RadzenStack>
 </RadzenCard>
 

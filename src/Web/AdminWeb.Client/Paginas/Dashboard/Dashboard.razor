@@ -31,7 +31,8 @@ else
     <RadzenStack Gap="1rem">
 
         @* ── Tarjetas ───────────────────────────────────────────────────────── *@
-        <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.75rem">
+        <RadzenStack data-recorrido="dashboard-tarjetas"
+                     Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.75rem">
             @Tarjeta("Por estimar",   _datos.Tarjetas.PorEstimar,   SinEmpezar)
             @Tarjeta("En desarrollo", _datos.Tarjetas.EnDesarrollo, EnCurso)
             @Tarjeta("Por entregar",  _datos.Tarjetas.PorEntregar,  EnRiesgo)
@@ -54,7 +55,8 @@ else
                     <RadzenText TextStyle="TextStyle.H6">
                         <RadzenIcon Icon="event" /> Próximas entregas (7 días)
                     </RadzenText>
-                    <RadzenDataGrid TItem="EntregaProximaDto" Data="@_datos.ProximasEntregas"
+                    <RadzenDataGrid data-recorrido="dashboard-entregas"
+                                    TItem="EntregaProximaDto" Data="@_datos.ProximasEntregas"
                                     AllowSorting="false" RowRender="@PintarEntrega"
                                     EmptyText="Nada comprometido para esta semana."
                                     Style="min-height:220px">
@@ -107,7 +109,8 @@ else
                         <RadzenText TextStyle="TextStyle.H6">
                             <RadzenIcon Icon="groups" /> Carga por desarrollador
                         </RadzenText>
-                        <RadzenDataGrid TItem="CargaDesarrolladorDto" Data="@carga" AllowSorting="false"
+                        <RadzenDataGrid data-recorrido="dashboard-carga"
+                                        TItem="CargaDesarrolladorDto" Data="@carga" AllowSorting="false"
                                         EmptyText="No hay desarrolladores activos."
                                         Style="min-height:220px">
                             <Columns>
@@ -129,7 +132,8 @@ else
                         <RadzenText TextStyle="TextStyle.H6">
                             <RadzenIcon Icon="push_pin" /> Recordatorios pendientes
                         </RadzenText>
-                        <RadzenDataGrid TItem="RecordatorioDto" Data="@recordatorios" AllowSorting="false"
+                        <RadzenDataGrid data-recorrido="dashboard-recordatorios"
+                                        TItem="RecordatorioDto" Data="@recordatorios" AllowSorting="false"
                                         RowRender="@PintarRecordatorio"
                                         EmptyText="No hay recordatorios pendientes."
                                         Style="min-height:220px">
@@ -155,7 +159,8 @@ else
                         <RadzenText TextStyle="TextStyle.H6">
                             <RadzenIcon Icon="emoji_events" /> Top ranking — @_datos.PeriodoRanking
                         </RadzenText>
-                        <RadzenDataGrid TItem="PuestoRankingDto" Data="@podio" AllowSorting="false"
+                        <RadzenDataGrid data-recorrido="dashboard-podio"
+                                        TItem="PuestoRankingDto" Data="@podio" AllowSorting="false"
                                         EmptyText="Sin datos este mes."
                                         Style="min-height:220px">
                             <Columns>

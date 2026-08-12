@@ -31,13 +31,15 @@
 <RadzenStack Gap="1rem">
     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem" Wrap="FlexWrap.Wrap">
         <RadzenText TextStyle="TextStyle.H5" Style="margin:0">Equipos</RadzenText>
-        <RadzenButton Text="Nuevo equipo" Icon="add" Disabled="@_ocupado" Click="@AbrirEquipoNuevo" />
+        <RadzenButton data-recorrido="equipos-nuevo"
+                      Text="Nuevo equipo" Icon="add" Disabled="@_ocupado" Click="@AbrirEquipoNuevo" />
         <RadzenButton Text="Organigrama en PDF" Icon="download" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
                       Click="@GenerarPdf" />
         @* «history» —el reloj con la flecha hacia atrás— es el mismo concepto que la entrada
            «Bitácora» del menú. Era el único botón de esta cabecera sin Icon, así que además del
            emoji había una fila desalineada: cuatro glifos de trazo y un pergamino en color. *@
-        <RadzenButton Text="Historial" Icon="history" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+        <RadzenButton data-recorrido="equipos-historial"
+                      Text="Historial" Icon="history" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
                       Click="@AlternarHistorial" />
         <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
                       Size="ButtonSize.Small" Disabled="@_ocupado" Click="@Cargar" />
@@ -105,7 +107,7 @@
     }
     else
     {
-        <RadzenTabs>
+        <RadzenTabs data-recorrido="equipos-pestanas">
             <Tabs>
                 @* ── Pestaña 1: donde se trabaja ──────────────────────────────── *@
                 <RadzenTabsItem Text="Organización" Icon="groups">
@@ -121,7 +123,7 @@
                                 <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">Asignar personas a equipos</RadzenText>
 
                                 <div style="display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-start">
-                                    <div style="flex:1 1 18rem;min-width:16rem">
+                                    <div data-recorrido="equipos-sin-equipo" style="flex:1 1 18rem;min-width:16rem">
                                         <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">
                                             Sin equipo (@_organigrama.SinEquipo.Count)
                                         </RadzenText>
@@ -150,7 +152,8 @@
                                            flecha: describían el MOVIMIENTO en la pantalla (de una columna a la otra),
                                            que es una casualidad de la maquetación, mientras que group_add/remove
                                            describen la ACCIÓN, que no cambia si mañana se reordenan las columnas. *@
-                                        <RadzenButton Text="Mover al equipo" Icon="group_add" Size="ButtonSize.Small"
+                                        <RadzenButton data-recorrido="equipos-mover"
+                                                      Text="Mover al equipo" Icon="group_add" Size="ButtonSize.Small"
                                                       Disabled="@(_ocupado || _equipoDestino is null || _marcadosSinEquipo.Count == 0)"
                                                       Click="@MoverAlEquipo" />
                                         <RadzenButton Text="Quitar del equipo" Icon="remove" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
@@ -209,7 +212,8 @@
                                                            Se guarda al SALIR de la caja (Change), no en cada tecla: es
                                                            una frase, y guardar en cada pulsación llenaría la bitácora
                                                            de una línea por letra. *@
-                                                        <RadzenTextBox Value="@(integrante.Funcion ?? "")"
+                                                        <RadzenTextBox data-recorrido="equipos-funcion"
+                                                                       Value="@(integrante.Funcion ?? "")"
                                                                        MaxLength="@LargoMaximoDeFuncion" Style="flex:1 1 16rem;min-width:12rem"
                                                                        Placeholder="Función (opcional): qué hace en el equipo"
                                                                        Disabled="@_ocupado"

@@ -85,6 +85,178 @@ window.adminweb = {
         }
     },
 
+    // ── Recorridos guiados ───────────────────────────────────────────────────
+    //
+    // El envoltorio de Driver.js, y nada más. Los GUIONES no están aquí: viven en C#
+    // (Recorridos/), que es lo que permite que una prueba los lea y compruebe que cada paso
+    // apunta a un control que sigue existiendo en el marcado. Escritos en JavaScript no habría
+    // forma de comprobarlos, y un recorrido por pantalla sin comprobar envejece mal.
+    //
+    // Esta parte solo sabe tres cosas: buscar la marca en el documento, saltarse los pasos cuyo
+    // control no esté, y recordar en el navegador que un recorrido ya se vio.
+    recorridos: {
+
+        // EL ATRIBUTO con el que se anclan los pasos. El mismo literal está en C#
+        // (Paso.Atributo) y hay una prueba que comprueba que los dos dicen lo mismo: si se
+        // cambiara solo aquí, los recorridos dejarían de encontrar nada y el síntoma sería que
+        // todos los pasos «se saltan» — o sea, ningún error, solo recorridos vacíos.
+        ATRIBUTO: 'data-recorrido',
+
+        _clave: 'adminweb-recorrido-visto:',
+        _activo: null,
+        _sinContar: false,
+
+        _selector: function (marca) {
+            // La marca es siempre [a-z0-9-] —hay una prueba que lo exige—, así que el escape es
+            // un cinturón de más; cuesta nada y evita que una marca rara rompa el selector entero.
+            return '[' + window.adminweb.recorridos.ATRIBUTO + '="' +
+                   String(marca).replace(/["\\]/g, '\\$&') + '"]';
+        },
+
+        // «Está y se ve». querySelector encuentra también lo que está oculto —una pestaña que no
+        // toca, un panel plegado, una columna escondida—, y señalar algo invisible deja el globo
+        // apuntando a un rectángulo de cero por cero en una esquina.
+        //
+        // Se mira el tamaño y no offsetParent porque lo que está en posición fija no tiene padre
+        // de posición y aun así se ve perfectamente: la barra superior, sin ir más lejos.
+        _visible: function (el) {
+            return !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
+        },
+
+        /**
+         * Lanza un recorrido. Devuelve cuántos pasos se enseñaron de verdad.
+         *
+         * @param {string} id     con qué nombre se recuerda que ya se vio (la ruta de la pantalla)
+         * @param {Array}  pasos  [{ marca, titulo, texto, lado }], ya en el orden bueno
+         */
+        iniciar: function (id, pasos) {
+            const R = window.adminweb.recorridos;
+
+            R.cerrar();
+
+            if (!window.driver || !window.driver.js || typeof window.driver.js.driver !== 'function') {
+                // index.html carga driver.js ANTES que este archivo. Si falta, es que alguien tocó
+                // ese orden; se dice en la consola en vez de reventar la pantalla.
+                console.warn('Recorridos: driver.js no está cargado; no hay nada que enseñar.');
+                return 0;
+            }
+
+            const lados = { arriba: 'top', abajo: 'bottom', izquierda: 'left', derecha: 'right' };
+            const guion = [];
+
+            for (const p of (pasos || [])) {
+                const paso = { popover: { title: p.titulo || '', description: p.texto || '' } };
+
+                if (p.marca) {
+                    // AQUÍ ESTÁ LA TOLERANCIA A FALLOS. Hay controles que solo existen para ciertos
+                    // roles, o cuando hay datos, o con un panel abierto. Un paso cuyo control no
+                    // esté se SALTA y el recorrido continúa: quedarse a medias por eso sería
+                    // castigar a quien pide ayuda por una condición que no eligió.
+                    //
+                    // Lo que no se hace es callarlo del todo en el desarrollo: si la marca no está
+                    // en NINGUNA parte del documento, la prueba de la suite ya debería estar roja, y
+                    // el aviso de consola es lo que conecta ese fallo con lo que se ve.
+                    const selector = R._selector(p.marca);
+                    const el = document.querySelector(selector);
+                    if (!R._visible(el)) continue;
+
+                    // Se pasa el SELECTOR y no el nodo: Blazor vuelve a pintar cuando le parece, y
+                    // un nodo capturado ahora puede estar ya sustituido cuando el recorrido llegue
+                    // a ese paso. Con el selector, Driver.js lo busca en el momento de señalarlo.
+                    paso.element = selector;
+
+                    const lado = lados[p.lado];
+                    if (lado) paso.popover.side = lado;
+                }
+                // Sin marca es la PORTADA: Driver.js la enseña centrada, sin señalar nada. Nunca se
+                // salta, y por eso un recorrido que empieza con una jamás sale vacío.
+
+                guion.push(paso);
+            }
+
+            if (guion.length === 0) return 0;
+
+            const conductor = window.driver.js.driver({
+                steps: guion,
+                animate: true,
+                // Cerrar con Escape y pulsando fuera. Los dos vienen de serie con esto puesto, y son
+                // la mitad de que la gente se atreva a lanzar el recorrido: se prueba lo que se sabe
+                // abandonar.
+                allowClose: true,
+                allowKeyboardControl: true,
+                overlayOpacity: 0.6,
+                stagePadding: 6,
+                stageRadius: 6,
+                smoothScroll: true,
+                showProgress: true,
+                popoverClass: 'recorrido-adminweb',
+                progressText: '{{current}} de {{total}}',
+                nextBtnText: 'Siguiente',
+                prevBtnText: 'Anterior',
+                doneBtnText: 'Terminar',
+                onDestroyed: function () {
+                    R._activo = null;
+                    // Se apunta como visto tanto al terminarlo como al cerrarlo a medias: las dos
+                    // cosas significan «ya sé que esto existe». Lo único que decide es si el botón
+                    // enseña el puntito de «sin estrenar»; no hay ningún recorrido que salte solo.
+                    if (!R._sinContar) R.marcarVisto(id);
+                    R._sinContar = false;
+                }
+            });
+
+            R._activo = conductor;
+            conductor.drive();
+            return guion.length;
+        },
+
+        /**
+         * Cierra el recorrido en curso. Se llama al cambiar de pantalla.
+         *
+         * Cerrar así NO lo cuenta como visto: quien navega a otra parte no lo ha visto, y darlo por
+         * visto escondería el aviso de que hay uno sin estrenar.
+         */
+        cerrar: function () {
+            const R = window.adminweb.recorridos;
+            if (!R._activo) return;
+
+            R._sinContar = true;
+            try {
+                R._activo.destroy();
+            } catch (e) {
+                // Si el cierre ordenado falla, lo que NO puede quedarse puesto es la clase que
+                // Driver.js pone en el <body>: mientras está, su hoja deja toda la aplicación sin
+                // recibir clics. El fallo sería una aplicación aparentemente colgada, sin más
+                // síntoma. Esto es el último recurso para que eso no ocurra nunca.
+                document.body.classList.remove('driver-active', 'driver-fade', 'driver-simple');
+                document.querySelectorAll('.driver-overlay, .driver-popover').forEach(function (n) {
+                    n.remove();
+                });
+                console.warn('Recorridos: el cierre ordenado falló; se limpió a mano.', e);
+            }
+            R._activo = null;
+            R._sinContar = false;
+        },
+
+        enMarcha: function () {
+            return !!window.adminweb.recorridos._activo;
+        },
+
+        visto: function (id) {
+            try {
+                return localStorage.getItem(window.adminweb.recorridos._clave + id) === '1';
+            } catch (e) {
+                // Sin almacenamiento (modo privado): se da por visto para no insistir con el punto.
+                return true;
+            }
+        },
+
+        marcarVisto: function (id) {
+            try {
+                localStorage.setItem(window.adminweb.recorridos._clave + id, '1');
+            } catch (e) { /* modo privado: vale para esta pestaña y ya */ }
+        }
+    },
+
     // Pegar una captura dentro de un recuadro.
     //
     // Es lo único que C# no puede hacer solo: el evento «paste» de Blazor no trae los archivos, solo

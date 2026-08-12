@@ -60,7 +60,7 @@
                       Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
     </RadzenStack>
 
-    <RadzenCard>
+    <RadzenCard data-recorrido="requerimientos-filtros">
         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                      Gap="1rem" Wrap="FlexWrap.Wrap">
             <RadzenTextBox @bind-Value="_buscar" Placeholder="Buscar por título o descripción…"
@@ -83,7 +83,8 @@
             @* «sync» y no «download»: de aquí no sale ningún archivo. Trae trabajo del otro sistema,
                escribe requerimientos y reparte asignaciones, que es justo lo que el glifo de las dos
                flechas anuncia y el de recargar escondería. *@
-            <RadzenButton Text="Importar de DevOps" Icon="sync" ButtonStyle="ButtonStyle.Light"
+            <RadzenButton data-recorrido="requerimientos-importar"
+                          Text="Importar de DevOps" Icon="sync" ButtonStyle="ButtonStyle.Light"
                           Disabled="@_ocupado" Click="@ImportarDeDevOps"
                           title="Da de alta los work items asignados y abiertos, repartidos según las reglas." />
 
@@ -274,7 +275,8 @@
         </RadzenCard>
     }
 
-    <RadzenDataGrid TItem="RequerimientoDto" Data="@Filas" IsLoading="@_ocupado"
+    <RadzenDataGrid data-recorrido="requerimientos-tabla"
+                    TItem="RequerimientoDto" Data="@Filas" IsLoading="@_ocupado"
                     AllowSorting="true" AllowPaging="true" PageSize="20"
                     RowRender="@PintarVencidos"
                     EmptyText="No hay requerimientos que cumplan el filtro.">
@@ -377,13 +379,16 @@
                 <Template Context="r">
                     <RadzenButton Text="Editar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                   Disabled="@_ocupado" Click="@(() => AbrirFormularioDe(r))" />
-                    <RadzenButton Text="Asignar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                    <RadzenButton data-recorrido="requerimientos-asignar"
+                                  Text="Asignar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                   Disabled="@_ocupado" Click="@(() => AbrirAsignacion(r))" />
-                    <RadzenButton Text="Documentos" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                    <RadzenButton data-recorrido="requerimientos-documentos"
+                                  Text="Documentos" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                   Disabled="@_ocupado" Click="@(() => AbrirAdjuntos(r))" />
                     @if (r.Estado != RequirementStatus.Cancelado)
                     {
-                        <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                        <RadzenButton data-recorrido="requerimientos-cancelar"
+                                      Text="Cancelar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                       Disabled="@_ocupado" Click="@(() => CancelarRequerimiento(r))" />
                     }
                     @if (!string.IsNullOrWhiteSpace(r.Enlace))

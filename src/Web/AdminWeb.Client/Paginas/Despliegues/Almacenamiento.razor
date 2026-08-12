@@ -45,7 +45,8 @@
                       Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
         @* El matraz es «probar»: se lanza algo a ver qué contesta. Es el mismo botón que en Correo y
            en «Mi token de DevOps», y lleva el mismo icono a propósito. *@
-        <RadzenButton Text="Probar conexión" Icon="science" ButtonStyle="ButtonStyle.Light"
+        <RadzenButton data-recorrido="almacen-probar"
+                      Text="Probar conexión" Icon="science" ButtonStyle="ButtonStyle.Light"
                       Size="ButtonSize.Small" Click="@Probar" Disabled="@(_ocupado || !Configurado)" />
     </RadzenStack>
 
@@ -69,7 +70,8 @@
             <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                          Gap="0.75rem" Wrap="FlexWrap.Wrap">
                 <RadzenLabel Text="Carpeta:" Component="carpeta" />
-                <RadzenDropDown TValue="string" @bind-Value="_carpeta" Name="carpeta"
+                <RadzenDropDown data-recorrido="almacen-carpeta"
+                                TValue="string" @bind-Value="_carpeta" Name="carpeta"
                                 Data="@e.Carpetas" AllowFiltering="true" Disabled="@_ocupado"
                                 Change="@(_ => Listar())" Style="min-width:20rem" />
 
@@ -82,7 +84,8 @@
                    aplicación entera, y qué se crea lo dice el texto. *@
                 <RadzenButton Text="Nueva carpeta" Icon="add" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                               Click="@CrearCarpeta" Disabled="@_ocupado" />
-                <RadzenButton Text="Eliminar carpeta" Icon="delete" ButtonStyle="ButtonStyle.Light"
+                <RadzenButton data-recorrido="almacen-eliminar-carpeta"
+                              Text="Eliminar carpeta" Icon="delete" ButtonStyle="ButtonStyle.Light"
                               Size="ButtonSize.Small" Click="@EliminarCarpeta" Disabled="@_ocupado" />
 
                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
@@ -90,7 +93,7 @@
                 </RadzenText>
             </RadzenStack>
 
-            <RadzenCard>
+            <RadzenCard data-recorrido="almacen-subir">
                 <RadzenStack Gap="0.5rem">
                     <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">Subir a esta carpeta</RadzenText>
                     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
@@ -112,7 +115,8 @@
                 </RadzenStack>
             </RadzenCard>
 
-            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+            <RadzenStack data-recorrido="almacen-filtro"
+                         Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                          Gap="0.75rem" Wrap="FlexWrap.Wrap">
                 <RadzenLabel Text="Filtrar:" Component="filtro" />
                 <RadzenTextBox @bind-Value="_filtro" Name="filtro" Style="width:18rem"
@@ -126,7 +130,8 @@
 
             <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@Resumen()</RadzenText>
 
-            <RadzenDataGrid TItem="ArchivoDeBlobDto" Data="@Filtrados" IsLoading="@_ocupado"
+            <RadzenDataGrid data-recorrido="almacen-archivos"
+                            TItem="ArchivoDeBlobDto" Data="@Filtrados" IsLoading="@_ocupado"
                             AllowSorting="false" AllowPaging="true" PageSize="20"
                             EmptyText="La carpeta está vacía o todavía no existe.">
                 <Columns>

@@ -47,7 +47,8 @@
                 @* La cola no se anuncia solo cuando hay algo: enseñarla siempre es lo que hace que se
                    sepa que existe. Cuando hay algo esperando, además, lleva el número y se pinta
                    encendida. *@
-                <RadzenButton Text="@(PorRevisar > 0 ? $"Cola de revisión ({PorRevisar})" : "Cola de revisión")"
+                <RadzenButton data-recorrido="conocimiento-cola"
+                              Text="@(PorRevisar > 0 ? $"Cola de revisión ({PorRevisar})" : "Cola de revisión")"
                               Icon="fact_check"
                               ButtonStyle="@(PorRevisar > 0 ? ButtonStyle.Warning : ButtonStyle.Light)"
                               Size="ButtonSize.Small"
@@ -55,7 +56,8 @@
             }
             @if (_puedeEscribir)
             {
-                <RadzenButton Text="Escribir un artículo" Icon="add" ButtonStyle="ButtonStyle.Primary"
+                <RadzenButton data-recorrido="conocimiento-escribir"
+                              Text="Escribir un artículo" Icon="add" ButtonStyle="ButtonStyle.Primary"
                               Size="ButtonSize.Small"
                               Click="@(() => Navegacion.NavigateTo("conocimiento/nuevo"))" />
             }
@@ -69,7 +71,8 @@
                      AlignItems="AlignItems.Center" Gap="0.5rem">
             @if (p.MisDevueltos > 0)
             {
-                <RadzenButton Text="@($"Te devolvieron {p.MisDevueltos}")" Icon="reply"
+                <RadzenButton data-recorrido="conocimiento-devueltos"
+                              Text="@($"Te devolvieron {p.MisDevueltos}")" Icon="reply"
                               ButtonStyle="ButtonStyle.Danger" Size="ButtonSize.Small"
                               Click="@(() => VerLoMioAsync(KnowledgeStatus.Rechazado))" />
             }
@@ -89,14 +92,16 @@
                          AlignItems="AlignItems.Center" Gap="0.5rem">
                 @* Se busca al salir del campo o con Enter, no en cada tecla: cada cambio es una
                    consulta paginada al servidor que además mira DENTRO del texto de cada artículo. *@
-                <RadzenTextBox @bind-Value="_texto" Style="width:300px"
+                <RadzenTextBox data-recorrido="conocimiento-buscar"
+                               @bind-Value="_texto" Style="width:300px"
                                Placeholder="Buscar un tema, un término, una palabra del texto…"
                                aria-label="Buscar en la documentación"
                                Change="@(async _ => await BuscarDeNuevoAsync())" />
 
                 @if (_puedeEscribir)
                 {
-                    <RadzenDropDown TValue="int?" Data="@Estados" TextProperty="Texto" ValueProperty="Id"
+                    <RadzenDropDown data-recorrido="conocimiento-estado"
+                                    TValue="int?" Data="@Estados" TextProperty="Texto" ValueProperty="Id"
                                     @bind-Value="_estado" AllowClear="true" Style="width:180px"
                                     Placeholder="Todos los estados" aria-label="Estado"
                                     Change="@(async _ => await BuscarDeNuevoAsync())" />
@@ -116,7 +121,8 @@
             @* ── El índice de etiquetas ──────────────────────────────────────── *@
             @if (_etiquetas.Count > 0)
             {
-                <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap"
+                <RadzenStack data-recorrido="conocimiento-temas"
+                             Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap"
                              AlignItems="AlignItems.Center" Gap="0.35rem">
                     <RadzenText TextStyle="TextStyle.Caption" Style="margin:0 .3rem 0 0">
                         <RadzenIcon Icon="label" /> Temas:

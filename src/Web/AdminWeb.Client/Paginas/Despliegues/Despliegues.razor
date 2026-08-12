@@ -89,7 +89,7 @@
 
                         @if (_trabajo is { } trabajo)
                         {
-                            <RadzenCard>
+                            <RadzenCard data-recorrido="despliegues-en-curso">
                                 <RadzenStack Gap="0.5rem">
                                     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                                  Gap="1rem" Wrap="FlexWrap.Wrap">
@@ -204,12 +204,14 @@
                                                     Change="@(_ => CambioDeSistema())" Style="min-width:16rem" />
 
                                     <RadzenLabel Text="Versión:" Component="versionDespliegue" />
-                                    <RadzenDropDown TValue="int?" @bind-Value="_versionId" Name="versionDespliegue"
+                                    <RadzenDropDown data-recorrido="despliegues-version"
+                                                    TValue="int?" @bind-Value="_versionId" Name="versionDespliegue"
                                                     Data="@VersionesDelSistema" TextProperty="Texto" ValueProperty="Id"
                                                     Placeholder="Elige una versión" Disabled="@_ocupado"
                                                     Style="min-width:20rem" />
 
-                                    <RadzenButton Text="Preparar despliegue" Icon="rocket_launch"
+                                    <RadzenButton data-recorrido="despliegues-preparar"
+                                                  Text="Preparar despliegue" Icon="rocket_launch"
                                                   Disabled="@(_ocupado || _confirmando)"
                                                   Click="@AbrirChecklist" Style="margin-left:auto" />
                                 </RadzenStack>
@@ -229,7 +231,8 @@
 
                                 @if (_perfiles.Count > 0)
                                 {
-                                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                    <RadzenStack data-recorrido="despliegues-atajos"
+                                                 Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                                  Gap="0.5rem" Wrap="FlexWrap.Wrap">
                                         <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">Atajo:</RadzenText>
                                         @foreach (var perfil in _perfiles)
@@ -243,7 +246,8 @@
                                     </RadzenStack>
                                 }
 
-                                <RadzenDataGrid TItem="ServidorDto" Data="@ServidoresActivos" AllowPaging="true" PageSize="10"
+                                <RadzenDataGrid data-recorrido="despliegues-servidores"
+                                                TItem="ServidorDto" Data="@ServidoresActivos" AllowPaging="true" PageSize="10"
                                                 AllowSorting="true" EmptyText="No hay servidores activos.">
                                     <Columns>
                                         <RadzenDataGridColumn TItem="ServidorDto" Title="Desplegar" Width="100px" Sortable="false">

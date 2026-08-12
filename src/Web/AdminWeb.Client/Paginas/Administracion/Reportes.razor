@@ -39,7 +39,7 @@
     <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Reportes</RadzenText>
 
     <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:flex-start">
-        <RadzenCard Style="flex:0 1 20rem;min-width:16rem">
+        <RadzenCard data-recorrido="reportes-catalogo" Style="flex:0 1 20rem;min-width:16rem">
             <RadzenStack Gap="0.5rem">
                 <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">Reportes disponibles</RadzenText>
                 <RadzenListBox TValue="string" Value="@_clave" ValueChanged="@Elegir"
@@ -63,7 +63,8 @@
                                           Name="hasta" DateFormat="dd/MM/yyyy" ShowTime="false"
                                           Disabled="@_ocupado" Style="width:9rem" />
 
-                        <RadzenDropDown TValue="IEnumerable<int>" Value="@_devs" ValueChanged="@CambiarDevs"
+                        <RadzenDropDown data-recorrido="reportes-personas"
+                                        TValue="IEnumerable<int>" Value="@_devs" ValueChanged="@CambiarDevs"
                                         Data="@Personas" TextProperty="Texto" ValueProperty="Id"
                                         Multiple="true" AllowClear="true" Chips="false" MaxSelectedLabels="0"
                                         SelectedItemsText="@TextoDePersonas()" Placeholder="Todos"
@@ -73,11 +74,13 @@
                            al cronómetro, y esto vuelve a calcular el reporte entero, que es otra
                            cosa que recargar lo que ya se ve. *@
                         <RadzenButton Text="Generar" Icon="autorenew" Click="@Generar" Disabled="@_ocupado" />
-                        <RadzenButton Text="Excel" Icon="download" ButtonStyle="ButtonStyle.Light"
+                        <RadzenButton data-recorrido="reportes-excel"
+                                      Text="Excel" Icon="download" ButtonStyle="ButtonStyle.Light"
                                       Click="@Exportar" Disabled="@(_ocupado || _reporte is null)" />
                         @* Éste solo ABRE el panel; el que manda de verdad es el «Enviar» de abajo,
                            y por eso se reparten el sobre y el avión de papel. *@
-                        <RadzenButton Text="Enviar por correo" Icon="mail" ButtonStyle="ButtonStyle.Light"
+                        <RadzenButton data-recorrido="reportes-correo"
+                                      Text="Enviar por correo" Icon="mail" ButtonStyle="ButtonStyle.Light"
                                       Click="@(() => _enviando = !_enviando)"
                                       Disabled="@(_ocupado || _reporte is null)" />
                     </RadzenStack>
@@ -114,7 +117,7 @@
 
             @if (_reporte is { } reporte)
             {
-                <RadzenTabs>
+                <RadzenTabs data-recorrido="reportes-vistas">
                     <Tabs>
                         @* Las dos pestañas enseñan lo MISMO de dos formas, así que sus glifos tienen
                            que contrastar o no ayudan a elegir: «table_chart» es la rejilla de filas y

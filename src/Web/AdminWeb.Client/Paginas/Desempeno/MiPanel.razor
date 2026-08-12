@@ -22,7 +22,7 @@
 <RadzenStack Gap="1rem">
     <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Mi panel</RadzenText>
 
-    <RadzenCard>
+    <RadzenCard data-recorrido="mi-panel-periodo">
         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                      Gap="0.75rem" Wrap="FlexWrap.Wrap">
             <RadzenLabel Text="Ranking del mes:" Component="mes" />
@@ -39,7 +39,8 @@
     {
         @if (!d.TieneFicha)
         {
-            <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+            <RadzenAlert data-recorrido="mi-panel-sin-ficha"
+                         AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
                 Tu cuenta no está vinculada a una ficha de desarrollador, así que no tienes puntos ni
                 posición. Los rankings los puedes ver igual. Contacta al líder si esto no es correcto.
             </RadzenAlert>
@@ -49,7 +50,8 @@
            dibuja el sistema operativo con su paleta y se queda del mismo color aunque la tarjeta sea
            de éxito, de aviso o de error. Estos heredan el color de la tarjeta, así que el icono y el
            número dicen lo mismo. *@
-        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
+        <RadzenStack data-recorrido="mi-panel-indicadores"
+                     Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
             @Tarjeta("trending_up", "Mi nivel", d.Nivel, "var(--rz-text-secondary-color)", d.ExplicacionNivel)
             @Tarjeta("groups", "Mi equipo", d.Equipo, "var(--rz-info)", d.RolEnEquipo)
             @Tarjeta("check_circle", "Aprobado (mes)", ConSigno(d.Aprobado), "var(--rz-success)",
@@ -61,7 +63,7 @@
             @Tarjeta("leaderboard", "Mi posición", d.Posicion, "var(--rz-text-color)", null)
         </RadzenStack>
 
-        <RadzenTabs>
+        <RadzenTabs data-recorrido="mi-panel-rankings">
             <Tabs>
                 <RadzenTabsItem Text="Ranking individual" Icon="leaderboard">
                     <RadzenDataGrid TItem="RankingPublicoFilaDto" Data="@d.Individual"

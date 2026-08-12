@@ -35,23 +35,26 @@
         @* «autorenew» y no «refresh»: esto no vuelve a leer lo mismo, vuelve a DERIVAR todas las
            edades y los atrasos a partir de las fechas. Recargar no cambia ningún número; recalcular
            puede cambiarlos todos, y el botón tiene que decirlo antes de pulsarlo. *@
-        <RadzenButton Text="Recalcular" Icon="autorenew" ButtonStyle="ButtonStyle.Light"
+        <RadzenButton data-recorrido="metricas-recalcular"
+                      Text="Recalcular" Icon="autorenew" ButtonStyle="ButtonStyle.Light"
                       Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
     </RadzenStack>
 
     @if (_datos is { } d)
     {
-        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
+        <RadzenStack data-recorrido="metricas-indicadores"
+                     Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
             @foreach (var indicador in d.Indicadores)
             {
                 @Tarjeta(indicador)
             }
         </RadzenStack>
 
-        <RadzenTabs>
+        <RadzenTabs data-recorrido="metricas-vistas">
             <Tabs>
                 <RadzenTabsItem Text="Requerimientos" Icon="assignment">
-                    <RadzenDataGrid TItem="MetricaDeRequerimientoDto" Data="@d.Requerimientos"
+                    <RadzenDataGrid data-recorrido="metricas-requerimientos"
+                                    TItem="MetricaDeRequerimientoDto" Data="@d.Requerimientos"
                                     IsLoading="@_ocupado" AllowSorting="true" AllowColumnResize="true"
                                     AllowPaging="true" PageSize="25"
                                     EmptyText="No hay requerimientos registrados.">

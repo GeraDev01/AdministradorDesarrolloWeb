@@ -49,7 +49,7 @@
         reutilizan; la marcada como predeterminada es la que se ofrece primero.
     </RadzenText>
 
-    <RadzenCard>
+    <RadzenCard data-recorrido="gestor-firmas-nueva">
         <RadzenStack Gap="0.75rem">
             <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">Trazar una firma nueva</RadzenText>
 
@@ -70,7 +70,8 @@
                nunca sale igual—. Al cargarla se le quita el fondo del papel y se recorta al trazo,
                así que entra igual que si se hubiera trazado aquí; después se guarda con el mismo
                botón de arriba, para que no haya dos caminos distintos de guardar. *@
-            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem"
+            <RadzenStack data-recorrido="gestor-firmas-escaneada"
+                         Orientation="Orientation.Horizontal" Gap="0.75rem"
                          AlignItems="AlignItems.Center" Wrap="FlexWrap.Wrap">
                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                     …o parte de una firma escaneada:
@@ -113,7 +114,8 @@
         </RadzenStack>
     </RadzenCard>
 
-    <RadzenDataGrid TItem="FirmaDelLiderDto" Data="@_firmas" IsLoading="@_ocupado"
+    <RadzenDataGrid data-recorrido="gestor-firmas-lista"
+                    TItem="FirmaDelLiderDto" Data="@_firmas" IsLoading="@_ocupado"
                     AllowSorting="true" EmptyText="Todavía no hay ninguna firma guardada.">
         <Columns>
             <RadzenDataGridColumn TItem="FirmaDelLiderDto" Title="Firma" Width="140px" Sortable="false">

@@ -47,14 +47,16 @@
            distintos a propósito: «Sincronizar» sale a Azure DevOps —tarda, puede fallar a medias y
            escribe en nuestra base—, y «Actualizar» solo vuelve a leer lo que ya está guardado aquí.
            Con el mismo icono, quien tiene prisa pulsa el caro creyendo que pulsa el barato. *@
-        <RadzenButton Text="Sincronizar mis tickets" Icon="sync" Disabled="@(_ocupado || !PuedoSincronizar)"
+        <RadzenButton data-recorrido="mis-tickets-sincronizar"
+                      Text="Sincronizar mis tickets" Icon="sync" Disabled="@(_ocupado || !PuedoSincronizar)"
                       Click="@Sincronizar"
                       title="@(PuedoSincronizar
                                 ? "Trae de Azure DevOps los work items asignados a ti, con tu token personal."
                                 : "Captura tu token en «Mi token de DevOps» para poder sincronizar por tu cuenta.")" />
         <RadzenButton Text="Actualizar" Icon="refresh" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                       Disabled="@_ocupado" Click="@Cargar" />
-        <RadzenButton Text="Mi token de DevOps" Icon="key" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+        <RadzenButton data-recorrido="mis-tickets-token"
+                      Text="Mi token de DevOps" Icon="key" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                       Disabled="@_ocupado" Click="@(() => Alternar(Panel.Token))" />
     </RadzenStack>
 
@@ -136,7 +138,8 @@
             <RadzenTextBox @bind-Value="_texto" Placeholder="Buscar por título, ID, estado…"
                            Change="@(_ => Cargar())" Style="min-width:16rem" />
 
-            <RadzenDropDown TValue="int?" @bind-Value="_dias" Data="@Ventanas"
+            <RadzenDropDown data-recorrido="mis-tickets-ventana"
+                            TValue="int?" @bind-Value="_dias" Data="@Ventanas"
                             TextProperty="Texto" ValueProperty="Dias" AllowClear="true"
                             Placeholder="Todo el historial" Disabled="@_ocupado"
                             Change="@(_ => Cargar())" Style="min-width:12rem" />
@@ -157,7 +160,8 @@
                             Change="@(_ => Cargar())" Disabled="@_ocupado" />
             <RadzenLabel Text="Solo sin cerrar" Component="abiertos" />
 
-            <RadzenCheckBox TValue="bool" @bind-Value="_soloSinEstimar" Name="sinEstimar"
+            <RadzenCheckBox data-recorrido="mis-tickets-sin-estimar"
+                            TValue="bool" @bind-Value="_soloSinEstimar" Name="sinEstimar"
                             Change="@(_ => Cargar())" Disabled="@_ocupado" />
             <RadzenLabel Text="@EtiquetaSinEstimar()" Component="sinEstimar"
                          Style="@(SinEstimar > 0 ? "color:var(--rz-warning);font-weight:600" : "")" />
@@ -339,7 +343,8 @@
     }
 
     @* ── La lista ────────────────────────────────────────────────────────────── *@
-    <RadzenDataGrid TItem="TicketDevOpsDto" Data="@Filas" IsLoading="@_ocupado"
+    <RadzenDataGrid data-recorrido="mis-tickets-rejilla"
+                    TItem="TicketDevOpsDto" Data="@Filas" IsLoading="@_ocupado"
                     AllowSorting="true" AllowPaging="true" PageSize="25"
                     AllowFiltering="true" FilterMode="FilterMode.Advanced"
                     FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive"

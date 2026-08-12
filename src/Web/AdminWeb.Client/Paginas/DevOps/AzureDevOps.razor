@@ -55,14 +55,18 @@
            otro abre las normas de reparto (mazo). *@
         <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
                       Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
-        <RadzenButton Text="Sincronizar" Icon="sync" Disabled="@_ocupado" Click="@(() => Sincronizar(null))" />
-        <RadzenButton Text="Selectiva…" Icon="filter_alt" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+        <RadzenButton data-recorrido="devops-sincronizar"
+                      Text="Sincronizar" Icon="sync" Disabled="@_ocupado" Click="@(() => Sincronizar(null))" />
+        <RadzenButton data-recorrido="devops-selectiva"
+                      Text="Selectiva…" Icon="filter_alt" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
                       Click="@(() => Alternar(Panel.Selectiva))" />
         <RadzenButton Text="Exportar" Icon="download" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
                       Click="@(() => Descargas.DesdeApiAsync("api/devops/exportar"))" />
-        <RadzenButton Text="Importar a requerimientos" Icon="add" ButtonStyle="ButtonStyle.Light"
+        <RadzenButton data-recorrido="devops-importar"
+                      Text="Importar a requerimientos" Icon="add" ButtonStyle="ButtonStyle.Light"
                       Disabled="@_ocupado" Click="@Importar" />
-        <RadzenButton Text="Reglas" Icon="gavel" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+        <RadzenButton data-recorrido="devops-reglas"
+                      Text="Reglas" Icon="gavel" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
                       Click="@(() => Alternar(Panel.Reglas))" />
     </RadzenStack>
 
@@ -100,7 +104,8 @@
                           Disabled="@_ocupado" Click="@LimpiarFiltros" />
 
             <RadzenLabel Text="Vista:" Component="vista" />
-            <RadzenDropDown TValue="int?" @bind-Value="_filtroAplicado" Name="vista"
+            <RadzenDropDown data-recorrido="devops-vista"
+                            TValue="int?" @bind-Value="_filtroAplicado" Name="vista"
                             Data="@FiltrosGuardados" TextProperty="Nombre" ValueProperty="Id"
                             AllowClear="true" Placeholder="(sin vista guardada)" Disabled="@_ocupado"
                             Change="@(_ => AplicarVista())" Style="min-width:13rem" />
@@ -113,7 +118,8 @@
     </RadzenCard>
 
     @* ── Indicadores: reflejan SIEMPRE lo filtrado ───────────────────────────── *@
-    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+    <RadzenStack data-recorrido="devops-indicadores"
+                 Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
         @foreach (var (etiqueta, valor, color, borde) in Indicadores())
         {
             <RadzenCard Style="@($"min-width:8.5rem;border-left:4px solid {borde}")">
@@ -415,7 +421,8 @@
     }
 
     @* ── La rejilla grande ───────────────────────────────────────────────────── *@
-    <RadzenDataGrid @ref="_rejilla" TItem="TicketDevOpsDto" Data="@_filas" IsLoading="@_ocupado"
+    <RadzenDataGrid data-recorrido="devops-rejilla"
+                    @ref="_rejilla" TItem="TicketDevOpsDto" Data="@_filas" IsLoading="@_ocupado"
                     AllowSorting="true" AllowPaging="true" PageSize="25"
                     AllowFiltering="true" FilterMode="FilterMode.Advanced"
                     FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive"

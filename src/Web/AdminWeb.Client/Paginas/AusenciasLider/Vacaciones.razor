@@ -79,14 +79,15 @@
            componente— y el aviso ya lo da el Style de aquí abajo, que pinta el renglón en
            var(--rz-warning) en cuanto hay pendientes. El emoji era la única parte que no cambiaba
            con el tema. Permisos.razor tiene esta misma frase y se trata igual. *@
-        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+        <RadzenText data-recorrido="vacaciones-lider-pendientes"
+                    TextStyle="TextStyle.Caption" class="rz-mb-0"
                     Style="@(d.Pendientes > 0 ? "color:var(--rz-warning)" : "")">
             @(d.Pendientes == 0
                 ? "No hay solicitudes esperando respuesta."
                 : $"{d.Pendientes} solicitud(es) esperando tu respuesta.")
         </RadzenText>
 
-        <RadzenTabs>
+        <RadzenTabs data-recorrido="vacaciones-lider-pestanas">
             <Tabs>
                 @* «beach_access» es la sombrilla con la que el menú lateral nombra «Vacaciones»: la
                    pestaña y la puerta por la que se llega a ella tienen que reconocerse como la
@@ -110,7 +111,8 @@
 
                             @* Pegado a los filtros a propósito: es lo que hace evidente que baja lo
                                que están enseñando y no la tabla entera. *@
-                            <RadzenButton Text="Excel" Icon="download" ButtonStyle="ButtonStyle.Light"
+                            <RadzenButton data-recorrido="vacaciones-lider-excel"
+                                          Text="Excel" Icon="download" ButtonStyle="ButtonStyle.Light"
                                           Disabled="@_ocupado" Style="margin-left:auto"
                                           Click="@(() => Descargas.DesdeApiAsync(RutaDelFiltro("/excel")))" />
                         </RadzenStack>
@@ -415,7 +417,11 @@
                                    para que el líder y la persona vean lo mismo cuando hablen. *@
                                 <RadzenDataGridColumn TItem="SolicitudDeVacacionesDelLiderDto" Title="Su firma"
                                                       Width="150px" Sortable="false">
+                                    @* El <span> que envuelve las cuatro ramas es el ancla del recorrido
+                                       guiado: la marca tiene que caer en un elemento que exista pase lo
+                                       que pase, y aquí lo que se pinta depende del estado de la firma. *@
                                     <Template Context="v">
+                                        <span data-recorrido="vacaciones-lider-su-firma">
                                         @if (v.FirmaDelColaborador.DejoDeValer)
                                         {
                                             <span style="color:var(--rz-danger)"
@@ -438,6 +444,7 @@
                                         {
                                             <span title="No la firmó y ya no puede: se firma la petición mientras espera respuesta, y ésta ya se resolvió.">—</span>
                                         }
+                                        </span>
                                     </Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="SolicitudDeVacacionesDelLiderDto" Title="Documento"
@@ -476,7 +483,8 @@
                                                    los dos botones solo se diferenciaban por el
                                                    color, y en oscuro el verde y el rojo se acercan
                                                    —además de que hay quien no los distingue. *@
-                                                <RadzenButton Text="Aprobar" Icon="check_circle"
+                                                <RadzenButton data-recorrido="vacaciones-lider-resolver"
+                                                              Text="Aprobar" Icon="check_circle"
                                                               ButtonStyle="ButtonStyle.Success"
                                                               Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                               Click="@(() => Resolver(v, VacationStatus.Aprobada))" />
@@ -494,7 +502,8 @@
                                                               Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                               Click="@(() => Resolver(v, VacationStatus.Cancelada))" />
                                             }
-                                            <RadzenButton Text="Documento" ButtonStyle="ButtonStyle.Light"
+                                            <RadzenButton data-recorrido="vacaciones-lider-documento"
+                                                          Text="Documento" ButtonStyle="ButtonStyle.Light"
                                                           Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                           Click="@(() => AbrirDocumento(v))" />
                                         </RadzenStack>

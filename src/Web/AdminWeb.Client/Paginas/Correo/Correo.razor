@@ -57,7 +57,8 @@
            que un servidor ajeno conteste; no es lo mismo y no debe parecerlo. *@
         <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                       Disabled="@_ocupado" Click="@CargarEstadoAsync" />
-        <RadzenButton Text="Probar conexión" Icon="science" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+        <RadzenButton data-recorrido="correo-probar"
+                      Text="Probar conexión" Icon="science" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                       Disabled="@_ocupado" Click="@ProbarAsync" />
     </RadzenStack>
 
@@ -99,7 +100,8 @@
                             <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                          Wrap="FlexWrap.Wrap" Gap="0.75rem">
                                 <RadzenLabel Text="Carpeta:" Component="carpeta" />
-                                <RadzenDropDown TValue="string" Name="carpeta" Data="@_carpetas"
+                                <RadzenDropDown data-recorrido="correo-carpeta"
+                                                TValue="string" Name="carpeta" Data="@_carpetas"
                                                 Value="@_carpeta" ValueChanged="@ElegirCarpetaAsync"
                                                 Disabled="@_ocupado" Style="width:18rem" />
 
@@ -107,7 +109,8 @@
                                               Size="ButtonSize.Small" Disabled="@_ocupado"
                                               Click="@CargarBandejaAsync" />
 
-                                <RadzenButton Text="Importar sin procesar" Icon="sync" ButtonStyle="ButtonStyle.Light"
+                                <RadzenButton data-recorrido="correo-importar"
+                                              Text="Importar sin procesar" Icon="sync" ButtonStyle="ButtonStyle.Light"
                                               Size="ButtonSize.Small" Disabled="@_ocupado"
                                               Click="@IngerirAsync" />
 
@@ -121,7 +124,8 @@
                                 correo, estás decidiendo qué se importa y qué no.
                             </RadzenAlert>
 
-                            <RadzenDataGrid TItem="MensajeDeCorreoDto" Data="@_mensajes" IsLoading="@_ocupado"
+                            <RadzenDataGrid data-recorrido="correo-bandeja"
+                                            TItem="MensajeDeCorreoDto" Data="@_mensajes" IsLoading="@_ocupado"
                                             AllowPaging="true" PageSize="15" AllowColumnResize="true"
                                             EmptyText="No hay mensajes en esta carpeta.">
                                 <Columns>
@@ -215,7 +219,8 @@
                             </RadzenText>
 
                             <div>
-                                <RadzenButton Text="Enviar" Icon="send" ButtonStyle="ButtonStyle.Primary"
+                                <RadzenButton data-recorrido="correo-enviar"
+                                              Text="Enviar" Icon="send" ButtonStyle="ButtonStyle.Primary"
                                               Size="ButtonSize.Small" Disabled="@_ocupado" Click="@EnviarAsync" />
                             </div>
                         </RadzenStack>
@@ -226,7 +231,8 @@
                         <RadzenStack Gap="0.75rem">
                             <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                          Wrap="FlexWrap.Wrap" Gap="0.75rem">
-                                <RadzenButton Text="Ver cómo saldría" Icon="visibility" ButtonStyle="ButtonStyle.Light"
+                                <RadzenButton data-recorrido="correo-resumen"
+                                              Text="Ver cómo saldría" Icon="visibility" ButtonStyle="ButtonStyle.Light"
                                               Size="ButtonSize.Small" Disabled="@_ocupado"
                                               Click="@CargarResumenAsync" />
                                 <RadzenButton Text="Enviar ahora" Icon="send" ButtonStyle="ButtonStyle.Primary"

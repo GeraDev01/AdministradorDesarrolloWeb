@@ -88,7 +88,8 @@
                     @* Los temas son pulsables: llevan a la lista filtrada por esa etiqueta, que es
                        como se encuentra «lo demás que habla de esto». Es la mitad de lo que hace útil
                        etiquetar. *@
-                    <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.3rem">
+                    <RadzenStack data-recorrido="articulo-temas"
+                                 Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.3rem">
                         @foreach (var e in etiquetas)
                         {
                             <RadzenButton Text="@e" Icon="label" ButtonStyle="ButtonStyle.Light"
@@ -120,7 +121,7 @@
         {
             @* Esto solo llega a su autor y al líder: para el resto del equipo un artículo publicado
                es el resultado, no el expediente de cómo se llegó a él. *@
-            <RadzenCard>
+            <RadzenCard data-recorrido="articulo-revision">
                 <RadzenStack Gap="0.5rem">
                     <RadzenText TextStyle="TextStyle.H6" Style="margin:0">
                         <RadzenIcon Icon="history" /> La revisión
@@ -157,7 +158,8 @@
         @* ── Lo que puede hacer quien lo abre ───────────────────────────────────── *@
         @if (a.PuedoEditar || a.PuedoEnviar || PuedoBorrar)
         {
-            <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.5rem">
+            <RadzenStack data-recorrido="articulo-acciones"
+                         Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.5rem">
                 @if (a.PuedoEditar)
                 {
                     <RadzenButton Text="Editar" Icon="edit" ButtonStyle="ButtonStyle.Light"
@@ -207,7 +209,8 @@
             else
             {
                 <div>
-                    <RadzenButton Text="Retirar de circulación" Icon="visibility_off"
+                    <RadzenButton data-recorrido="articulo-retirar"
+                                  Text="Retirar de circulación" Icon="visibility_off"
                                   ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                                   title="Para cuando esto deja de ser cierto. Queda dicho por qué."
                                   Click="@(() => _retirando = true)" />

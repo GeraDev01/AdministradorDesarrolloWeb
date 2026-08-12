@@ -53,13 +53,14 @@
         @* «sync» y no «refresh»: esto no vuelve a leer lo que ya se ve, trae trabajo del otro sistema
            y da de alta requerimientos. El de al lado sí es recargar, y por eso llevan glifos
            distintos. *@
-        <RadzenButton Text="Traer mis tickets DevOps" Icon="sync" ButtonStyle="ButtonStyle.Light"
+        <RadzenButton data-recorrido="asignaciones-devops"
+                      Text="Traer mis tickets DevOps" Icon="sync" ButtonStyle="ButtonStyle.Light"
                       Size="ButtonSize.Small" Click="@TraerDeDevOps" Disabled="@_ocupado"
                       title="Da de alta como requerimientos los work items abiertos que están a tu nombre en Azure DevOps." />
 
         @if (!EnVivo.Conectado)
         {
-            <RadzenBadge BadgeStyle="BadgeStyle.Warning"
+            <RadzenBadge data-recorrido="asignaciones-sin-conexion" BadgeStyle="BadgeStyle.Warning"
                          Text="@(EnVivo.Reconectando ? "Reconectando…" : "Sin conexión en vivo")"
                          title="Mientras no haya conexión, el cronómetro no manda señales. El tiempo se consolidará hasta la última que llegó." />
         }
@@ -81,7 +82,7 @@
         {
             @if (d.Cronometro is { } c)
             {
-                <RadzenCard Style="border-left:5px solid var(--rz-info)">
+                <RadzenCard data-recorrido="asignaciones-cronometro" Style="border-left:5px solid var(--rz-info)">
                     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                  Gap="1rem" Wrap="FlexWrap.Wrap">
                         <RadzenStack Gap="0.15rem">
@@ -92,7 +93,8 @@
                                     Style="font-variant-numeric:tabular-nums">@_reloj</RadzenText>
                         <RadzenButton Text="Pausar" Icon="pause" ButtonStyle="ButtonStyle.Light"
                                       Disabled="@_ocupado" Click="@(() => Parar("pausar", c.RequerimientoId, c.ActividadId))" />
-                        <RadzenButton Text="Detener" Icon="stop" ButtonStyle="ButtonStyle.Secondary"
+                        <RadzenButton data-recorrido="asignaciones-detener"
+                                      Text="Detener" Icon="stop" ButtonStyle="ButtonStyle.Secondary"
                                       Disabled="@_ocupado" Click="@(() => Parar("detener", c.RequerimientoId, c.ActividadId))" />
                         @if (c.RequerimientoId is null)
                         {
@@ -123,7 +125,8 @@
                 </RadzenStack>
             </RadzenCard>
 
-            <RadzenDataGrid TItem="MiAsignacionDto" Data="@d.Filas" IsLoading="@_ocupado"
+            <RadzenDataGrid data-recorrido="asignaciones-tabla"
+                            TItem="MiAsignacionDto" Data="@d.Filas" IsLoading="@_ocupado"
                             AllowSorting="true" AllowPaging="true" PageSize="20"
                             RowRender="@PintarVencidos"
                             EmptyText="No tienes requerimientos asignados que cumplan el filtro.">
@@ -212,7 +215,8 @@
                             }
                             else
                             {
-                                <RadzenButton Text="@(r.Cronometro == EstadoDelCronometro.Pausado ? "Reanudar" : "Iniciar")"
+                                <RadzenButton data-recorrido="asignaciones-arrancar"
+                                              Text="@(r.Cronometro == EstadoDelCronometro.Pausado ? "Reanudar" : "Iniciar")"
                                               Icon="play_arrow"
                                               Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                               Click="@(() => Iniciar(r))" />

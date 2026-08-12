@@ -35,7 +35,7 @@
                       Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
     </RadzenStack>
 
-    <RadzenCard>
+    <RadzenCard data-recorrido="minutas-filtros">
         <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem"
                      AlignItems="AlignItems.Center" Wrap="FlexWrap.Wrap">
             <RadzenLabel Text="Tipo:" Component="tipo" />
@@ -54,7 +54,8 @@
                               DateFormat="dd/MM/yyyy" ShowTime="false" Disabled="@_ocupado"
                               Change="@(_ => Cargar())" Style="width:9rem" />
 
-            <RadzenButton Text="Nueva" Icon="add" Click="@Nueva" Disabled="@_ocupado" Style="margin-left:auto" />
+            <RadzenButton data-recorrido="minutas-nueva"
+                          Text="Nueva" Icon="add" Click="@Nueva" Disabled="@_ocupado" Style="margin-left:auto" />
             @* «download» y no un icono de hoja de cálculo: para quien pulsa lo que pasa es que sale
                un archivo, y el formato ya lo dice el texto. Es el mismo icono en las 53 pantallas. *@
             <RadzenButton Text="Excel" Icon="download" ButtonStyle="ButtonStyle.Light"
@@ -141,7 +142,8 @@
         </RadzenCard>
     }
 
-    <RadzenDataGrid TItem="MinutaEnListaDto" Data="@Lista" IsLoading="@_ocupado"
+    <RadzenDataGrid data-recorrido="minutas-rejilla"
+                    TItem="MinutaEnListaDto" Data="@Lista" IsLoading="@_ocupado"
                     AllowSorting="true" AllowPaging="true" PageSize="15"
                     EmptyText="No hay minutas en ese período.">
         <Columns>
@@ -172,7 +174,8 @@
                 <Template Context="m">
                     <RadzenButton Text="Abrir" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                   Disabled="@_ocupado" Click="@(() => Abrir(m))" />
-                    <RadzenButton Text="Eliminar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                    <RadzenButton data-recorrido="minutas-eliminar"
+                                  Text="Eliminar" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                   Disabled="@_ocupado" Click="@(() => Eliminar(m))" />
                 </Template>
             </RadzenDataGridColumn>

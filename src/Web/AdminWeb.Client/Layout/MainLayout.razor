@@ -2,6 +2,7 @@
 @implements IDisposable
 @using AdminWeb.Client.Navegacion
 @using AdminWeb.Client.Paginas.Conocimiento
+@using AdminWeb.Client.Recorridos
 @using AdminWeb.Shared
 @using AdminWeb.Shared.Dtos.Conocimiento
 @inject EstadoSesion Sesion
@@ -38,6 +39,16 @@
             </RadzenStack>
 
             <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.75rem">
+                @* El recorrido guiado de la pantalla en la que se está. Va junto al interruptor de
+                   tema y fuera del bloque de sesión, por lo mismo que él: no depende de quién sea
+                   quien mira, sino de qué está mirando.
+
+                   Cuando la pantalla no tiene recorrido el botón se APAGA y lo dice en su globo, en
+                   vez de desaparecer. Un botón que va y viene según dónde estés no se interpreta
+                   como «aquí no hay ayuda», se interpreta como que la aplicación falla — y con eso
+                   se pierde también la confianza en los recorridos que sí están. *@
+                <BotonDeRecorrido />
+
                 @* Fuera del bloque de sesión: el tema es del navegador, no de la cuenta, así que
                    también tiene que poder cambiarse desde la pantalla de acceso. *@
                 <InterruptorDeTema />

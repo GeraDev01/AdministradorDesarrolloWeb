@@ -53,7 +53,8 @@
            base. El botón de al lado solo vuelve a leer lo que ya está aquí, y por eso conserva el
            «refresh»: si los dos llevaran el mismo glifo, nada distinguiría la operación cara de la
            barata. *@
-        <RadzenButton Text="@(_sincronizando ? "Sincronizando…" : "Sincronizar")" Icon="sync"
+        <RadzenButton data-recorrido="freshdesk-sincronizar"
+                      Text="@(_sincronizando ? "Sincronizando…" : "Sincronizar")" Icon="sync"
                       Disabled="@(_ocupado || _sincronizando || _datos?.Habilitada != true)"
                       Click="@Sincronizar" />
         <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
@@ -78,7 +79,8 @@
             </RadzenAlert>
         }
 
-        <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.75rem">
+        <RadzenStack data-recorrido="freshdesk-tarjetas"
+                     Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.75rem">
             @* «Total» no es un estado sino un conteo, así que va en el color del texto normal y con
                el borde neutro: darle un color de la paleta semántica lo pondría a competir con las
                cinco tarjetas que sí dicen algo. *@
@@ -92,7 +94,8 @@
 
         <RadzenCard>
             <RadzenStack Gap="0.75rem">
-                <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                <RadzenStack data-recorrido="freshdesk-filtro-sync"
+                             Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                              Gap="0.75rem" Wrap="FlexWrap.Wrap">
                     <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">Sincronizar filtrando por:</RadzenText>
 
@@ -116,7 +119,8 @@
 
                 <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                              Gap="0.75rem" Wrap="FlexWrap.Wrap">
-                    <RadzenTextBox @bind-Value="_buscar" Placeholder="Buscar: asunto, número, agente, solicitante…"
+                    <RadzenTextBox data-recorrido="freshdesk-buscar"
+                                   @bind-Value="_buscar" Placeholder="Buscar: asunto, número, agente, solicitante…"
                                    Change="@(_ => Cargar())" Style="min-width:20rem" Disabled="@_ocupado" />
 
                     <RadzenLabel Text="Estado:" Component="estado" />
@@ -138,7 +142,8 @@
             </RadzenStack>
         </RadzenCard>
 
-        <RadzenDataGrid TItem="TicketDeFreshdeskDto" Data="@_datos.Tickets" IsLoading="@_ocupado"
+        <RadzenDataGrid data-recorrido="freshdesk-rejilla"
+                        TItem="TicketDeFreshdeskDto" Data="@_datos.Tickets" IsLoading="@_ocupado"
                         AllowSorting="true" AllowPaging="true" PageSize="20"
                         SelectionMode="DataGridSelectionMode.Single"
                         Value="@_seleccion" ValueChanged="@Seleccionar"

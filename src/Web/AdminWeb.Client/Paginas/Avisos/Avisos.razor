@@ -27,7 +27,8 @@
         <RadzenText TextStyle="TextStyle.H5" Style="margin:0">Avisos</RadzenText>
         @* «done» es la palomita a secas: completar algo tuyo. La palomita EN CÍRCULO se reserva para
            aprobar, que es decidir sobre lo de otro. *@
-        <RadzenButton Text="Marcar todo leído" Icon="done" Click="@MarcarTodoLeidoAsync" Disabled="@_ocupado" />
+        <RadzenButton data-recorrido="avisos-marcar-todo"
+                      Text="Marcar todo leído" Icon="done" Click="@MarcarTodoLeidoAsync" Disabled="@_ocupado" />
         <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
                       Click="@LeerAsync" Disabled="@_ocupado" />
     </RadzenStack>
@@ -39,7 +40,8 @@
     @* Aquí y no en una pantalla de ajustes: es donde alguien piensa en sus avisos. *@
     <InterruptorDeAvisosPush />
 
-    <RadzenDataGrid TItem="AvisoDto" Data="@_filas" Count="@_total"
+    <RadzenDataGrid data-recorrido="avisos-rejilla"
+                    TItem="AvisoDto" Data="@_filas" Count="@_total"
                     LoadData="@CargarAsync" AllowPaging="true" PageSize="25"
                     AllowSorting="false" IsLoading="@_ocupado"
                     RowRender="@PintarAviso" RowDoubleClick="@AbrirAsync"

@@ -16,6 +16,11 @@
          son variables que app.css también toca. -->
     <link rel="stylesheet" href="css/tipografia.css" />
     <link rel="stylesheet" href="css/acceso.css" />
+    <!-- Los recorridos guiados. Driver.js (MIT, ~21 KB) va EN EL REPOSITORIO y no desde un CDN: la
+         política de contenido bloquea los orígenes externos, y una red corporativa que corte el CDN
+         dejaría la ayuda sin funcionar justo en las máquinas donde más falta hace. -->
+    <link rel="stylesheet" href="css/driver.css" />
+    <link rel="stylesheet" href="css/recorridos.css" />
     <!-- Las fuentes propias se precargan: son las que dibujan el menú y los botones, así que si
          llegan tarde lo primero que se ve es la aplicación compuesta con otra letra y luego un
          salto. `crossorigin` es obligatorio aunque el archivo sea del mismo sitio — sin él el
@@ -46,6 +51,8 @@
     </div>
 
     <script src="_content/Radzen.Blazor/Radzen.Blazor.js"></script>
+    <!-- Antes de adminweb.js: el envoltorio de los recorridos da por hecho que driver ya existe. -->
+    <script src="js/driver.js"></script>
     <script src="js/adminweb.js"></script>
     <script src="_framework/blazor.webassembly.js"></script>
 </body>

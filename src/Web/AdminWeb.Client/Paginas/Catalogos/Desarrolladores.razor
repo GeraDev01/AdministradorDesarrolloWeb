@@ -52,7 +52,8 @@
             <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.4rem">
                 @* El tipo del parámetro va explícito: Change es EventCallback<bool> y con un lambda
                    sin tipar el compilador lo toma como EventCallback a secas y no compila. *@
-                <RadzenCheckBox @bind-Value="_soloActivos" Name="soloActivos" Change="@((bool _) => Buscar())" />
+                <RadzenCheckBox data-recorrido="desarrolladores-solo-activos"
+                                @bind-Value="_soloActivos" Name="soloActivos" Change="@((bool _) => Buscar())" />
                 <RadzenLabel Text="Solo activos" Component="soloActivos" />
             </RadzenStack>
 
@@ -66,25 +67,30 @@
     </RadzenCard>
 
     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
-        <RadzenButton Text="Nuevo" Icon="add" Disabled="@_ocupado" Click="@AbrirNuevo" />
+        <RadzenButton data-recorrido="desarrolladores-nuevo"
+                      Text="Nuevo" Icon="add" Disabled="@_ocupado" Click="@AbrirNuevo" />
         <RadzenButton Text="Editar" Icon="edit" ButtonStyle="ButtonStyle.Light"
                       Disabled="@(_ocupado || _elegido is null)" Click="@AbrirEdicion" />
         @* «Acceso» y «Desactivar» se quedan SIN icono a propósito: el vocabulario no tiene un
            concepto para «crear la cuenta de alguien» ni para «dar de baja sin borrar», y el recorte
            de la fuente no trae nada que lo diga sin mentir —«block» se lee «bloqueado», que es otra
            cosa. Antes que inventar un glifo, mejor el texto solo. *@
-        <RadzenButton Text="Acceso" ButtonStyle="ButtonStyle.Light" Disabled="@(_ocupado || _elegido is null)"
+        <RadzenButton data-recorrido="desarrolladores-acceso"
+                      Text="Acceso" ButtonStyle="ButtonStyle.Light" Disabled="@(_ocupado || _elegido is null)"
                       Click="@CrearAcceso" />
         <RadzenButton Text="Correo" Icon="mail" ButtonStyle="ButtonStyle.Light"
                       Disabled="@(_ocupado || _elegido is null)" Click="@Escribir" />
         @* «beach_access» es la sombrilla con la que el menú lateral y la pantalla del líder nombran
            «Vacaciones»: la misma idea lleva el mismo dibujo. *@
-        <RadzenButton Text="Saldo vacaciones" Icon="beach_access" ButtonStyle="ButtonStyle.Light"
+        <RadzenButton data-recorrido="desarrolladores-saldo"
+                      Text="Saldo vacaciones" Icon="beach_access" ButtonStyle="ButtonStyle.Light"
                       Disabled="@(_ocupado || _elegido is null)" Click="@AbrirSaldo" />
-        <RadzenButton Text="Desactivar" ButtonStyle="ButtonStyle.Light" Disabled="@(_ocupado || _elegido is null)"
+        <RadzenButton data-recorrido="desarrolladores-desactivar"
+                      Text="Desactivar" ButtonStyle="ButtonStyle.Light" Disabled="@(_ocupado || _elegido is null)"
                       Click="@Desactivar" />
         @* La exportación baja LO QUE EL FILTRO ESTÁ ENSEÑANDO, igual que en minutas y vacaciones. *@
-        <RadzenButton Text="Excel" Icon="download" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+        <RadzenButton data-recorrido="desarrolladores-excel"
+                      Text="Excel" Icon="download" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
                       Style="margin-left:auto" Click="@Exportar" />
     </RadzenStack>
 

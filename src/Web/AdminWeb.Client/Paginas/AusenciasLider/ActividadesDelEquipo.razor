@@ -48,7 +48,8 @@
            no hay glifo honrado en el recorte: «check_circle» diría «terminada», justo lo contrario.
            Los emojis que había (🧩 🟢 ⏱) los dibujaba el sistema operativo y eran lo único de la
            tarjeta que se quedaba con sus colores de siempre en el tema oscuro. *@
-        <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap">
+        <RadzenStack data-recorrido="actividades-indicadores"
+                     Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap">
             <RadzenCard Style="min-width:14rem; border-left:5px solid var(--rz-info)">
                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-1">Actividades</RadzenText>
                 <RadzenText TextStyle="TextStyle.H4" class="rz-mb-0">@d.Total</RadzenText>
@@ -81,7 +82,8 @@
 
             @* Pegado a los filtros a propósito: es lo que hace evidente que baja lo que están
                enseñando y no la tabla entera. *@
-            <RadzenButton Text="Excel" Icon="download" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+            <RadzenButton data-recorrido="actividades-excel"
+                          Text="Excel" Icon="download" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
                           Style="margin-left:auto"
                           Click="@(() => Descargas.DesdeApiAsync(RutaDelFiltro("/excel")))" />
         </RadzenStack>
@@ -153,7 +155,8 @@
             </RadzenCard>
         }
 
-        <RadzenDataGrid TItem="ActividadDelEquipoDto" Data="@d.Actividades" IsLoading="@_ocupado"
+        <RadzenDataGrid data-recorrido="actividades-rejilla"
+                        TItem="ActividadDelEquipoDto" Data="@d.Actividades" IsLoading="@_ocupado"
                         AllowSorting="true" AllowPaging="true" PageSize="15"
                         EmptyText="No hay actividades con ese filtro.">
             <Columns>
@@ -214,7 +217,8 @@
                     <Template Context="a">
                         @* «visibility» y no «search»: la lupa es para buscar texto; esto abre la
                            ficha de una actividad en solo lectura. *@
-                        <RadzenButton Text="Detalle" Icon="visibility" ButtonStyle="ButtonStyle.Light"
+                        <RadzenButton data-recorrido="actividades-detalle"
+                                      Text="Detalle" Icon="visibility" ButtonStyle="ButtonStyle.Light"
                                       Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                       Click="@(() => VerDetalle(a))" />
                     </Template>

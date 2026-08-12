@@ -56,7 +56,8 @@
                         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                      Gap="1rem" Wrap="FlexWrap.Wrap">
                             <RadzenLabel Text="Sprint:" Component="sprint" />
-                            <RadzenDropDown TValue="int?" @bind-Value="_sprintId" Name="sprint"
+                            <RadzenDropDown data-recorrido="sprint-selector"
+                                            TValue="int?" @bind-Value="_sprintId" Name="sprint"
                                             Data="@_sprints" TextProperty="Texto" ValueProperty="Id"
                                             Disabled="@_ocupado" Change="@(_ => CargarSeguimiento())"
                                             Style="min-width:22rem" />
@@ -66,7 +67,8 @@
                             @if (!EsAdmin && TieneFicha)
                             {
                                 <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.4rem">
-                                    <RadzenCheckBox TValue="bool" @bind-Value="_soloMios" Name="soloMios" />
+                                    <RadzenCheckBox data-recorrido="sprint-solo-mios"
+                                                    TValue="bool" @bind-Value="_soloMios" Name="soloMios" />
                                     <RadzenLabel Text="Solo los míos" Component="soloMios" />
                                 </RadzenStack>
                             }
@@ -79,7 +81,8 @@
                                 <RadzenButton Text="Nuevo sprint" Icon="add" Disabled="@_ocupado" Click="@AbrirSprintNuevo" />
                                 <RadzenButton Text="Fechas y nombre" Icon="edit" ButtonStyle="ButtonStyle.Light"
                                               Disabled="@(_ocupado || Seguimiento is null)" Click="@AbrirSprintEdicion" />
-                                <RadzenButton Text="Requerimientos…" Icon="assignment" ButtonStyle="ButtonStyle.Light"
+                                <RadzenButton data-recorrido="sprint-requerimientos"
+                                              Text="Requerimientos…" Icon="assignment" ButtonStyle="ButtonStyle.Light"
                                               Disabled="@(_ocupado || Seguimiento is null)" Click="@AbrirPicker" />
                                 <RadzenButton Text="Eliminar" Icon="delete" ButtonStyle="ButtonStyle.Danger"
                                               Disabled="@(_ocupado || Seguimiento is null)" Click="@EliminarSprint" />
@@ -216,7 +219,8 @@
                             <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0"><RadzenIcon Icon="flag" /> @seg.Sprint.Objetivo</RadzenText>
                         }
 
-                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                        <RadzenStack data-recorrido="sprint-tarjetas"
+                                     Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
                             <RadzenCard Style="min-width:12rem">
                                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">Estado del sprint</RadzenText>
                                 @* AQUÍ NO VA PUNTO DE COLOR, aunque la rejilla de abajo sí lo lleve, y
@@ -274,7 +278,8 @@
                                de negro: un dibujo entero en negro sobre fondo grafito y nadie se
                                entera. Con style, si la variable falta la forma no se pinta y el
                                error salta a la vista en la primera prueba. *@
-                            <svg viewBox="0 0 1000 125" style="width:100%; height:auto"
+                            <svg data-recorrido="sprint-linea"
+                                 viewBox="0 0 1000 125" style="width:100%; height:auto"
                                  role="img" aria-label="@AriaDeLaLinea(seg)">
                                 @{
                                     int dias = seg.Avance.DiasTotales;
@@ -386,7 +391,8 @@
                             </svg>
                         </RadzenCard>
 
-                        <RadzenDataGrid TItem="RequerimientoDeSprintDto" Data="@Comprometidos" IsLoading="@_ocupado"
+                        <RadzenDataGrid data-recorrido="sprint-comprometidos"
+                                        TItem="RequerimientoDeSprintDto" Data="@Comprometidos" IsLoading="@_ocupado"
                                         AllowSorting="false" AllowPaging="true" PageSize="20"
                                         RowRender="@ResaltarLosMios"
                                         EmptyText="Este sprint todavía no tiene requerimientos.">
@@ -466,7 +472,7 @@
                         @if (_historico is { } h)
                         {
                             <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
-                                <RadzenCard Style="min-width:15rem">
+                                <RadzenCard data-recorrido="sprint-velocidad" Style="min-width:15rem">
                                     <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                                         Velocidad (entregados/sprint)
                                     </RadzenText>

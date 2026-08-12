@@ -40,14 +40,18 @@
     </RadzenCard>
 
     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
-        <RadzenButton Text="Nuevo" Icon="add" Disabled="@_ocupado" Click="@AbrirNuevo" />
+        <RadzenButton data-recorrido="contactos-nuevo"
+                      Text="Nuevo" Icon="add" Disabled="@_ocupado" Click="@AbrirNuevo" />
         <RadzenButton Text="Editar" Icon="edit" ButtonStyle="ButtonStyle.Light"
                       Disabled="@(_ocupado || _elegido is null)" Click="@AbrirEdicion" />
-        <RadzenButton Text="Escribir" Icon="mail" ButtonStyle="ButtonStyle.Light"
+        <RadzenButton data-recorrido="contactos-escribir"
+                      Text="Escribir" Icon="mail" ButtonStyle="ButtonStyle.Light"
                       Disabled="@(_ocupado || _elegido is null)" Click="@Escribir" />
-        <RadzenButton Text="Eliminar" Icon="delete" ButtonStyle="ButtonStyle.Light"
+        <RadzenButton data-recorrido="contactos-eliminar"
+                      Text="Eliminar" Icon="delete" ButtonStyle="ButtonStyle.Light"
                       Disabled="@(_ocupado || _elegido is null)" Click="@Eliminar" />
-        <RadzenButton Text="Excel" Icon="download" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
+        <RadzenButton data-recorrido="contactos-excel"
+                      Text="Excel" Icon="download" ButtonStyle="ButtonStyle.Light" Disabled="@_ocupado"
                       Style="margin-left:auto" Click="@Exportar" />
     </RadzenStack>
 

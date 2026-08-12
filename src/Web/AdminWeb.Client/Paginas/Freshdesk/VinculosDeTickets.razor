@@ -57,7 +57,8 @@
     }
     else
     {
-        <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.75rem">
+        <RadzenStack data-recorrido="vinculos-tarjetas"
+                     Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.75rem">
             @* Las tres primeras cuentan TIPOS de cosa (work items, tickets, vínculos) y por eso van a
                la escala de series, que es la que existe justamente para enumerar sin significar. Las
                tres últimas sí dicen cómo vamos, y ésas sí van al mapa semántico. *@
@@ -79,14 +80,16 @@
                     <RadzenStack Gap="0.75rem">
                         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                      Gap="0.75rem" Wrap="FlexWrap.Wrap">
-                            <RadzenTextBox @bind-Value="_buscar" Placeholder="Buscar en vínculos: título, asunto, número o notas…"
+                            <RadzenTextBox data-recorrido="vinculos-buscar"
+                                           @bind-Value="_buscar" Placeholder="Buscar en vínculos: título, asunto, número o notas…"
                                            Change="@(_ => Cargar())" Style="min-width:22rem" Disabled="@_ocupado" />
                             <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                                 @_datos.Vinculos.Count de @_datos.Resumen.Vinculos vínculo(s)
                             </RadzenText>
                         </RadzenStack>
 
-                        <RadzenDataGrid TItem="VinculoDto" Data="@_datos.Vinculos" IsLoading="@_ocupado"
+                        <RadzenDataGrid data-recorrido="vinculos-rejilla"
+                                        TItem="VinculoDto" Data="@_datos.Vinculos" IsLoading="@_ocupado"
                                         AllowSorting="true" AllowPaging="true" PageSize="15"
                                         EmptyText="Todavía no hay vínculos. Créalos en la otra pestaña.">
                             <Columns>
@@ -195,7 +198,8 @@
                                                             Placeholder="Todos los asignados" Disabled="@_ocupado"
                                                             Change="@(_ => Cargar())" Style="min-width:11rem" />
 
-                                            <RadzenCheckBox TValue="bool" Name="doSinVincular" Value="@_doSinVincular"
+                                            <RadzenCheckBox data-recorrido="vinculos-sin-vincular"
+                                                            TValue="bool" Name="doSinVincular" Value="@_doSinVincular"
                                                             Change="@((bool m) => AlternarDevOps(m))" Disabled="@_ocupado" />
                                             <RadzenLabel Text="Solo sin vincular" Component="doSinVincular" />
 
@@ -345,7 +349,8 @@
                                        este botón pasa la mitad del tiempo deshabilitado —mientras no
                                        hay selección— y un emoji se queda a todo color dentro de un
                                        botón apagado, diciendo «púlsame». *@
-                                    <RadzenButton Text="Vincular selección" Icon="link" Disabled="@(_ocupado || !HaySeleccion)"
+                                    <RadzenButton data-recorrido="vinculos-vincular"
+                                                  Text="Vincular selección" Icon="link" Disabled="@(_ocupado || !HaySeleccion)"
                                                   Click="@Vincular" />
                                     <RadzenButton Text="Limpiar selección" ButtonStyle="ButtonStyle.Light"
                                                   Disabled="@(_ocupado || !HaySeleccion)" Click="@LimpiarSeleccion" />

@@ -66,12 +66,14 @@
                             Change="@(_ => Cargar())" Style="min-width:14rem" />
 
             <RadzenLabel Text="Estado:" Component="estado" />
-            <RadzenDropDown TValue="LeaveStatus?" @bind-Value="_estado" Name="estado"
+            <RadzenDropDown data-recorrido="permisos-lider-estado"
+                            TValue="LeaveStatus?" @bind-Value="_estado" Name="estado"
                             Data="@d.Estados" TextProperty="Texto" ValueProperty="Valor"
                             AllowClear="true" Placeholder="Todos" Disabled="@_ocupado"
                             Change="@(_ => Cargar())" Style="min-width:14rem" />
 
-            <RadzenButton Text="Registrar" Icon="add" ButtonStyle="ButtonStyle.Primary" Disabled="@_ocupado"
+            <RadzenButton data-recorrido="permisos-lider-registrar"
+                          Text="Registrar" Icon="add" ButtonStyle="ButtonStyle.Primary" Disabled="@_ocupado"
                           Click="@AbrirRegistro" />
         </RadzenStack>
 
@@ -297,17 +299,20 @@
                                 <RadzenButton Text="Aprobar" Icon="check_circle" ButtonStyle="ButtonStyle.Success"
                                               Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                               Click="@(() => Aprobar(l))" />
-                                <RadzenButton Text="Rechazar" Icon="cancel" ButtonStyle="ButtonStyle.Danger"
+                                <RadzenButton data-recorrido="permisos-lider-rechazar"
+                                              Text="Rechazar" Icon="cancel" ButtonStyle="ButtonStyle.Danger"
                                               Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                               Click="@(() => Rechazar(l))" />
                             }
                             @if (l.SePuedeCorregir)
                             {
-                                <RadzenButton Text="Corregir" Icon="edit" ButtonStyle="ButtonStyle.Light"
+                                <RadzenButton data-recorrido="permisos-lider-corregir"
+                                              Text="Corregir" Icon="edit" ButtonStyle="ButtonStyle.Light"
                                               Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                               Click="@(() => AbrirCorreccion(l))" />
                             }
-                            <RadzenButton Text="Eliminar" Icon="delete" ButtonStyle="ButtonStyle.Light"
+                            <RadzenButton data-recorrido="permisos-lider-eliminar"
+                                          Text="Eliminar" Icon="delete" ButtonStyle="ButtonStyle.Light"
                                           Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                           Click="@(() => Eliminar(l))" />
                         </RadzenStack>

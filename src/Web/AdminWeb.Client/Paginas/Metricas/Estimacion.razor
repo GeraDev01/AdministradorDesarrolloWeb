@@ -34,11 +34,12 @@
 
     @if (_datos is { } d)
     {
-        <RadzenTabs>
+        <RadzenTabs data-recorrido="estimacion-vistas">
             <Tabs>
                 <RadzenTabsItem Text="Estimación vs real" Icon="balance">
                     <RadzenStack Gap="1rem">
-                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
+                        <RadzenStack data-recorrido="estimacion-indicadores"
+                                     Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
                             @foreach (var indicador in d.IndicadoresDeEstimacion)
                             {
                                 @Tarjeta(indicador)
@@ -66,7 +67,8 @@
                             </RadzenChart>
                         }
 
-                        <RadzenDataGrid TItem="FilaDeEstimacionDto" Data="@d.Estimacion" IsLoading="@_ocupado"
+                        <RadzenDataGrid data-recorrido="estimacion-tabla"
+                                        TItem="FilaDeEstimacionDto" Data="@d.Estimacion" IsLoading="@_ocupado"
                                         AllowSorting="true" AllowColumnResize="true" AllowPaging="true" PageSize="25"
                                         EmptyText="No hay requerimientos con horas estimadas.">
                             <Columns>
@@ -121,7 +123,8 @@
 
                 <RadzenTabsItem Text="Capacidad del equipo" Icon="groups">
                     <RadzenStack Gap="1rem">
-                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                        <RadzenStack data-recorrido="estimacion-ventana"
+                                     Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                      Gap="0.75rem" Wrap="FlexWrap.Wrap">
                             <RadzenLabel Text="Vacaciones en los próximos" Component="dias" />
                             <RadzenNumeric @bind-Value="_dias" Min="1" Max="365" Name="dias" Style="width:100px"
@@ -156,7 +159,8 @@
                             </RadzenChart>
                         }
 
-                        <RadzenDataGrid TItem="FilaDeCapacidadDto" Data="@d.Capacidad" IsLoading="@_ocupado"
+                        <RadzenDataGrid data-recorrido="estimacion-capacidad"
+                                        TItem="FilaDeCapacidadDto" Data="@d.Capacidad" IsLoading="@_ocupado"
                                         AllowSorting="true" AllowPaging="true" PageSize="25"
                                         EmptyText="No hay desarrolladores activos.">
                             <Columns>

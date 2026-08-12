@@ -30,7 +30,7 @@
         }
     </RadzenStack>
 
-    <RadzenCard>
+    <RadzenCard data-recorrido="recursos-filtros">
         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                      Gap="1rem" Wrap="FlexWrap.Wrap">
             <RadzenTextBox @bind-Value="_texto" Placeholder="Buscar por nombre, grupo, notas o URL…"
@@ -61,8 +61,10 @@
     </RadzenCard>
 
     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
-        <RadzenButton Text="Nuevo" Icon="add" Disabled="@_ocupado" Click="@AbrirNuevo" />
-        <RadzenButton Text="Editar" Icon="edit" ButtonStyle="ButtonStyle.Light"
+        <RadzenButton data-recorrido="recursos-nuevo"
+                      Text="Nuevo" Icon="add" Disabled="@_ocupado" Click="@AbrirNuevo" />
+        <RadzenButton data-recorrido="recursos-editar"
+                      Text="Editar" Icon="edit" ButtonStyle="ButtonStyle.Light"
                       Disabled="@(_ocupado || _elegido is null)" Click="@AbrirEdicion" />
     </RadzenStack>
 
@@ -203,7 +205,8 @@
                    porque su TextProperty es una cadena y no admite marcado; el punto hace falta en la
                    rejilla, que es lo que se recorre. *@
                 <Template Context="r">
-                    <span style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
+                    <span data-recorrido="recursos-ambiente"
+                          style="white-space:nowrap;display:inline-flex;align-items:center;gap:.4rem">
                         <span style="width:.55rem;height:.55rem;flex:none;border-radius:50%;border:1px solid var(--rz-border-color);background:@ColoresDeEstado.ColorDeAmbiente(r.Ambiente)"></span>
                         @r.AmbienteTexto
                     </span>

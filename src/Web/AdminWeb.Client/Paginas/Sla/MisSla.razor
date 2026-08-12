@@ -55,7 +55,8 @@
                              Gap="1rem" Wrap="FlexWrap.Wrap">
                     @* El tipo del parámetro va explícito: Change es EventCallback<bool> y con un
                        lambda sin tipar el compilador lo toma como EventCallback a secas. *@
-                    <RadzenCheckBox TValue="bool" Name="cerrados" Value="@_verCerrados"
+                    <RadzenCheckBox data-recorrido="mis-sla-cerrados"
+                                    TValue="bool" Name="cerrados" Value="@_verCerrados"
                                     Change="@((bool ver) => VerCerrados(ver))" />
                     <RadzenLabel Text="Ver también los cerrados" Component="cerrados" />
 
@@ -103,7 +104,8 @@
                 </RadzenCard>
             }
 
-            <RadzenDataGrid TItem="SlaCompromisoDto" Data="@d.Compromisos" IsLoading="@_ocupado"
+            <RadzenDataGrid data-recorrido="mis-sla-rejilla"
+                            TItem="SlaCompromisoDto" Data="@d.Compromisos" IsLoading="@_ocupado"
                             AllowSorting="true" AllowPaging="true" PageSize="20"
                             RowRender="@PintarUrgentes"
                             EmptyText="No tienes compromisos pendientes.">
@@ -198,7 +200,8 @@
                                     @* «add» porque este botón NO publica nada: abre el formulario en
                                        blanco donde se escribe el avance. El que publica de verdad
                                        está dentro del panel. *@
-                                    <RadzenButton Text="Registrar avance" Icon="add"
+                                    <RadzenButton data-recorrido="mis-sla-avance"
+                                                  Text="Registrar avance" Icon="add"
                                                   Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                   title="Comenta el ticket en Azure DevOps. Solo si el comentario queda allá cuenta como avance."
                                                   Click="@(() => AbrirAvance(s))" />
@@ -207,7 +210,8 @@
                                    el que la aplicación dice «programar para más tarde» en cualquier
                                    otro sitio. No es un cronómetro (ése es el SLA en sí) ni un reloj
                                    de pared (ése es el marcaje de jornada). *@
-                                <RadzenButton Text="Posponer" Icon="alarm" ButtonStyle="ButtonStyle.Light"
+                                <RadzenButton data-recorrido="mis-sla-posponer"
+                                              Text="Posponer" Icon="alarm" ButtonStyle="ButtonStyle.Light"
                                               Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                               title="Aplaza el recordatorio 4 horas. No mueve la fecha límite."
                                               Click="@(() => Posponer(s))" />

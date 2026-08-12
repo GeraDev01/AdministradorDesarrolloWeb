@@ -52,11 +52,12 @@
         <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
             @(_editado.Count == 0 ? "Sin cambios pendientes." : $"{_editado.Count} clave(s) por guardar.")
         </RadzenText>
-        <RadzenButton Text="Guardar" Icon="save" Click="@Guardar"
+        <RadzenButton data-recorrido="configuracion-guardar" Text="Guardar" Icon="save" Click="@Guardar"
                       Disabled="@(_ocupado || _editado.Count == 0)" Style="margin-left:auto" />
     </RadzenStack>
 
-    <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false">
+    <RadzenAlert data-recorrido="configuracion-secretos"
+                 AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false">
         Los secretos (contraseñas, tokens y cadenas de conexión) no se pueden leer desde aquí: solo
         se sabe si están puestos y se pueden reemplazar por otro valor.
     </RadzenAlert>
@@ -98,7 +99,8 @@
                                enseñar dibujos distintos: se leerían como si hicieran cosas distintas.
                                El emoji que había, además, se quedaba en color dentro de un botón que
                                se apaga entero mientras la prueba está en marcha. *@
-                            <RadzenButton Text="Probar conexión" Icon="science" ButtonStyle="ButtonStyle.Light"
+                            <RadzenButton data-recorrido="configuracion-probar"
+                                          Text="Probar conexión" Icon="science" ButtonStyle="ButtonStyle.Light"
                                           Size="ButtonSize.Small" Disabled="@_ocupado"
                                           Click="@(() => Probar(grupo, prueba))" Style="margin-left:auto" />
                         }
@@ -158,7 +160,8 @@
                                             @* «clear» y no el bote de basura: esto NO borra nada
                                                todavía, solo apunta que la clave se va al guardar —
                                                por eso al lado aparece «Deshacer». *@
-                                            <RadzenButton Text="Quitar" Icon="clear" ButtonStyle="ButtonStyle.Light"
+                                            <RadzenButton data-recorrido="configuracion-quitar"
+                                                          Text="Quitar" Icon="clear" ButtonStyle="ButtonStyle.Light"
                                                           Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                           Click="@(() => _editado[clave.Clave] = "")" />
                                         }
@@ -220,7 +223,7 @@
        Va aquí y no en la pantalla de vacaciones porque es CONFIGURACIÓN: se toca una vez cada
        mucho, la mantiene quien decide el formato, y no tiene nada que ver con resolver una
        solicitud concreta. *@
-    <RadzenCard>
+    <RadzenCard data-recorrido="configuracion-plantilla">
         <RadzenStack Gap="0.75rem">
             @* El glifo va como <RadzenIcon> DENTRO del texto porque RadzenText no tiene parámetro
                Icon: es el patrón que ya usan los otros encabezados de esta misma pantalla. Es el

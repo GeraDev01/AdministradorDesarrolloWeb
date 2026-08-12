@@ -42,7 +42,8 @@
             <RadzenTextBox @bind-Value="_texto" Placeholder="Buscar en título, etiquetas y contenido…"
                            Change="@(_ => Buscar())" Style="min-width:22rem" />
 
-            <RadzenDropDown TValue="int?" @bind-Value="_tipo" Data="@_tipos"
+            <RadzenDropDown data-recorrido="plantillas-tipos"
+                            TValue="int?" @bind-Value="_tipo" Data="@_tipos"
                             TextProperty="Texto" ValueProperty="Id" AllowClear="true"
                             Placeholder="Todos los tipos" Change="@(_ => Buscar())"
                             Style="min-width:18rem" />
@@ -52,7 +53,8 @@
             @if (EsAdmin)
             {
                 <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.4rem">
-                    <RadzenCheckBox @bind-Value="_archivadas" Name="archivadas" Change="@((bool _) => Buscar())" />
+                    <RadzenCheckBox data-recorrido="plantillas-archivadas"
+                                    @bind-Value="_archivadas" Name="archivadas" Change="@((bool _) => Buscar())" />
                     <RadzenLabel Text="Ver archivadas" Component="archivadas" />
                 </RadzenStack>
             }
@@ -65,7 +67,8 @@
 
     <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:flex-start">
         <div style="flex:1 1 32rem;min-width:24rem">
-            <RadzenDataGrid TItem="PlantillaListaDto" Data="@_filas" IsLoading="@_cargando"
+            <RadzenDataGrid data-recorrido="plantillas-lista"
+                            TItem="PlantillaListaDto" Data="@_filas" IsLoading="@_cargando"
                             AllowSorting="true" AllowPaging="true" PageSize="15"
                             EmptyText="No hay plantillas que cumplan el filtro."
                             SelectionMode="DataGridSelectionMode.Single"
@@ -136,10 +139,12 @@
                     }
 
                     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
-                        <RadzenButton Text="Copiar" Icon="content_copy" Disabled="@_ocupado" Click="@Copiar" />
+                        <RadzenButton data-recorrido="plantillas-copiar"
+                                      Text="Copiar" Icon="content_copy" Disabled="@_ocupado" Click="@Copiar" />
                         @* «download» y no «save»: el disquete es guardar EN LA APLICACIÓN; esto saca
                            un archivo al disco de quien pulsa, que es descargar. *@
-                        <RadzenButton Text="Guardar como…" Icon="download" ButtonStyle="ButtonStyle.Light"
+                        <RadzenButton data-recorrido="plantillas-guardar"
+                                      Text="Guardar como…" Icon="download" ButtonStyle="ButtonStyle.Light"
                                       Click="@(() => Descargas.DesdeApiAsync($"api/plantillas/{_detalle.Id}/archivo"))" />
                         @if (_detalle.TieneArchivo)
                         {

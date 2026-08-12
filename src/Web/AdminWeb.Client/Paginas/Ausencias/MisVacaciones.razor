@@ -101,7 +101,8 @@
                Si la respuesta no lo trae —una API vieja, o un fallo del cálculo— se cae al de la
                ficha en vez de dejar el hueco: un saldo de menos calidad sigue siendo mejor que
                ninguno. *@
-            <RadzenCard Style="@($"border-left:5px solid {ColorDelSaldo(DisponiblesHoy(d))}")">
+            <RadzenCard data-recorrido="vacaciones-saldo"
+                        Style="@($"border-left:5px solid {ColorDelSaldo(DisponiblesHoy(d))}")">
                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-1">Días de vacaciones disponibles</RadzenText>
                 <RadzenText TextStyle="TextStyle.H4"
                             Style="@($"margin:0;color:{ColorDelSaldo(DisponiblesHoy(d))}")">
@@ -125,7 +126,8 @@
             </RadzenCard>
 
             <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
-                <RadzenButton Text="Nueva solicitud" Icon="add" ButtonStyle="ButtonStyle.Primary"
+                <RadzenButton data-recorrido="vacaciones-nueva"
+                              Text="Nueva solicitud" Icon="add" ButtonStyle="ButtonStyle.Primary"
                               Click="@AbrirAsistente" Disabled="@(_ocupado || _pidiendo)" />
                 <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
                               Click="@Cargar" Disabled="@(_ocupado || _enviando)" />
@@ -503,7 +505,8 @@
             </RadzenCard>
         }
 
-        <RadzenDataGrid TItem="SolicitudDeVacacionesDto" Data="@d.Solicitudes" IsLoading="@_ocupado"
+        <RadzenDataGrid data-recorrido="vacaciones-lista"
+                        TItem="SolicitudDeVacacionesDto" Data="@d.Solicitudes" IsLoading="@_ocupado"
                         AllowSorting="true" AllowPaging="true" PageSize="15"
                         EmptyText="Todavía no has pedido vacaciones.">
             <Columns>
@@ -579,7 +582,7 @@
                 <RadzenDataGridColumn TItem="SolicitudDeVacacionesDto" Title="Mi firma" Width="230px" Sortable="false">
                     <Template Context="v">
                         @{ var f = Firma(v); }
-                        <RadzenStack Gap="0.25rem">
+                        <RadzenStack data-recorrido="vacaciones-firma" Gap="0.25rem">
                             @if (f is { DejoDeValer: true })
                             {
                                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
@@ -630,7 +633,8 @@
                        maqueta el código y el Word sale de la plantilla que mantiene RH. Se ofrecen
                        siempre —el papel existe desde que se pide— y con la firma puesta si la hay. *@
                     <Template Context="v">
-                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" Wrap="FlexWrap.Wrap">
+                        <RadzenStack data-recorrido="vacaciones-documentos"
+                                     Orientation="Orientation.Horizontal" Gap="0.25rem" Wrap="FlexWrap.Wrap">
                             <RadzenButton Text="PDF" Icon="description" ButtonStyle="ButtonStyle.Light"
                                           Size="ButtonSize.ExtraSmall"
                                           title="El documento de tu solicitud, tal como queda."
@@ -678,7 +682,8 @@
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="SolicitudDeVacacionesDto" Title="" Width="200px" Sortable="false">
                     <Template Context="v">
-                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" Wrap="FlexWrap.Wrap">
+                        <RadzenStack data-recorrido="vacaciones-acciones"
+                                     Orientation="Orientation.Horizontal" Gap="0.25rem" Wrap="FlexWrap.Wrap">
                             @if (v.SePuedeCancelar)
                             {
                                 <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"

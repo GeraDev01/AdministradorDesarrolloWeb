@@ -18,7 +18,9 @@
 
 @if (_estado is not null)
 {
-    <RadzenCard>
+    @* La marca la señala el recorrido guiado de la bandeja de avisos, que es la única pantalla donde
+       este interruptor se pinta. *@
+    <RadzenCard data-recorrido="avisos-push">
         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                      Gap="0.75rem" Wrap="FlexWrap.Wrap">
             @* La campana quieta («notifications») es la misma del menú Avisos y significa «esto va de

@@ -1,0 +1,118 @@
+@implements IDisposable
+@inject IJSRuntime Js
+@inject NavigationManager Navegacion
+@inject AvisosDeInterfaz Avisos
+
+@*
+    El botón que lanza el recorrido guiado DE LA PANTALLA EN LA QUE SE ESTÁ.
+
+    Vive en la barra superior, al lado del interruptor de tema, porque la ayuda tiene que estar
+    donde uno ya mira cuando se atasca. Cambiar de pantalla cambia lo que hace este botón sin que
+    haya que hacer nada.
+
+    NO SE ESCONDE cuando la pantalla no tiene recorrido: se APAGA y lo dice en su title. Un botón
+    que aparece y desaparece según dónde estés no se lee como «aquí no hay ayuda», se lee como un
+    fallo — y la conclusión es que la ayuda va y viene, que es peor que no tenerla.
+
+    Y el apagado se hace con aria-disabled y no con el atributo disabled, que sería lo primero que
+    uno escribe. El motivo es exactamente el que hace falta aquí: los navegadores NO disparan
+    eventos de ratón sobre un control con disabled, así que el globo del title —lo único que explica
+    por qué está apagado— no llegaría a salir nunca. Con aria-disabled el lector de pantalla lo
+    anuncia igual, el globo sale, y el clic lo ignora este código.
+*@
+
+<button type="button"
+        class="@Clases"
+        aria-disabled="@(_recorrido is null ? "true" : "false")"
+        title="@Titulo"
+        aria-label="@Titulo"
+        @onclick="Lanzar">
+    <RadzenIcon Icon="help" />
+</button>
+
+@code {
+    /// <summary>El recorrido de la pantalla actual, o null si todavía no tiene.</summary>
+    private Recorrido? _recorrido;
+
+    /// <summary>Hay recorrido y en este navegador no se ha visto nunca.</summary>
+    private bool _sinEstrenar;
+
+    /// <summary>
+    /// Este componente ya se retiró. Hace falta porque el trabajo del cambio de pantalla se encola y
+    /// puede ejecutarse DESPUÉS: al salir de la sesión, la navegación al acceso cambia de armazón y
+    /// se lleva por delante esta barra, y sin la comprobación lo que queda es un intento de repintar
+    /// algo que ya no está — un error en la consola justo al cerrar sesión, de los que asustan sin
+    /// significar nada.
+    /// </summary>
+    private bool _retirado;
+
+    private string Clases => _sinEstrenar ? "boton-recorrido boton-recorrido--sin-estrenar"
+                                          : "boton-recorrido";
+
+    private string Titulo => _recorrido switch
+    {
+        null => "Esta pantalla todavía no tiene recorrido guiado.",
+        var r when _sinEstrenar => $"Recorrido guiado: {r.Titulo}. Todavía no lo has visto.",
+        var r => $"Recorrido guiado: {r.Titulo}."
+    };
+
+    protected override void OnInitialized()
+    {
+        Navegacion.LocationChanged += AlCambiarDePantalla;
+        _recorrido = RegistroDeRecorridos.Para(Navegacion.ToBaseRelativePath(Navegacion.Uri));
+    }
+
+    protected override async Task OnAfterRenderAsync(bool primeraVez)
+    {
+        // El «ya lo vi» vive en el almacenamiento del navegador, así que no se puede preguntar hasta
+        // que haya navegador: en la primera pasada de un componente de WebAssembly todavía no lo hay.
+        if (primeraVez) await RevisarSiEstaSinEstrenar();
+    }
+
+    private void AlCambiarDePantalla(object? remitente, LocationChangedEventArgs e) =>
+        InvokeAsync(async () =>
+        {
+            // Primero cerrar lo que hubiera abierto, y esto es lo importante de este método: la hoja
+            // de Driver.js deja la aplicación entera sin recibir clics mientras un recorrido está en
+            // marcha. Si uno sobreviviera a la navegación, la pantalla siguiente se vería congelada
+            // y no habría forma de adivinar por qué.
+            await LanzadorDeRecorridos.CerrarAsync(Js);
+            if (_retirado) return;
+
+            _recorrido = RegistroDeRecorridos.Para(Navegacion.ToBaseRelativePath(Navegacion.Uri));
+            await RevisarSiEstaSinEstrenar();
+        });
+
+    private async Task RevisarSiEstaSinEstrenar()
+    {
+        _sinEstrenar = _recorrido is not null && !await LanzadorDeRecorridos.YaVistoAsync(Js, _recorrido);
+
+        if (!_retirado) StateHasChanged();
+    }
+
+    private async Task Lanzar()
+    {
+        // El clic sobre el botón apagado llega igual —aria-disabled no lo impide— y aquí se ignora.
+        if (_recorrido is null) return;
+
+        var pasosVisibles = await LanzadorDeRecorridos.LanzarAsync(Js, _recorrido);
+
+        if (pasosVisibles == 0)
+        {
+            // No debería pasar nunca: todo recorrido empieza por una portada que no señala nada y
+            // que por tanto no se puede saltar, y hay una prueba que lo exige. Queda por si algún
+            // día esa regla cambia: el silencio absoluto al pulsar un botón encendido se lee como
+            // que la aplicación está rota.
+            Avisos.Info("Ahora mismo no hay nada que señalar en esta pantalla.", "Recorrido guiado");
+            return;
+        }
+
+        _sinEstrenar = false;
+    }
+
+    public void Dispose()
+    {
+        _retirado = true;
+        Navegacion.LocationChanged -= AlCambiarDePantalla;
+    }
+}

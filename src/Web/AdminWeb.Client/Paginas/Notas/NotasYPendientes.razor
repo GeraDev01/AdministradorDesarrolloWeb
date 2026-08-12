@@ -44,7 +44,8 @@
         @if (_datos is { } datos)
         {
             @* Las cifras las cuenta el servidor sobre TODAS las notas, así que el filtro no las mueve. *@
-            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+            <RadzenText data-recorrido="notas-contadores"
+                        TextStyle="TextStyle.Caption" class="rz-mb-0">
                 @datos.Pendientes pendiente(s)
             </RadzenText>
             @if (datos.Vencidas > 0)
@@ -66,10 +67,12 @@
                             Change="@((bool _) => Cargar())" Disabled="@_ocupado" />
             <RadzenLabel Text="Solo pendientes" Component="soloPendientes" />
 
-            <RadzenButton Text="Nueva" Icon="add" Click="@Nueva" Disabled="@_ocupado" Style="margin-left:auto" />
+            <RadzenButton data-recorrido="notas-nueva"
+                          Text="Nueva" Icon="add" Click="@Nueva" Disabled="@_ocupado" Style="margin-left:auto" />
             @* «download» y no un icono de hoja de cálculo: para quien lo usa la acción es «sale un
                archivo», y el formato ya lo dice el texto del botón. *@
-            <RadzenButton Text="Excel" Icon="download" ButtonStyle="ButtonStyle.Light"
+            <RadzenButton data-recorrido="notas-excel"
+                          Text="Excel" Icon="download" ButtonStyle="ButtonStyle.Light"
                           Click="@(() => Descargas.DesdeApiAsync(Ruta("/excel")))" Disabled="@_ocupado" />
         </RadzenStack>
     </RadzenCard>
@@ -102,7 +105,8 @@
                     @* Vaciar el selector ES «sin recordatorio»; en el escritorio hacía falta una
                        casilla aparte porque su control no admitía quedarse vacío. *@
                     <RadzenLabel Text="Recordatorio:" Component="recordatorio" />
-                    <RadzenDatePicker TValue="DateTime?" @bind-Value="_recordatorio" Name="recordatorio"
+                    <RadzenDatePicker data-recorrido="notas-recordatorio"
+                                      TValue="DateTime?" @bind-Value="_recordatorio" Name="recordatorio"
                                       DateFormat="dd/MM/yyyy" ShowTime="false" AllowClear="true"
                                       Placeholder="Sin recordatorio" Style="width:11rem" />
 
@@ -122,7 +126,8 @@
         </RadzenCard>
     }
 
-    <RadzenDataGrid TItem="NotaDto" Data="@Lista" IsLoading="@_ocupado"
+    <RadzenDataGrid data-recorrido="notas-rejilla"
+                    TItem="NotaDto" Data="@Lista" IsLoading="@_ocupado"
                     AllowSorting="true" AllowPaging="true" PageSize="15"
                     RowRender="@Pintar"
                     EmptyText="@(_soloPendientes ? "No queda nada pendiente." : "Todavía no hay notas.")">
@@ -180,7 +185,8 @@
             </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="NotaDto" Title="" Width="230px" Sortable="false">
                 <Template Context="n">
-                    <RadzenButton Text="Abrir" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                    <RadzenButton data-recorrido="notas-acciones"
+                                  Text="Abrir" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                   Disabled="@_ocupado" Click="@(() => Abrir(n))" />
                     @* La palomita SOLA —sin círculo— porque completar es una acción sobre lo propio;
                        el círculo queda para aprobar, que es decidir sobre lo de otro. Reabrir lleva

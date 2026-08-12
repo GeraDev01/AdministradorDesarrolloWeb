@@ -1,5 +1,6 @@
 using System.Data;
 using AdminWeb.Application.Demo;
+using AdminWeb.Application.Manual;
 using AdminWeb.Application.Services;
 using AdminWeb.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -124,6 +125,7 @@ public static class PreparacionDeLaBase
                     "Entra con ella y cámbiala de inmediato; no vuelve a mostrarse.", temporal);
 
             await SembrarCatalogosAsync(db, log, ct);
+            await SembrarManualAsync(db, log, ct);
             await SembrarDemostracionAsync(alcance.ServiceProvider, db, log, ct);
         }
         finally
@@ -263,6 +265,45 @@ public static class PreparacionDeLaBase
         catch (Exception ex)
         {
             log.LogError(ex, "No se pudo sembrar el catálogo inicial. La aplicación arranca igual.");
+        }
+    }
+
+    /// <summary>
+    /// Siembra el MANUAL DE USO como artículos publicados de la base de conocimiento.
+    ///
+    /// <para><b>Va SIEMPRE, en cualquier base y en cualquier entorno</b>, y ahí está la diferencia con
+    /// <see cref="SembrarDemostracionAsync"/>, que es lo único con lo que se podría confundir. Los
+    /// datos de demostración son personas y trabajo inventados para poder enseñar la aplicación, y por
+    /// eso llevan tres guardas. El manual es contenido del producto —como los criterios de puntuación
+    /// o las plantillas—, y copiarle esas guardas lo dejaría fuera precisamente de la base de
+    /// producción, que es donde entra la gente nueva que lo necesita.</para>
+    ///
+    /// <para>Va después de los catálogos y dentro del candado, por lo mismo que ellos: dos instancias
+    /// arrancando a la vez insertarían el manual por duplicado.</para>
+    ///
+    /// <para><b>Nunca pisa lo que haya.</b> Solo inserta lo que jamás se ha sembrado, y eso lo decide
+    /// <see cref="ManualDeUso.SembrarAsync"/> con la lista de claves ya sembradas; una corrección que
+    /// alguien haya hecho sobre un artículo del manual sobrevive a todos los arranques siguientes.
+    /// Por eso el registro se escribe en <c>info</c> y no en <c>warning</c>: lo normal, arranque tras
+    /// arranque, es que este método no agregue absolutamente nada.</para>
+    ///
+    /// <para>Un fallo NO tumba el arranque, igual que en los catálogos: sin manual la aplicación
+    /// funciona, y negarse a arrancar por unos artículos de documentación dejaría a todo el equipo
+    /// fuera. Queda en el registro para que se note.</para>
+    /// </summary>
+    private static async Task SembrarManualAsync(AppDbContext db, ILogger log, CancellationToken ct)
+    {
+        try
+        {
+            int agregados = await ManualDeUso.SembrarAsync(db, ct);
+            if (agregados > 0)
+                log.LogInformation(
+                    "{n} artículo(s) del manual de uso sembrados en la base de conocimiento, " +
+                    "etiquetados «{Etiqueta}».", agregados, ManualDeUso.Etiqueta);
+        }
+        catch (Exception ex)
+        {
+            log.LogError(ex, "No se pudo sembrar el manual de uso. La aplicación arranca igual.");
         }
     }
 

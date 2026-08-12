@@ -55,14 +55,15 @@
 <RadzenStack Gap="1rem">
     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
         <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Usuarios</RadzenText>
-        <RadzenButton Text="Nuevo usuario" Icon="add" Disabled="@_ocupado" Click="@AbrirAlta" />
+        <RadzenButton data-recorrido="usuarios-nuevo"
+                      Text="Nuevo usuario" Icon="add" Disabled="@_ocupado" Click="@AbrirAlta" />
         <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
                       Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
     </RadzenStack>
 
     @if (_datos is { } datos)
     {
-        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+        <RadzenText data-recorrido="usuarios-bloqueo" TextStyle="TextStyle.Caption" class="rz-mb-0">
             @datos.IntentosParaBloquear intentos fallidos bloquean la cuenta @datos.MinutosDeBloqueo minutos.
             «Desbloquear» levanta ese bloqueo sin tocar la contraseña.
         </RadzenText>
@@ -70,7 +71,7 @@
            ajuste opcional que alguien decidió no usar: es una cuenta que todavía no ha pasado por el
            alta y a la que se le exigirá en cuanto entre. Decirlo aquí evita que la columna se lea
            como un permiso. *@
-        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+        <RadzenText data-recorrido="usuarios-2fa" TextStyle="TextStyle.Caption" class="rz-mb-0">
             El segundo factor es obligatorio para todas las cuentas: a quien salga como «sin activar»
             se le pedirá darlo de alta la próxima vez que entre. Cada alta entrega
             @datos.CodigosDeRescateEmitidos códigos de rescate de un solo uso; «Segundo factor»
@@ -238,17 +239,20 @@
                         <RadzenButton Text="Editar" Icon="edit" ButtonStyle="ButtonStyle.Light"
                                       Size="ButtonSize.ExtraSmall"
                                       Disabled="@_ocupado" Click="@(() => AbrirEdicion(u))" />
-                        <RadzenButton Text="Contraseña" Icon="vpn_key" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                        <RadzenButton data-recorrido="usuarios-contrasena"
+                                      Text="Contraseña" Icon="vpn_key" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                       Disabled="@_ocupado" Click="@(() => Restablecer(u))" />
                         <RadzenButton Text="Desbloquear" Icon="lock_open" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                       Disabled="@_ocupado" Click="@(() => Desbloquear(u))" />
                         <RadzenButton Text="@(u.Activo ? "Desactivar" : "Activar")" Icon="@(u.Activo ? "block" : "check_circle")"
                                       ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                       Disabled="@_ocupado" Click="@(() => Alternar(u))" />
-                        <RadzenButton Text="Segundo factor" Icon="restart_alt" ButtonStyle="ButtonStyle.Light"
+                        <RadzenButton data-recorrido="usuarios-reiniciar-2fa"
+                                      Text="Segundo factor" Icon="restart_alt" ButtonStyle="ButtonStyle.Light"
                                       Size="ButtonSize.ExtraSmall" title="Reinicia el segundo factor de esta cuenta"
                                       Disabled="@_ocupado" Click="@(() => ReiniciarSegundoFactor(u))" />
-                        <RadzenButton Text="Eliminar" Icon="delete" ButtonStyle="ButtonStyle.Danger"
+                        <RadzenButton data-recorrido="usuarios-eliminar"
+                                      Text="Eliminar" Icon="delete" ButtonStyle="ButtonStyle.Danger"
                                       Size="ButtonSize.ExtraSmall"
                                       Disabled="@_ocupado" Click="@(() => Eliminar(u))" />
                     </Template>

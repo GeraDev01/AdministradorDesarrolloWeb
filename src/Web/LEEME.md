@@ -8,6 +8,24 @@ datos** y los **mismos usuarios** que la aplicación de escritorio.
 > escritorio se retira. Nunca hay dos aplicaciones escribiendo producción a la vez, que es lo que
 > evita de raíz los problemas de esquema, de trabajos duplicados y de concurrencia entre ambas.
 
+## La documentación
+
+Este archivo es el panorama. Lo demás está repartido según para qué se busque:
+
+| Documento | Para qué |
+|---|---|
+| **[ARQUITECTURA.md](ARQUITECTURA.md)** | Qué hace cada capa, qué no puede cruzar al navegador, el camino de una petición y **dónde vive cada cosa** |
+| **[MODELO-DE-DATOS.md](MODELO-DE-DATOS.md)** | Los grupos de entidades, las relaciones que no se adivinan, **las reglas que el esquema no expresa** y cómo se cambia el esquema |
+| **[PRUEBAS.md](PRUEBAS.md)** | Las cuatro redes, qué cubre cada una y **qué se le escapa a cada una** |
+| **[DECISIONES.md](DECISIONES.md)** | Lo que parece un error al leer el código y no lo es, con su porqué |
+| **[GUIA-DE-PUESTA-EN-MARCHA.md](GUIA-DE-PUESTA-EN-MARCHA.md)** | El camino desde aquí hasta producción: probar, preparar Azure, ensayar y cortar |
+| **[EL-CORTE.md](EL-CORTE.md)** | Solo el día del corte, paso por paso |
+
+El **manual de uso** —para quien usa la aplicación, no para quien la mantiene— vive dentro de la
+propia aplicación, en la base de conocimiento. Y cada pantalla lleva su recorrido guiado, que se
+lanza desde el botón de la barra superior — todas menos el acceso y el segundo factor, que no tienen
+barra desde la que lanzarlo. Hay una prueba que no deja que se quede ninguna otra fuera.
+
 ## Estructura
 
 | Proyecto | Qué contiene | De qué depende |
@@ -161,9 +179,14 @@ recarga en vez de seguir contando contra algo que ya se cerró.
 ## Estado
 
 **Las cinco fases están terminadas: se alcanzó la paridad.** No queda ninguna entrada apagada en el
-menú. Pasan **1187 pruebas de servicios**, **19 de la API levantada** y la prueba de humo completa,
-que recorre unas setenta rutas contra la aplicación arrancada de verdad. El escritorio sigue intacto
-y sus **1085 pruebas** también pasan.
+menú. Pasan las dos suites de pruebas —en verde, sin ninguna omitida— y la prueba de humo completa,
+que recorre más de sesenta rutas contra la aplicación arrancada de verdad. El escritorio sigue
+intacto y sus **1085 pruebas** también pasan.
+
+> Los conteos exactos de pruebas no se escriben aquí a propósito: cambian con cada cosa que se
+> añade, y un número anotado en un documento solo sirve para que alguien lo compare y se preocupe sin
+> motivo. El que vale es el que imprime `dotnet test`. Qué cubre cada suite está en
+> [PRUEBAS.md](PRUEBAS.md).
 
 **Lo que falta no es código: es el CORTE.**
 
@@ -221,8 +244,12 @@ Tres piezas nuevas que comparten todas:
   certificado — no con Key Vault, que esta suscripción no tiene; ver `Arranque/Llavero.cs`.
 - **Documentos en PDF con QuestPDF**, detrás de `IGeneradorDeDocumentos`. Se retiró el camino
   anterior —armar un DOCX y convertirlo con LibreOffice instalado en la máquina—, que era la única
-  pieza de la web incapaz de correr sola. **Consecuencia aceptada: la plantilla `.docx` deja de ser
-  editable por Recursos Humanos**; el diseño del documento vive ahora en el código.
+  pieza de la web incapaz de correr sola.
+  **La solicitud de vacaciones sale además en Word, sobre una plantilla que el área puede sustituir
+  sin recompilar** (`IPlantillaDeVacacionesEnWord`): LibreOffice nunca hizo falta para *rellenar* un
+  `.docx`, solo para convertirlo a PDF. Son dos salidas del mismo documento y cada una tiene su
+  momento; el porqué completo está en
+  [DECISIONES.md](DECISIONES.md#los-documentos-salen-por-dos-caminos-y-el-de-word-volvió).
 - **Firma manuscrita en un lienzo**, con eventos de puntero: se firma con el dedo o con lápiz desde
   una tableta, que es como se firma de verdad. En el escritorio era GDI+ y solo entendía el ratón.
   El PNG sale con fondo transparente y recortado al trazo, porque acaba pegado dentro de un

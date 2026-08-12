@@ -40,11 +40,12 @@
 <RadzenStack Gap="1rem">
     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
         <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Quién está</RadzenText>
-        <RadzenButton Text="Actualizar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
+        <RadzenButton data-recorrido="presencia-actualizar"
+                      Text="Actualizar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
                       Size="ButtonSize.Small" Click="@CargarTodo" Disabled="@_ocupado" />
     </RadzenStack>
 
-    <RadzenTabs>
+    <RadzenTabs data-recorrido="presencia-pestanas">
         <Tabs>
             @* «sensors» (las ondas de señal) y no un círculo verde: la pestaña lista a TODO el mundo,
                conectado o no, y un verde en el rótulo prometía que solo salían los disponibles. Es
@@ -52,7 +53,8 @@
                pantalla a la que se llega se reconocen como la misma cosa. *@
             <RadzenTabsItem Text="Quién está" Icon="sensors">
                 <RadzenStack Gap="0.75rem">
-                    <RadzenDataGrid TItem="PresenteDto" Data="@Presentes" IsLoading="@_ocupado"
+                    <RadzenDataGrid data-recorrido="presencia-tablero"
+                                    TItem="PresenteDto" Data="@Presentes" IsLoading="@_ocupado"
                                     AllowSorting="false" RowRender="@ApagarDesconectados"
                                     EmptyText="No hay cuentas activas.">
                         <Columns>
@@ -127,12 +129,14 @@
                                           Change="@(_ => CargarAsistencia())" Disabled="@_ocupado" />
                         <RadzenButton Text="Hoy" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                                       Disabled="@_ocupado" Click="@(() => IrAlDia(DateTime.Today))" />
-                        <RadzenButton Text="Día olvidado…" Icon="add" ButtonStyle="ButtonStyle.Light"
+                        <RadzenButton data-recorrido="presencia-dia-olvidado"
+                                      Text="Día olvidado…" Icon="add" ButtonStyle="ButtonStyle.Light"
                                       Size="ButtonSize.Small" Disabled="@_ocupado" Click="@AbrirAlta" />
                         @* Baja el día que se está viendo, con las mismas diez columnas del
                            escritorio. Incluye las filas sin marcar: esa ausencia es el dato por el
                            que se suele exportar. *@
-                        <RadzenButton Text="Excel" Icon="download" ButtonStyle="ButtonStyle.Light"
+                        <RadzenButton data-recorrido="presencia-excel"
+                                      Text="Excel" Icon="download" ButtonStyle="ButtonStyle.Light"
                                       Size="ButtonSize.Small" Disabled="@_ocupado"
                                       Style="margin-left:auto" Click="@ExportarAsistencia" />
                     </RadzenStack>
@@ -245,7 +249,8 @@
                                 <Template Context="f">
                                     @if (f.RegistroId is not null)
                                     {
-                                        <RadzenButton Text="Corregir" ButtonStyle="ButtonStyle.Light"
+                                        <RadzenButton data-recorrido="presencia-corregir"
+                                                      Text="Corregir" ButtonStyle="ButtonStyle.Light"
                                                       Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                       Click="@(() => AbrirCorreccion(f))" />
                                     }

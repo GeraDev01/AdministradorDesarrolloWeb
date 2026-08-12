@@ -91,7 +91,7 @@
             @* @key para que Blazor no reaproveche una tarjeta —ni el recuadro de pegar imágenes que
                lleva dentro— entre entradas distintas al reordenarse el hilo. *@
             @* La sangría por nivel es lo que enseña de qué cuelga cada respuesta. *@
-            <div @key="e.Id" style="@Sangria(e.Nivel)">
+            <div data-recorrido="hilo-entrada" @key="e.Id" style="@Sangria(e.Nivel)">
                 @* Sin color de respaldo detrás de la variable: ese respaldo era el azul de la
                    plantilla anterior y, si la variable faltara, el hilo saldría con una franja azul
                    en medio de una aplicación ámbar y nadie sabría de dónde vino. Sin respaldo, la
@@ -202,7 +202,8 @@
                                pierde entera la información que este botón comunica. Si algún día
                                alguien quita uno de los dos de iconos.txt, este botón deja de decir
                                nada aunque siga funcionando. *@
-                            <RadzenButton Text="@e.MeGusta.ToString()"
+                            <RadzenButton data-recorrido="hilo-me-gusta"
+                                          Text="@e.MeGusta.ToString()"
                                           Icon="@(e.YoDiMeGusta ? "favorite" : "favorite_border")"
                                           ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
                                           Disabled="@(_ocupado || e.Retirada)"
@@ -214,14 +215,16 @@
                                 @* La flecha de responder, y aquí es literal: hay una persona al otro
                                    lado. En el resto de la aplicación este icono NO se usa para
                                    duplicar ni replicar registros, solo para contestarle a alguien. *@
-                                <RadzenButton Text="Responder" Icon="reply" ButtonStyle="ButtonStyle.Light"
+                                <RadzenButton data-recorrido="hilo-responder"
+                                              Text="Responder" Icon="reply" ButtonStyle="ButtonStyle.Light"
                                               Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                               Click="@(() => Responder(e.Id))" />
                             }
 
                             @if (e.EsMia && !e.Retirada && _editando != e.Id)
                             {
-                                <RadzenButton Text="Editar" Icon="edit" ButtonStyle="ButtonStyle.Light"
+                                <RadzenButton data-recorrido="hilo-editar"
+                                              Text="Editar" Icon="edit" ButtonStyle="ButtonStyle.Light"
                                               Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                               Click="@(() => Editar(e))" />
                             }
@@ -231,7 +234,8 @@
                                quien lo permite de verdad es el servicio. *@
                             @if (!e.Retirada && (e.EsMia || _esAdmin))
                             {
-                                <RadzenButton Text="Retirar" Icon="delete" ButtonStyle="ButtonStyle.Light"
+                                <RadzenButton data-recorrido="hilo-retirar"
+                                              Text="Retirar" Icon="delete" ButtonStyle="ButtonStyle.Light"
                                               Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                               Click="@(() => RetirarAsync(e))" />
                             }

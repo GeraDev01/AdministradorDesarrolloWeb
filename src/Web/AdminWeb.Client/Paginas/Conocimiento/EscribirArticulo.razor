@@ -69,7 +69,8 @@
                     en minúsculas para que «SQL» y «sql» no partan en dos el mismo tema.
                 </RadzenText>
 
-                <RadzenTextArea @bind-Value="_cuerpo" Rows="18" MaxLength="@MaxCuerpo" Style="width:100%"
+                <RadzenTextArea data-recorrido="escribir-cuerpo"
+                                @bind-Value="_cuerpo" Rows="18" MaxLength="@MaxCuerpo" Style="width:100%"
                                 aria-label="Texto del artículo" Disabled="@_ocupado"
                                 Placeholder="Escribe aquí. Lo que sabes tú y todavía no está escrito en ningún sitio." />
 
@@ -84,7 +85,7 @@
                     </RadzenText>
                 </RadzenStack>
 
-                <details>
+                <details data-recorrido="escribir-marcas">
                     <summary style="cursor:pointer;font-size:.85rem">Las marcas que se entienden (son cinco)</summary>
                     <RadzenText TextStyle="TextStyle.Caption" Style="margin:.4rem 0 0;white-space:pre-wrap">@Ayuda</RadzenText>
                 </details>
@@ -92,7 +93,8 @@
         </RadzenCard>
 
         <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.5rem">
-            <RadzenButton Text="@(EsNuevo ? "Guardar borrador" : "Guardar")" Icon="save"
+            <RadzenButton data-recorrido="escribir-borrador"
+                          Text="@(EsNuevo ? "Guardar borrador" : "Guardar")" Icon="save"
                           ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
                           Disabled="@_ocupado" Click="@(() => GuardarAsync(mandar: false))" />
 
@@ -100,7 +102,8 @@
             {
                 @* Guardar y mandar en un solo botón: si fueran dos pasos, el segundo se olvidaría y el
                    artículo se quedaría en un borrador que nadie va a leer nunca. *@
-                <RadzenButton Text="Guardar y mandar a revisar" Icon="send" ButtonStyle="ButtonStyle.Primary"
+                <RadzenButton data-recorrido="escribir-mandar"
+                              Text="Guardar y mandar a revisar" Icon="send" ButtonStyle="ButtonStyle.Primary"
                               Size="ButtonSize.Small" Disabled="@_ocupado"
                               Click="@(() => GuardarAsync(mandar: true))" />
             }

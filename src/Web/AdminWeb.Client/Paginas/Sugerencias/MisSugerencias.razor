@@ -52,7 +52,8 @@
                                 @* «close» y no «clear»: el botón cierra el formulario sin guardar nada,
                                    que es cerrar. El aspa de vaciar se reserva para quitar algo que se
                                    acaba de elegir dentro de un campo. *@
-                                <RadzenButton Text="@(_enviandoFormulario ? "Cancelar" : "Nueva sugerencia")"
+                                <RadzenButton data-recorrido="sugerencias-nueva"
+                                              Text="@(_enviandoFormulario ? "Cancelar" : "Nueva sugerencia")"
                                               Icon="@(_enviandoFormulario ? "close" : "add")"
                                               ButtonStyle="@(_enviandoFormulario ? ButtonStyle.Light : ButtonStyle.Primary)"
                                               Size="ButtonSize.Small" Disabled="@_ocupado"
@@ -76,12 +77,14 @@
                                     <RadzenDropDown TValue="int" Data="@_categorias" TextProperty="Texto" ValueProperty="Id"
                                                     @bind-Value="_categoria" aria-label="Categoría" Style="width:200px" />
 
-                                    <RadzenDropDown TValue="int" Data="@_visibilidades" TextProperty="Texto" ValueProperty="Id"
+                                    <RadzenDropDown data-recorrido="sugerencias-visibilidad"
+                                                    TValue="int" Data="@_visibilidades" TextProperty="Texto" ValueProperty="Id"
                                                     @bind-Value="_visibilidad" aria-label="Quién la ve" Style="width:250px"
                                                     Change="@(_ => AlCambiarVisibilidad())" />
 
                                     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.4rem">
-                                        <RadzenCheckBox @bind-Value="_anonima" Name="anonima" />
+                                        <RadzenCheckBox data-recorrido="sugerencias-anonima"
+                                                        @bind-Value="_anonima" Name="anonima" />
                                         <RadzenLabel Text="Enviarla sin mi nombre" Component="anonima" />
                                     </RadzenStack>
 
@@ -109,7 +112,8 @@
                     </RadzenCard>
 
                     @* ── Las mías ────────────────────────────────────────────────────────── *@
-                    <RadzenDataGrid TItem="MiSugerenciaDto" Data="@_mias" IsLoading="@_ocupado"
+                    <RadzenDataGrid data-recorrido="sugerencias-mias"
+                                    TItem="MiSugerenciaDto" Data="@_mias" IsLoading="@_ocupado"
                                     AllowPaging="true" PageSize="15" AllowColumnResize="true"
                                     EmptyText="Todavía no has enviado sugerencias.">
                         <Columns>
@@ -235,7 +239,8 @@
                         fuera de votación se leen, pero no se apoyan.
                     </RadzenText>
 
-                    <RadzenDataGrid TItem="PropuestaDelEquipoDto" Data="@_equipo" IsLoading="@_ocupado"
+                    <RadzenDataGrid data-recorrido="sugerencias-propuestas"
+                                    TItem="PropuestaDelEquipoDto" Data="@_equipo" IsLoading="@_ocupado"
                                     AllowPaging="true" PageSize="15" AllowColumnResize="true"
                                     EmptyText="No hay propuestas todavía.">
                         <Columns>
@@ -306,7 +311,8 @@
                                            todavía no— porque el ButtonStyle también cambia
                                            (Success/Light) y los tres tienen que contar la misma
                                            historia. *@
-                                        <RadzenButton Text="@(p.YoVote ? "Quitar apoyo" : "Apoyar")" Icon="@(p.YoVote ? "check" : "thumb_up")"
+                                        <RadzenButton data-recorrido="sugerencias-apoyar"
+                                                      Text="@(p.YoVote ? "Quitar apoyo" : "Apoyar")" Icon="@(p.YoVote ? "check" : "thumb_up")"
                                                       ButtonStyle="@(p.YoVote ? ButtonStyle.Success : ButtonStyle.Light)"
                                                       Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                       Click="@(() => VotarAsync(p))" />

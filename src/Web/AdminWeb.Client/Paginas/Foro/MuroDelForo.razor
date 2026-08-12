@@ -62,7 +62,8 @@
                                 @* Un solo botón que alterna, así que el icono alterna con él: «add»
                                    abre el formulario en blanco —el mismo de todo lo que se crea en la
                                    aplicación— y «close» lo cierra sin publicar nada. *@
-                                <RadzenButton Text="@(_publicando ? "Cancelar" : "Publicar algo")"
+                                <RadzenButton data-recorrido="foro-publicar"
+                                              Text="@(_publicando ? "Cancelar" : "Publicar algo")"
                                               Icon="@(_publicando ? "close" : "add")"
                                               ButtonStyle="@(_publicando ? ButtonStyle.Light : ButtonStyle.Primary)"
                                               Size="ButtonSize.Small" Disabled="@_enviando"
@@ -112,7 +113,8 @@
                     </RadzenCard>
 
                     @* ── Filtros ─────────────────────────────────────────────────────────── *@
-                    <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap"
+                    <RadzenStack data-recorrido="foro-filtros"
+                                 Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap"
                                  AlignItems="AlignItems.Center" Gap="0.5rem">
                         @*
                             La búsqueda se dispara al salir del campo o con Enter, no en cada tecla.
@@ -179,7 +181,8 @@
                             @* En un muro la tarjeta ES el botón: el clic en cualquier parte abre el
                                hilo. El botón de abajo existe para quien navega con teclado, que no
                                puede «hacer clic en una tarjeta». *@
-                            <div @onclick="@(() => AbrirHilo(t.Id))" style="cursor:pointer">
+                            <div data-recorrido="foro-tarjeta"
+                                 @onclick="@(() => AbrirHilo(t.Id))" style="cursor:pointer">
                                 <RadzenCard>
                                     <RadzenStack Gap="0.35rem">
                                         @* La misma chincheta que el encabezado de HiloDelForo: si la
@@ -285,7 +288,8 @@
                                             Change="@(async _ => await RecargarAuditoriaAsync())" />
                         </RadzenStack>
 
-                        <RadzenDataGrid @ref="_rejilla" TItem="ForoAuditoriaFilaDto"
+                        <RadzenDataGrid data-recorrido="foro-auditoria"
+                                        @ref="_rejilla" TItem="ForoAuditoriaFilaDto"
                                         Data="@_auditoria" Count="@_totalAuditoria"
                                         LoadData="@CargarAuditoriaAsync" IsLoading="@_cargandoAuditoria"
                                         AllowPaging="true" PageSize="@TamanoAuditoria" AllowColumnPicking="true"

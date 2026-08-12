@@ -42,12 +42,12 @@
        fuente y no como emoji: RadzenText no admite Icon, así que va dentro como <RadzenIcon>. Puesto
        así hereda currentColor y se atenúa igual que el TextStyle.Caption que lo envuelve; el emoji
        se quedaba a todo color, con aire de botón pulsable, encima de un texto deliberadamente gris. *@
-    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+    <RadzenText data-recorrido="perfiles-aviso" TextStyle="TextStyle.Caption" class="rz-mb-0">
         <RadzenIcon Icon="lock" /> Información confidencial · visible solo para el líder.
     </RadzenText>
 
     <div style="display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-start">
-        <RadzenCard Style="flex:1 1 20rem;max-width:26rem">
+        <RadzenCard data-recorrido="perfiles-lista" Style="flex:1 1 20rem;max-width:26rem">
             <RadzenText TextStyle="TextStyle.Subtitle2">Desarrolladores</RadzenText>
             <RadzenDataGrid TItem="PersonaConFichaDto" Data="@_personas" IsLoading="@_ocupado"
                             AllowSorting="false" AllowPaging="true" PageSize="15"
@@ -66,7 +66,7 @@
             </RadzenDataGrid>
         </RadzenCard>
 
-        <RadzenCard Style="flex:2 1 32rem">
+        <RadzenCard data-recorrido="perfiles-ficha" Style="flex:2 1 32rem">
             @if (_ficha is not { } ficha)
             {
                 <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
@@ -97,7 +97,8 @@
                         <RadzenLabel Text="Salario" Component="salario" />
                         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                      Gap="0.75rem" Wrap="FlexWrap.Wrap">
-                            <RadzenNumeric TValue="decimal" @bind-Value="_salario" Name="salario"
+                            <RadzenNumeric data-recorrido="perfiles-salario"
+                                           TValue="decimal" @bind-Value="_salario" Name="salario"
                                            Min="0" Max="100000000" Step="500" Format="n2" Style="width:12rem" />
                             @* Texto libre y no una lista cerrada, igual que el combo editable del
                                escritorio: la moneda de una contratación puntual no tiene por qué
