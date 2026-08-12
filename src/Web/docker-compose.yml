@@ -76,9 +76,13 @@ services:
       # requerimientos. Con esto se abre con un equipo de cuatro personas, trabajo repartido,
       # despliegues hechos y conversaciones en el foro.
       #
+      # Las seis cuentas vienen además con el SEGUNDO FACTOR ya dado de alta y con un secreto fijo,
+      # porque es obligatorio y sin eso no se pasa de la primera pantalla sin un teléfono a mano. El
+      # arranque lo anuncia en el registro.
+      #
       # Que esté aquí NO la vuelve peligrosa: el sembrador exige además no estar en Production y que
-      # la base no tenga ni un desarrollador. Contra cualquier base con contenido no hace nada y lo
-      # dice en el registro. Ver DatosDeDemostracion.
+      # la base no tenga ni un desarrollador, lo comprueba él mismo y no tiene otra puerta. Contra
+      # cualquier base con contenido no hace nada y lo dice en el registro. Ver DatosDeDemostracion.
       AdminWeb__DatosDeDemostracion: "true"
     ports:
       - "8080:8080"

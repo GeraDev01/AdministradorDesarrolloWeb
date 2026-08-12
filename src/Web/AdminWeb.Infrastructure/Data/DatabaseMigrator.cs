@@ -1189,7 +1189,11 @@ public static class DatabaseMigrator
         // web la cookie de autenticación puede seguir viva horas después, y sin este sello la
         // cuenta desactivada sigue entrando hasta que expire. Al cambiar la contraseña o desactivar
         // la cuenta se regenera el sello; los tickets emitidos con el sello anterior dejan de valer.
+        // El relleno de la línea siguiente es obligatorio, no un adorno: `User.SecurityStamp` es
+        // `string` no anulable y una fila con NULL no se puede materializar — la consulta de
+        // LoginAsync revienta y no entra nadie. Ver la explicación larga en la rama de SQL Server.
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Users"" ADD COLUMN ""SecurityStamp"" TEXT"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"UPDATE ""Users"" SET ""SecurityStamp"" = lower(hex(randomblob(16))) WHERE ""SecurityStamp"" IS NULL"); } catch { }
 
         // RowVersion (concurrencia optimista) NO se aplica en SQLite: no existe el tipo rowversion
         // y el original ya usa ese patrón — el escritorio siempre corrió su concurrencia contra SQL
@@ -2482,9 +2486,21 @@ CREATE TABLE [Sprints] (
         // web la cookie de autenticación puede seguir viva horas después, y sin este sello la
         // cuenta desactivada sigue entrando hasta que expire. Al cambiar la contraseña o desactivar
         // la cuenta se regenera el sello; los tickets emitidos con el sello anterior dejan de valer.
-        // NULL a propósito: las cuentas que ya existen no tienen sello hasta su próximo cambio de
-        // contraseña, y un sello vacío no debe invalidar nada por sí mismo.
+        // La columna se agrega anulable —no hay forma de agregarla NOT NULL sin un valor— pero
+        // ENSEGUIDA se rellena, y ese relleno no es cosmético: `User.SecurityStamp` es `string` no
+        // anulable, así que una fila con NULL no es «una cuenta sin sello», es una fila que EF NO
+        // PUEDE MATERIALIZAR. Revienta con SqlNullValueException dentro de la consulta de
+        // LoginAsync, o sea que NADIE PUEDE ENTRAR. Ninguna prueba lo veía porque en las bases de
+        // prueba los usuarios se crean por el modelo, que ya trae su sello puesto; solo aparece
+        // contra una base que ya tenía cuentas, que es exactamente la de producción.
+        //
+        // Antes había aquí un comentario diciendo que el NULL era deliberado, «porque un sello
+        // vacío no debe invalidar nada por sí mismo». El razonamiento sobre el significado del
+        // sello era correcto y se respeta: dar a cada cuenta un sello propio y recién hecho no
+        // invalida ninguna sesión, porque las sesiones se comparan contra el sello que se emitió
+        // con ellas y aquí todavía no hay ninguna emitida.
         Exec("IF COL_LENGTH('Users','SecurityStamp') IS NULL ALTER TABLE [Users] ADD [SecurityStamp] nvarchar(64) NULL;");
+        Exec("UPDATE [Users] SET [SecurityStamp] = REPLACE(CONVERT(varchar(36), NEWID()), '-', '') WHERE [SecurityStamp] IS NULL;");
 
         // Concurrencia optimista donde dos personas editan de verdad lo mismo al mismo tiempo.
         // En el escritorio esto casi no se daba: un contexto Singleton por proceso y una ventana a

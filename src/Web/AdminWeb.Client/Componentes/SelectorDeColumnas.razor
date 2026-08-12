@@ -16,6 +16,9 @@
 @using AdminWeb.Client.Servicios
 @inject PreferenciasDeUsuario Preferencias
 
+@* SelectedItemsText va SIN el número delante: Radzen ya pinta la cuenta y este texto es lo que va
+   DESPUÉS («3 items selected» es su valor por omisión). Ponerlo aquí lo repetía y en la pantalla se
+   leía «15 15 de 15 columnas». *@
 <RadzenDropDown TValue="IEnumerable<string>"
                 Data="@Columnas"
                 Value="@_visibles"
@@ -24,7 +27,7 @@
                 AllowClear="false"
                 Chips="false"
                 MaxSelectedLabels="0"
-                SelectedItemsText="@($"{_visibles.Count} de {Columnas.Count} columnas")"
+                SelectedItemsText="@($"de {Columnas.Count} columnas")"
                 Placeholder="Columnas"
                 Style="min-width:14rem"
                 title="Elige qué columnas ves. Se recuerda para la próxima vez." />

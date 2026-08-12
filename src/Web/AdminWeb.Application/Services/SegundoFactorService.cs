@@ -39,14 +39,28 @@ public record EstadoDeSegundoFactor(bool Activo, DateTime? DesdeUtc, int Codigos
 /// <list type="number">
 ///   <item><see cref="ComenzarAltaAsync"/> NO toca la tabla de usuarios. Escribe el secreto bajo el
 ///   propósito <c>2fa.totp.pendiente</c> y nada más.</item>
-///   <item>Al entrar solo se lee el propósito <c>2fa.totp</c>, y en ese propósito no escribe nadie
-///   más que <see cref="ConfirmarAltaAsync"/>, después de que un código tecleado haya coincidido.</item>
-///   <item><c>SegundoFactorActivo = true</c> se asigna en un solo sitio del sistema entero: dentro
-///   de ese mismo <see cref="ConfirmarAltaAsync"/> y detrás de la comprobación.</item>
+///   <item>Al entrar solo se lee el propósito <c>2fa.totp</c>, y de todo lo que atiende una petición
+///   —pantallas, endpoints, servicios— el único que escribe ahí es <see cref="ConfirmarAltaAsync"/>,
+///   después de que un código tecleado haya coincidido.</item>
+///   <item><c>SegundoFactorActivo = true</c> se asigna en ese mismo <see cref="ConfirmarAltaAsync"/>
+///   y detrás de la comprobación.</item>
 /// </list>
-/// <para>Consecuencia: aunque alguien pusiera la columna en cierto a mano en la base, no habría
-/// secreto que comparar y el sistema lo diría con todas sus letras en vez de dejar a esa persona
-/// fuera en silencio. No hay ningún camino que active el segundo factor sin haberlo probado.</para>
+/// <para>Consecuencia: ninguna petición puede activarle el segundo factor a nadie sin haberlo
+/// probado antes.</para>
+///
+/// <para><b>La única excepción está fuera del camino de las peticiones y hay que conocerla:</b>
+/// <c>DatosDeDemostracion</c> deja sus seis cuentas inventadas con <c>SegundoFactorActivo</c> y su
+/// fila de <c>2fa.totp</c> ya puestas, sin que nadie teclee ningún código. No es un atajo del acceso
+/// —esas cuentas entran por aquí como cualquiera, con su código de seis dígitos— sino siembra de
+/// arranque, y solo corre si se pidió a propósito, fuera de <c>Production</c> y contra una base sin
+/// un solo desarrollador. Lo que importa de este lado es que escribe LAS DOS COSAS a la vez, columna
+/// y secreto, así que no rompe la regla de abajo.</para>
+///
+/// <para><b>La regla que de verdad se sostiene:</b> una cuenta marcada como activa siempre tiene un
+/// secreto contra el que comparar. Si alguien pusiera la columna en cierto a mano en la base, no lo
+/// habría, y el sistema lo diría con todas sus letras —ver
+/// <see cref="VerificarCodigoDelTelefonoAsync"/>— en vez de dejar a esa persona fuera en
+/// silencio.</para>
 ///
 /// <para><b>Qué NO está aquí.</b> Las pantallas y el corte de las peticiones de quien todavía no lo
 /// ha activado. Este servicio calcula, guarda y responde; quien pregunta decide.</para>

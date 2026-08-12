@@ -315,8 +315,18 @@ public static class PreparacionDeLaBase
     /// desarrolladores en vez de cuatro.</para>
     ///
     /// <para>Las tres condiciones —pedirlo, no estar en Production y que la base esté virgen— las
-    /// comprueba <see cref="DatosDeDemostracion.SePuedeAsync"/>; ahí está explicado por qué son tres
-    /// y no una. Aquí solo se decide con qué entorno se le pregunta.</para>
+    /// comprueba el propio sembrador, dentro de <c>DatosDeDemostracion.SembrarSiSePuedeAsync</c>, que
+    /// es la única puerta que tiene; ahí está explicado por qué son tres y no una, y por qué se
+    /// comprueban allá y no aquí. De este lado solo se decide con qué entorno se le pregunta y qué
+    /// contar en el registro.</para>
+    ///
+    /// <para><b>El registro anuncia la contraseña Y el secreto del segundo factor</b>, y las dos
+    /// cosas son deliberadas. Estas cuentas nacen con el segundo factor ya activo porque es
+    /// obligatorio y sin él la demostración no pasa de la primera pantalla; el secreto es fijo y el
+    /// mismo para todas, así que publicarlo no le quita nada a nadie —no protege nada por diseño— y
+    /// en cambio es la única forma de que quien levanta esto pueda entrar sin un teléfono dado de
+    /// alta. El mensaje lo dice con todas sus letras para que nadie confunda esta base con una de
+    /// verdad si se topa con la línea en un registro suelto.</para>
     ///
     /// <para>Un fallo NO tumba el arranque, por lo mismo que el de los catálogos: sin datos de
     /// demostración la aplicación funciona perfectamente —solo se abre vacía—, y negarse a arrancar
@@ -329,27 +339,43 @@ public static class PreparacionDeLaBase
         var entorno = servicios.GetRequiredService<IHostEnvironment>();
 
         bool pedido = configuracion.GetValue(DatosDeDemostracion.Clave, false);
-        if (!await DatosDeDemostracion.SePuedeAsync(db, pedido, entorno.IsProduction(), ct))
+        if (!pedido) return;
+
+        try
         {
-            // Si se pidió y aun así no se sembró, hay que decir por qué: en silencio parecería que
-            // la clave de configuración no funciona.
-            if (pedido)
+            var protector = servicios.GetRequiredService<IProtectorDeSecretos>();
+
+            var resumen = await DatosDeDemostracion.SembrarSiSePuedeAsync(
+                db, protector, pedido, entorno.IsProduction(), ct);
+
+            if (resumen == null)
+            {
+                // Se pidió y aun así no se sembró: hay que decir por qué. En silencio parecería que
+                // la clave de configuración no funciona.
                 log.LogWarning(
                     "Se pidieron datos de demostración pero NO se sembraron: " +
                     "{Motivo}. Es la guarda que impide llenar de datos falsos una base con contenido.",
                     entorno.IsProduction()
                         ? "el entorno es Production"
                         : "la base ya tiene desarrolladores, así que no está vacía");
-            return;
-        }
+                return;
+            }
 
-        try
-        {
-            var resumen = await DatosDeDemostracion.SembrarAsync(db, ct);
             log.LogWarning(
                 "DATOS DE DEMOSTRACIÓN sembrados: {Resumen}. Todas las cuentas entran con la " +
                 "contraseña «{Contrasena}» — esto NO es una base de verdad.",
                 resumen, DatosDeDemostracion.Contrasena);
+
+            log.LogWarning(
+                "SEGUNDO FACTOR DE LAS CUENTAS DE DEMOSTRACIÓN: ya lo tienen activo, y las seis con " +
+                "el MISMO secreto fijo «{Secreto}». Tecléalo en cualquier aplicación de códigos —o " +
+                "pásaselo a un guion— y el código de seis dígitos que salga sirve para entrar con " +
+                "cualquiera de ellas. Está aquí porque el segundo factor es obligatorio y sin esto " +
+                "la demostración no pasaría de la pantalla del código QR sin un teléfono a mano. Un " +
+                "secreto publicado NO protege nada: da igual porque estas cuentas son inventadas, y " +
+                "por eso el sembrador se niega a correr si el entorno es Production o si la base " +
+                "tiene algo dentro.",
+                DatosDeDemostracion.SecretoDelSegundoFactor);
         }
         catch (Exception ex)
         {

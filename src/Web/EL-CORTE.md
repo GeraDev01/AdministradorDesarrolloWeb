@@ -44,11 +44,33 @@ de mantenimiento; sin él se está adivinando.
 
 Si algo falla en el ensayo, se arregla y se vuelve a ensayar. El ensayo es barato; el corte no.
 
+**Hay un guion que hace los pasos 2 y 3 y escribe el informe: [`ensayo.ps1`](ensayo.ps1).** Se niega
+a correr si la base no lleva `ENSAYO`, `COPIA` o `REHEARSAL` en el nombre, exige que tenga datos
+—contra una base vacía todo esto tarda un segundo y no prueba nada— y compara los recuentos antes y
+después, porque un migrador que se lleva una tabla por delante no lo dice. En su cabecera está cómo
+sacar la copia por los dos caminos: restaurándola en Azure, o exportándola a un `.bacpac` e
+importándola en un contenedor local, que sale gratis.
+
+**Lo que este paso ya encontró, y que justifica el resto del apartado.** La primera vez que se
+ejecutó apareció un defecto que ninguna de las 2.042 pruebas veía y que habría tumbado el corte
+entero: `Users.SecurityStamp` es una columna nueva, el migrador la agregaba anulable y no la
+rellenaba, y el modelo la declara no anulable. Una fila con `NULL` ahí no es «una cuenta sin sello»:
+es una fila que EF **no puede leer**, así que la consulta del acceso reventaba y **no entraba nadie**.
+En una base de prueba no aparece nunca, porque allí las cuentas se crean por el modelo, que ya trae
+el sello puesto; solo sale contra una base que ya tenía cuentas. Ya está arreglado y con pruebas que
+lo fijan, pero es el ejemplo exacto de lo que solo encuentra arrancar contra datos de verdad — y de
+por qué el paso 4 de esta lista empieza por **entrar**, que es lo primero que hay que probar.
+
+En esa misma ejecución la ventana medida fue de **diez segundos** contra una copia con 10.913 filas.
+La migración no mueve datos: crea ocho tablas vacías y agrega veintitrés columnas, y la tabla más
+grande que recibe una tiene noventa y cinco filas. Lo que cuesta son los viajes a la base, no el
+volumen.
+
 ## Hoy solo hay una cuenta de administrador
 
 **Esto es lo primero que hay que arreglar, y se arregla antes del corte, no durante.**
 
-De las once cuentas que hay, **solo una tiene rol de administrador**. Un solo líder. Compruébalo
+De las cuentas activas que hay, **solo una tiene rol de administrador**. Un solo líder. Compruébalo
 antes de seguir, desde «Usuarios»: la columna del rol lo dice y no hace falta abrir la base.
 
 Con el segundo factor obligatorio, cada quien tiene dos salidas si pierde el teléfono:
@@ -111,6 +133,17 @@ Así que, antes de cerrar nada:
    ninguna otra podrá.
 3. Lo que quede sin convertir habrá que recapturarlo a mano en el paso 5 — que se puede, pero
    significa volver a pedir contraseñas de servidores que quizá nadie recuerde.
+
+**A día de hoy esto ya está hecho**, comprobado contra producción: las **24** contraseñas de
+servidor y los **3** ajustes marcados como secretos están en el formato portable, y no queda ni uno
+heredado de DPAPI. El escritorio los fue convirtiendo solo, que es justo para lo que servía su
+`SharedSecretMigrationService`.
+
+Conviene volver a comprobarlo el día del corte, porque cualquiera puede capturar un secreto nuevo
+desde una máquina distinta entre hoy y entonces. Se distinguen por el prefijo: lo portable empieza
+por `ADW1:` y lo heredado no. En la propia aplicación se ve sin consultar la base — «Configuración»
+marca los que hay que recapturar, y la pantalla de servidores no enseña como disponible una
+contraseña que no pueda leer.
 
 ### 1. Avisar y cerrar el escritorio
 

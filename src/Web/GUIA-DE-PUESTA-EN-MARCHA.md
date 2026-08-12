@@ -48,10 +48,28 @@ Entra en <http://localhost:8080> con cualquiera de estas cuentas. **Todas usan `
 | `ops` | Operaciones | La vista recortada de quien solo despliega |
 | `ana`, `beto`, `caro`, `dani` | Desarrollador | El autoservicio: mis asignaciones, mi pool, mi jornada |
 
+El segundo factor es obligatorio, así que las seis **ya vienen dadas de alta** y **todas con el mismo
+secreto**, que el arranque anuncia en el registro:
+
+```bash
+docker logs adminweb-api-1 | grep "SEGUNDO FACTOR DE LAS CUENTAS DE DEMOSTRACIÓN"
+```
+
+Teclea ese texto en cualquier aplicación de códigos —o pásaselo a `totp-de-humo.ps1`— y el código de
+seis dígitos que salga sirve para entrar con cualquiera de ellas. Sin esto la demostración no pasaría
+de la pantalla del código QR sin tener un teléfono a mano, que es justo lo contrario de para lo que
+existe.
+
 > **Los datos de demostración no pueden aparecer en producción.** Se siembran solo si se pide con
 > `AdminWeb__DatosDeDemostracion` (puesta a `true` únicamente en el `docker-compose.yml`), **y**
-> además el entorno no es `Production`, **y** además la base no tiene ni un desarrollador. Contra
-> cualquier base con contenido no hace nada y lo dice en el registro. Está en `DatosDeDemostracion`.
+> además el entorno no es `Production`, **y** además la base no tiene ni un desarrollador. Las tres
+> las comprueba el propio sembrador —no quien lo llama—, y no tiene ninguna otra puerta pública.
+> Contra cualquier base con contenido no hace nada y lo dice en el registro. Está en
+> `DatosDeDemostracion`.
+>
+> Esa barrera **importa más desde que las cuentas traen el segundo factor puesto**: un secreto fijo y
+> publicado no protege nada por definición. En seis cuentas inventadas da igual; repartido sobre una
+> base de verdad sería dejar a todo el mundo con un código que puede calcular cualquiera.
 
 También sigue existiendo el administrador de arranque, por si quieres probar el cambio de contraseña
 obligatorio del primer acceso. Su contraseña temporal se **escribe en el registro**:

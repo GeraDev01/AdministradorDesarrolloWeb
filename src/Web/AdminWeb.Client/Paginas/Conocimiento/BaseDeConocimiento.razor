@@ -91,9 +91,19 @@
             <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap"
                          AlignItems="AlignItems.Center" Gap="0.5rem">
                 @* Se busca al salir del campo o con Enter, no en cada tecla: cada cambio es una
-                   consulta paginada al servidor que además mira DENTRO del texto de cada artículo. *@
+                   consulta paginada al servidor que además mira DENTRO del texto de cada artículo.
+
+                   EL ANCHO LO MANDA EL TEXTO DE DENTRO, no el hueco que sobra. Con los 300 px que
+                   había, el propio marcador de posición no cabía y se cortaba a media palabra
+                   —«…una pala»—, que es peor que no decir nada: parece un texto roto y además se
+                   pierde justo lo que distingue a este buscador, que mira dentro del artículo y no
+                   solo en los títulos. La cuenta: el texto mide 371 px y el relleno del campo se
+                   come 30, así que hace falta pasar de 401; 28rem son 448 y dejan margen para una
+                   fuente algo más ancha. El max-width evita que ese suelo desborde la fila en una
+                   ventana estrecha — ahí el campo encoge y el marcador se recorta, pero eso ya es
+                   falta de sitio de verdad y no un ancho elegido a ojo. *@
                 <RadzenTextBox data-recorrido="conocimiento-buscar"
-                               @bind-Value="_texto" Style="width:300px"
+                               @bind-Value="_texto" Style="width:28rem;max-width:100%"
                                Placeholder="Buscar un tema, un término, una palabra del texto…"
                                aria-label="Buscar en la documentación"
                                Change="@(async _ => await BuscarDeNuevoAsync())" />

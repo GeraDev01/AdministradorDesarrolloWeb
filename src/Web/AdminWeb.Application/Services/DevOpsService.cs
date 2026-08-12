@@ -563,7 +563,9 @@ public partial class DevOpsService(
     /// <para><b>Cambiar la prioridad REAJUSTA el compromiso de SLA</b>, como en el escritorio: subir
     /// un ticket a «muy alta» y dejar corriendo el plazo de la prioridad vieja convertía el cambio en
     /// un gesto decorativo — el aviso seguía llegando cuando ya no servía de nada. Lo hace
-    /// <see cref="ReconciliarSlaPorPrioridadAsync"/>, en el mismo guardado.</para>
+    /// <see cref="ReconciliacionDePrioridadDeDevOps"/>, en el mismo guardado; y lo hace también el
+    /// empuje del pool, que llama exactamente a lo mismo para que la prioridad signifique igual se
+    /// cambie desde donde se cambie.</para>
     /// </summary>
     public async Task<(bool ok, string mensaje)> CambiarPrioridadAsync(
         int numero, int prioridad, CancellationToken ct = default)
@@ -583,25 +585,10 @@ public partial class DevOpsService(
         {
             await devops.CambiarPrioridadAsync(credenciales, numero, prioridad, ct);
 
-            // DevOps aceptó el valor: el autoritativo es el que se envió. La respuesta lo trae como
-            // número y leerlo como texto daba vacío, así que no se relee.
-            ticket.Priority = prioridad.ToString();
-            ticket.PriorityConfirmedAt = DateTime.UtcNow;
-            ticket.PriorityConfirmedByUserId = usuario.UserId;
-
-            // Se refleja en el requerimiento local si el ticket ya se materializó como tal. El mapeo
-            // es inverso: en DevOps 1 es lo más urgente y en el catálogo local lo más urgente es el
-            // valor más alto.
-            var identificador = numero.ToString();
-            var requerimiento = await db.Requirements.FirstOrDefaultAsync(
-                r => r.ExternalId == identificador && r.Source == RequirementSource.AzureDevOps, ct);
-            if (requerimiento != null)
-            {
-                requerimiento.Priority = (RequirementPriority)(4 - prioridad);
-                await ReconciliarSlaPorPrioridadAsync(requerimiento, ticket, ct);
-            }
-
-            await db.SaveChangesAsync(ct);
+            // Va DESPUÉS de que DevOps aceptara y nunca antes: si la escritura de allá falla, aquí no
+            // se toca nada y el compromiso sigue con el plazo que le correspondía.
+            await ReconciliacionDePrioridadDeDevOps.ReconciliarAsync(
+                db, configuracion, usuario.UserId, numero, prioridad, ct);
 
             await bitacora.RecordAsync(AuditAction.Update, "DevOpsTicket", numero.ToString(),
                 $"Prioridad cambiada a {prioridad} en DevOps", ct);
@@ -1160,12 +1147,16 @@ public partial class DevOpsService(
     ///
     /// Solo se le pone a lo que NUNCA tuvo compromiso: uno cumplido o cancelado ya tiene su historia
     /// y volver a abrirlo por una pasada de mantenimiento reabriría discusiones ya cerradas.
+    ///
+    /// <para>El compromiso lo arma <see cref="ReconciliacionDePrioridadDeDevOps"/>, que es quien
+    /// tiene la regla del SLA que dicta una prioridad: el que se pone aquí y el que se reajusta al
+    /// cambiar la prioridad tienen que ser el mismo compromiso, no dos parecidos.</para>
     /// </summary>
     private async Task<int> PonerSlaAutomaticoAsync(
         IReadOnlyList<(Requirement requerimiento, DevOpsTicket ticket)> materializados,
         int developerId, DateTime ahora, CancellationToken ct)
     {
-        var politicas = await PoliticasDeSlaAsync(ct);
+        var politicas = await ReconciliacionDePrioridadDeDevOps.PoliticasAsync(configuracion, ct);
         if (!politicas.Any(p => p.Enabled)) return 0;
 
         var yaTuvieron = (await db.SlaCommitments.AsNoTracking()
@@ -1181,101 +1172,14 @@ public partial class DevOpsService(
             if (yaTuvieron.Contains(requerimiento.Id)) continue;
             if (SlaPolicyStore.Resolver(politicas, ticket.Priority) is not SlaPolicy politica) continue;
 
-            AgregarSlaAutomatico(requerimiento.Id, ticket, politica, developerId, ahora);
+            ReconciliacionDePrioridadDeDevOps.AgregarSlaAutomatico(
+                db, requerimiento.Id, ticket, politica, developerId, ahora);
             creados++;
         }
 
         if (creados > 0) await db.SaveChangesAsync(ct);
         return creados;
     }
-
-    /// <summary>
-    /// Reajusta el compromiso del requerimiento a la política de la prioridad que su ticket acaba de
-    /// estrenar. NO guarda: lo hace quien llama, en el mismo <c>SaveChanges</c> que el cambio de
-    /// prioridad, para que no exista un instante con la prioridad nueva y el plazo viejo.
-    ///
-    /// <para>El compromiso es de quien tiene el ticket AHORA: se empata por identidad contra el
-    /// asignado del work item y no contra una fila de asignación que pudo quedar de un dueño
-    /// anterior. Como respaldo, la asignación local más reciente.</para>
-    /// </summary>
-    private async Task ReconciliarSlaPorPrioridadAsync(
-        Requirement requerimiento, DevOpsTicket ticket, CancellationToken ct)
-    {
-        var politicas = await PoliticasDeSlaAsync(ct);
-        if (SlaPolicyStore.Resolver(politicas, ticket.Priority) is not SlaPolicy politica) return;
-
-        var ahora = DateTime.UtcNow;
-
-        var vigente = await db.SlaCommitments.FirstOrDefaultAsync(
-            s => s.RequirementId == requerimiento.Id && s.Status == SlaStatus.Activo, ct);
-
-        if (vigente != null)
-        {
-            var vence = ahora.AddHours(politica.Hours);
-            vigente.DueAtUtc = vence;
-            vigente.ReminderEveryHours = politica.ReminderEveryHours;
-            vigente.NextReminderAtUtc = SlaService.PrimerRecordatorio(ahora, vence, politica.ReminderEveryHours);
-            vigente.Notes =
-                $"SLA ajustado por cambio a prioridad {politica.Priority} " +
-                $"({SlaPolicyStore.NombrePrioridad(politica.Priority)}) del ticket #{ticket.ExternalId}.";
-            return;
-        }
-
-        // Sin compromiso vigente solo se crea si NUNCA tuvo ninguno, por lo mismo que en la
-        // materialización: un SLA cerrado o cancelado se decidió a propósito.
-        if (await db.SlaCommitments.AnyAsync(s => s.RequirementId == requerimiento.Id, ct)) return;
-
-        if (await ResponsableDelTicketAsync(requerimiento.Id, ticket, ct) is not int developerId) return;
-        AgregarSlaAutomatico(requerimiento.Id, ticket, politica, developerId, ahora);
-    }
-
-    /// <summary>
-    /// A quién se le exige el compromiso de un ticket: el asignado actual en DevOps si tiene ficha
-    /// y, si no se le encuentra, quien lo tenga asignado aquí desde hace menos.
-    /// </summary>
-    private async Task<int?> ResponsableDelTicketAsync(
-        int requerimientoId, DevOpsTicket ticket, CancellationToken ct)
-    {
-        var dev = DevOpsIdentityMatcher.Buscar(ticket.AssignedTo, ticket.AssignedToUniqueName,
-            await db.Developers.AsNoTracking().Where(d => d.IsActive).ToListAsync(ct));
-        if (dev != null) return dev.Id;
-
-        return await db.Assignments.AsNoTracking()
-            .Where(a => a.RequirementId == requerimientoId)
-            .OrderByDescending(a => a.AssignedAt).ThenByDescending(a => a.Id)
-            .Select(a => (int?)a.DeveloperId)
-            .FirstOrDefaultAsync(ct);
-    }
-
-    /// <summary>
-    /// Añade —sin guardar— el compromiso que dicta una política. Reutiliza la MISMA regla de primer
-    /// recordatorio que los SLA que asigna el líder a mano: dos formas de calcularlo acabarían
-    /// separándose, y la diferencia solo se notaría el día que un aviso llegara tarde.
-    /// </summary>
-    private void AgregarSlaAutomatico(
-        int requerimientoId, DevOpsTicket ticket, SlaPolicy politica, int developerId, DateTime ahora)
-    {
-        var vence = ahora.AddHours(politica.Hours);
-
-        db.SlaCommitments.Add(new SlaCommitment
-        {
-            RequirementId = requerimientoId,
-            DeveloperId = developerId,
-            DevOpsTicketExternalId = ticket.ExternalId,
-            DevOpsTicketUrl = string.IsNullOrWhiteSpace(ticket.Url) ? null : ticket.Url,
-            DueAtUtc = vence,
-            ReminderEveryHours = politica.ReminderEveryHours,
-            NextReminderAtUtc = SlaService.PrimerRecordatorio(ahora, vence, politica.ReminderEveryHours),
-            Status = SlaStatus.Activo,
-            Notes =
-                $"SLA automático por prioridad {politica.Priority} " +
-                $"({SlaPolicyStore.NombrePrioridad(politica.Priority)}) del ticket #{ticket.ExternalId}.",
-            CreatedAt = ahora
-        });
-    }
-
-    private async Task<List<SlaPolicy>> PoliticasDeSlaAsync(CancellationToken ct) =>
-        SlaPolicyStore.Parse(await configuracion.ObtenerAsync(SlaPolicyStore.ClaveDeConfiguracion, ct));
 
     // ── Reporte de tiempo cronometrado ───────────────────────────────────────────
 

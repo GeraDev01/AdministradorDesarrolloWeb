@@ -387,6 +387,56 @@
     --rz-info-dark:       #50a0c3;
     --rz-info-darker:     #458aa8;
 
+    /* LA TINTA QUE VA ENCIMA DE ESOS COLORES.
+
+       Radzen deja --rz-on-success y sus tres hermanos en blanco, y en el tema
+       claro es lo correcto: allí el verde es #2f6b34 y el blanco encima da 6.42.
+       Aquí los estados se levantaron a tonos luminosos para poder LEERSE sobre
+       el grafito, así que en cuanto uno de ellos pasa a ser el FONDO de una
+       píldora, de un botón o de un aviso, el blanco encima se queda en 1.66 el
+       ámbar, 2.22 el verde, 2.24 el azul y 2.85 el rojo. Se veía: la píldora
+       «Por revisar» de un artículo era una mancha pálida con algo escrito
+       dentro, y el aviso verde de la cola de revisión vacía, igual.
+
+       Es el MISMO razonamiento que unas líneas más arriba bajó --rz-on-primary
+       a grafito; lo que faltaba era aplicarlo a los cuatro estados. Con grafito
+       encima: 10.73 el ámbar, 8.05 el verde, 7.98 el azul y 6.26 el rojo.
+
+       Dos excepciones, las dos medidas:
+
+       - --rz-on-danger-darker se queda BLANCO. Sobre #b45650 el blanco da 4.79
+         y el grafito 3.73, o sea que justo ahí la regla se invierte. Va escrito
+         aunque coincida con lo que trae Radzen, para que se vea que está mirado
+         y no olvidado.
+       - Los -lighter NO son fondos claros: son el color al 16 % sobre la tarjeta
+         oscura, o sea superficies oscuras. Ahí la tinta legible es el propio
+         color del estado (4.80 el rojo, 5.82 el azul, 5.83 el verde y 7.25 el
+         ámbar), mejor que el verde y el naranja de Material que Radzen pone por
+         omisión y con los que el rojo se quedaba en 3.72. */
+    --rz-on-success:         #1a1714;
+    --rz-on-success-light:   #1a1714;
+    --rz-on-success-dark:    #1a1714;
+    --rz-on-success-darker:  #1a1714;
+    --rz-on-success-lighter: #63c26e;
+
+    --rz-on-warning:         #1a1714;
+    --rz-on-warning-light:   #1a1714;
+    --rz-on-warning-dark:    #1a1714;
+    --rz-on-warning-darker:  #1a1714;
+    --rz-on-warning-lighter: #dfc86e;
+
+    --rz-on-danger:          #1a1714;
+    --rz-on-danger-light:    #1a1714;
+    --rz-on-danger-dark:     #1a1714;
+    --rz-on-danger-darker:   #ffffff;
+    --rz-on-danger-lighter:  #f0736b;
+
+    --rz-on-info:            #1a1714;
+    --rz-on-info-light:      #1a1714;
+    --rz-on-info-dark:       #1a1714;
+    --rz-on-info-darker:     #1a1714;
+    --rz-on-info-lighter:    #5cb8e0;
+
     --rz-header-background-color: #121110;
     --rz-header-color:            #e6e0d8;
     --rz-header-shadow:           none;
@@ -510,6 +560,32 @@
         --rz-danger-darker:   #b45650;
         --rz-info-dark:       #50a0c3;
         --rz-info-darker:     #458aa8;
+
+        /* La tinta de encima. El porqué, las medidas y las dos excepciones están
+           en el bloque de arriba, donde se declara lo mismo. */
+        --rz-on-success:         #1a1714;
+        --rz-on-success-light:   #1a1714;
+        --rz-on-success-dark:    #1a1714;
+        --rz-on-success-darker:  #1a1714;
+        --rz-on-success-lighter: #63c26e;
+
+        --rz-on-warning:         #1a1714;
+        --rz-on-warning-light:   #1a1714;
+        --rz-on-warning-dark:    #1a1714;
+        --rz-on-warning-darker:  #1a1714;
+        --rz-on-warning-lighter: #dfc86e;
+
+        --rz-on-danger:          #1a1714;
+        --rz-on-danger-light:    #1a1714;
+        --rz-on-danger-dark:     #1a1714;
+        --rz-on-danger-darker:   #ffffff;
+        --rz-on-danger-lighter:  #f0736b;
+
+        --rz-on-info:            #1a1714;
+        --rz-on-info-light:      #1a1714;
+        --rz-on-info-dark:       #1a1714;
+        --rz-on-info-darker:     #1a1714;
+        --rz-on-info-lighter:    #5cb8e0;
 
         --rz-header-background-color: #121110;
         --rz-header-color:            #e6e0d8;

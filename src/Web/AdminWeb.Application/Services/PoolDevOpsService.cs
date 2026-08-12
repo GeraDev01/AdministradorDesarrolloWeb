@@ -35,6 +35,15 @@ namespace AdminWeb.Application.Services;
 /// un reintento manda solo lo que de verdad falta. Es lo que hace representable el EMPUJE PARCIAL,
 /// que es el caso real: la estimación entra y la prioridad no.</para>
 ///
+/// <para><b>Lo que entra en DevOps también cuenta AQUÍ.</b> Cuando la prioridad llega al work item,
+/// el ticket local se refleja y —si de verdad cambió— su compromiso de SLA se reajusta, igual que si
+/// el cambio se hubiera hecho desde la pantalla de tickets y con el mismo código
+/// (<see cref="ReconciliacionDePrioridadDeDevOps"/>). Antes esto no pasaba y el desfase era
+/// silencioso: la fila del ticket se corregía sola en la siguiente sincronización, pero el plazo
+/// seguía siendo el de la prioridad vieja. La salvedad del «de verdad cambió» importa porque lo que
+/// dispara el empuje es la MARCA DE AGUA, no un cambio: mandar la prioridad que el work item ya
+/// tenía es aquí el caso corriente, y no puede reprogramar nada.</para>
+///
 /// <para><b>Por qué no hay una cola de salida.</b> Lo que se manda no es una secuencia de sucesos
 /// sino un ESTADO DESEADO: DevOps tiene que acabar con lo que la actividad dice AHORA. Con una cola,
 /// tres ediciones hechas mientras DevOps estaba caído se reproducirían las tres, en orden, para
@@ -266,7 +275,9 @@ public partial class PoolDevOpsService(
     // ── El empuje ────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Manda a DevOps lo que le falte de esta actividad: el esfuerzo, la prioridad o los dos.
+    /// Manda a DevOps lo que le falte de esta actividad —el esfuerzo, la prioridad o los dos— y, si
+    /// la prioridad entra, refleja con ella el ticket local y reajusta su compromiso de SLA cuando de
+    /// verdad cambió.
     ///
     /// <para><b>No lleva guarda de autorización</b>, y es a propósito: se invoca justo DETRÁS de una
     /// operación del pool que ya la pasó (publicar, editar, tomar, ligar). Ponerle otra aquí
@@ -401,6 +412,18 @@ public partial class PoolDevOpsService(
                     problemas.Add($"Azure DevOps no contestó en {Paciencia.TotalSeconds:0} segundos " +
                                   "al cambiar la prioridad.");
                 }
+
+                // La prioridad entró: se refleja aquí con el mismo código que la pantalla de tickets.
+                //
+                // SOLO si entró, y por eso va después y no dentro del try: reajustar el plazo por una
+                // prioridad que el work item nunca llegó a tener pondría a correr un compromiso que
+                // allá no se sostiene, y aquellos «catch» hablan de fallos de DevOps —meter en ellos
+                // un fallo de la base de aquí sería mentir en el motivo que se guarda—. Si esto
+                // revienta sale por el manejador de EmpujarAsync, que deja escrito el porqué y
+                // conserva la actividad pendiente para reintentarlo entero.
+                if (prioridadLlego is int aceptada)
+                    await ReconciliacionDePrioridadDeDevOps.ReconciliarAsync(
+                        db, configuracion, usuario.UserId, numero, aceptada, ct);
             }
         }
 

@@ -20,10 +20,11 @@ namespace AdminWeb.Infrastructure.Seguridad;
 /// y acceso a la base recupera los secretos. Lo que de verdad los protege es el acceso a la base.
 /// Aquí evita que queden en claro para cualquiera que abra una consulta de pasada.</para>
 ///
-/// <para><b>Después del corte</b> esto se sustituye por <c>IDataProtection</c> con las llaves en Key
-/// Vault, que sí es protección de verdad. No se puede hacer antes sin romper el escritorio, y por eso
-/// <see cref="Descifrar"/> ya reconoce el prefijo nuevo: el día de la migración solo hay que dejar de
-/// escribir con este.</para>
+/// <para><b>Después del corte</b> esto se sustituye por <c>IDataProtection</c> con el llavero
+/// cifrado de verdad — con un certificado en esta suscripción, que no tiene Key Vault, o con Key
+/// Vault donde lo haya; las dos las resuelve <c>Llavero</c>. No se puede hacer antes sin romper el
+/// escritorio, y por eso <see cref="Descifrar"/> ya reconoce el prefijo nuevo: el día de la
+/// migración solo hay que dejar de escribir con este.</para>
 ///
 /// <para><b>Lo heredado de DPAPI no se puede leer aquí.</b> El escritorio cifraba antes con la cuenta
 /// de Windows que guardaba el valor; eso no existe fuera de Windows y menos en un servidor. Su propio

@@ -1,3 +1,4 @@
+using AdminWeb.Application.Services;
 using AdminWeb.Domain.Entities;
 using AdminWeb.Domain.Security;
 using AdminWeb.Infrastructure.Data;
@@ -23,18 +24,36 @@ public sealed record DatosBase(
 /// <para><b>Esto no es una función del producto: es una herramienta para probar.</b> No hay ninguna
 /// pantalla que lo dispare, no hay ningún endpoint que lo llame y no se puede encender desde dentro
 /// de la aplicación. Solo corre al arrancar, y solo si se cumplen las TRES condiciones de
-/// <see cref="SePuede"/>.</para>
+/// <see cref="SePuedeAsync"/>.</para>
 ///
 /// <para><b>Las tres guardas, y por qué son tres.</b> Una sola bastaría si nadie se equivocara nunca.
 /// La base de producción es la de verdad —la comparten dos aplicaciones y contiene el trabajo de años
-/// del equipo—, y meterle cuatro desarrolladores inventados y catorce requerimientos de mentira no se
-/// deshace con un botón. Así que:</para>
+/// del equipo—, y meterle desarrolladores inventados y requerimientos de mentira no se deshace con un
+/// botón. Así que:</para>
 /// <list type="number">
 ///   <item><b>Hay que pedirlo</b> (<c>AdminWeb:DatosDeDemostracion = true</c>). Nunca por omisión.</item>
 ///   <item><b>No en Production.</b> Aunque alguien copie la configuración por error.</item>
 ///   <item><b>Solo si la base está VIRGEN.</b> Es la que de verdad protege: producción tiene
 ///   desarrolladores desde el primer día, así que aunque las otras dos fallaran, aquí se para.</item>
 /// </list>
+///
+/// <para><b>Y las tres se comprueban AQUÍ DENTRO, no en quien llama.</b>
+/// <see cref="SembrarSiSePuedeAsync"/> es la única puerta pública que siembra y lo primero que hace
+/// es preguntar; el sembrador de verdad es privado y no hay forma de alcanzarlo sin pasar por ella.
+/// Antes las guardas vivían en el arranque, que es tanto como decir que protegían mientras nadie
+/// escribiera un segundo llamador. Desde que estas cuentas nacen con el SEGUNDO FACTOR ya activo y
+/// con un secreto fijo y publicado (<see cref="SecretoDelSegundoFactor"/>), esa confianza dejó de ser
+/// aceptable: sembrar contra una base de verdad ya no sería solo llenarla de datos falsos, sería
+/// repartir un segundo factor que puede calcular cualquiera que lea este archivo.</para>
+///
+/// <para><b>Con un límite que hay que tener claro, y que es la razón de que la tercera guarda sea la
+/// importante.</b> Lo que se comprueba aquí dentro es que nadie SIEMBRE sin preguntar; pero dos de
+/// las tres respuestas —«se pidió» y «no es Production»— las entrega quien llama, y este proyecto no
+/// puede leer el entorno del anfitrión desde esta capa. O sea que un segundo llamador que pasara
+/// <c>esProduccion: false</c> estando en producción se saltaría dos de las tres. La que no depende de
+/// nadie de fuera es la de la base virgen, y por eso es la que de verdad protege. Hoy el único
+/// llamador es <c>PreparacionDeLaBase</c> y las saca del entorno real; quien escriba el segundo tiene
+/// que hacer lo mismo.</para>
 ///
 /// <para>Los datos se calculan siempre relativos a HOY, nunca con fechas fijas: así siguen pareciendo
 /// recientes dentro de seis meses, en vez de convertirse en un archivo histórico raro.</para>
@@ -48,11 +67,60 @@ public static class DatosDeDemostracion
     public const string Contrasena = "Demo.2026";
 
     /// <summary>
+    /// El secreto del segundo factor de TODAS las cuentas de demostración, el mismo para las seis.
+    ///
+    /// <para><b>Existe porque el segundo factor es obligatorio.</b> Sin él, quien levanta la
+    /// demostración se topa con la pantalla del código QR antes de poder ver nada y necesita un
+    /// teléfono a mano para pasar de ahí — o sea que la demostración deja de servir justo para lo que
+    /// existe. Con las cuentas ya dadas de alta basta con teclear este texto en cualquier aplicación
+    /// de códigos, y el código de seis dígitos que salga entra con las seis.</para>
+    ///
+    /// <para><b>Un secreto fijo y publicado NO es un segundo factor: es un adorno con su forma.</b>
+    /// Aquí da igual, porque estas cuentas son inventadas y viven en una base desechable; en una base
+    /// de verdad sería de los agujeros graves, porque dejaría a todo el mundo con un segundo factor
+    /// que cualquiera puede calcular. Por eso no se escribe desde ningún otro sitio: lo usa
+    /// <see cref="SembrarSegundoFactor"/> y nadie más, que es privado y cuelga de un sembrador al que
+    /// no se llega sin pasar las tres guardas de arriba.</para>
+    ///
+    /// <para>Son treinta y dos caracteres del alfabeto de <see cref="Base32"/> —los 160 bits que
+    /// espera <see cref="Totp"/>, exactos y sin relleno— y deletrean «DEMO» ocho veces a propósito:
+    /// quien lo vea en el registro de arranque o en la lista de su aplicación de códigos no tiene que
+    /// preguntarse de dónde salió ni si es de alguien.</para>
+    /// </summary>
+    public const string SecretoDelSegundoFactor = "DEMODEMODEMODEMODEMODEMODEMODEMO";
+
+    /// <summary>
+    /// LA ÚNICA PUERTA: comprueba las tres guardas y, solo si se cumplen las tres, siembra.
+    ///
+    /// <para>Devuelve el resumen de lo que creó, o <c>null</c> si no sembró nada. Ese nulo es también
+    /// lo que la vuelve IDEMPOTENTE: la segunda llamada se encuentra una base que ya tiene
+    /// desarrolladores —o sea que ya no está virgen— y se va sin escribir. Sembrar dos veces no
+    /// duplica nada porque la segunda vez no llega a empezar.</para>
+    ///
+    /// <para>Quien llama decide qué contar en el registro, y para eso le basta el nulo: los tres
+    /// motivos por los que no se pudo los conoce igual de bien que este método, porque dos de ellos
+    /// se los pasó él.</para>
+    /// </summary>
+    public static async Task<string?> SembrarSiSePuedeAsync(
+        AppDbContext db, IProtectorDeSecretos protector, bool pedido, bool esProduccion,
+        CancellationToken ct = default)
+    {
+        if (!await SePuedeAsync(db, pedido, esProduccion, ct)) return null;
+
+        return await SembrarAsync(db, protector, ct);
+    }
+
+    /// <summary>
     /// Si se puede sembrar. Las tres condiciones van juntas y en este orden porque la última es la
     /// que cuesta una consulta: no vale la pena preguntarle a la base si ya se sabe que no.
+    ///
+    /// <para>Es privado, y eso es parte de la barrera: no hay ningún caso legítimo en que alguien
+    /// pregunte esto y siembre por su cuenta. Público invitaba justo al error que ya no es posible
+    /// —preguntar en un sitio y sembrar desde otro—, y ese error ahora repartiría segundos factores
+    /// conocidos.</para>
     /// </summary>
-    public static async Task<bool> SePuedeAsync(
-        AppDbContext db, bool pedido, bool esProduccion, CancellationToken ct = default)
+    private static async Task<bool> SePuedeAsync(
+        AppDbContext db, bool pedido, bool esProduccion, CancellationToken ct)
     {
         if (!pedido || esProduccion) return false;
 
@@ -64,13 +132,17 @@ public static class DatosDeDemostracion
     /// <summary>
     /// Siembra todo. Devuelve un resumen de lo que creó, para escribirlo en el registro.
     ///
+    /// <para>Privado a propósito: la puerta es <see cref="SembrarSiSePuedeAsync"/>. Ver ahí por qué
+    /// esto ya no se puede llamar sin haber preguntado.</para>
+    ///
     /// <para>El ORDEN importa: primero las personas —que todo lo demás referencia— y después cada
     /// dominio. Los de trabajo van antes que los de perfiles porque allí hay filtros guardados y
     /// tickets vigilados que apuntan a tickets de DevOps.</para>
     /// </summary>
-    public static async Task<string> SembrarAsync(AppDbContext db, CancellationToken ct = default)
+    private static async Task<string> SembrarAsync(
+        AppDbContext db, IProtectorDeSecretos protector, CancellationToken ct)
     {
-        var basicos = await SembrarPersonasAsync(db, ct);
+        var basicos = await SembrarPersonasAsync(db, protector, ct);
 
         SembrarTrabajo(db, basicos);
         SembrarPoolYDesempeno(db, basicos);
@@ -96,8 +168,13 @@ public static class DatosDeDemostracion
     /// sería inaceptable; aquí es justo lo que se quiere, porque el punto es poder entrar como
     /// cualquiera de ellos en dos segundos para ver la aplicación con sus ojos. El líder ve cosas que
     /// el desarrollador no, y esa diferencia solo se comprueba cambiando de cuenta.</para>
+    ///
+    /// <para><b>Y las seis nacen con el segundo factor ya dado de alta</b>, por el mismo motivo: es
+    /// obligatorio, así que sin darlo de alta no se llega a ninguna pantalla. Ver
+    /// <see cref="SembrarSegundoFactor"/>.</para>
     /// </summary>
-    private static async Task<DatosBase> SembrarPersonasAsync(AppDbContext db, CancellationToken ct)
+    private static async Task<DatosBase> SembrarPersonasAsync(
+        AppDbContext db, IProtectorDeSecretos protector, CancellationToken ct)
     {
         var hoy = DateTime.UtcNow;
 
@@ -164,6 +241,9 @@ public static class DatosDeDemostracion
         var uDani = Cuenta("dani", dani, hash);
 
         db.Users.AddRange(lider, ops, uAna, uBeto, uCaro, uDani);
+        await db.SaveChangesAsync(ct);   // hace falta el Id de cada cuenta para colgarle su secreto
+
+        SembrarSegundoFactor(db, protector, hoy, lider, ops, uAna, uBeto, uCaro, uDani);
         await db.SaveChangesAsync(ct);
 
         return new DatosBase(ana, beto, caro, dani, lider, uAna, uBeto, uCaro, uDani, ops,
@@ -181,6 +261,63 @@ public static class DatosDeDemostracion
         MustChangePassword = false
     };
 
+    /// <summary>
+    /// Deja las cuentas recibidas con el segundo factor YA ACTIVO, todas con
+    /// <see cref="SecretoDelSegundoFactor"/>.
+    ///
+    /// <para><b>Escribe lo mismo que dejaría un alta de verdad</b>, y por eso no calcula nada por su
+    /// cuenta: el secreto se guarda cifrado con el mismo protector, bajo el mismo propósito
+    /// <c>2fa.totp</c> —el único que se mira al entrar— y con los mismos ocho códigos de rescate. La
+    /// fila del secreto queda igual que la que deja <c>SegundoFactorService.ConfirmarAltaAsync</c>,
+    /// que es lo que permite que estas cuentas entren por el camino normal en vez de por una
+    /// excepción escondida en el acceso. La única diferencia deliberada es la del párrafo de
+    /// abajo.</para>
+    ///
+    /// <para><b>Solo toca las cuentas que se le pasan</b>, que son las seis inventadas de aquí al
+    /// lado. La cuenta «admin» que el arranque siembra antes no está entre ellas y sale de esto
+    /// intacta: si alguien la usa, tendrá que dar de alta su propio teléfono como cualquiera.</para>
+    ///
+    /// <para><see cref="User.SegundoFactorUltimaVentana"/> se queda en nulo —el valor con el que nace
+    /// la cuenta— y es deliberado: esa columna es la ANTIRREPETICIÓN, y anotar la ventana de ahora
+    /// haría que el primer código que teclee quien abra la demostración se rechazara por «ya se usó».
+    /// Nulo es además lo cierto: ninguna de estas cuentas ha aceptado todavía ningún código.</para>
+    /// </summary>
+    private static void SembrarSegundoFactor(
+        AppDbContext db, IProtectorDeSecretos protector, DateTime ahora, params User[] cuentas)
+    {
+        // Se cifra UNA vez y se reparte: es el mismo secreto para las seis, y protegerlo seis veces
+        // solo cambiaría el texto cifrado, no lo que hay dentro.
+        var cifrado = protector.Proteger(SecretoDelSegundoFactor);
+
+        foreach (var cuenta in cuentas)
+        {
+            cuenta.SegundoFactorActivo = true;
+            cuenta.SegundoFactorDesdeUtc = ahora;
+
+            db.UserSecrets.Add(new UserSecret
+            {
+                UserId = cuenta.Id,
+                Proposito = PropositosDeSecreto.SegundoFactor,
+                CipherText = cifrado,
+                UpdatedAt = ahora
+            });
+
+            // Los ocho códigos de rescate, como los emitiría el alta. Son aleatorios y nadie los
+            // llega a leer —el registro de arranque no es sitio para ocho llaves por cuenta, y en la
+            // demostración no hacen falta: el teléfono no se pierde, el secreto está publicado—, pero
+            // tienen que existir. Sin ellos las dos pantallas de seguridad avisarían «no te queda
+            // ningún código de rescate» en rojo para las seis cuentas, que es una alarma de verdad
+            // describiendo algo que aquí no ha pasado.
+            foreach (var codigo in CodigosDeRescate.Generar())
+                db.UserRecoveryCodes.Add(new UserRecoveryCode
+                {
+                    UserId = cuenta.Id,
+                    CodigoHash = CodigosDeRescate.Hashear(CodigosDeRescate.Normalizar(codigo)!),
+                    CreatedAtUtc = ahora
+                });
+        }
+    }
+
     // ═══ TRABAJO ═══
 
 /// <summary>
@@ -189,7 +326,7 @@ public static class DatosDeDemostracion
 /// DevOps de la última sincronización. Es lo que hace que Requerimientos, Sprint y DevOps tengan
 /// algo que enseñar al abrir la aplicación en local.
 /// </summary>
-public static void SembrarTrabajo(AppDbContext db, DatosBase b)
+private static void SembrarTrabajo(AppDbContext db, DatosBase b)
 {
     var hoy = DateTime.Today;        // los compromisos son DÍAS locales, sin hora
     var ahora = DateTime.UtcNow;     // los sellos internos (CreatedAt, SyncedAt…) van en UTC
@@ -730,7 +867,7 @@ public static void SembrarTrabajo(AppDbContext db, DatosBase b)
 /// coherentes con lo que el líder tenga configurado, y no una tabla paralela que se contradiga
 /// con la pantalla de la matriz.</para>
 /// </summary>
-public static void SembrarPoolYDesempeno(AppDbContext db, DatosBase b)
+private static void SembrarPoolYDesempeno(AppDbContext db, DatosBase b)
 {
     var ahora = DateTime.UtcNow;
     int lider = b.Lider.Id;
@@ -1529,7 +1666,7 @@ private static string HistorialDeDemo(params (DateTime CuandoUtc, string Texto)[
     /// y lo que el cronómetro registró. Sembradas por separado darían tres columnas que no se
     /// parecen en nada y el contraste no enseñaría lo que existe para enseñar.</para>
     /// </summary>
-    public static void SembrarAusenciasYJornada(AppDbContext db, DatosBase b)
+    private static void SembrarAusenciasYJornada(AppDbContext db, DatosBase b)
     {
         var ahora = DateTime.UtcNow;
 
@@ -2210,7 +2347,7 @@ private static string HistorialDeDemo(params (DateTime CuandoUtc, string Texto)[
     /// <c>RootId</c>— y un voto necesita el Id de la sugerencia que apoya. Sin guardar antes, esas
     /// claves se irían en cero y el foro se vería como una lista de mensajes sueltos.</para>
     /// </summary>
-    public static void SembrarComunicacion(AppDbContext db, DatosBase b)
+    private static void SembrarComunicacion(AppDbContext db, DatosBase b)
     {
         SembrarForo(db, b);
         SembrarSugerencias(db, b);
@@ -3577,7 +3714,7 @@ private static string HistorialDeDemo(params (DateTime CuandoUtc, string Texto)[
     /// PNG de verdad y una imagen inventada no enseñaría nada. La pantalla ya sabe convivir con que
     /// nadie tenga firma cargada.</para>
     /// </summary>
-    public static void SembrarPerfilesYPlantillas(AppDbContext db, DatosBase b)
+    private static void SembrarPerfilesYPlantillas(AppDbContext db, DatosBase b)
     {
         var hoy = DateTime.UtcNow;
 
@@ -3842,7 +3979,7 @@ private static string HistorialDeDemo(params (DateTime CuandoUtc, string Texto)[
     /// donde todo salió bien no enseña para qué sirve. Lo que NUNCA se siembra es un valor secreto en
     /// <c>Details</c>, porque es exactamente la regla que la aplicación cumple.</para>
     /// </summary>
-    public static void SembrarBitacora(AppDbContext db, DatosBase b)
+    private static void SembrarBitacora(AppDbContext db, DatosBase b)
     {
         var ahora = DateTime.UtcNow;
         var filas = new List<AuditLog>();

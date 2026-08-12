@@ -11,8 +11,9 @@ namespace AdminWeb.Application.Tests;
 
 /// <summary>
 /// Las costuras entre la integración con Azure DevOps y el resto de la aplicación: detener el
-/// cronómetro reporta el tiempo, registrar avance comenta el ticket, cambiar la prioridad reajusta
-/// el compromiso y los tickets propios bajan a «Mis asignaciones».
+/// cronómetro reporta el tiempo, registrar avance comenta el ticket, cambiar la prioridad reajusta el
+/// compromiso —tanto desde la pantalla de tickets como empujándola desde el pool, que es el otro
+/// camino y tiene que dejar la base igual— y los tickets propios bajan a «Mis asignaciones».
 ///
 /// <para><b>Lo que se cuida aquí es que un fallo de DevOps no se lleve por delante la operación
 /// local.</b> Cada pieza por separado ya está probada; lo que puede perderse al unirlas es
@@ -44,6 +45,18 @@ public class CosturasDevOpsTests
         return new SlaService(
             db, usuario, bitacora, new SettingsService(db, usuario, bitacora),
             Integracion(db, usuario, cliente));
+    }
+
+    /// <summary>El puente del pool con DevOps, que es el OTRO camino por el que se cambia la
+    /// prioridad de un work item.</summary>
+    private static PoolDevOpsService Puente(
+        AppDbContext db, ICurrentUser usuario, ClienteDevOpsDePrueba cliente)
+    {
+        var bitacora = new AuditService(db, usuario, new OrigenDePrueba());
+        return new PoolDevOpsService(
+            db, usuario, new SettingsService(db, usuario, bitacora),
+            new UserSecretsService(db, usuario, new ProtectorSimulado(), bitacora),
+            bitacora, cliente);
     }
 
     private static WorkSessionService Cronometros(AppDbContext db, ICurrentUser usuario) =>
@@ -119,6 +132,31 @@ public class CosturasDevOpsTests
         db.Requirements.Add(requerimiento);
         db.SaveChanges();
         return requerimiento;
+    }
+
+    /// <summary>
+    /// Una actividad del pool ya ligada al work item y SIN nada enviado todavía, que es lo que hace
+    /// que el empuje tenga la prioridad por mandar. Sin esfuerzo a propósito: aquí lo que se mira es
+    /// la prioridad, y una estimación pendiente añadiría una llamada que no viene al caso.
+    /// </summary>
+    private static PoolActivity SembrarActividadDelPool(
+        AppDbContext db, int workItem, PoolPriority prioridad)
+    {
+        var actividad = new PoolActivity
+        {
+            Title = $"Actividad del work item #{workItem}",
+            WorkType = PoolWorkType.Bug,
+            Complexity = PoolComplexity.Alta,
+            Points = 10,
+            Priority = prioridad,
+            HorasLimite = 16m,
+            Status = PoolActivityStatus.Disponible,
+            DevOpsWorkItemId = workItem,
+            CreatedAt = DateTime.UtcNow
+        };
+        db.PoolActivities.Add(actividad);
+        db.SaveChanges();
+        return actividad;
     }
 
     private static UsuarioDePrueba Ana() =>
@@ -242,7 +280,7 @@ public class CosturasDevOpsTests
 
     private static SlaCommitment SembrarCompromiso(
         AppDbContext db, int requerimientoId, int? ticket, int developerId = 1,
-        SlaStatus estado = SlaStatus.Activo)
+        SlaStatus estado = SlaStatus.Activo, DateTime? vence = null)
     {
         var ahora = DateTime.UtcNow;
         var sla = new SlaCommitment
@@ -250,7 +288,7 @@ public class CosturasDevOpsTests
             RequirementId = requerimientoId,
             DeveloperId = developerId,
             DevOpsTicketExternalId = ticket,
-            DueAtUtc = ahora.AddDays(2),
+            DueAtUtc = vence ?? ahora.AddDays(2),
             ReminderEveryHours = 24,
             NextReminderAtUtc = ahora.AddHours(-1),   // el recordatorio ya venció: toca comentar
             Status = estado,
@@ -448,6 +486,270 @@ public class CosturasDevOpsTests
             .CambiarPrioridadAsync(4821, 1);
 
         Assert.Empty(db.SlaCommitments.AsNoTracking().ToList());
+    }
+
+    // ── Costura 4: la prioridad del pool reconcilia el mismo SLA ─────────────────
+
+    /// <summary>
+    /// La base común de esta costura: la misma persona, el mismo ticket en prioridad 3, su
+    /// requerimiento y un compromiso vigente con dos días por delante. La política activa es la de
+    /// «muy alta» (prioridad 1) con cuatro horas, que es a lo que tiene que quedar reducido el plazo.
+    /// </summary>
+    private static async Task<AppDbContext> BaseConCompromisoAsync()
+    {
+        var db = TestDb.New();
+        SembrarPersona(db);
+        await ConfigurarAsync(db, politicas: PoliticaActiva(prioridad: 1, horas: 4));
+        SembrarTicket(db, 4821, prioridad: "3");
+        var requerimiento = SembrarRequerimiento(db, 4821);
+        SembrarCompromiso(db, requerimiento.Id, ticket: 4821);
+        return db;
+    }
+
+    /// <summary>
+    /// El retrato de lo que un cambio de prioridad deja EN LA BASE. Todo lo que entra aquí tiene que
+    /// salir igual por los dos caminos; el vencimiento se compara aparte, porque lo fija el reloj en
+    /// el instante del reajuste y dos ejecuciones nunca darían el mismo número al milisegundo.
+    /// </summary>
+    private sealed record Retrato(
+        string? PrioridadDelTicket, bool PrioridadPensada, int? QuienLaPenso,
+        RequirementPriority PrioridadDelRequerimiento,
+        string? NotasDelCompromiso, int RecordatorioCadaHoras, SlaStatus EstadoDelCompromiso,
+        int DuenoDelCompromiso, int? TicketDelCompromiso);
+
+    private static Retrato Retratar(AppDbContext db)
+    {
+        var ticket = db.DevOpsTickets.AsNoTracking().Single();
+        var requerimiento = db.Requirements.AsNoTracking().Single();
+        var compromiso = db.SlaCommitments.AsNoTracking().Single();
+
+        return new Retrato(
+            ticket.Priority, !ticket.SinPrioridadDefinida, ticket.PriorityConfirmedByUserId,
+            requerimiento.Priority,
+            compromiso.Notes, compromiso.ReminderEveryHours, compromiso.Status,
+            compromiso.DeveloperId, compromiso.DevOpsTicketExternalId);
+    }
+
+    /// <summary>
+    /// EMPUJAR LA PRIORIDAD DESDE EL POOL REAJUSTA EL COMPROMISO.
+    ///
+    /// <para>Es el defecto que arregla esta costura. El empuje del pool escribía en DevOps y nada
+    /// más: la fila del ticket se corregía sola en la siguiente sincronización, pero el compromiso
+    /// seguía corriendo con el plazo de la prioridad VIEJA. Subir una actividad a «crítica» dejaba
+    /// dos días de margen sobre un ticket que ya era «muy alta», y el aviso llegaba cuando ya no
+    /// servía — que es peor que no tener aviso, porque nadie sospecha del que sí llega.</para>
+    /// </summary>
+    [Fact]
+    public async Task EmpujarLaPrioridadDesdeElPool_ReajustaElCompromisoAlPlazoDeLaNueva()
+    {
+        var db = await BaseConCompromisoAsync();
+        var actividad = SembrarActividadDelPool(db, 4821, PoolPriority.Critica);
+
+        var admin = UsuarioDePrueba.Como(UserRole.Admin, userId: 99);
+        var cliente = new ClienteDevOpsDePrueba();
+        var (todoLlego, aviso) = await Puente(db, admin, cliente).EmpujarAsync(actividad.Id);
+
+        Assert.True(todoLlego, aviso);
+        Assert.Equal(1, cliente.UltimaPrioridad);   // Crítica en el pool ↦ 1 en DevOps
+
+        var compromiso = db.SlaCommitments.AsNoTracking().Single();
+        Assert.True(compromiso.DueAtUtc < DateTime.UtcNow.AddHours(5),
+            "El plazo tiene que ser el de «muy alta», no los dos días que traía el compromiso.");
+        Assert.Contains("prioridad 1", compromiso.Notes);
+
+        // Y el ticket local queda como si el cambio se hubiera hecho desde su pantalla: con la
+        // prioridad nueva y marcada como PENSADA, que es lo que la distingue del 2 que DevOps le
+        // pone por omisión a todo.
+        var ticket = db.DevOpsTickets.AsNoTracking().Single();
+        Assert.Equal("1", ticket.Priority);
+        Assert.False(ticket.SinPrioridadDefinida);
+    }
+
+    /// <summary>
+    /// LOS DOS CAMINOS DEJAN LA BASE IGUAL.
+    ///
+    /// <para>Es la prueba que impide que vuelvan a separarse. Que el pool reajuste «algo» no basta:
+    /// tiene que reajustar EXACTAMENTE lo mismo que la pantalla de tickets, porque en cuanto una de
+    /// las dos copias cambie —otra nota, otro recordatorio, otro dueño— el ticket #4821 pasará a
+    /// tener dos SLA distintos según por dónde se le tocara la prioridad, y eso solo se descubre
+    /// discutiendo un incumplimiento.</para>
+    /// </summary>
+    [Fact]
+    public async Task ElMismoCambioDePrioridad_DejaLaMismaBase_DesdeElPoolYDesdeTickets()
+    {
+        var admin = UsuarioDePrueba.Como(UserRole.Admin, userId: 99);
+
+        var porTickets = await BaseConCompromisoAsync();
+        var (ok, mensaje) = await Integracion(porTickets, admin, new ClienteDevOpsDePrueba())
+            .CambiarPrioridadAsync(4821, 1);
+        Assert.True(ok, mensaje);
+
+        var porElPool = await BaseConCompromisoAsync();
+        var actividad = SembrarActividadDelPool(porElPool, 4821, PoolPriority.Critica);
+        var (todoLlego, aviso) = await Puente(porElPool, admin, new ClienteDevOpsDePrueba())
+            .EmpujarAsync(actividad.Id);
+        Assert.True(todoLlego, aviso);
+
+        Assert.Equal(Retratar(porTickets), Retratar(porElPool));
+
+        // El vencimiento no puede compararse al milisegundo, pero sí que los dos caigan en la misma
+        // ventana: la que dicta la política de «muy alta», cuatro horas.
+        var desdeTickets = porTickets.SlaCommitments.AsNoTracking().Single().DueAtUtc;
+        var desdeElPool = porElPool.SlaCommitments.AsNoTracking().Single().DueAtUtc;
+
+        Assert.True((desdeElPool - desdeTickets).Duration() < TimeSpan.FromMinutes(1),
+            $"Los dos caminos dieron plazos distintos: {desdeTickets:O} y {desdeElPool:O}.");
+        Assert.True(desdeElPool <= DateTime.UtcNow.AddHours(4).AddMinutes(1));
+    }
+
+    /// <summary>
+    /// LA PRIORIDAD QUEDA A NOMBRE DE QUIEN LA EMPUJÓ DESDE EL POOL.
+    ///
+    /// <para>La constancia de que alguien PENSÓ la prioridad solo sirve si señala a la persona
+    /// correcta. Quien empuja desde el pool es quien está publicando, editando o tomando la
+    /// actividad en esa petición, y es ésa la que tiene que quedar escrita — no el asignado del
+    /// ticket en DevOps, que puede ser otra, ni nadie.</para>
+    /// </summary>
+    [Fact]
+    public async Task LaPrioridadEmpujadaDesdeElPool_QuedaANombreDeQuienLaEmpujo()
+    {
+        var db = await BaseConCompromisoAsync();
+        var actividad = SembrarActividadDelPool(db, 4821, PoolPriority.Critica);
+
+        // Ana (usuario 1) es la asignada del ticket en DevOps; quien empuja es el líder (usuario 99).
+        var admin = UsuarioDePrueba.Como(UserRole.Admin, userId: 99);
+        await Puente(db, admin, new ClienteDevOpsDePrueba()).EmpujarAsync(actividad.Id);
+
+        var ticket = db.DevOpsTickets.AsNoTracking().Single();
+        Assert.Equal(99, ticket.PriorityConfirmedByUserId);
+        Assert.NotNull(ticket.PriorityConfirmedAt);
+
+        // Y el compromiso sigue siendo de quien tiene el ticket, que es otra pregunta distinta:
+        // quien apretó el botón no hereda el plazo de nadie.
+        Assert.Equal(1, db.SlaCommitments.AsNoTracking().Single().DeveloperId);
+    }
+
+    /// <summary>
+    /// SI LA PRIORIDAD NO LLEGA A DEVOPS, EL COMPROMISO NO SE TOCA.
+    ///
+    /// <para>Mismo orden que en la pantalla de tickets, y por la misma razón: recalcular el plazo por
+    /// una prioridad que el work item nunca llegó a tener pondría a correr un compromiso que en
+    /// DevOps no se sostiene, y encima marcaría como «pensada» una prioridad que allá sigue siendo
+    /// la vieja.</para>
+    /// </summary>
+    [Fact]
+    public async Task SiLaPrioridadNoLlegaADevOps_ElCompromisoSigueComoEstaba()
+    {
+        var db = await BaseConCompromisoAsync();
+        var actividad = SembrarActividadDelPool(db, 4821, PoolPriority.Critica);
+        var plazoAntes = db.SlaCommitments.AsNoTracking().Single().DueAtUtc;
+
+        var cliente = new ClienteDevOpsDePrueba
+        {
+            Fallo = new ErrorDeAzureDevOps("Azure DevOps rechazó cambiar la prioridad (403).")
+        };
+        var admin = UsuarioDePrueba.Como(UserRole.Admin, userId: 99);
+        var (todoLlego, aviso) = await Puente(db, admin, cliente).EmpujarAsync(actividad.Id);
+
+        Assert.False(todoLlego);
+        Assert.Contains("403", aviso);
+
+        Assert.Equal(plazoAntes, db.SlaCommitments.AsNoTracking().Single().DueAtUtc);
+
+        var ticket = db.DevOpsTickets.AsNoTracking().Single();
+        Assert.Equal("3", ticket.Priority);
+        Assert.True(ticket.SinPrioridadDefinida);
+
+        // Y la actividad se queda pendiente, para que el reintento lo vuelva a mandar todo.
+        Assert.True(db.PoolActivities.AsNoTracking().Single().PrioridadPendienteDeEnviar);
+    }
+
+    /// <summary>
+    /// Un work item que aquí no está sincronizado se empuja igual —el pool liga por NÚMERO— y no hay
+    /// nada que reconciliar: no es un error, es el caso corriente de una actividad publicada sobre un
+    /// ticket recién creado en DevOps.
+    /// </summary>
+    [Fact]
+    public async Task EmpujarSobreUnTicketQueNoEstaSincronizado_NoReventa()
+    {
+        var db = TestDb.New();
+        await ConfigurarAsync(db, politicas: PoliticaActiva(prioridad: 1, horas: 4));
+        var actividad = SembrarActividadDelPool(db, 60001, PoolPriority.Critica);
+
+        var admin = UsuarioDePrueba.Como(UserRole.Admin, userId: 99);
+        var cliente = new ClienteDevOpsDePrueba();
+        var (todoLlego, aviso) = await Puente(db, admin, cliente).EmpujarAsync(actividad.Id);
+
+        Assert.True(todoLlego, aviso);
+        Assert.Equal(1, cliente.UltimaPrioridad);
+        Assert.Empty(db.SlaCommitments.AsNoTracking().ToList());
+        Assert.Equal(1, db.PoolActivities.AsNoTracking().Single().DevOpsPrioridadEnviada);
+    }
+
+    /// <summary>
+    /// UN EMPUJE QUE NO CAMBIA LA PRIORIDAD NO MUEVE EL PLAZO.
+    ///
+    /// <para>El pool manda su prioridad cada vez que la MARCA DE AGUA no coincide —al publicar la
+    /// actividad, al ligarla, al reintentar—, no cada vez que alguien la cambia; y al ligar, la marca
+    /// se borra a propósito. Así que el caso corriente es empujar a un work item la prioridad que ya
+    /// tenía. Si eso reprogramara el compromiso, cualquiera podría regalarle el plazo entero desde
+    /// cero a un SLA a punto de vencer con solo desligar y volver a ligar la actividad —y la nota
+    /// diría que hubo un cambio de prioridad que nunca ocurrió, que es la peor parte: el rastro
+    /// mentiría justo donde alguien iría a buscar por qué el plazo se movió—.</para>
+    /// </summary>
+    [Fact]
+    public async Task EmpujarLaPrioridadQueElTicketYaTenia_NoLeRegalaPlazoAlCompromiso()
+    {
+        var db = TestDb.New();
+        SembrarPersona(db);
+        await ConfigurarAsync(db, politicas: PoliticaActiva(prioridad: 1, horas: 4));
+
+        // El ticket YA está en «muy alta» y su compromiso vence en media hora.
+        SembrarTicket(db, 4821, prioridad: "1");
+        var requerimiento = SembrarRequerimiento(db, 4821);
+        var apuntoDeVencer = DateTime.UtcNow.AddMinutes(30);
+        SembrarCompromiso(db, requerimiento.Id, ticket: 4821, vence: apuntoDeVencer);
+        var notasAntes = db.SlaCommitments.AsNoTracking().Single().Notes;
+
+        // La actividad dice «crítica», que es esa misma prioridad 1: se manda porque la marca de agua
+        // está vacía, no porque nadie haya cambiado nada.
+        var actividad = SembrarActividadDelPool(db, 4821, PoolPriority.Critica);
+
+        var admin = UsuarioDePrueba.Como(UserRole.Admin, userId: 99);
+        var cliente = new ClienteDevOpsDePrueba();
+        var (todoLlego, aviso) = await Puente(db, admin, cliente).EmpujarAsync(actividad.Id);
+
+        Assert.True(todoLlego, aviso);
+        Assert.Equal(1, cliente.UltimaPrioridad);
+
+        var compromiso = db.SlaCommitments.AsNoTracking().Single();
+        Assert.Equal(apuntoDeVencer, compromiso.DueAtUtc);
+        Assert.Equal(notasAntes, compromiso.Notes);
+    }
+
+    /// <summary>
+    /// Y lo mismo desde la pantalla de tickets, que es donde vive la regla: volver a fijar la
+    /// prioridad que el ticket ya tenía no es un cambio, así que tampoco reprograma nada. Los dos
+    /// caminos comparten el código; esta prueba es la que impide que la excepción se le ponga a uno
+    /// solo y vuelvan a separarse.
+    /// </summary>
+    [Fact]
+    public async Task FijarDesdeTicketsLaPrioridadQueYaTenia_TampocoMueveElPlazo()
+    {
+        var db = TestDb.New();
+        SembrarPersona(db);
+        await ConfigurarAsync(db, politicas: PoliticaActiva(prioridad: 1, horas: 4));
+        SembrarTicket(db, 4821, prioridad: "1");
+        var requerimiento = SembrarRequerimiento(db, 4821);
+        var apuntoDeVencer = DateTime.UtcNow.AddMinutes(30);
+        SembrarCompromiso(db, requerimiento.Id, ticket: 4821, vence: apuntoDeVencer);
+
+        var admin = UsuarioDePrueba.Como(UserRole.Admin, userId: 99);
+        var (ok, mensaje) = await Integracion(db, admin, new ClienteDevOpsDePrueba())
+            .CambiarPrioridadAsync(4821, 1);
+
+        Assert.True(ok, mensaje);
+        Assert.Equal(apuntoDeVencer, db.SlaCommitments.AsNoTracking().Single().DueAtUtc);
     }
 
     // ── Costura 5: materializar los tickets propios ──────────────────────────────

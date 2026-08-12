@@ -290,7 +290,17 @@
                                                               Disabled="@_ocupado" Click="@(() => EliminarEquipo(equipo))" />
                                             </RadzenStack>
                                         </RadzenStack>
-                                        <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
+                                        @* TagName.P Y NO el automático, aquí y en la descripción de abajo.
+                                           Con «Auto», un Caption sale en un <span>, o sea en línea; y como
+                                           estos dos son hermanos sueltos dentro de un <div> —no van dentro de
+                                           un RadzenStack, que es lo que en otras pantallas los convierte en
+                                           bloques sin que se note—, la descripción continuaba en el mismo
+                                           renglón que los contadores: «…2 proyecto(s) Mantiene los sistemas
+                                           internos…», leído como una sola frase. El «margin» que ya estaba
+                                           escrito aquí tampoco hacía nada, porque el margen vertical no se
+                                           aplica a un elemento en línea; con el párrafo empieza a valer y la
+                                           separación es la que se pedía desde el principio. *@
+                                        <RadzenText TextStyle="TextStyle.Caption" TagName="TagName.P" Style="margin:0">
                                             @* Los tres datos con su palabra: la línea ya empezaba con «N
                                                integrante(s)» escrito, así que los otros dos con un dibujo al lado
                                                quedaban en un formato distinto al de su vecino de la izquierda. *@
@@ -298,7 +308,7 @@
                                         </RadzenText>
                                         @if (!string.IsNullOrWhiteSpace(equipo.Descripcion))
                                         {
-                                            <RadzenText TextStyle="TextStyle.Caption" Style="margin:.35rem 0 0">
+                                            <RadzenText TextStyle="TextStyle.Caption" TagName="TagName.P" Style="margin:.35rem 0 0">
                                                 @equipo.Descripcion
                                             </RadzenText>
                                         }
@@ -316,7 +326,12 @@
                                                LeadDeveloperId del equipo) y esa regla no se decide en la pantalla. *@
                                             @foreach (var grupo in equipo.Integrantes.GroupBy(i => i.RolTexto))
                                             {
-                                                <RadzenText TextStyle="TextStyle.Caption"
+                                                @* TagName.P por lo mismo que arriba. Aquí el rótulo del rol
+                                                   PARECÍA estar bien, pero solo porque lo que viene detrás es un
+                                                   Body2, que sí es bloque y lo empujaba de renglón. En cuanto la
+                                                   persona anterior tiene función —también un Caption—, los dos
+                                                   textos en línea se juntan y sale «Backend Dev FRONTEND DEV». *@
+                                                <RadzenText TextStyle="TextStyle.Caption" TagName="TagName.P"
                                                             Style="@($"margin:.6rem 0 .2rem;font-weight:600;color:{grupo.First().ColorDeRol}")">
                                                     @grupo.Key.ToUpperInvariant()
                                                 </RadzenText>
@@ -330,7 +345,8 @@
                                                     </RadzenText>
                                                     @if (!string.IsNullOrWhiteSpace(i.Funcion))
                                                     {
-                                                        <RadzenText TextStyle="TextStyle.Caption" Style="margin:0 0 .2rem">
+                                                        <RadzenText TextStyle="TextStyle.Caption" TagName="TagName.P"
+                                                                    Style="margin:0 0 .2rem">
                                                             @i.Funcion
                                                         </RadzenText>
                                                     }

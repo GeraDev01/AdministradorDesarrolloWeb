@@ -412,14 +412,26 @@ public class GeneradorDeDocumentosQuestPdf : IGeneradorDeDocumentos
     private static void Reparto(IContainer c, int cuantas) =>
         c.Column(col =>
         {
-            // La barra se queda donde acaba la última caja de la fila, no cruza la hoja entera. En la
+            // La barra va de la PRIMERA bajada a la ÚLTIMA, no de borde a borde de las cajas. Las
+            // bajadas salen del centro de cada celda, así que una barra que ocupe celdas enteras
+            // asoma media celda por cada extremo —más de cien puntos en una carta apaisada— y esos
+            // dos trozos cuelgan sin unir nada. De ahí los medios de relleno a los lados.
+            //
+            // Y se queda donde acaba la última caja de la fila, sin cruzar la hoja entera: en la
             // última fila —que casi nunca va completa— una barra de lado a lado parece que va a
             // repartir a cajas que no están, y lo primero que se piensa es que falta algo.
-            col.Item().Row(barra =>
+            //
+            // Con una sola caja no hay barra: no hay nada que repartir y una raya de ancho cero
+            // sobre su propia bajada solo ensucia.
+            if (cuantas > 1)
             {
-                barra.RelativeItem(cuantas).LineHorizontal(0.8f).LineColor(Linea);
-                if (cuantas < CajasPorFila) barra.RelativeItem(CajasPorFila - cuantas);
-            });
+                col.Item().Row(barra =>
+                {
+                    barra.RelativeItem(0.5f);
+                    barra.RelativeItem(cuantas - 1).LineHorizontal(0.8f).LineColor(Linea);
+                    barra.RelativeItem(CajasPorFila - cuantas + 0.5f);
+                });
+            }
 
             col.Item().Height(10).Row(r =>
             {
