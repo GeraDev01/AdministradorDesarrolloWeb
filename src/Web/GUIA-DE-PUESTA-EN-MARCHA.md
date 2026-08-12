@@ -178,7 +178,32 @@ lectura sobre el contenedor. Así que se cifra con un certificado:
 
 ### 1.4 Configurar la aplicación
 
-En la configuración del App Service:
+#### Primero, el COMANDO DE INICIO — sin esto no arranca
+
+En *Configuración → Configuración general → Comando de inicio*:
+
+```
+dotnet AdminWeb.Api.dll
+```
+
+**No es opcional en Linux, y su ausencia no se parece a un error.** El arranque del contenedor busca
+un único archivo `*.runtimeconfig.json` para averiguar qué DLL ejecutar, y aquí hay **dos**: el de la
+API y el del cliente Blazor, que publica el suyo en la misma carpeta. Al no poder elegir, arranca la
+aplicación de relleno de Azure — esa que dice «Your web app is running and waiting for your content».
+
+El síntoma engaña de tres maneras a la vez: el despliegue sale correcto, los archivos están en
+`/home/site/wwwroot`, y el registro dice «Site started» y «startup probe succeeded» — porque la
+aplicación de relleno arranca y responde perfectamente. Lo único que lo delata está en
+*LogFiles/StartupLogs*:
+
+```
+WARNING: Expected to find only one file with extension '.runtimeconfig.json' but found 2
+Running the default app using command: dotnet "/defaulthome/hostingstart/hostingstart.dll"
+```
+
+Guardar el comando reinicia el sitio. No hace falta volver a desplegar.
+
+#### Y después, los ajustes
 
 | Clave | Valor |
 |---|---|
@@ -503,6 +528,7 @@ al equipo de que vuelva a capturar su PAT en «Mis tickets DevOps», igual que d
 
 | Síntoma | Dónde mirar |
 |---|---|
+| Sale «Your web app is running and waiting for your content» | Falta el **comando de inicio**. Es lo primero del paso 1.4, y engaña porque el despliegue sale correcto y el registro dice «Site started» |
 | No arranca | El registro del App Service. Si falta la cadena de conexión, lo dice por su nombre |
 | No arranca y el registro habla de un **certificado** | Es a propósito. El certificado del llavero no aparece: repasa el paso 1.3, sobre todo `WEBSITE_LOAD_CERTIFICATES` |
 | `/api/health` no responde 200 | La base no contesta. **No sigas**: diagnostica o vuelve atrás |
