@@ -123,6 +123,10 @@ builder.Services.AddScoped<AttendanceService>();
 builder.Services.AddScoped<WorkSessionService>();
 builder.Services.AddScoped<DevActivityService>();
 builder.Services.AddScoped<PoolActivityService>();
+// El puente del pool con Azure DevOps. PoolActivityService lo recibe OPCIONAL —para que el pool
+// funcione y se pruebe sin la integración— así que si esta línea faltara, publicar y editar
+// seguirían andando y sencillamente no llegaría nada a DevOps: un fallo silencioso. Van juntas.
+builder.Services.AddScoped<PoolDevOpsService>();
 builder.Services.AddScoped<ForumService>();
 builder.Services.AddScoped<ConocimientoService>();
 builder.Services.AddScoped<SuggestionService>();

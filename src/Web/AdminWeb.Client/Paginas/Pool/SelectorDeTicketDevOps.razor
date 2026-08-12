@@ -1,0 +1,261 @@
+@inject HttpClient Http
+
+@*
+    Escoger el work item de Azure DevOps con el que se liga una actividad del pool.
+
+    ── LAS DOS FORMAS DE ACORDARSE DE UN TICKET ───────────────────────────────────────────────────
+
+    Quien liga tiene a mano UNA de las dos cosas, casi nunca las dos: el NÚMERO (lo acaba de crear,
+    lo tiene en el portapapeles) o el TÍTULO (se acuerda de qué iba, no de que era el 4821). Por eso
+    hay caja de número y caja de búsqueda, y la búsqueda encuentra por las dos: escribir «4821»
+    también trae el ticket, así que quien tenga el número puede usar cualquiera de las dos cajas y
+    ninguna es la equivocada.
+
+    ── Y POR QUÉ SE ENSEÑA EL TICKET ELEGIDO, NO SOLO SU NÚMERO ───────────────────────────────────
+
+    Porque un número tecleado no se puede revisar: 4821 y 4812 se ven igual de bien, y el error solo
+    aparece días después, cuando el esfuerzo y la prioridad del pool llevan tiempo escribiéndose en
+    el ticket de otra persona. Con el título delante, equivocarse de dígito se ve ANTES de guardar,
+    que es el único momento en que corregirlo no cuesta nada.
+
+    Cuando el número no corresponde a ningún ticket traído a esta aplicación no se bloquea nada: se
+    dice que no se puede enseñar su título y por qué el vínculo sirve igual —en DevOps se escribe por
+    número—. Ligar un ticket recién creado allá, que todavía no se ha sincronizado aquí, es el caso
+    corriente y no un error.
+*@
+
+<RadzenStack Gap="0.4rem">
+    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap"
+                 AlignItems="AlignItems.Center">
+        @* «link» es el glifo del vínculo en toda esta pantalla: la cadena de eslabones dice
+           «esto queda atado a aquello», que es exactamente lo que hace este control. *@
+        <RadzenIcon Icon="link" />
+        <RadzenLabel Text="Work item de Azure DevOps:" Component="numeroDelWorkItem" />
+        <RadzenNumeric TValue="int?" Value="@Numero" Change="@EscribirNumero" Name="numeroDelWorkItem"
+                       Min="1" ShowUpDown="false" Placeholder="número" Style="width:9rem"
+                       Disabled="@Disabled" />
+
+        <RadzenTextBox @bind-Value="_texto" MaxLength="120" Placeholder="…o busca por título"
+                       Style="min-width:16rem;flex:1 1 16rem" Disabled="@Disabled" />
+        <RadzenButton Text="Buscar" Icon="search" ButtonStyle="ButtonStyle.Light"
+                      Size="ButtonSize.ExtraSmall" Click="@Buscar"
+                      Disabled="@(Disabled || _buscando)" />
+
+        @if (Numero is not null)
+        {
+            <RadzenButton Text="Quitar el número" Icon="clear" ButtonStyle="ButtonStyle.Light"
+                          Size="ButtonSize.ExtraSmall" Disabled="@Disabled"
+                          Click="@(() => EscribirNumero(null))" />
+        }
+    </RadzenStack>
+
+    @if (MostrarDireccion)
+    {
+        @* La caja de la dirección solo aparece donde NO hay ya un campo de enlace en el formulario.
+           Con las dos a la vista, quien pegara la dirección en la de arriba y otra distinta en ésta
+           tendría dos vínculos contradictorios en la misma pantalla, y el servidor rechazaría el
+           guardado por algo que la propia pantalla invitó a hacer. *@
+        <RadzenTextBox @bind-Value="_direccion" MaxLength="500" Style="width:100%"
+                       Disabled="@Disabled" Change="@EscribirDireccion"
+                       Placeholder="…o pega la dirección del work item: https://dev.azure.com/…/_workitems/edit/4821" />
+    }
+
+    @if (_motivo.Length > 0)
+    {
+        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@_motivo</RadzenText>
+    }
+
+    @if (_resultados.Count > 0)
+    {
+        @* Una lista corta y pulsable, no una rejilla: son doce filas como mucho y lo único que se
+           hace con ellas es escoger una. Una rejilla con sus cabeceras y su paginador para eso
+           pondría tres controles alrededor de un gesto de un clic. *@
+        <RadzenStack Gap="0.15rem">
+            @foreach (var t in _resultados)
+            {
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem"
+                             AlignItems="AlignItems.Center" Wrap="FlexWrap.Wrap">
+                    <RadzenButton Text="@($"#{t.Numero}")" ButtonStyle="ButtonStyle.Light"
+                                  Size="ButtonSize.ExtraSmall" Disabled="@Disabled"
+                                  Click="@(() => Elegir(t))" />
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@t.Titulo</RadzenText>
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0" Style="opacity:.7">@t.Detalle</RadzenText>
+                </RadzenStack>
+            }
+        </RadzenStack>
+    }
+
+    @if (Numero is int elegido)
+    {
+        <RadzenCard Variant="Variant.Outlined">
+            @if (_resolviendo)
+            {
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                    Buscando de qué es el work item #@elegido…
+                </RadzenText>
+            }
+            else if (_elegido is { } t && t.Numero == elegido)
+            {
+                <RadzenStack Gap="0.15rem">
+                    <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                        Se ligará con el work item <b>#@t.Numero</b>: @t.Titulo
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0" Style="opacity:.7">
+                        @t.Detalle
+                    </RadzenText>
+                </RadzenStack>
+            }
+            else
+            {
+                <RadzenStack Gap="0.15rem">
+                    <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                        Se ligará con el work item <b>#@elegido</b>.
+                    </RadzenText>
+                    @* Ni error ni advertencia: es el caso corriente de un ticket recién creado en
+                       DevOps. Lo que sí hay que decir es que aquí nadie puede confirmar el título,
+                       porque es justo cuando comprobar el número depende solo de quien lo escribió. *@
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                        Ese ticket no está sincronizado aquí, así que no podemos enseñarte su título;
+                        comprueba el número antes de guardar. El vínculo funciona igual: lo que se
+                        escriba en DevOps se escribe por número.
+                    </RadzenText>
+                </RadzenStack>
+            }
+        </RadzenCard>
+    }
+</RadzenStack>
+
+@code {
+    /// <summary>El número del work item elegido. Nulo mientras no se haya elegido ninguno.</summary>
+    [Parameter] public int? Numero { get; set; }
+
+    [Parameter] public EventCallback<int?> NumeroChanged { get; set; }
+
+    /// <summary>
+    /// La dirección pegada, para los sitios donde no hay ya un campo de enlace. El servidor saca el
+    /// número de ella, así que quien copie la barra del navegador no tiene que extraerlo a mano.
+    /// </summary>
+    [Parameter] public string? Direccion { get; set; }
+
+    [Parameter] public EventCallback<string?> DireccionChanged { get; set; }
+
+    /// <summary>
+    /// Si se ofrece la caja de la dirección. Falso dentro del formulario de publicar, que ya tiene su
+    /// propio campo de enlace y de ahí saca el número el servidor.
+    /// </summary>
+    [Parameter] public bool MostrarDireccion { get; set; }
+
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>El testigo de la pantalla que aloja esto, para que irse de ella corte la búsqueda que
+    /// quedó en el aire.</summary>
+    [Parameter] public CancellationToken Cancelacion { get; set; }
+
+    private string _texto = "";
+    private string _direccion = "";
+    private string _motivo = "";
+    private bool _buscando;
+    private bool _resolviendo;
+
+    private IReadOnlyList<LlamadasDeDevOpsDelPool.TicketEncontrado> _resultados = [];
+
+    /// <summary>El ticket que corresponde al número elegido, cuando se ha podido averiguar.</summary>
+    private LlamadasDeDevOpsDelPool.TicketEncontrado? _elegido;
+
+    /// <summary>
+    /// Para qué número se resolvió ya el título. Sin esto, cada repintado del formulario —y hay uno
+    /// por tecla escrita en cualquier otro campo— lanzaría otra búsqueda del mismo número.
+    /// </summary>
+    private int? _resueltoPara;
+
+    /// <summary>
+    /// Al abrir el formulario de una actividad que YA está ligada, el número llega desde fuera y
+    /// nadie lo ha tecleado aquí: hay que resolver su título igual, o el líder vería «#4821» a secas
+    /// justo donde tiene que reconocer el ticket.
+    /// </summary>
+    protected override async Task OnParametersSetAsync()
+    {
+        _direccion = Direccion ?? "";
+        if (Numero != _resueltoPara) await ResolverAsync();
+    }
+
+    private async Task EscribirNumero(int? numero)
+    {
+        // El número escrito a mano manda sobre la dirección pegada: son la misma decisión dicha de
+        // dos formas, y dejar las dos puestas obliga al servidor a rechazar el guardado si no
+        // coinciden. Quien acaba de teclear un número está diciendo cuál quiere.
+        if (_direccion.Length > 0)
+        {
+            _direccion = "";
+            await DireccionChanged.InvokeAsync(null);
+        }
+
+        await NumeroChanged.InvokeAsync(numero);
+        Numero = numero;
+        await ResolverAsync();
+    }
+
+    private async Task EscribirDireccion(string? direccion)
+    {
+        _direccion = direccion ?? "";
+        await DireccionChanged.InvokeAsync(_direccion.Length == 0 ? null : _direccion);
+
+        // El número de la dirección NO se extrae aquí. Esa regla —qué formas de dirección se
+        // reconocen, y qué pasa cuando la dirección dice una cosa y el número otra— vive en el
+        // servidor, es la que se prueba, y escribir aquí una segunda copia dejaría dos criterios que
+        // el día que se separen harían que la pantalla prometiera un ticket y se guardara otro.
+    }
+
+    private async Task Elegir(LlamadasDeDevOpsDelPool.TicketEncontrado ticket)
+    {
+        _elegido = ticket;
+        _resueltoPara = ticket.Numero;
+        _resultados = [];
+        _motivo = "";
+        _texto = "";
+
+        if (_direccion.Length > 0)
+        {
+            _direccion = "";
+            await DireccionChanged.InvokeAsync(null);
+        }
+
+        Numero = ticket.Numero;
+        await NumeroChanged.InvokeAsync(ticket.Numero);
+    }
+
+    private async Task Buscar()
+    {
+        _buscando = true;
+        try
+        {
+            (_resultados, _motivo) = await Http.BuscarTicketsAsync(_texto, Cancelacion);
+
+            // Un solo resultado se escoge solo: buscar «4821» y tener que pulsar además el único
+            // botón que sale es un clic que no decide nada.
+            if (_resultados.Count == 1) await Elegir(_resultados[0]);
+        }
+        finally { _buscando = false; }
+    }
+
+    /// <summary>
+    /// Averigua de qué es el número que hay puesto, para poder enseñarlo. Que no se encuentre no es
+    /// un fallo —el ticket puede no estar sincronizado aquí— y por eso no deja ningún motivo escrito:
+    /// eso lo explica la tarjeta del elegido, que es donde se está mirando.
+    /// </summary>
+    private async Task ResolverAsync()
+    {
+        _resueltoPara = Numero;
+        _elegido = null;
+
+        if (Numero is not int numero) return;
+
+        _resolviendo = true;
+        try
+        {
+            var (tickets, _) = await Http.BuscarTicketsAsync(numero.ToString(), Cancelacion);
+            _elegido = tickets.FirstOrDefault(t => t.Numero == numero);
+        }
+        finally { _resolviendo = false; }
+    }
+}

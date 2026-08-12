@@ -270,6 +270,13 @@ public record PuntoDePlantillaDto(
 /// persona no se le preguntaría nunca y el número dejaría de ser suyo.</param>
 /// <param name="CriteriosExtra">Identificadores del catálogo de criterios. Se copian con su nombre y
 /// sus puntos congelados: quien tome la actividad cobra lo que vio, aunque el catálogo cambie.</param>
+/// <param name="WorkItem">El NÚMERO del work item de Azure DevOps que resuelve. Nulo = no se liga
+/// con nada.
+/// <para>Se puede omitir y pegar la dirección del work item en <paramref name="Enlace"/>: el
+/// servidor saca el número de ella. Si se mandan los dos y no coinciden se rechaza, porque adivinar
+/// cuál vale acabaría escribiendo el esfuerzo en el ticket equivocado.</para>
+/// <para>Va AL FINAL y con valor por omisión porque el record es posicional: puesto en medio,
+/// rompería en silencio a cada llamador que rellena estos campos por posición.</para></param>
 public record PublicarActividadRequest(
     string Titulo,
     string? Detalle,
@@ -279,7 +286,8 @@ public record PublicarActividadRequest(
     PoolPriority Prioridad = PoolPriority.Media,
     decimal? Horas = null,
     decimal? HorasEstimadas = null,
-    IReadOnlyList<int>? CriteriosExtra = null);
+    IReadOnlyList<int>? CriteriosExtra = null,
+    int? WorkItem = null);
 
 /// <summary>
 /// Tomar una actividad del pool. Lleva un solo dato y solo hace falta para los BUGS.

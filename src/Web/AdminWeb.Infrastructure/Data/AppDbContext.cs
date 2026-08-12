@@ -586,12 +586,28 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             // ninguna consulta que ordene por el plazo; que siga así.
             e.Property(p => p.HorasLimite).HasPrecision(6, 2);
             e.Property(p => p.HorasEstimadas).HasPrecision(6, 2);
+            // La marca de agua del empuje se compara por IGUALDAD contra HorasEstimadas, así que
+            // tiene que guardarse con la misma precisión: con una distinta, 8.00 y 8.000 dejarían de
+            // parecerse y toda actividad ligada saldría eternamente «pendiente de enviar».
+            e.Property(p => p.DevOpsEsfuerzoEnviado).HasPrecision(6, 2);
+            e.Property(p => p.DevOpsUltimoError).HasMaxLength(1000);
             e.Ignore(p => p.EnCurso);
             e.Ignore(p => p.Vencida);
+            // Derivadas del vínculo con DevOps: se calculan de las columnas de al lado y no son
+            // columnas. Sin estos Ignore, EF intentaría materializarlas y EnsureCreated crearía
+            // cuatro columnas que el migrador no parchea — el desfase silencioso de siempre.
+            e.Ignore(p => p.LigadaADevOps);
+            e.Ignore(p => p.EsfuerzoPendienteDeEnviar);
+            e.Ignore(p => p.PrioridadPendienteDeEnviar);
+            e.Ignore(p => p.PendienteDeEnviarADevOps);
             e.HasOne(p => p.ClaimedBy).WithMany()
                 .HasForeignKey(p => p.ClaimedByDeveloperId).OnDelete(DeleteBehavior.Restrict);
             e.HasIndex(p => p.Status);                                      // el pool disponible
             e.HasIndex(p => new { p.ClaimedByDeveloperId, p.Status });      // «las mías»
+            // NO único: el mismo work item puede volver a necesitar una actividad cuando la anterior
+            // ya se cerró. Que no haya DOS VIVAS a la vez lo comprueba el servicio, porque la regla
+            // depende del estado de la otra y eso no cabe en un índice único de las dos bases.
+            e.HasIndex(p => p.DevOpsWorkItemId);
         });
 
         modelBuilder.Entity<PoolPointsMatrixEntry>(e =>

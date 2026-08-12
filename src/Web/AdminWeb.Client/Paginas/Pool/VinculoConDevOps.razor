@@ -1,0 +1,564 @@
+@using AdminWeb.Shared.Dtos.DevOps
+@using AdminWeb.Shared.Dtos.Pool
+@inject HttpClient Http
+@inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
+
+@*
+    El vínculo de UNA actividad del pool con su work item de Azure DevOps: con cuál está ligada, qué
+    le falta por llegar allá y el ida y vuelta de comentarios.
+
+    Vive en un componente y no dentro de cada pantalla porque las dos caras del pool lo necesitan
+    entero y casi igual: el LÍDER lo usa para ligar, desligar y reintentar, y quien TRABAJA la
+    actividad para ver que su estimación sí llegó y para comentar sin abrir DevOps. Escrito dos
+    veces, el día que cambie el texto de «no tienes token» cambiaría en una de las dos.
+
+    ── LAS TRES COSAS QUE ESTA TARJETA TIENE QUE DECIR ────────────────────────────────────────────
+
+    1. CON QUÉ TICKET HABLA, con su título y no solo su número: un número suelto no se puede revisar.
+       Cuando el ticket no está sincronizado aquí se dice, y se explica que el vínculo sirve igual.
+
+    2. SI ALGO NO LLEGÓ. Un pool que dice 8 h y un DevOps en blanco es tolerable un rato; que nadie
+       pueda saberlo, no. El servidor no guarda una bandera de «pendiente» sino lo ÚLTIMO que DevOps
+       confirmó, así que aquí se puede enseñar la diferencia exacta —qué dice el pool contra qué
+       aceptó DevOps— y no un «falló» a secas. Con su motivo, su hora y un botón para reintentar sin
+       recapturar nada.
+
+    3. QUIÉN FIRMA LOS COMENTARIOS. Un comentario va con el token PERSONAL de quien lo escribe, para
+       que el historial del ticket diga quién dijo qué; con el de la instalación aparecería a nombre
+       de una cuenta compartida. Quien todavía no lo ha capturado —el primer día, todo el mundo— no
+       se encuentra un «no autorizado» rojo, sino la explicación y el botón que lleva a capturarlo.
+
+    Los comentarios NO se traen al abrir la tarjeta: esa lectura sale a la red hacia Azure DevOps, y
+    colgarla de seleccionar una fila haría un viaje a otro servidor por cada clic en la rejilla. El
+    resto —con qué está ligada y qué falta— se resuelve con lo que ya hay guardado aquí, así que sí
+    viaja solo.
+*@
+
+@if (_motivo.Length > 0)
+{
+    <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+        @_motivo
+    </RadzenAlert>
+}
+else if (_vinculo is { } v)
+{
+    <RadzenStack Gap="0.6rem">
+        @if (v.WorkItem is not int numero)
+        {
+            @* ── Sin ligar ─────────────────────────────────────────────────────
+               Una sola línea discreta y no un panel: la mayoría de las actividades del pool no vienen
+               de un ticket, y ésta es la vista de todos los días de quien las trabaja. Lo que sí hay
+               que decir es POR QUÉ no se puede comentar aquí, o la ausencia del cuadro de texto se lee
+               como que la pantalla está a medias. *@
+            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                @if (PuedeLigar)
+                {
+                    <text>Esta actividad no está ligada a ningún work item de Azure DevOps. Al ligarla se
+                          le mandan de inmediato el esfuerzo y la prioridad que dice el pool, y se podrá
+                          comentar en el ticket desde aquí.</text>
+                }
+                else
+                {
+                    <text>Esta actividad no está ligada a ningún work item de Azure DevOps, así que no hay
+                          ticket en el que comentar desde aquí. Ligarla es cosa del líder.</text>
+                }
+            </RadzenText>
+
+            @if (PuedeLigar)
+            {
+                <SelectorDeTicketDevOps @bind-Numero="_numero" @bind-Direccion="_direccion"
+                                        MostrarDireccion="true" Disabled="@_ocupado"
+                                        Cancelacion="@Cancelacion" />
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                    <RadzenButton Text="Ligar" Icon="link" Size="ButtonSize.ExtraSmall"
+                                  Disabled="@(_ocupado || !HayAlgoQueLigar)" Click="@Ligar" />
+                </RadzenStack>
+            }
+        }
+        else
+        {
+            @* ── Ligada ───────────────────────────────────────────────────────── *@
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap"
+                         AlignItems="AlignItems.Center">
+                <RadzenIcon Icon="link" />
+                <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                    Work item <b>#@numero</b>@if (v.TituloDelTicket is { Length: > 0 } titulo)
+                    {
+                        <text>: @titulo</text>
+                    }
+                </RadzenText>
+
+                @if (v.EstadoDelTicket is { Length: > 0 } estado)
+                {
+                    <RadzenBadge Text="@estado" BadgeStyle="BadgeStyle.Light" />
+                }
+
+                @if (Direccion(numero) is { Length: > 0 } direccion)
+                {
+                    @* «open_in_new»: lo que hay que avisar es que se sale de la aplicación. Es el
+                       mismo enlace y el mismo glifo con los que el resto del pool abre un ticket. *@
+                    <a href="@direccion" target="_blank" rel="noopener" title="Abrir el work item en Azure DevOps">
+                        <RadzenIcon Icon="open_in_new" /> Abrir en Azure DevOps
+                    </a>
+                }
+            </RadzenStack>
+
+            @if (!v.SincronizadoAqui)
+            {
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                    Ese ticket no se ha sincronizado en esta aplicación, así que aquí no se sabe cómo se
+                    llama. El vínculo sirve igual: lo que se manda a DevOps se manda por número.
+                </RadzenText>
+            }
+
+            @* ── Lo que dice el pool contra lo que tiene DevOps ───────────────── *@
+            @if (v.Pendiente)
+            {
+                <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+                    <RadzenStack Gap="0.4rem">
+                        <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">@QueFalta(v)</RadzenText>
+
+                        @if (v.UltimoError is { Length: > 0 } error)
+                        {
+                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                Lo que contestó DevOps: @error
+                            </RadzenText>
+                        }
+
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@CuandoSeIntento(v)</RadzenText>
+
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                            @* «sync» —el mismo glifo con el que la pantalla de tickets sale a
+                               DevOps— y no «refresh», que en esta aplicación solo vuelve a leer lo
+                               que ya está guardado aquí. Esto sale a la red. *@
+                            <RadzenButton Text="Reintentar" Icon="sync" Size="ButtonSize.ExtraSmall"
+                                          Disabled="@_ocupado" Click="@Reintentar" />
+                        </RadzenStack>
+                    </RadzenStack>
+                </RadzenAlert>
+            }
+            else
+            {
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@AlDia(v)</RadzenText>
+            }
+
+            @if (PuedeLigar)
+            {
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+                    <RadzenButton Text="@(_cambiando ? "Dejarlo como está" : "Cambiar de ticket")"
+                                  Icon="link" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                  Disabled="@_ocupado" Click="@AlternarCambio" />
+                    @* «clear» y no un glifo de cadena rota: la fuente va recortada y «link_off» no
+                       está en fuentes/iconos.txt, así que saldría la palabra escrita dentro del
+                       botón. «clear» es además con el que esta aplicación quita lo que estaba puesto. *@
+                    <RadzenButton Text="Desligar" Icon="clear" ButtonStyle="ButtonStyle.Light"
+                                  Size="ButtonSize.ExtraSmall" Disabled="@_ocupado" Click="@Desligar" />
+                </RadzenStack>
+
+                @if (_cambiando)
+                {
+                    <RadzenStack Gap="0.4rem">
+                        <SelectorDeTicketDevOps @bind-Numero="_numero" @bind-Direccion="_direccion"
+                                                MostrarDireccion="true" Disabled="@_ocupado"
+                                                Cancelacion="@Cancelacion" />
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                            Al cambiar de ticket, el esfuerzo y la prioridad se le mandan al nuevo. Lo
+                            que ya se escribió en el #@numero se queda allá tal como está.
+                        </RadzenText>
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                            <RadzenButton Text="Ligar con éste" Icon="link" Size="ButtonSize.ExtraSmall"
+                                          Disabled="@(_ocupado || !HayAlgoQueLigar)" Click="@Ligar" />
+                        </RadzenStack>
+                    </RadzenStack>
+                }
+            }
+
+            @* ── Comentarios ──────────────────────────────────────────────────── *@
+            <RadzenStack Gap="0.5rem">
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap"
+                             AlignItems="AlignItems.Center">
+                    @* «forum» —los dos bocadillos— y no uno solo: lo que se abre es la conversación
+                       que ya existe en el ticket, no un cuadro para escribir. *@
+                    <RadzenButton Text="@(_hilo is null ? "Ver los comentarios del ticket" : "Actualizar los comentarios")"
+                                  Icon="forum" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                  Disabled="@_ocupado" Click="@CargarHilo" />
+                    @if (_hilo is null && _motivoDelHilo.Length == 0)
+                    {
+                        @* Se dice de entrada quién firma, sin esperar a que alguien escriba: enterarse
+                           de que hacía falta un token propio DESPUÉS de redactar el comentario es la
+                           forma más cara de enterarse. *@
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                            Se piden a Azure DevOps en el momento, por eso no salen solos. Lo que
+                            escribas se publica con tu propio token, a tu nombre.
+                        </RadzenText>
+                    }
+                </RadzenStack>
+
+                @if (_motivoDelHilo.Length > 0)
+                {
+                    @* El fallo de leer el hilo se cuenta AQUÍ dentro y no como aviso rojo pasajero:
+                       casi siempre dice qué falta configurar, y eso hay que poder leerlo con calma y
+                       con el botón que lleva a resolverlo al lado. *@
+                    <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+                        <RadzenStack Gap="0.4rem">
+                            <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">@_motivoDelHilo</RadzenText>
+                            @if (MeFaltaElToken)
+                            {
+                                @BotonDelToken
+                            }
+                        </RadzenStack>
+                    </RadzenAlert>
+                }
+
+                @if (_hilo is { } hilo)
+                {
+                    @if (hilo.Comentarios.Count == 0)
+                    {
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                            El work item #@hilo.WorkItem todavía no tiene comentarios.
+                        </RadzenText>
+                    }
+                    else
+                    {
+                        @* Del más antiguo al más reciente, como los ordena el servidor: un hilo se lee
+                           en el orden en que se dijo, y lo último —que es lo que más importa— queda
+                           pegado al cuadro donde se contesta. *@
+                        <RadzenStack Gap="0.35rem">
+                            @foreach (var c in hilo.Comentarios)
+                            {
+                                <RadzenCard Variant="Variant.Outlined">
+                                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0" Style="opacity:.7">
+                                        @c.Autor · @c.CreadoUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                                    </RadzenText>
+                                    @* pre-wrap conserva los renglones que escribió quien comentó. El
+                                       texto llega ya sin marcado desde el servidor —los comentarios de
+                                       DevOps son HTML y los escribe gente de fuera del equipo— así que
+                                       aquí se pinta como lo que es: texto. *@
+                                    <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0"
+                                                Style="white-space:pre-wrap;overflow-wrap:anywhere">@c.Texto</RadzenText>
+                                </RadzenCard>
+                            }
+                        </RadzenStack>
+                    }
+
+                    @if (hilo.PuedoComentar)
+                    {
+                        <RadzenTextArea @bind-Value="_comentario" Rows="3" MaxLength="@MaxComentario"
+                                        Style="width:100%" Disabled="@_ocupado"
+                                        Placeholder="Escribe un comentario para el ticket…" />
+                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap"
+                                     AlignItems="AlignItems.Center">
+                            <RadzenButton Text="Publicar en DevOps" Icon="send" Size="ButtonSize.ExtraSmall"
+                                          Disabled="@(_ocupado || string.IsNullOrWhiteSpace(_comentario))"
+                                          Click="@Comentar" />
+                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                Se publica con TU token, así que en el historial del ticket queda a tu
+                                nombre. Va encabezado con el título de esta actividad, porque quien lo lea
+                                en DevOps no tiene por qué saber que existe un pool.
+                            </RadzenText>
+                        </RadzenStack>
+                    }
+                    else
+                    {
+                        @* Ni error ni «no autorizado»: mientras nadie haya capturado su token, éste es
+                           el estado NORMAL de todo el mundo. El texto lo escribe el servidor —explica
+                           que un comentario va firmado y por qué— y aquí se le añade lo único que le
+                           falta: el camino. *@
+                        <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false">
+                            <RadzenStack Gap="0.4rem">
+                                <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                                    @(hilo.PorQueNoPuedoComentar ?? "Todavía no puedes comentar en este ticket.")
+                                </RadzenText>
+                                @if (MeFaltaElToken)
+                                {
+                                    @BotonDelToken
+                                }
+                            </RadzenStack>
+                        </RadzenAlert>
+                    }
+                }
+            </RadzenStack>
+        }
+    </RadzenStack>
+}
+
+@code {
+    /// <summary>La actividad del pool cuyo vínculo se está mirando.</summary>
+    [Parameter, EditorRequired] public int ActividadId { get; set; }
+
+    /// <summary>
+    /// Si quien mira puede ligar, cambiar de ticket y desligar. Es del LÍDER: ligar decide sobre qué
+    /// ticket ajeno se va a escribir a partir de ahora. Comentar y reintentar no dependen de esto —el
+    /// servidor los abre a quien tiene la actividad— y por eso no se ocultan aquí.
+    ///
+    /// <para>Es comodidad, no seguridad: quien lo forzara desde el navegador se encontraría con el
+    /// rechazo del servidor, que es donde vive la regla.</para>
+    /// </summary>
+    [Parameter] public bool PuedeLigar { get; set; }
+
+    /// <summary>
+    /// El testigo de la pantalla que aloja esta tarjeta, para que irse de ella corte lo que quedó a
+    /// medias. Importa aquí más que en otros sitios: leer el hilo sale a Azure DevOps y puede tardar.
+    /// </summary>
+    [Parameter] public CancellationToken Cancelacion { get; set; }
+
+    /// <summary>
+    /// Se avisa cuando el vínculo cambió (se ligó, se desligó, se reintentó). La pantalla que aloja
+    /// esto lo necesita para volver a pintar lo suyo: la lista de lo que no llegó a DevOps deja de ser
+    /// cierta en cuanto uno de sus renglones se resuelve.
+    /// </summary>
+    [Parameter] public EventCallback Cambiado { get; set; }
+
+    /// <summary>Tope de un comentario, copiado de <c>PoolDevOpsService.MaxComentario</c>. Acota el
+    /// cuadro de captura y nada más: quien decide sigue siendo el servidor.</summary>
+    private const int MaxComentario = 4000;
+
+    private VinculoDevOpsDto? _vinculo;
+    private HiloDeDevOpsDto? _hilo;
+    private EstadoDevOpsDto? _estado;
+
+    private string _motivo = "";
+    private string _motivoDelHilo = "";
+    private string _comentario = "";
+    private bool _ocupado;
+    private bool _cambiando;
+
+    private int? _numero;
+    private string? _direccion;
+
+    /// <summary>Para qué actividad se cargó lo que se está enseñando. Cada repintado de la pantalla
+    /// que aloja esto vuelve a fijar los parámetros; sin esto, cada uno pediría otra vez lo mismo.</summary>
+    private int _cargadaPara;
+
+    /// <summary>
+    /// Hay con qué ligar. Basta con UNO de los dos —el número o la dirección—, porque el servidor saca
+    /// el número de la dirección; con los dos puestos y contradictorios lo rechaza él, y su mensaje
+    /// explica cuál corregir.
+    /// </summary>
+    private bool HayAlgoQueLigar => _numero is not null || !string.IsNullOrWhiteSpace(_direccion);
+
+    /// <summary>
+    /// Que la persona no tenga capturado SU token. Se pregunta al estado de la integración y no se
+    /// deduce leyendo el texto del rechazo: adivinar de qué habla un mensaje acabaría ofreciendo
+    /// «captura tu token» a quien lo que le pasa es que la actividad no es suya.
+    /// </summary>
+    private bool MeFaltaElToken => _estado is { TengoPatPropio: false };
+
+    /// <summary>
+    /// El camino a capturar el token, que es lo único que le falta al mensaje del servidor. Va como
+    /// fragmento porque se pinta en los dos sitios donde puede aparecer el mismo problema: cuando no
+    /// se pudo ni leer el hilo y cuando se leyó pero no se puede escribir en él.
+    /// </summary>
+    private RenderFragment BotonDelToken =>
+        @<RadzenStack Gap="0.25rem">
+            @* Un enlace de verdad y no una instrucción escrita: «ve a Mis tickets y pulsa Mi token»
+               es exactamente el tipo de encargo que la gente no hace. La llave es el mismo glifo con
+               el que aquella pantalla titula su panel. *@
+            <RadzenLink Path="/mis-tickets" Text="Capturar mi token de Azure DevOps" Icon="key" />
+            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                Se captura en «Mis tickets DevOps», con el botón «Mi token de DevOps». Se guarda
+                cifrado y no vuelve a mostrarse.
+            </RadzenText>
+        </RadzenStack>;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Por el IDENTIFICADOR y no por «¿ya hay datos?»: una lectura que falló no se puede
+        // reintentar sola en cada repintado —y hay uno por tecla escrita en la pantalla de al lado—,
+        // porque serían decenas de peticiones seguidas contra algo que ya contestó que no.
+        if (_cargadaPara == ActividadId) return;
+
+        _cargadaPara = ActividadId;
+
+        // Todo lo del ticket ANTERIOR se olvida, y hace falta decirlo: dejar el hilo o el borrador de
+        // un comentario al cambiar de fila haría que se publicara en el work item de otra actividad.
+        _hilo = null;
+        _motivoDelHilo = "";
+        _comentario = "";
+        _cambiando = false;
+        _numero = null;
+        _direccion = null;
+
+        // El estado de la integración se pide una vez por tarjeta: de ahí sale la dirección con la
+        // que se abre el work item y si la persona tiene su token, que es lo que decide qué se le
+        // explica cuando no puede comentar.
+        _estado ??= await Api.LeerAsync<EstadoDevOpsDto>("api/devops/estado", Cancelacion);
+
+        await CargarVinculo();
+    }
+
+    private async Task CargarVinculo()
+    {
+        int? ticketDeAntes = _vinculo?.WorkItem;
+
+        (_vinculo, _motivo) = await Http.LeerVinculoAsync(ActividadId, Cancelacion);
+
+        // Al cambiar de ticket —o al desligar— lo que estaba a la vista es el hilo de OTRO work item.
+        // Dejarlo pintado bajo el número nuevo haría leer los comentarios del ticket equivocado y,
+        // peor, contestar en él creyendo que se contesta en éste.
+        if (_vinculo?.WorkItem != ticketDeAntes)
+        {
+            _hilo = null;
+            _motivoDelHilo = "";
+            _comentario = "";
+        }
+    }
+
+    // ── Ligar, desligar, reintentar ──────────────────────────────────────────
+
+    private void AlternarCambio()
+    {
+        _cambiando = !_cambiando;
+        _numero = null;
+        _direccion = null;
+    }
+
+    private async Task Ligar()
+    {
+        if (await Enviar($"api/pool/{ActividadId}/devops/ligar",
+                new LigarConDevOpsRequest(_numero, _direccion)))
+        {
+            _numero = null;
+            _direccion = null;
+            _cambiando = false;
+        }
+    }
+
+    private async Task Desligar()
+    {
+        if (_vinculo?.WorkItem is not int numero) return;
+
+        if (!await Avisos.ConfirmarAsync(
+                $"¿Desligar esta actividad del work item #{numero}?\n\nDejará de mandarle el esfuerzo y " +
+                "la prioridad, y no se podrá comentar en él desde aquí. Lo que ya se escribió allá se " +
+                "queda como está.",
+                "Desligar de Azure DevOps", "Sí, desligarla"))
+            return;
+
+        // Sin número ni dirección: para el servidor, «con qué ticket habla esta actividad» contestado
+        // con «con ninguno». Es la misma decisión que ligar y por eso es la misma ruta.
+        await Enviar($"api/pool/{ActividadId}/devops/ligar", new LigarConDevOpsRequest(null, null));
+    }
+
+    private async Task Reintentar() =>
+        await Enviar<object?>($"api/pool/{ActividadId}/devops/reintentar", null);
+
+    private async Task Comentar()
+    {
+        // Comentar NO toca el vínculo —ni lo que DevOps tiene del pool ni lo que falta por mandarle—,
+        // así que ni se relee ni se avisa a la pantalla de al lado: sería pedirle que recargara su
+        // lista de pendientes por algo que no puede haberla cambiado.
+        if (await Enviar($"api/pool/{ActividadId}/devops/comentar",
+                new ComentarEnDevOpsRequest(_comentario), tocaElVinculo: false))
+        {
+            _comentario = "";
+            // El hilo se vuelve a traer para que el comentario recién publicado se vea donde va a
+            // leerlo el resto: en el ticket. Sin esto habría que fiarse de que se publicó.
+            await CargarHilo();
+        }
+    }
+
+    /// <summary>
+    /// El envío que comparten las acciones de esta tarjeta. El mensaje del servidor se enseña TAL
+    /// CUAL: al ligar dice además si el esfuerzo y la prioridad llegaron a DevOps o quedaron
+    /// pendientes, y ese aviso es la mitad de lo que hay que leer.
+    /// </summary>
+    private async Task<bool> Enviar<T>(string ruta, T cuerpo, bool tocaElVinculo = true)
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, r) = await Api.EnviarAsync<T, ResultadoDto>(ruta, cuerpo, Cancelacion);
+            if (ok && r is not null) Avisos.Exito(r.Mensaje);
+
+            // El vínculo se recarga incluso cuando el envío se rechazó: un reintento que vuelve a
+            // fallar deja un motivo NUEVO en la actividad, y es el que hay que enseñar.
+            if (tocaElVinculo) await CargarVinculo();
+            if (ok && tocaElVinculo) await Cambiado.InvokeAsync();
+
+            return ok;
+        }
+        finally { _ocupado = false; }
+    }
+
+    // ── Comentarios ──────────────────────────────────────────────────────────
+
+    private async Task CargarHilo()
+    {
+        _ocupado = true;
+        try
+        {
+            // El estado se vuelve a leer aquí: quien acaba de capturar su token en otra pestaña
+            // vuelve y pulsa esto, y sería absurdo seguir diciéndole que no lo tiene.
+            _estado = await Api.LeerAsync<EstadoDevOpsDto>("api/devops/estado", Cancelacion) ?? _estado;
+
+            (_hilo, _motivoDelHilo) = await Http.LeerHiloAsync(ActividadId, Cancelacion);
+        }
+        finally { _ocupado = false; }
+    }
+
+    // ── Textos ───────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Qué es exactamente lo que el pool dice y DevOps todavía no.
+    ///
+    /// <para>Se nombra CADA cantidad con su número, en vez de un «no se pudo actualizar DevOps»,
+    /// porque el empuje parcial es el caso real —la estimación entra y la prioridad no— y quien lo lea
+    /// tiene que saber qué hay allá antes de decidir si va a corregirlo a mano.</para>
+    /// </summary>
+    private static string QueFalta(VinculoDevOpsDto v)
+    {
+        var frases = new List<string>(2);
+
+        if (v.EsfuerzoPendiente)
+            frases.Add($"El esfuerzo que dice el pool ({HorasDelPool.Esfuerzo(v.HorasEstimadas)}) no está " +
+                       "en Azure DevOps: " +
+                       (v.EsfuerzoEnviado is decimal enviado
+                           ? $"lo último que aceptó allá fueron {HorasDelPool.Escribir(enviado)}."
+                           : "allá no se ha escrito ninguno."));
+
+        if (v.PrioridadPendiente)
+            frases.Add($"La prioridad de la actividad ({EtiquetasDeCatalogo.PrioridadDelPool(v.Prioridad)}, " +
+                       $"que en Azure DevOps se escribe como {v.PrioridadEnDevOps}) no llegó: " +
+                       (v.PrioridadEnviada is int enviada
+                           ? $"lo último que aceptó allá fue la {enviada}."
+                           : "allá sigue la que tuviera el ticket."));
+
+        return string.Join(" ", frases);
+    }
+
+    /// <summary>Cuándo se intentó, para saber si esto es de hace un minuto o de la semana pasada, que
+    /// es lo que decide si hay que ir a mirar el ticket a mano.</summary>
+    private static string CuandoSeIntento(VinculoDevOpsDto v) =>
+        v.UltimoIntentoUtc is DateTime cuando
+            ? $"Último intento: {cuando.ToLocalTime():dd/MM/yyyy HH:mm}. Reintentar manda solo lo que falta."
+            : "Todavía no se ha intentado mandarlo.";
+
+    /// <summary>El estado tranquilo, que también hay que poder ver: sin esta línea, «no hay aviso»
+    /// se confunde con «esta pantalla no comprueba nada».</summary>
+    private static string AlDia(VinculoDevOpsDto v)
+    {
+        var partes = new List<string>(2);
+        if (v.EsfuerzoEnviado is decimal h) partes.Add($"el esfuerzo ({HorasDelPool.Escribir(h)})");
+        if (v.PrioridadEnviada is int p) partes.Add($"la prioridad ({p})");
+
+        return partes.Count == 0
+            ? "Azure DevOps está al día con lo que dice el pool: no hay nada que mandarle."
+            : $"Azure DevOps tiene {string.Join(" y ", partes)} que dice el pool.";
+    }
+
+    /// <summary>
+    /// Con qué dirección se abre el work item.
+    ///
+    /// <para>Se compone igual que en el servidor (<c>PoolDevOpsService.UrlDelWorkItemAsync</c>) porque
+    /// ninguna ruta la devuelve suelta, y la de la actividad no siempre sirve: al publicar ligando en
+    /// el mismo formulario, el enlace de la actividad se queda con lo que el líder escribiera —el
+    /// correo del cliente, el pull request— o vacío, y entonces no habría forma de llegar al ticket.
+    /// Cuando falta la configuración se usa el enlace de la actividad, que es lo que hay.</para>
+    /// </summary>
+    private string? Direccion(int numero) =>
+        _estado is { Organizacion: { Length: > 0 } organizacion, Proyecto: { Length: > 0 } proyecto }
+            ? $"{organizacion.TrimEnd('/')}/{Uri.EscapeDataString(proyecto)}/_workitems/edit/{numero}"
+            : _vinculo?.Enlace;
+}

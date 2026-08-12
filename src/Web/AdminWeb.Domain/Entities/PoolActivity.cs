@@ -127,6 +127,59 @@ public class PoolActivity
     /// <summary>Enlace al work item, ticket o incidencia que la origina. Solo http/https.</summary>
     public string? ExternalUrl { get; set; }
 
+    // ── Vínculo con Azure DevOps ─────────────────────────────────────────
+    /// <summary>
+    /// El NÚMERO del work item de Azure DevOps que esta actividad resuelve. Nulo = no está ligada.
+    ///
+    /// <para><b>Por qué el número y no una clave ajena a <c>DevOpsTickets</c>.</b> El número es la
+    /// identidad que usa DevOps y es lo único que aceptan sus rutas de escritura
+    /// (<c>/_apis/wit/workitems/{numero}</c>): con él se puede empujar el esfuerzo o publicar un
+    /// comentario sin haber traído nada antes. Una clave ajena obligaría a que el ticket estuviera
+    /// SINCRONIZADO para poder ligarlo —y ligar un ticket recién creado en DevOps es justo el caso
+    /// corriente— y, peor, se rompería sola: <c>DevOpsTickets.Id</c> es un identificador LOCAL, la
+    /// limpieza de datos puede purgar esa tabla y volverla a llenar en la siguiente sincronización
+    /// con identificadores distintos. El vínculo se quedaría apuntando a otro ticket o a ninguno, y
+    /// nadie relacionaría el destrozo con la limpieza.</para>
+    ///
+    /// <para>La fila de <c>DevOpsTickets</c> se busca cuando hace falta enseñar el título o el
+    /// estado, empatando por <c>ExternalId</c>, que sí es el número de DevOps y está declarado
+    /// único. Es una unión BLANDA: si no hay fila, se enseña el número y ya; el vínculo sigue
+    /// sirviendo para escribir, que es para lo que existe.</para>
+    ///
+    /// <para><b>No lleva restricción de unicidad en la base</b>, a propósito. Dos actividades vivas
+    /// sobre el mismo work item sí serían un problema —se pisarían el esfuerzo y la prioridad la una
+    /// a la otra— y eso lo rechaza el servicio; pero un work item que ya tuvo una actividad
+    /// ACEPTADA o RETIRADA y vuelve a necesitar otra (un bug reabierto) es legítimo, y un índice
+    /// único lo prohibiría para siempre. La regla depende del ESTADO de la otra actividad, y eso no
+    /// cabe en un índice único de las dos bases.</para>
+    /// </summary>
+    public int? DevOpsWorkItemId { get; set; }
+
+    /// <summary>
+    /// El esfuerzo que DevOps CONFIRMÓ haber recibido, en horas. Es la marca de agua del empuje: lo
+    /// que hay que comparar contra <see cref="HorasEstimadas"/> para saber si allá está lo que dice
+    /// el pool.
+    ///
+    /// <para>Se guarda el valor y no un simple «ya se mandó» porque un booleano no sabe distinguir
+    /// «nunca se mandó» de «se mandó otro número y luego alguien lo editó», que es exactamente el
+    /// caso en el que el pool y DevOps se separan.</para>
+    /// </summary>
+    public decimal? DevOpsEsfuerzoEnviado { get; set; }
+
+    /// <summary>La prioridad de DevOps (1..4) que DevOps confirmó. Misma idea que la anterior.</summary>
+    public int? DevOpsPrioridadEnviada { get; set; }
+
+    /// <summary>Cuándo se intentó por última vez. Sirve para saber si «pendiente» es de hace un
+    /// minuto o de hace tres días, que es lo que decide si hay que ir a mirar.</summary>
+    public DateTime? DevOpsEmpujadoEnUtc { get; set; }
+
+    /// <summary>
+    /// Por qué falló el último empuje, tal como lo contestó DevOps. Nulo cuando el último terminó
+    /// bien. <b>Es la constancia:</b> sin esto, un empuje que no llegó solo existiría en el mensaje
+    /// que la persona vio una vez y cerró.
+    /// </summary>
+    public string? DevOpsUltimoError { get; set; }
+
     public int? CreatedByUserId { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
@@ -226,6 +279,90 @@ public class PoolActivity
 
     /// <summary>Pasó su fecha límite y sigue sin entregarse.</summary>
     public bool Vencida => EnCurso && ClaimDeadlineAt is DateTime f && f < DateTime.UtcNow;
+
+    /// <summary>Está ligada a un work item y todavía sigue en juego, así que lo que se escriba aquí
+    /// tiene que llegar allá.</summary>
+    public bool LigadaADevOps => DevOpsWorkItemId is > 0;
+
+    /// <summary>
+    /// El esfuerzo del pool no es el que tiene DevOps.
+    ///
+    /// <para>Un esfuerzo NULO no cuenta como pendiente: significa «todavía nadie lo ha estimado»
+    /// —un bug en el pool sin tomar—, y no hay número que mandar. Tampoco se BORRA en DevOps cuando
+    /// se suelta el reclamo de un bug y la estimación se va con quien la escribió: vaciar allá un
+    /// campo que quizá puso otra persona sería destruir información ajena para reflejar que aquí
+    /// dejó de haberla.</para>
+    /// </summary>
+    public bool EsfuerzoPendienteDeEnviar =>
+        LigadaADevOps && HorasEstimadas is decimal h && DevOpsEsfuerzoEnviado != h;
+
+    /// <summary>La prioridad del pool no es la que tiene DevOps. Siempre hay una: el campo no es
+    /// nulable y toda actividad nace en Media.</summary>
+    public bool PrioridadPendienteDeEnviar =>
+        LigadaADevOps && DevOpsPrioridadEnviada != PrioridadDelPoolEnDevOps.ADevOps(Priority);
+
+    /// <summary>
+    /// Hay algo que el pool dice y DevOps todavía no.
+    ///
+    /// <para><b>Se DERIVA y no se guarda como una marca.</b> Una columna «pendiente» sería un tercer
+    /// dato que mantener de acuerdo con los otros dos, y el día que un camino de código olvidara
+    /// bajarla —o subirla— el sistema mentiría en la dirección peor: diciendo que está todo enviado.
+    /// Derivándola de lo que se envió contra lo que dice la actividad, no hay nada que olvidar y una
+    /// edición posterior la vuelve a levantar sola.</para>
+    /// </summary>
+    public bool PendienteDeEnviarADevOps => EsfuerzoPendienteDeEnviar || PrioridadPendienteDeEnviar;
+}
+
+/// <summary>
+/// La correspondencia entre la prioridad del pool y la de Azure DevOps.
+///
+/// <para><b>Es una TABLA y no una conversión.</b> Los dos enumerados coinciden hoy por casualidad
+/// —los dos tienen cuatro escalones— y en sentidos OPUESTOS: aquí <see cref="PoolPriority.Critica"/>
+/// es el valor más alto (3) y allá lo más urgente es el más BAJO (1). Un <c>(int)</c> o una resta
+/// escrita a mano funcionaría hasta el día que alguien añada un quinto valor a uno de los dos, y
+/// entonces no fallaría nada: publicaría prioridades equivocadas en tickets reales, en silencio.
+/// Escrita como tabla, ese día el <c>switch</c> se queda sin rama y hay que decidir a mano —que es
+/// justo lo que se quiere que pase—.</para>
+///
+/// <para>La correspondencia es la MISMA que ya usa la pantalla de tickets al reflejar un cambio de
+/// prioridad en el requerimiento local (<c>(RequirementPriority)(4 - prioridad)</c>). Que sea la
+/// misma no es cosmético: dos tablas distintas para los mismos dos escalafones en la misma
+/// aplicación harían que el ticket #123 se viera «Alta» en una pantalla y «Media» en otra.</para>
+///
+/// <para><b>Consecuencia asumida:</b> DevOps le pone 2 por omisión a TODO, y aquí «Media» se manda
+/// como 3. Publicar una actividad corriente sobre un ticket recién creado le BAJA la prioridad en
+/// DevOps. Es lo correcto según el trato —el pool manda, y quien publicó dijo «Media», no «Alta»—
+/// pero conviene saberlo antes de ligar cien tickets de golpe.</para>
+/// </summary>
+public static class PrioridadDelPoolEnDevOps
+{
+    /// <summary>Del pool a DevOps: 1 es lo más urgente allá.</summary>
+    public static int ADevOps(PoolPriority prioridad) => prioridad switch
+    {
+        PoolPriority.Critica => 1,
+        PoolPriority.Alta    => 2,
+        PoolPriority.Media   => 3,
+        PoolPriority.Baja    => 4,
+
+        // Sin valor inventado: un enumerado nuevo tiene que romper aquí y no publicar un número al
+        // azar en un ticket de producción. La prueba que recorre todos los valores declarados lo
+        // caza antes de que llegue a correr.
+        _ => throw new ArgumentOutOfRangeException(nameof(prioridad), prioridad,
+                 "Falta la correspondencia de esta prioridad del pool con la de Azure DevOps. " +
+                 "Añádela a la tabla en vez de dejar que se convierta sola.")
+    };
+
+    /// <summary>De DevOps al pool. Existe para poder ENSEÑAR qué prioridad quedó allá con las
+    /// palabras de aquí; cualquier número fuera de 1..4 se lee como Media, que es lo que significa
+    /// «sin decidir» en DevOps.</summary>
+    public static PoolPriority DesdeDevOps(int prioridad) => prioridad switch
+    {
+        1 => PoolPriority.Critica,
+        2 => PoolPriority.Alta,
+        3 => PoolPriority.Media,
+        4 => PoolPriority.Baja,
+        _ => PoolPriority.Media
+    };
 }
 
 /// <summary>

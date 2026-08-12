@@ -236,6 +236,81 @@ public static class PoolEndpoints
         })
         .RequireAuthorization(PoliticaDelLider)
         .WithSummary("Desactiva o reactiva un punto de la plantilla");
+
+        MapDevOps(grupo);
+    }
+
+    /// <summary>
+    /// El vínculo con Azure DevOps: ligar, reintentar lo que no llegó y comentar en el ticket.
+    ///
+    /// <para><b>Ligar es del LÍDER</b> y lo demás es de quien trabaja. No es una asimetría gratuita:
+    /// ligar decide sobre qué ticket ajeno se va a escribir el esfuerzo y la prioridad a partir de
+    /// ahora, mientras que reintentar solo vuelve a mandar lo que ya se decidió y comentar habla
+    /// únicamente a nombre de quien lo escribe.</para>
+    ///
+    /// <para><b>Ninguna de estas rutas puede tumbar una operación del pool</b>: son todas propias, y
+    /// el empuje que va colgado de publicar/editar/tomar vive dentro de esos endpoints y nunca sale
+    /// como error — lo local ya se guardó antes de intentarlo.</para>
+    /// </summary>
+    private static void MapDevOps(RouteGroupBuilder grupo)
+    {
+        grupo.MapPost("/{id:int}/devops/ligar", async (
+            int id, LigarConDevOpsRequest? cuerpo, PoolDevOpsService devops, CancellationToken ct) =>
+        {
+            // El cuerpo ausente llega hasta el servicio como «sin número ni enlace», que es
+            // exactamente lo que significa DESLIGAR. No hace falta una ruta aparte para eso: son la
+            // misma decisión —con qué ticket habla esta actividad— y una de las respuestas es
+            // «con ninguno».
+            var (ok, mensaje) = await devops.LigarAsync(id, cuerpo?.WorkItem, cuerpo?.Enlace, ct);
+            return Resultado(ok, mensaje);
+        })
+        .RequireAuthorization(PoliticaDelLider)
+        .WithSummary("Liga la actividad con un work item de DevOps (o la desliga) y empuja esfuerzo y prioridad");
+
+        grupo.MapGet("/{id:int}/devops", async (
+            int id, PoolDevOpsService devops, CancellationToken ct) =>
+        {
+            var (ok, mensaje, vinculo) = await devops.VinculoAsync(id, ct);
+            return ok ? Results.Ok(vinculo) : Results.BadRequest(new ResultadoDto(false, mensaje));
+        })
+        .RequireAuthorization(PoliticaDelPool)
+        .WithSummary("Con qué work item está ligada y qué falta por mandarle");
+
+        grupo.MapGet("/devops/pendientes", async (PoolDevOpsService devops, CancellationToken ct) =>
+            Results.Ok(await devops.PendientesAsync(ct)))
+        .RequireAuthorization(PoliticaDelLider)
+        .WithSummary("Las actividades cuyo esfuerzo o prioridad no llegaron a DevOps");
+
+        grupo.MapPost("/{id:int}/devops/reintentar", async (
+            int id, PoolDevOpsService devops, CancellationToken ct) =>
+        {
+            var (ok, mensaje) = await devops.ReintentarAsync(id, ct);
+            return Resultado(ok, mensaje);
+        })
+        .RequireAuthorization(PoliticaDelPool)
+        .WithSummary("Vuelve a mandar a DevOps lo que quedó pendiente de esta actividad");
+
+        grupo.MapGet("/{id:int}/devops/comentarios", async (
+            int id, PoolDevOpsService devops, CancellationToken ct) =>
+        {
+            var (ok, mensaje, hilo) = await devops.HiloAsync(id, ct);
+            return ok ? Results.Ok(hilo) : Results.BadRequest(new ResultadoDto(false, mensaje));
+        })
+        .RequireAuthorization(PoliticaDelPool)
+        .WithSummary("El hilo del work item ligado, y si puedo escribir en él");
+
+        grupo.MapPost("/{id:int}/devops/comentar", async (
+            int id, ComentarEnDevOpsRequest? cuerpo, PoolDevOpsService devops, CancellationToken ct) =>
+        {
+            // El texto vacío y la falta de token personal llegan los dos hasta el servicio a
+            // propósito: es él quien explica que un comentario va firmado por quien lo escribe y
+            // dónde se captura el token, y ese texto es el que la persona necesita leer. Hoy nadie
+            // lo tiene capturado, así que ese mensaje es el caso corriente y no la excepción.
+            var (ok, mensaje) = await devops.ComentarAsync(id, cuerpo?.Texto, ct);
+            return Resultado(ok, mensaje);
+        })
+        .RequireAuthorization(PoliticaDelPool)
+        .WithSummary("Publica un comentario en el work item ligado, con el token de quien comenta");
     }
 
     /// <summary>
@@ -270,6 +345,11 @@ public static class PoolEndpoints
     /// rechaza es el servicio, con un mensaje que explica que ese número lo escribe quien lo toma.
     /// Descartarlo en silencio en este punto dejaría al líder creyendo que se guardó.</para>
     /// </summary>
+    /// <remarks>
+    /// El work item viaja como un campo más del borrador y lo resuelve el servicio, que es quien
+    /// sabe sacarlo también del enlace pegado y quien rechaza que los dos se contradigan. Traducirlo
+    /// aquí dejaría esa regla fuera del sitio donde se guarda.
+    /// </remarks>
     private static PoolActivity ABorrador(PublicarActividadRequest c) => new()
     {
         Title = c.Titulo,
@@ -279,6 +359,7 @@ public static class PoolEndpoints
         Priority = c.Prioridad,
         HorasLimite = c.Horas,
         HorasEstimadas = c.HorasEstimadas,
-        ExternalUrl = c.Enlace
+        ExternalUrl = c.Enlace,
+        DevOpsWorkItemId = c.WorkItem
     };
 }

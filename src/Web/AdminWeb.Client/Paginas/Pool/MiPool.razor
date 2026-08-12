@@ -37,6 +37,12 @@
 
     Lo que cambia respecto al escritorio: el enlace del ticket es un enlace de verdad y lo abre el
     navegador. Allí era un botón que lanzaba el proceso del sistema porque no había otra forma.
+
+    Y lo que el escritorio no tenía: si la actividad está ligada a un work item de Azure DevOps, aquí
+    se ve qué le llegó de lo que dice el pool y se puede comentar en su ticket sin salir a DevOps. El
+    comentario va firmado con el token PERSONAL de quien lo escribe —para que el historial del ticket
+    diga quién dijo qué—, así que quien todavía no lo tenga capturado se encuentra la explicación y el
+    enlace para capturarlo, no un error.
 *@
 
 <PageTitle>Mi pool</PageTitle>
@@ -220,6 +226,27 @@
                                             <RadzenIcon Icon="open_in_new" /> Ver el ticket
                                         </a>
                                     }
+
+                                    @*
+                                        EL VÍNCULO CON AZURE DEVOPS, ANTES DEL CHECKLIST.
+
+                                        Aquí arriba y no debajo de la lista de puntos porque las dos cosas que
+                                        dice hay que verlas sin buscarlas:
+
+                                          · Que la estimación que escribiste al tomar el bug NO llegó al
+                                            ticket. Se avisó en el momento, pero ese mensaje duró unos
+                                            segundos; si no se puede volver a ver, el ticket se queda mal y
+                                            nadie lo sabe. Con el botón de reintentar al lado, que no vuelve a
+                                            pedir nada.
+                                          · Que se puede comentar en el ticket desde aquí. Es lo que evita
+                                            abrir DevOps para escribir tres renglones — y lo que hace que el
+                                            avance quede donde lo lee quien preguntó.
+
+                                        Ligar y desligar NO están: eso es del líder, porque decide sobre qué
+                                        ticket ajeno se escribe. La tarjeta lo dice en vez de esconder los
+                                        botones sin explicación.
+                                    *@
+                                    <VinculoConDevOps ActividadId="@a.Id" Cancelacion="@_cancelacion.Token" />
 
                                     <RadzenDataGrid TItem="PuntoDeChecklistDto" Data="@_checklist" IsLoading="@_ocupado"
                                                     AllowSorting="false"

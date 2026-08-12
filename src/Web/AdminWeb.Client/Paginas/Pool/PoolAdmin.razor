@@ -4,6 +4,10 @@
 @implements IDisposable
 @inject ClienteApi Api
 @inject AvisosDeInterfaz Avisos
+@* El cliente crudo es SOLO para leer el vínculo con DevOps al abrir el formulario: esa lectura falla
+   cuando falta configurar la integración, y ahí no hay que gritar nada —el formulario se abre igual y
+   simplemente no precarga el número—. Todo lo demás sigue yendo por el cliente común. *@
+@inject HttpClient Http
 
 @*
     El pool de actividades, del lado del líder: publicar trabajo con su valor, verificar lo entregado
@@ -38,6 +42,23 @@
     misma pantalla en vez de en una ventana modal aparte. Es el mismo formulario y las mismas reglas
     —el servidor sigue siendo quien valida y quien pone los puntos—, pero en el navegador una ventana
     modal encima de otra pantalla se pierde detrás del propio navegador con demasiada facilidad.
+
+    ── EL VÍNCULO CON AZURE DEVOPS ────────────────────────────────────────────────────────────────
+
+    Está en tres sitios de esta pantalla y cada uno responde a una pregunta distinta:
+
+      · EN EL FORMULARIO, al publicar: con qué ticket se liga. Ahí y no en un segundo paso, porque
+        ligar se decide mientras se publica y lo que se aplaza a un «y ahora lígala» no se hace.
+      · EN UN AVISO ARRIBA: qué actividades dicen algo que DevOps todavía no tiene. El aviso del
+        momento lo vio una persona y cerró la pestaña; sin esta lista, un empuje perdido no sería
+        consultable por nadie.
+      · EN LA TARJETA DE ABAJO: todo lo de UNA actividad —con qué ticket habla, qué le falta, por qué
+        falló, reintentar, y los comentarios del ticket—.
+
+    Desligar NO se hace vaciando la casilla del formulario, y eso es a propósito: el servidor entiende
+    «sin número» como «no toques el vínculo» —tiene que hacerlo, o cualquier pantalla que edite sin
+    conocer el campo desligaría en silencio—, así que una casilla que se vacía y no desliga sería una
+    mentira. Desligar está en la tarjeta, pregunta antes y dice qué deja de pasar.
 *@
 
 <PageTitle>Pool de actividades</PageTitle>
@@ -235,6 +256,29 @@
                                     <RadzenTextBox @bind-Value="_enlace" MaxLength="500" Style="width:100%"
                                                    Placeholder="Enlace al work item o ticket (opcional): https://dev.azure.com/…" />
 
+                                    @*
+                                        EL VÍNCULO CON AZURE DEVOPS, EN EL MISMO FORMULARIO.
+
+                                        Va aquí y no en un segundo paso porque ligar es una decisión que se toma
+                                        MIENTRAS se publica —«esto que estoy poniendo en el pool es el ticket
+                                        4821»— y aplazarla a un «ahora ligue la actividad» significa, en la
+                                        práctica, que la mitad se quedan sin ligar.
+
+                                        Ligar tiene consecuencias inmediatas y por eso se dicen debajo: en cuanto
+                                        se guarde, el esfuerzo y la prioridad de ESTA actividad se le escriben al
+                                        work item. Publicar una tarea corriente sobre un ticket recién creado le
+                                        BAJA la prioridad en DevOps, porque allá 2 es lo predeterminado y aquí
+                                        «Media» se manda como 3.
+                                    *@
+                                    <RadzenStack Gap="0.25rem">
+                                        <SelectorDeTicketDevOps @bind-Numero="_workItem"
+                                                                Disabled="@_ocupado"
+                                                                Cancelacion="@_cancelacion.Token" />
+                                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                            @AyudaDelWorkItem()
+                                        </RadzenText>
+                                    </RadzenStack>
+
                                     <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
                                         <RadzenButton Text="@(_editandoId is null ? "Publicar" : "Guardar")"
                                                       Disabled="@_ocupado" Click="@GuardarActividad" />
@@ -246,6 +290,43 @@
                         }
 
                         <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@ResumenDelPool()</RadzenText>
+
+                        @*
+                            LO QUE NO LLEGÓ A AZURE DEVOPS, ARRIBA Y SIN QUE NADIE LO BUSQUE.
+
+                            El aviso del momento —el que sale al publicar o al editar— lo vio UNA persona y
+                            cerró la pestaña. Sin esta lista, «el pool dice 8 h y DevOps está en blanco» sería
+                            un hecho que nadie puede consultar y que se descubriría en una reunión, con el
+                            ticket ya mal desde hace días.
+
+                            No lleva el detalle de cada una: lo que falta, por qué falló y el botón de
+                            reintentar viven en la tarjeta del vínculo, y escribirlos también aquí dejaría dos
+                            textos que explican lo mismo y que un día dirán cosas distintas. Esto es el aviso y
+                            el camino; el detalle está a un clic.
+                        *@
+                        @if (_pendientesDeDevOps.Count > 0)
+                        {
+                            <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+                                <RadzenStack Gap="0.35rem">
+                                    <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                                        @ResumenDeLoPendienteEnDevOps()
+                                    </RadzenText>
+                                    @foreach (var p in _pendientesDeDevOps)
+                                    {
+                                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem"
+                                                     AlignItems="AlignItems.Center" Wrap="FlexWrap.Wrap">
+                                            <RadzenButton Text="@($"#{p.WorkItem}")" ButtonStyle="ButtonStyle.Light"
+                                                          Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                          Click="@(() => AbrirDevOps(p.PoolActivityId))" />
+                                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@p.Titulo</RadzenText>
+                                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0" Style="opacity:.7">
+                                                @QueFaltaEnCorto(p)
+                                            </RadzenText>
+                                        </RadzenStack>
+                                    }
+                                </RadzenStack>
+                            </RadzenAlert>
+                        }
 
                         <RadzenDataGrid TItem="ActividadDelPoolDto" Data="@Actividades" IsLoading="@_ocupado"
                                         AllowSorting="true" AllowPaging="true" PageSize="15"
@@ -364,6 +445,40 @@
                                                       Title="Devoluciones" Width="120px" TextAlign="TextAlign.Right">
                                     <Template Context="a">@(a.Devoluciones > 0 ? a.Devoluciones.ToString() : "")</Template>
                                 </RadzenDataGridColumn>
+                                @*
+                                    La columna de DevOps enseña UNA cosa y calla la otra a propósito: el
+                                    triángulo aparece cuando lo que dice el pool no está allá, y su ausencia
+                                    NO promete que la actividad esté ligada —eso, y con qué ticket, se ve
+                                    abriendo la tarjeta—.
+
+                                    Es lo más que se puede decir por fila sin mentir: la lista del pool no
+                                    trae el work item de cada actividad, y pedirlo por fila serían quince
+                                    peticiones para pintar una rejilla. Lo pendiente sí viaja junto, en una
+                                    sola consulta, porque es lo único que hay que ver sin buscarlo.
+                                *@
+                                <RadzenDataGridColumn TItem="ActividadDelPoolDto" Title="DevOps"
+                                                      Width="110px" Sortable="false">
+                                    <Template Context="a">
+                                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.3rem"
+                                                     AlignItems="AlignItems.Center">
+                                            <RadzenButton Icon="link" ButtonStyle="ButtonStyle.Light"
+                                                          Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                          Click="@(() => AbrirDevOps(a.Id))"
+                                                          title="Con qué work item está ligada, qué le falta por mandarle y los comentarios del ticket." />
+                                            @if (NoLlegoADevOps(a.Id))
+                                            {
+                                                @* El triángulo va coloreado y con su explicación en el
+                                                   hover: un glifo mudo en una rejilla es un adorno. El
+                                                   color sale de la variable del tema, como el resto de
+                                                   esta pantalla. *@
+                                                <span style="color:var(--rz-warning);display:inline-flex"
+                                                      title="El esfuerzo o la prioridad de esta actividad no llegaron a Azure DevOps. Ábrelo para ver qué falta y reintentar.">
+                                                    <RadzenIcon Icon="warning" />
+                                                </span>
+                                            }
+                                        </RadzenStack>
+                                    </Template>
+                                </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="ActividadDelPoolDto" Title="" Width="230px" Sortable="false">
                                     <Template Context="a">
                                         @* Editar y retirar solo mientras siga libre: cambiarle el alcance o el
@@ -398,6 +513,37 @@
                                 </RadzenDataGridColumn>
                             </Columns>
                         </RadzenDataGrid>
+
+                        @*
+                            La tarjeta del vínculo, DEBAJO de la rejilla y no en una ventana modal, por lo
+                            mismo que el formulario de publicar: en el navegador una modal encima de otra
+                            pantalla se pierde detrás del propio navegador con demasiada facilidad. Y aquí
+                            hace falta además poder mirar la rejilla mientras se decide con qué ticket se
+                            liga.
+                        *@
+                        @if (_devopsId is int actividadDevOps)
+                        {
+                            <RadzenCard>
+                                <RadzenStack Gap="0.75rem">
+                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem"
+                                                 AlignItems="AlignItems.Center" Wrap="FlexWrap.Wrap">
+                                        <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                                            Azure DevOps @TituloDeLaActividad(actividadDevOps)
+                                        </RadzenText>
+                                        <RadzenButton Text="Cerrar" Icon="clear" ButtonStyle="ButtonStyle.Light"
+                                                      Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                      Click="@(() => _devopsId = null)" />
+                                    </RadzenStack>
+
+                                    @* PuedeLigar: esta pantalla es del líder entera, y ligar decide sobre qué
+                                       ticket ajeno se va a escribir el esfuerzo y la prioridad de ahora en
+                                       adelante. En «Mi pool» la misma tarjeta va sin ese permiso. *@
+                                    <VinculoConDevOps ActividadId="@actividadDevOps" PuedeLigar="true"
+                                                      Cancelacion="@_cancelacion.Token"
+                                                      Cambiado="@CargarPendientesDeDevOps" />
+                                </RadzenStack>
+                            </RadzenCard>
+                        }
                     </RadzenStack>
                 </RadzenTabsItem>
 
@@ -756,6 +902,19 @@
     private string _titulo = "";
     private string _detalle = "";
     private string _enlace = "";
+
+    /// <summary>
+    /// El work item de Azure DevOps con el que se liga la actividad que se está capturando. Nulo = no
+    /// se liga con nada.
+    ///
+    /// <para><b>Al editar se rellena con el que ya tiene</b>, y eso no es solo comodidad: el servidor
+    /// entiende «sin número» como «no toques el vínculo» —tiene que hacerlo, porque este campo es
+    /// nuevo y una pantalla que no lo conozca mandaría nulo—, así que si aquí llegara en blanco, el
+    /// formulario enseñaría una actividad aparentemente sin ligar que en realidad sigue escribiendo
+    /// en su ticket. Por lo mismo, vaciar esta casilla NO desliga: eso se hace desde la tarjeta del
+    /// vínculo, que lo dice y lo pregunta.</para>
+    /// </summary>
+    private int? _workItem;
     private PoolComplexity? _complejidadCapturada = PoolComplexity.Media;
     private PoolPriority _prioridad = PoolPriority.Media;
 
@@ -853,6 +1012,19 @@
     private int? _abiertaId;
     private List<PuntoDeChecklistDto> _checklist = [];
 
+    // Vínculo con Azure DevOps.
+
+    /// <summary>De qué actividad se está mirando el vínculo. Nulo = la tarjeta está cerrada.</summary>
+    private int? _devopsId;
+
+    /// <summary>
+    /// Las actividades cuyo esfuerzo o prioridad no están en DevOps. Se traen JUNTAS y de una sola
+    /// consulta: pedir el vínculo de cada fila para poder pintar un aviso serían quince peticiones
+    /// por cada vez que se abre la pantalla, y el aviso es justo lo que no puede depender de que
+    /// alguien vaya fila por fila a buscarlo.
+    /// </summary>
+    private IReadOnlyList<VinculoDevOpsDto> _pendientesDeDevOps = [];
+
     // Configuración.
     private PoolWorkType? _tipoDeLaPlantilla = PoolWorkType.Bug;
 
@@ -902,8 +1074,34 @@
             var abierta = Abierta;
             if (abierta is null) { _abiertaId = null; _seleccion = null; _checklist = []; }
             else { _seleccion = [abierta]; await CargarChecklist(); }
+
+            await CargarPendientesDeDevOps();
         }
         finally { _ocupado = false; }
+    }
+
+    /// <summary>
+    /// Lo que el pool dice y Azure DevOps todavía no. Va con cada carga del pool porque cambia con
+    /// cualquier cosa que se publique o se edite: el empuje se intenta detrás de cada una de esas
+    /// operaciones y puede no llegar.
+    /// </summary>
+    private async Task CargarPendientesDeDevOps() =>
+        _pendientesDeDevOps = (await Api.LeerAsync<PendientesDeDevOpsDto>(
+            "api/pool/devops/pendientes", _cancelacion.Token))?.Pendientes ?? [];
+
+    /// <summary>
+    /// Abre la tarjeta del vínculo de una actividad y cierra el formulario de captura.
+    ///
+    /// <para>Se cierra a propósito, aun sabiendo que tira lo que se llevara escrito: el formulario
+    /// tiene su propia casilla de work item, y tenerlo abierto sobre una actividad mientras la tarjeta
+    /// de abajo enseña el vínculo de OTRA dejaría dos sitios hablando de DevOps sobre actividades
+    /// distintas — con botones que escriben en tickets de verdad. Una sola conversación con DevOps a
+    /// la vez es la regla que hace imposible ligar la que no era.</para>
+    /// </summary>
+    private void AbrirDevOps(int actividadId)
+    {
+        _devopsId = actividadId;
+        _capturando = false;
     }
 
     private async Task Seleccionar(IList<EntregaPorVerificarDto>? seleccion)
@@ -958,6 +1156,7 @@
         _titulo = "";
         _detalle = "";
         _enlace = "";
+        _workItem = null;
         _tipoCapturado = PoolWorkType.Bug;
         _complejidadCapturada = PoolComplexity.Media;
         _prioridad = PoolPriority.Media;
@@ -965,6 +1164,10 @@
         _plazoPropio = null;
         _criteriosElegidos.Clear();
         _capturando = true;
+
+        // La tarjeta del vínculo se cierra: habla de OTRA actividad, y dejarla abierta al lado de un
+        // formulario en blanco invita a ligar la que se está mirando creyendo que se liga la nueva.
+        _devopsId = null;
     }
 
     private async Task AbrirFormularioDe(ActividadDelPoolDto actividad)
@@ -1011,7 +1214,15 @@
                 _criteriosElegidos.Add(c.CriterioId!.Value);
         }
 
+        // El work item se pide aparte porque la lista del pool no lo trae. Y hay que pedirlo aunque
+        // casi ninguna actividad esté ligada: abrir el formulario con la casilla en blanco sobre una
+        // actividad que SÍ está ligada haría creer que no lo está, y quien la editara se quedaría sin
+        // saber que su esfuerzo y su prioridad se siguen escribiendo en un ticket.
+        var (vinculo, _) = await Http.LeerVinculoAsync(actividad.Id, _cancelacion.Token);
+        _workItem = vinculo?.WorkItem;
+
         _capturando = true;
+        _devopsId = null;
     }
 
     private void AlternarCriterio(int id, bool elegido)
@@ -1124,7 +1335,12 @@
             Prioridad: _prioridad,
             Horas: EsBug ? _horas : _plazoPropio,
             HorasEstimadas: EsBug ? null : _horas,
-            CriteriosExtra: [.. _criteriosElegidos]);
+            CriteriosExtra: [.. _criteriosElegidos],
+            // El número viaja tal cual esté; si está vacío y el enlace de arriba es la dirección de un
+            // work item, el número lo saca de ahí el servidor. Aquí no se extrae nada: esa regla —y
+            // qué pasa cuando la dirección dice una cosa y la casilla otra— vive allá, es la que se
+            // prueba, y una segunda copia acabaría prometiendo un ticket y guardando otro.
+            WorkItem: _workItem);
 
         var ruta = _editandoId is int id ? $"api/pool/{id}/editar" : "api/pool/publicar";
         if (await Enviar(ruta, cuerpo)) _capturando = false;
@@ -1308,6 +1524,76 @@
             : a.Tipo == PoolWorkType.Bug
                 ? "Todavía sin estimar: en un bug lo estima quien lo toma, en el momento de tomarlo."
                 : "Sin estimar.";
+
+    /// <summary>
+    /// Qué va a pasar con el work item que se está eligiendo. Se dice ANTES de guardar porque ligar
+    /// no es una anotación: en cuanto se guarde, el esfuerzo y la prioridad de esta actividad se
+    /// escriben en un ticket que ve más gente.
+    ///
+    /// <para>Y se avisa de la consecuencia que sorprende: DevOps le pone 2 por omisión a todo, y aquí
+    /// «Media» se manda como 3, así que publicar una actividad corriente sobre un ticket recién
+    /// creado le BAJA la prioridad allá. Es lo correcto —el pool manda, y quien publica dijo Media—
+    /// pero descubrirlo después, ticket por ticket, no lo es.</para>
+    /// </summary>
+    private string AyudaDelWorkItem()
+    {
+        if (_workItem is null)
+            return "Opcional. Si esta actividad resuelve un ticket de Azure DevOps, lígala: el esfuerzo " +
+                   "y la prioridad de aquí se le escribirán allá, y se podrá comentar en el ticket desde " +
+                   "el pool. También vale con pegar la dirección del work item en el campo de enlace de " +
+                   "arriba: el número se saca de ella.";
+
+        // El número exacto de la escala de DevOps NO se escribe aquí, y no es por brevedad: esa
+        // correspondencia es una tabla del servidor y copiarla al navegador dejaría dos, con la de
+        // aquí prometiendo un número que la de allá ya no escribe. El que de verdad quedó lo enseña la
+        // tarjeta del vínculo, que lo recibe del servidor.
+        return $"Al guardar se le escribirán al work item el esfuerzo y la prioridad de esta actividad " +
+               $"({EtiquetasDeCatalogo.PrioridadDelPool(_prioridad)}). Ojo con la prioridad: la escala de " +
+               "Azure DevOps va al revés que la de aquí —allá lo más urgente es 1— y los tickets nuevos " +
+               "nacen en 2, así que ligar puede cambiarle la prioridad al ticket. Si DevOps no acepta el " +
+               "campo de esfuerzo, la actividad se guarda igual y queda marcada como pendiente de enviar.";
+    }
+
+    /// <summary>Si de esta actividad quedó algo sin llegar a DevOps. Se pregunta a la lista que ya se
+    /// trajo entera, así que no cuesta ninguna petición por fila.</summary>
+    private bool NoLlegoADevOps(int actividadId) =>
+        _pendientesDeDevOps.Any(p => p.PoolActivityId == actividadId);
+
+    private string ResumenDeLoPendienteEnDevOps() =>
+        _pendientesDeDevOps.Count == 1
+            ? "Una actividad dice algo que Azure DevOps todavía no tiene. Ábrela para ver qué falta y " +
+              "reintentarlo:"
+            : $"{_pendientesDeDevOps.Count} actividades dicen algo que Azure DevOps todavía no tiene. " +
+              "Ábrelas para ver qué falta y reintentarlo:";
+
+    /// <summary>
+    /// Qué falta, en las dos palabras que caben en un renglón de la lista. El detalle —los números de
+    /// un lado y del otro, el motivo y la hora del último intento— vive en la tarjeta del vínculo y no
+    /// se repite aquí: dos textos que explican lo mismo acaban diciendo cosas distintas.
+    /// </summary>
+    private static string QueFaltaEnCorto(VinculoDevOpsDto v) =>
+        (v.EsfuerzoPendiente, v.PrioridadPendiente) switch
+        {
+            (true, true)  => "falta el esfuerzo y la prioridad",
+            (true, false) => "falta el esfuerzo",
+            _             => "falta la prioridad"
+        };
+
+    /// <summary>
+    /// El título de la actividad cuya tarjeta de DevOps está abierta.
+    ///
+    /// <para>Se busca también en la lista de lo pendiente y no solo en la rejilla, porque desde el
+    /// aviso de arriba se abren actividades que el filtro de estado puede estar escondiendo: lo que no
+    /// llegó a DevOps se enseña siempre, esté o no en la vista de ese momento. Si no aparece en
+    /// ninguna de las dos, la tarjeta se queda sin coletilla en vez de inventarse un nombre.</para>
+    /// </summary>
+    private string TituloDeLaActividad(int actividadId)
+    {
+        var titulo = Actividades.FirstOrDefault(a => a.Id == actividadId)?.Titulo
+                  ?? _pendientesDeDevOps.FirstOrDefault(p => p.PoolActivityId == actividadId)?.Titulo;
+
+        return titulo is null ? "" : $"— «{titulo}»";
+    }
 
     private string EstiloDelValor() =>
         CeldaElegida() is { Puntos: > 0 } ? "color:var(--rz-success)" : "color:var(--rz-warning)";

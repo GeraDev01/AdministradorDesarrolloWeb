@@ -28,9 +28,22 @@ namespace AdminWeb.Application.Services;
 /// sincronizar el ChangeTracker): con un contexto por petición, lo que se lee ya es fresco y lo que
 /// quede pendiente tras un error muere con la petición.
 /// </summary>
+/// <param name="devopsDelPool">
+/// El puente con Azure DevOps, para empujar allá el esfuerzo y la prioridad de las actividades
+/// LIGADAS a un work item.
+///
+/// <para><b>Va opcional, y por eso mismo el pool no depende de la integración.</b> Una instalación
+/// sin Azure DevOps configurado —o una prueba que solo mira los puntos y el checklist— tiene que
+/// poder publicar, tomar y aceptar actividades exactamente igual. Si fuera obligatorio, la mitad del
+/// sistema de puntos arrastraría un cliente HTTP para no usarlo nunca.</para>
+///
+/// <para>El empuje se invoca SIEMPRE después del <c>SaveChanges</c> que guarda el cambio, nunca
+/// antes y nunca dentro de una transacción: lo local se guarda pase lo que pase, y lo que devuelve
+/// es un aviso que se añade al mensaje, no un fallo que lo tumbe.</para>
+/// </param>
 public class PoolActivityService(
     AppDbContext db, ICurrentUser currentUser, AuditService audit, NotificationService notifications,
-    SettingsService configuracion)
+    SettingsService configuracion, PoolDevOpsService? devopsDelPool = null)
 {
     /// <summary>Cuántas actividades puede tener alguien tomadas a la vez, si nadie lo configuró.</summary>
     public const int MaxTomadasPorOmision = 3;
@@ -166,7 +179,9 @@ public class PoolActivityService(
     {
         AuthorizationGuard.RequireAdmin(currentUser);
 
-        var (valido, error, celda, enlace) = await ValidarBorradorAsync(borrador, ct);
+        // Id 0: todavía no existe, así que ninguna fila puede ser «ella misma» al comprobar que
+        // nadie más tiene ese work item.
+        var (valido, error, celda, enlace, workItem) = await ValidarBorradorAsync(borrador, 0, ct);
         if (!valido) return (false, error, null);
 
         var (extraOk, extraError, extras) = await MaterializarCriteriosExtraAsync(criteriosExtra, ct);
@@ -194,6 +209,7 @@ public class PoolActivityService(
             HorasEstimadasEnUtc = esfuerzo is null ? null : DateTime.UtcNow,
             Status              = PoolActivityStatus.Disponible,
             ExternalUrl         = enlace,
+            DevOpsWorkItemId    = workItem,
             CreatedByUserId     = currentUser.UserId,
             CreatedAt           = DateTime.UtcNow
         };
@@ -209,10 +225,34 @@ public class PoolActivityService(
         await audit.RecordAsync(AuditAction.Create, "PoolActivity", actividad.Id.ToString(),
             $"Actividad del pool «{actividad.Title}» ({PoolSeed.Etiqueta(actividad.WorkType)}/" +
             $"{PoolSeed.Etiqueta(actividad.Complexity)}, {actividad.Points} pts, " +
-            $"prioridad {EtiquetasDeCatalogo.PrioridadDelPool(actividad.Priority)}{extraTexto})", ct);
+            $"prioridad {EtiquetasDeCatalogo.PrioridadDelPool(actividad.Priority)}{extraTexto}" +
+            (workItem is int wi ? $", ligada al work item #{wi}" : "") + ")", ct);
 
-        return (true, MensajeDeAlta(actividad.Points, extras), actividad);
+        return (true, ConEmpuje(MensajeDeAlta(actividad.Points, extras),
+                                await EmpujarADevOpsAsync(actividad.Id, ct)), actividad);
     }
+
+    /// <summary>
+    /// Manda a DevOps lo que le falte de la actividad, si está ligada y la integración está montada.
+    ///
+    /// <para><b>Va SIEMPRE detrás del <c>SaveChanges</c> que guardó el cambio</b>, nunca dentro de
+    /// él ni dentro de una transacción. Es la regla que hace que publicar, editar o tomar una
+    /// actividad no puedan fallar ni colgarse porque un servidor ajeno no conteste: lo de aquí ya
+    /// está guardado cuando esto empieza, y lo peor que devuelve es un texto que añadir al
+    /// mensaje.</para>
+    ///
+    /// <para>Sin integración configurada devuelve vacío y no dice nada: quien no la use no tiene por
+    /// qué leer un aviso sobre ella en cada actividad que publica.</para>
+    /// </summary>
+    private async Task<string> EmpujarADevOpsAsync(int poolActivityId, CancellationToken ct)
+    {
+        if (devopsDelPool is null) return "";
+        var (_, aviso) = await devopsDelPool.EmpujarAsync(poolActivityId, ct);
+        return aviso;
+    }
+
+    private static string ConEmpuje(string mensaje, string aviso) =>
+        aviso.Length == 0 ? mensaje : $"{mensaje} {aviso}";
 
     /// <summary>
     /// Lo que se le dice al líder tras publicar. Enseña el máximo alcanzable además de la base,
@@ -244,7 +284,7 @@ public class PoolActivityService(
         if (actividad.Status != PoolActivityStatus.Disponible)
             return (false, "Ya la tomó alguien: no se puede cambiar lo que vale ni lo que pide.");
 
-        var (valido, error, celda, enlace) = await ValidarBorradorAsync(cambios, ct);
+        var (valido, error, celda, enlace, workItem) = await ValidarBorradorAsync(cambios, id, ct);
         if (!valido) return (false, error);
 
         var (extraOk, extraError, extras) = await MaterializarCriteriosExtraAsync(criteriosExtra, ct);
@@ -286,6 +326,28 @@ public class PoolActivityService(
         actividad.HorasLimite = Redondear(cambios.HorasLimite);
         actividad.ExternalUrl = enlace;
 
+        // ── EL VÍNCULO, AL CAMBIAR DE TICKET ─────────────────────────────────────
+        //
+        // <b>Sin número, el vínculo se queda como está.</b> No se desliga, y eso es deliberado: este
+        // campo es NUEVO en la petición, así que cualquier pantalla que edite una actividad sin
+        // saber de él mandaría un nulo, y «ausente» tiene que significar «no lo toques» y no
+        // «bórralo». Con la otra lectura, editar el título de una actividad ligada la desligaría en
+        // silencio y el ticket dejaría de recibir nada sin que nadie lo hubiera pedido. Desligar es
+        // destructivo y tiene su propia ruta, que además lo dice en su respuesta.
+        //
+        // Al apuntar a OTRO ticket sí se limpia la marca de agua: dice «DevOps ya tiene esto» y esa
+        // afirmación es sobre un work item concreto. Conservarla haría que la actividad se creyera
+        // al día en un ticket al que nunca se le mandó nada, y no volvería a mandarse hasta la
+        // siguiente edición del esfuerzo. Borrarla la deja pendiente, y el empuje de abajo la
+        // resuelve dentro de la misma operación.
+        if (workItem is not null && actividad.DevOpsWorkItemId != workItem)
+        {
+            actividad.DevOpsWorkItemId       = workItem;
+            actividad.DevOpsEsfuerzoEnviado  = null;
+            actividad.DevOpsPrioridadEnviada = null;
+            actividad.DevOpsUltimoError      = null;
+        }
+
         // El esfuerzo del líder se reescribe solo cuando le toca ponerlo. En un bug la validación ya
         // garantizó que no viene ninguno, y lo que quede es lo que escribió quien lo tomó (o el nulo
         // que acaba de dejar la limpieza de arriba): pisarlo con null aquí borraría, en cada edición
@@ -307,7 +369,12 @@ public class PoolActivityService(
             $"Actividad del pool actualizada: {actividad.Points} pts, prioridad " +
             $"{EtiquetasDeCatalogo.PrioridadDelPool(actividad.Priority)}, " +
             $"{extras.Count} criterio(s) extra", ct);
-        return (true, MensajeDeAlta(actividad.Points, extras).Replace("publicada", "actualizada"));
+
+        // El empuje va aquí y no solo al ligar porque la prioridad y el esfuerzo se editan: mandar
+        // solo la primera vez dejaría DevOps con el número del día que se publicó, que es peor que
+        // no mandar nada — parecería al día y no lo estaría.
+        return (true, ConEmpuje(MensajeDeAlta(actividad.Points, extras).Replace("publicada", "actualizada"),
+                                await EmpujarADevOpsAsync(actividad.Id, ct)));
     }
 
     /// <summary>
@@ -540,8 +607,14 @@ public class PoolActivityService(
         var textoEstimacion = estimacion is decimal e
             ? $" Dijiste que te tomaría {e:0.##} h; eso es lo que se comparará con tu cronómetro."
             : "";
-        return (true, $"La actividad es tuya: {actividad.Points} puntos al aceptarse.{textoLimite}" +
-                      $"{textoEstimacion} Completa el checklist para poder entregarla.");
+
+        // Tomar un BUG es el momento en que aparece su esfuerzo, así que es también el momento de
+        // mandarlo: hasta aquí no había número que llevar a DevOps. En una tarea o un requerimiento
+        // el esfuerzo ya se empujó al publicarla y esto no encuentra nada pendiente.
+        return (true, ConEmpuje(
+            $"La actividad es tuya: {actividad.Points} puntos al aceptarse.{textoLimite}" +
+            $"{textoEstimacion} Completa el checklist para poder entregarla.",
+            await EmpujarADevOpsAsync(id, ct)));
     }
 
     /// <summary>
@@ -994,20 +1067,27 @@ public class PoolActivityService(
 
     // ── Interno ──────────────────────────────────────────────────────────────────
 
-    private async Task<(bool ok, string error, PoolPointsMatrixEntry? celda, string? enlace)> ValidarBorradorAsync(
-        PoolActivity b, CancellationToken ct)
+    /// <summary>
+    /// Valida el borrador y resuelve de paso el vínculo con DevOps.
+    ///
+    /// El work item sale de aquí y no del formulario tal cual porque hay dos formas de decirlo —el
+    /// número o la dirección pegada— y porque un número que contradice a su enlace tiene que
+    /// rechazarse ANTES de guardar nada: guardado, escribiría el esfuerzo en el ticket de otro.
+    /// </summary>
+    private async Task<(bool ok, string error, PoolPointsMatrixEntry? celda, string? enlace, int? workItem)>
+        ValidarBorradorAsync(PoolActivity b, int actividadId, CancellationToken ct)
     {
         var titulo = (b.Title ?? "").Trim();
-        if (titulo.Length == 0) return (false, "Escribe un título para la actividad.", null, null);
-        if (titulo.Length > 200) return (false, "El título no puede pasar de 200 caracteres.", null, null);
+        if (titulo.Length == 0) return (false, "Escribe un título para la actividad.", null, null, null);
+        if (titulo.Length > 200) return (false, "El título no puede pasar de 200 caracteres.", null, null, null);
 
         var celda = await CeldaDeMatrizAsync(b.WorkType, b.Complexity, ct);
         if (celda == null)
             return (false, $"No hay puntos configurados para {PoolSeed.Etiqueta(b.WorkType)} / " +
-                           $"{PoolSeed.Etiqueta(b.Complexity)}. Captúralos en la pestaña de configuración.", null, null);
+                           $"{PoolSeed.Etiqueta(b.Complexity)}. Captúralos en la pestaña de configuración.", null, null, null);
         if (celda.Points <= 0)
             return (false, $"{PoolSeed.Etiqueta(b.WorkType)} / {PoolSeed.Etiqueta(b.Complexity)} vale " +
-                           "0 puntos: corrige la matriz antes de publicar.", null, null);
+                           "0 puntos: corrige la matriz antes de publicar.", null, null, null);
 
         // ── PLAZO ────────────────────────────────────────────────────────────────
         //
@@ -1020,11 +1100,11 @@ public class PoolActivityService(
         // ser cierto sin que nadie lo notara.
         if (b.WorkType == PoolWorkType.Bug && b.HorasLimite is null)
             return (false, "Un bug lleva el plazo que tú decidas, en horas. Escríbelo: la matriz no lo " +
-                           "pone por ti. 0 = sin fecha límite.", null, null);
+                           "pone por ti. 0 = sin fecha límite.", null, null, null);
 
         if (b.HorasLimite is { } plazo && (plazo < 0 || plazo > MaxHorasDePlazo))
             return (false, $"El plazo tiene que estar entre 0 y {MaxHorasDePlazo:0} horas. " +
-                           "0 = sin fecha límite.", null, null);
+                           "0 = sin fecha límite.", null, null, null);
 
         // ── ESFUERZO ─────────────────────────────────────────────────────────────
         //
@@ -1039,20 +1119,38 @@ public class PoolActivityService(
         {
             if (b.HorasEstimadas is not null)
                 return (false, "El esfuerzo de un bug lo estima quien lo toma, en el momento de tomarlo. " +
-                               "Tú pones el plazo.", null, null);
+                               "Tú pones el plazo.", null, null, null);
         }
         else if (b.HorasEstimadas is not { } esfuerzo || esfuerzo < MinHorasEstimadas || esfuerzo > MaxHorasEstimadas)
         {
             return (false, $"Escribe el esfuerzo estimado, entre {MinHorasEstimadas} y {MaxHorasEstimadas:0} " +
-                           "horas. Sin ese número no hay nada que contrastar con el cronómetro.", null, null);
+                           "horas. Sin ese número no hay nada que contrastar con el cronómetro.", null, null, null);
         }
 
         // El mismo validador que la autocalificación: solo http/https, porque el líder abre el
         // enlace con el navegador al verificar.
         var (enlaceOk, enlaceError, enlace) = PerformanceScoringService.NormalizarEnlace(b.ExternalUrl);
-        if (!enlaceOk) return (false, enlaceError, null, null);
+        if (!enlaceOk) return (false, enlaceError, null, null, null);
 
-        return (true, "", celda, enlace);
+        // ── VÍNCULO CON DEVOPS ───────────────────────────────────────────────────
+        //
+        // El número puede venir escrito o dentro del enlace; que los dos se contradigan se rechaza,
+        // porque guardado escribiría el esfuerzo y la prioridad en el ticket de otra persona.
+        var (vinculoOk, vinculoError, workItem) =
+            PoolDevOpsService.ResolverWorkItem(b.DevOpsWorkItemId, enlace);
+        if (!vinculoOk) return (false, vinculoError, null, null, null);
+
+        // Y que no haya OTRA actividad viva sobre el mismo work item: se pisarían el esfuerzo y la
+        // prioridad la una a la otra sin que ninguna se enterara. Se comprueba aquí además de en
+        // «ligar» porque publicar con el número puesto es el camino corriente y saltarse la
+        // comprobación por él la volvería decorativa.
+        if (workItem is int numero)
+        {
+            var (libre, ocupado) = await PoolDevOpsService.NadieMasLoTieneAsync(db, numero, actividadId, ct);
+            if (!libre) return (false, ocupado, null, null, null);
+        }
+
+        return (true, "", celda, enlace, workItem);
     }
 
     /// <summary>

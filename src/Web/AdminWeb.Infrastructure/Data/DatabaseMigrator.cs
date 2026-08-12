@@ -1056,6 +1056,19 @@ public static class DatabaseMigrator
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivities"" ADD COLUMN ""HorasLimite"" TEXT"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivities"" ADD COLUMN ""HorasEstimadas"" TEXT"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivities"" ADD COLUMN ""HorasEstimadasEnUtc"" TEXT"); } catch { }
+        // Vínculo con Azure DevOps y marca de agua del empuje. Todas NULAS: lo que ya está publicado
+        // no está ligado a nada, y suponer un número sería inventarse un ticket.
+        //
+        // «DevOpsEsfuerzoEnviado» va en TEXT y no en REAL por lo mismo que HorasEstimadas: EF guarda
+        // decimal como TEXT en SQLite, y las dos se comparan por igualdad entre sí. Una en REAL y la
+        // otra en TEXT harían que nunca se parecieran, y toda actividad ligada se quedaría
+        // «pendiente de enviar» para siempre.
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivities"" ADD COLUMN ""DevOpsWorkItemId"" INTEGER"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivities"" ADD COLUMN ""DevOpsEsfuerzoEnviado"" TEXT"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivities"" ADD COLUMN ""DevOpsPrioridadEnviada"" INTEGER"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivities"" ADD COLUMN ""DevOpsEmpujadoEnUtc"" TEXT"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivities"" ADD COLUMN ""DevOpsUltimoError"" TEXT"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Pool_DevOps"" ON ""PoolActivities""(""DevOpsWorkItemId"")"); } catch { }
 
         db.Database.ExecuteSqlRaw(@"
             CREATE TABLE IF NOT EXISTS ""PoolPointsMatrix"" (
@@ -2317,6 +2330,21 @@ CREATE TABLE [PoolActivities] (
         Exec("IF COL_LENGTH('PoolActivities','HorasLimite') IS NULL ALTER TABLE [PoolActivities] ADD [HorasLimite] decimal(6,2) NULL;");
         Exec("IF COL_LENGTH('PoolActivities','HorasEstimadas') IS NULL ALTER TABLE [PoolActivities] ADD [HorasEstimadas] decimal(6,2) NULL;");
         Exec("IF COL_LENGTH('PoolActivities','HorasEstimadasEnUtc') IS NULL ALTER TABLE [PoolActivities] ADD [HorasEstimadasEnUtc] datetime2 NULL;");
+        // Vínculo con Azure DevOps y marca de agua del empuje. La gemela de SQLite está en la otra
+        // rama y NO es la misma sentencia: allá va ADD COLUMN sin corchetes, el decimal es TEXT y el
+        // instante es TEXT. Traducida, no copiada.
+        //
+        // Todas NULAS: lo publicado antes de existir el vínculo no está ligado a ningún ticket, y un
+        // DEFAULT aquí inventaría un work item para
+        // cada actividad del pool que ya existe.
+        // decimal(6,2) es el MISMO texto que declara AppDbContext para esta columna, y tiene que
+        // serlo: se compara por igualdad contra HorasEstimadas, que también es decimal(6,2).
+        Exec("IF COL_LENGTH('PoolActivities','DevOpsWorkItemId') IS NULL ALTER TABLE [PoolActivities] ADD [DevOpsWorkItemId] int NULL;");
+        Exec("IF COL_LENGTH('PoolActivities','DevOpsEsfuerzoEnviado') IS NULL ALTER TABLE [PoolActivities] ADD [DevOpsEsfuerzoEnviado] decimal(6,2) NULL;");
+        Exec("IF COL_LENGTH('PoolActivities','DevOpsPrioridadEnviada') IS NULL ALTER TABLE [PoolActivities] ADD [DevOpsPrioridadEnviada] int NULL;");
+        Exec("IF COL_LENGTH('PoolActivities','DevOpsEmpujadoEnUtc') IS NULL ALTER TABLE [PoolActivities] ADD [DevOpsEmpujadoEnUtc] datetime2 NULL;");
+        Exec("IF COL_LENGTH('PoolActivities','DevOpsUltimoError') IS NULL ALTER TABLE [PoolActivities] ADD [DevOpsUltimoError] nvarchar(1000) NULL;");
+        ExecIndex("PoolActivities", "IX_Pool_DevOps", "DevOpsWorkItemId", "[DevOpsWorkItemId]");
 
         Exec(@"
 IF OBJECT_ID(N'[PoolPointsMatrix]', N'U') IS NULL
