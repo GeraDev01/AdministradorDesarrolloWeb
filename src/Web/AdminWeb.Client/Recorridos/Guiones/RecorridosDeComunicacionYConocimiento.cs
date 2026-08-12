@@ -24,10 +24,11 @@ public sealed class RecorridosDeComunicacionYConocimiento : IFuenteDeRecorridos
                 "punto va el cambio desde la aplicación de escritorio, y dejar el menú a la mano — " +
                 "el trabajo de verdad ocurre en las pantallas de la izquierda."),
 
-            new Paso("inicio-aviso", "Lo que todavía no cuenta",
-                "Mientras este aviso siga aquí, la aplicación de escritorio sigue siendo la oficial: " +
-                "lo que registres en la web puede no ser lo que se tome en cuenta. Desaparece solo, " +
-                "el día del corte."),
+            new Paso("inicio-aviso", "Dos cosas de los primeros días",
+                "Tu token de Azure DevOps hay que volver a capturarlo desde «Mis tickets DevOps»: el " +
+                "anterior vivía cifrado en tu propia máquina y no se podía traer. Y acepta el permiso " +
+                "de avisos que pide el navegador, que es lo que hace que te lleguen con la pestaña " +
+                "cerrada. Este aviso se puede cerrar."),
 
             new Paso("inicio-donde-esta-todo", "El menú y esta ayuda",
                 "El menú de la izquierda enseña solo lo que tu rol puede abrir, y lo que aparece " +
