@@ -227,6 +227,39 @@ Guardar el comando reinicia el sitio. No hace falta volver a desplegar.
 > quedarían solo para descifrar lo antiguo. Es exactamente el mismo mecanismo que la rotación, así
 > que la migración no tendría ningún paso especial.
 
+#### «Always On» tiene que estar ENCENDIDO, y no es un ajuste de rendimiento
+
+En *Configuración → Configuración general → Always On*.
+
+Sin él, App Service **descarga la aplicación cuando lleva un rato sin peticiones** y la vuelve a
+cargar con la siguiente. Para una web normal eso solo cuesta un arranque lento de vez en cuando;
+aquí se lleva por delante los trabajos de fondo, que son procesos que viven dentro de la aplicación.
+El resultado es exactamente el problema del que se venía huyendo: **lo periódico solo ocurre si
+alguien está usando la aplicación**. Un SLA que vence un domingo por la noche no se escala; una cita
+de despliegue de madrugada no se dispara.
+
+Es la misma avería que el escritorio tenía por diseño —sus temporizadores vivían en la ventana— y
+sería una lástima reproducirla en el servidor por un interruptor. Y no avisa de nada: la aplicación
+responde perfectamente cuando alguien entra, así que solo se nota semanas después, al preguntarse
+por qué unos escalamientos salieron y otros no.
+
+Requiere plan **Básico o superior**. En Gratuito y Compartido no existe.
+
+#### Una sola instancia mientras los trabajos estén encendidos
+
+Los seis trabajos dan por hecho que corren en un sitio. Si la aplicación escala a dos instancias,
+cinco de ellos harían su trabajo dos veces: dos ingestas del mismo correo, dos escalamientos del
+mismo SLA, dos resúmenes.
+
+El sexto —los despliegues programados— **sí está protegido**, con una toma atómica en la base, y su
+comentario explica por qué hacía falta igualmente: durante un despliegue de la propia API la
+instancia nueva arranca antes de que muera la vieja, así que hay un rato con dos vivas aunque el
+plan diga una.
+
+Si algún día hace falta escalar, hay dos salidas y ninguna es difícil: darle a los otros cinco la
+misma toma atómica, o dejar los trabajos encendidos en una sola instancia. Pero hay que decidirlo
+antes de escalar, no después de ver los avisos duplicados.
+
 ### 1.5 Conectar el pipeline
 
 En el repositorio de GitHub hacen falta tres secretos y una variable:
@@ -529,6 +562,7 @@ al equipo de que vuelva a capturar su PAT en «Mis tickets DevOps», igual que d
 | Síntoma | Dónde mirar |
 |---|---|
 | Sale «Your web app is running and waiting for your content» | Falta el **comando de inicio**. Es lo primero del paso 1.4, y engaña porque el despliegue sale correcto y el registro dice «Site started» |
+| Los avisos y los escalamientos salen a veces sí y a veces no | **Always On** apagado: la aplicación se descarga cuando nadie la usa y con ella los trabajos de fondo. Paso 1.4 |
 | No arranca | El registro del App Service. Si falta la cadena de conexión, lo dice por su nombre |
 | No arranca y el registro habla de un **certificado** | Es a propósito. El certificado del llavero no aparece: repasa el paso 1.3, sobre todo `WEBSITE_LOAD_CERTIFICATES` |
 | `/api/health` no responde 200 | La base no contesta. **No sigas**: diagnostica o vuelve atrás |
