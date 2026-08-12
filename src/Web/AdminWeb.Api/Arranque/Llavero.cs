@@ -201,10 +201,24 @@ public static class Llavero
         if (ruta is not null)
         {
             proteccion.PersistKeysToFileSystem(new DirectoryInfo(ruta));
+
+            // Este aviso decía que sin Blob «cada reinicio del contenedor invalidará todos los
+            // secretos». Se comprobó contra el App Service de verdad y NO es cierto en ese destino:
+            // el contenido va bajo /home, que ahí es almacenamiento persistente, y una llave escrita
+            // por la mañana sobrevivió a tres despliegues y varios reinicios. Se corrige porque un
+            // aviso que exagera acaba ignorándose, y entonces no avisa de lo que sí pasa.
+            //
+            // Lo que sí pasa, y por eso el aviso se queda: la carpeta vive DENTRO de lo que se
+            // despliega, así que cualquiera que empaquete el sitio con una carpeta «llavero» dentro
+            // reparte SU llave al servidor —ocurrió—, y quien tenga acceso al contenido tiene las
+            // llaves con las que se cifran los secretos de todo el equipo. En Blob queda fuera de lo
+            // que se despliega y con su propio permiso.
             Anunciar(builder,
                 $"Llavero de Data Protection en la carpeta «{ruta}». Vale para desarrollo y para las " +
-                $"pruebas; en Azure hay que configurar {Seccion}:Blob o cada reinicio del " +
-                "contenedor invalidará todos los secretos por usuario ya cifrados." +
+                $"pruebas; en Azure conviene {Seccion}:Blob, porque esta carpeta viaja dentro de lo " +
+                "que se despliega: cualquier paquete que traiga una llave dentro la reparte al " +
+                "servidor, y quien alcance el contenido alcanza las llaves de todos los secretos " +
+                "por usuario." +
                 (plan.Cifrado == ModoDeCifrado.Ninguno ? "" : $" El llavero va {comoSeProtege}."));
             return;
         }

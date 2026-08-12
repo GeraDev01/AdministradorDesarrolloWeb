@@ -217,10 +217,19 @@ Guardar el comando reinicia el sitio. No hace falta volver a desplegar.
 | `WEBSITE_LOAD_CERTIFICATES` | La misma huella, o `*` |
 | `AdminWeb__TrabajosDeFondoActivos` | **`false`** — se enciende en el corte, no antes |
 
-> **`AdminWeb__Llavero__Blob` no es opcional en Azure.** Sin él las llaves viven en el disco del
-> contenedor, que es efímero: cada reinicio inventa unas nuevas y todos los PAT ya guardados dejan de
-> descifrarse. El síntoma no es un error claro, es «tu token de DevOps no sirve» — y manda a mirar
-> justo al sitio equivocado. El arranque lo avisa en el registro; búscalo la primera vez.
+> **`AdminWeb__Llavero__Blob` en Azure, y el motivo no es el que ponía aquí.** Esta nota decía que
+> sin él las llaves viven en un disco efímero y cada reinicio las inventa de nuevo. **Se comprobó
+> contra el App Service real y no es cierto**: la carpeta cae bajo `/home`, que ahí es almacenamiento
+> persistente, y una llave escrita por la mañana sobrevivió a tres despliegues y varios reinicios.
+>
+> El motivo de verdad es otro y es de acceso, no de duración: esa carpeta vive **dentro de lo que se
+> despliega**. Cualquiera que empaquete el sitio con una carpeta `llavero` dentro reparte *su* llave
+> al servidor — pasó, con una generada en un portátil al probar el paquete —, y quien alcance el
+> contenido del sitio alcanza las llaves con las que se cifran los secretos por usuario de todo el
+> equipo. En Blob queda fuera del despliegue y con su propio permiso.
+>
+> Y ojo: el despliegue por zip **no borra** lo que no viene en el paquete. Una llave que se coló una
+> vez se queda ahí hasta que alguien la borre a mano.
 
 > Si algún día esta suscripción tiene Key Vault, `AdminWeb__Llavero__LlaveDeKeyVault` sigue
 > soportado y tiene precedencia sobre el certificado: pasaría a cifrar el vault y los certificados se
