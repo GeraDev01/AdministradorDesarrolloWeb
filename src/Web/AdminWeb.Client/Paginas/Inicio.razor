@@ -1,46 +1,36 @@
 @page "/"
+@layout Layout.LayoutVacio
 @inject EstadoSesion Sesion
+@inject NavigationManager Navegacion
 
 @*
-    La portada. Hasta el corte decía que ésta NO era todavía la aplicación de producción y que lo
-    que se registrara aquí podía no contar. Hecho el corte, esa frase pasó de ser una advertencia
-    útil a ser mentira —y una que resta confianza justo a quien acaba de entrar—, así que se fue.
+    La raíz ya no es una pantalla: es un DESVÍO. Antes había aquí una portada que daba la
+    bienvenida y avisaba de que la aplicación todavía no era la de producción. Hecho el corte, ese
+    aviso se fue y lo que quedaba era una pantalla que solo decía «hola» y obligaba a un clic más
+    para llegar a lo que se venía a ver.
 
-    En su sitio va lo que sí hace falta saber los primeros días, que son dos cosas que nadie puede
-    resolver por su cuenta si no se las dicen: que el PAT de DevOps hay que volver a capturarlo
-    —vivía cifrado en la máquina de cada quien y no había forma de traerlo— y que los avisos con la
-    pestaña cerrada dependen de un permiso del navegador que solo se pide una vez.
+    A DÓNDE se manda depende del rol, y no es un adorno: el Dashboard lleva
+    [Authorize(Roles = "Admin,Desarrollador")], así que mandar ahí a operaciones sería aterrizar en
+    una pantalla que se le niega — la peor forma de entrar a una aplicación. Su trabajo empieza en
+    Despliegues, que es además la primera entrada de su menú.
 
-    Esto también se quita, pero más adelante: cuando lleve semanas y ya no le sirva a nadie. Ver
-    EL-CORTE.md.
+    Va con LayoutVacio y sin marcado a propósito. Sin barra superior no hay botón de recorrido, y
+    por eso la prueba de cobertura no le exige uno: exigir un recorrido guiado para una pantalla que
+    nadie llega a ver sería pedir que se documente un pasillo. La exención se DEDUCE de eso, no está
+    escrita a mano en ninguna lista (ver RecorridosCoberturaTests).
+
+    `replace: true` para que el botón de atrás del navegador no devuelva aquí y rebote otra vez.
 *@
 
-<PageTitle>Inicio</PageTitle>
+@code {
+    protected override void OnInitialized()
+    {
+        // Sin sesión no se decide nada: el propio arranque ya lleva al acceso, y adelantarse aquí
+        // solo añadiría una carrera entre dos redirecciones.
+        if (Sesion.Usuario is not { } usuario) return;
 
-<RadzenStack Gap="1rem">
-    <RadzenText TextStyle="TextStyle.H5">
-        Hola@(Sesion.Usuario is { } u ? $", {u.NombreCompleto}" : "")
-    </RadzenText>
-
-    <RadzenAlert data-recorrido="inicio-aviso"
-                 AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="true"
-                 Title="Dos cosas de los primeros días">
-        <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
-            Tu <b>token de Azure DevOps</b> hay que volver a capturarlo, en «Mis tickets DevOps»:
-            el anterior vivía cifrado en tu propia máquina y no se podía traer. Mientras no lo
-            hagas, lo que comentes en DevOps saldrá a nombre de la instalación y no del tuyo.
-            A cambio, el nuevo te sigue aunque cambies de equipo.
-        </RadzenText>
-        <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0" Style="margin-top:.5rem">
-            Y si el navegador te pide <b>permiso para los avisos</b>, acéptalo: es lo que hace que
-            te lleguen con la pestaña cerrada, que era para lo que servía el globo de la bandeja.
-        </RadzenText>
-    </RadzenAlert>
-
-    <RadzenCard data-recorrido="inicio-donde-esta-todo">
-        <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0">
-            Todas las pantallas están en el menú, y cada una trae su recorrido guiado en el botón de
-            ayuda de arriba. Si algo no responde como esperas, dilo.
-        </RadzenText>
-    </RadzenCard>
-</RadzenStack>
+        Navegacion.NavigateTo(
+            usuario.Rol == UserRole.Operaciones ? "despliegues" : "dashboard",
+            replace: true);
+    }
+}

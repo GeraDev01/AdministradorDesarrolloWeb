@@ -22,6 +22,26 @@
 
 <PageTitle>Dashboard</PageTitle>
 
+@* Este aviso vivía en la portada, y cuando la raíz dejó de ser una pantalla se habría ido con
+   ella. Se trae aquí porque el contenido sigue haciendo falta y no se puede deducir de ningún
+   sitio: quien no recapture su token verá sus comentarios de DevOps firmados por la instalación
+   sin que nada se lo diga, y quien no acepte los avisos no se enterará de nada con la pestaña
+   cerrada. Va cerrable y sin marca de recorrido a propósito: es de esta temporada, no de la
+   pantalla, y el recorrido del Dashboard explica el tablero, no el cambio de aplicación. *@
+<RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="true"
+             Title="Dos cosas de los primeros días">
+    <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+        Tu <b>token de Azure DevOps</b> hay que volver a capturarlo, en «Mis tickets DevOps»: el
+        anterior vivía cifrado en tu propia máquina y no se podía traer. Mientras no lo hagas, lo
+        que comentes en DevOps saldrá a nombre de la instalación y no del tuyo. A cambio, el nuevo
+        te sigue aunque cambies de equipo.
+    </RadzenText>
+    <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0" Style="margin-top:.5rem">
+        Y si el navegador te pide <b>permiso para los avisos</b>, acéptalo: es lo que hace que te
+        lleguen con la pestaña cerrada, que era para lo que servía el globo de la bandeja.
+    </RadzenText>
+</RadzenAlert>
+
 @if (_datos is null)
 {
     <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" />

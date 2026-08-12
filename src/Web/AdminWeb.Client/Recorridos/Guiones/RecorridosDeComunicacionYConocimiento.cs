@@ -16,25 +16,11 @@ public sealed class RecorridosDeComunicacionYConocimiento : IFuenteDeRecorridos
     public IEnumerable<Recorrido> Recorridos() =>
     [
         // ── Las pantallas sueltas ────────────────────────────────────────────────
-
-        new Recorrido("/", "La portada",
-
-            Paso.Portada("Por dónde se empieza",
-                "Ésta es la pantalla con la que se entra. Sirve para dos cosas: recordar en qué " +
-                "punto va el cambio desde la aplicación de escritorio, y dejar el menú a la mano — " +
-                "el trabajo de verdad ocurre en las pantallas de la izquierda."),
-
-            new Paso("inicio-aviso", "Dos cosas de los primeros días",
-                "Tu token de Azure DevOps hay que volver a capturarlo desde «Mis tickets DevOps»: el " +
-                "anterior vivía cifrado en tu propia máquina y no se podía traer. Y acepta el permiso " +
-                "de avisos que pide el navegador, que es lo que hace que te lleguen con la pestaña " +
-                "cerrada. Este aviso se puede cerrar."),
-
-            new Paso("inicio-donde-esta-todo", "El menú y esta ayuda",
-                "El menú de la izquierda enseña solo lo que tu rol puede abrir, y lo que aparece " +
-                "apagado es lo que todavía no está en la web. El botón de interrogación de la barra " +
-                "superior lanza un recorrido como éste para la pantalla que tengas delante; cuando " +
-                "lleva un punto, es que ése no lo has visto nunca.")),
+        //
+        // La raíz «/» NO tiene recorrido, y no es un olvido: dejó de ser una pantalla. Ahora es un
+        // desvío que manda a cada rol donde empieza su trabajo —al Dashboard, o a Despliegues si es
+        // operaciones— y nadie llega a verla. La prueba de cobertura tampoco lo exige, porque va con
+        // LayoutVacio y ahí no hay barra donde pintar el botón de ayuda.
 
         new Recorrido("/cambiar-contrasena", "Cambiar tu contraseña",
 
