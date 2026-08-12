@@ -162,3 +162,29 @@ html, body {
     outline: 2px solid var(--rz-primary-light);
     outline-offset: 2px;
 }
+
+/* EL NOMBRE DE LA APLICACIÓN, QUE LLEVA AL INICIO.
+   `color: inherit` no sobra: es un enlace, y el color de enlace del tema es el acento —azul—,
+   que sobre el grafito de esta barra se leería mucho peor que el blanco de al lado. El realce
+   del ratón y el aro del foco son los mismos que los del interruptor de tema, que está a dos
+   dedos: dos afordancias distintas para dos cosas pulsables vecinas se leen como un descuido.
+   El margen negativo compensa el relleno, para que el título no se mueva de donde estaba. */
+.titulo-al-inicio {
+    display: inline-flex;
+    align-items: center;
+    padding: .15rem .4rem;
+    margin-left: -.4rem;
+    border-radius: 6px;
+    color: inherit;
+    text-decoration: none;
+    transition: background-color .15s ease;
+}
+
+.titulo-al-inicio:hover {
+    background: rgba(255, 255, 255, .12);
+}
+
+.titulo-al-inicio:focus-visible {
+    outline: 2px solid var(--rz-primary-light);
+    outline-offset: 2px;
+}

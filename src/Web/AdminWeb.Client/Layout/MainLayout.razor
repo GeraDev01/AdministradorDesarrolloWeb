@@ -35,7 +35,14 @@
                    quedándose INVISIBLE, no descolocado, y por eso se blinda: si la hoja del tema
                    llegara vieja o no llegara, el nombre de la aplicación desaparece de la pantalla y
                    nadie sabe por qué. Lo mismo en el nombre del usuario, más abajo. *@
-                <RadzenText TextStyle="TextStyle.H6" Style="margin:0;color:var(--rz-header-color)">Administrador de Desarrollo</RadzenText>
+                @* El nombre lleva al inicio, y es un ENLACE de verdad y no un manejador de clic
+                   encima del texto. La diferencia no es de estilo: un enlace se alcanza con el
+                   tabulador, se abre en otra pestaña con el botón central o con Ctrl, se puede
+                   copiar su dirección, y un lector de pantalla lo anuncia como enlace en vez de
+                   leer un título que además, por algún motivo, reacciona al ratón. *@
+                <a href="/" class="titulo-al-inicio" title="Ir al inicio">
+                    <RadzenText TextStyle="TextStyle.H6" Style="margin:0;color:var(--rz-header-color)">Administrador de Desarrollo</RadzenText>
+                </a>
             </RadzenStack>
 
             <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.75rem">
