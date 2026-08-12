@@ -37,13 +37,19 @@
     del que la gente huye — y de la que se huye volviendo a acordar el permiso por fuera, que es
     exactamente el problema que esta pantalla vino a resolver.
 
-    Así que la ruta rápida es: cuatro campos, «Siguiente», «Enviar permiso». Dos pulsaciones de
+    Así que la ruta rápida es: llenar el permiso, «Siguiente», «Enviar permiso». Dos pulsaciones de
     navegación, no cuatro.
 
-      PASO 1 · EL PERMISO. Tipo, desde, cuántos días y motivo. Son cuatro campos pero UNA sola
-      decisión —«qué necesito y cuándo»— y separarlos en cuatro pantallas no ayudaría a decidir
-      nada: quien abre esto ya sabe los cuatro. Debajo, calculado en vivo, lo que si no hay que
-      contar a mano: hasta qué día llega, cuántos hábiles son y cuándo se vuelve.
+      PASO 1 · EL PERMISO. Tipo, desde, cuánto dura y motivo. Son varios campos pero UNA sola
+      decisión —«qué necesito y cuándo»— y repartirlos en una pantalla cada uno no ayudaría a
+      decidir nada: quien abre esto ya se los sabe todos. Debajo, calculado en vivo, lo que si no
+      hay que contar a mano: hasta qué día llega, cuántos hábiles son y cuándo se vuelve.
+
+      «Cuánto dura» son DOS FORMAS y se eligen con un desplegable: DÍAS COMPLETOS, como siempre, o
+      UN TRAMO de horas de un solo día —«de 9:00 a 11:00»—, que es lo que de verdad se pide cuando
+      uno va al dentista y vuelve. Los campos del tramo solo aparecen al elegirlo: quien pide días
+      no ve dos horas vacías que no sabe si tiene que llenar, y quien pide horas no ve un contador
+      de días que no significa nada en su caso.
 
       Las NOTAS y el JUSTIFICANTE están en el mismo paso pero PLEGADOS. Son opcionales y la mayoría
       de los permisos no los llevan; en su propio paso serían una pantalla que casi siempre se pasa
@@ -87,19 +93,28 @@
         {
             <RadzenStack data-recorrido="permisos-indicadores"
                          Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap">
-                @* Los tres rótulos van SIN adorno delante. Indicador() recibe el título como cadena y
-                   lo pinta como texto plano, así que aquí no cabe colgar un componente; pero es que
+                @* Los cuatro rótulos van SIN adorno delante. Indicador() recibe el título como cadena
+                   y lo pinta como texto plano, así que aquí no cabe colgar un componente; pero es que
                    tampoco hace falta, porque el tercer parámetro ya es la variable de color del tema
                    con la que se pinta la cifra —ámbar para lo que espera, verde para lo aprobado— y
                    ése sí cambia en el modo oscuro. El emoji era la misma información una segunda vez
                    y encima la única parte del indicador que se quedaba con sus colores de siempre.
-                   Si alguna vez se les quiere icono, se les pone a los tres o la fila queda coja. *@
-                @Indicador("Esperando respuesta", d.Resumen.EsperandoRespuesta, "var(--rz-warning)",
+                   Si alguna vez se les quiere icono, se les pone a los cuatro o la fila queda coja.
+
+                   LOS DÍAS Y LAS HORAS VAN EN DOS TARJETAS, y no sumados en una. Un permiso por horas
+                   no se convierte a fracción de día: media jornada no es «medio día» para todo el
+                   mundo, y repartido entre los días dejaría la cifra de días sin poderse comparar con
+                   la de los años anteriores, que solo tuvieron días completos. Quien mire las dos ve
+                   la ausencia entera; el porqué está escrito en ResumenDePermisosDto. *@
+                @Indicador("Esperando respuesta", $"{d.Resumen.EsperandoRespuesta}", "var(--rz-warning)",
                            "Solicitudes tuyas que el líder todavía no ha resuelto.")
-                @Indicador("Aprobados (este año)", d.Resumen.AprobadosEsteAnio, "var(--rz-success)",
-                           "Permisos aprobados con fecha de este año.")
-                @Indicador("Días aprobados (año)", d.Resumen.DiasAprobadosEsteAnio, "var(--rz-info)",
-                           "Suma de los días de esos permisos aprobados.")
+                @Indicador("Aprobados (este año)", $"{d.Resumen.AprobadosEsteAnio}", "var(--rz-success)",
+                           "Permisos aprobados con fecha de este año, de días o de horas.")
+                @Indicador("Días aprobados (año)", $"{d.Resumen.DiasAprobadosEsteAnio}", "var(--rz-info)",
+                           "Suma de los días de los permisos aprobados DE DÍA COMPLETO. Los de horas se cuentan aparte.")
+                @Indicador("Horas aprobadas (año)", $"{d.Resumen.HorasAprobadasEsteAnio.ToString("0.##")} h",
+                           "var(--rz-info)",
+                           "Suma de los tramos de los permisos aprobados por horas.")
             </RadzenStack>
 
             <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
@@ -142,27 +157,84 @@
                                 <RadzenDatePicker TValue="DateTime" @bind-Value="_desde" Name="desde"
                                                   DateFormat="dd/MM/yyyy" ShowTime="false" Style="width:170px" />
                             </RadzenStack>
+                            @* Días completos o un tramo de horas. Va en desplegable —y no en una
+                               casilla «solo unas horas»— para que las dos formas se vean escritas: la
+                               casilla apagada esconde que existe la otra, y aquí lo que se quiere es
+                               justo que se sepa que un permiso ya no tiene que ser el día entero. *@
                             <RadzenStack Gap="0.25rem">
-                                <RadzenLabel Text="Días" Component="dias" />
-                                <RadzenNumeric @bind-Value="_dias" Name="dias" Min="1" Max="@d.MaxDias"
-                                               Style="width:110px" />
+                                <RadzenLabel Text="Duración" Component="duracion" />
+                                <RadzenDropDown TValue="bool" @bind-Value="_porHoras" Name="duracion"
+                                                Data="@FormasDePedir" TextProperty="Texto" ValueProperty="Valor"
+                                                Style="width:180px" />
                             </RadzenStack>
+
+                            @if (!_porHoras)
+                            {
+                                <RadzenStack Gap="0.25rem">
+                                    <RadzenLabel Text="Días" Component="dias" />
+                                    <RadzenNumeric @bind-Value="_dias" Name="dias" Min="1" Max="@d.MaxDias"
+                                                   Style="width:110px" />
+                                </RadzenStack>
+                            }
+                            else
+                            {
+                                @* TimeOnly="true" deja el selector en solo la hora: la fecha del
+                                   permiso es la de «Desde», porque un tramo vive dentro de un día.
+                                   Paso de 15 minutos y reloj de 24 horas, que es como se habla de una
+                                   cita aquí («a las 16:30», no «a las 4:30 p. m.»). *@
+                                <RadzenStack Gap="0.25rem">
+                                    <RadzenLabel Text="De las" Component="horaInicio" />
+                                    <RadzenDatePicker TValue="DateTime" @bind-Value="_horaInicio" Name="horaInicio"
+                                                      TimeOnly="true" ShowTime="true" ShowSeconds="false"
+                                                      HourFormat="24" MinutesStep="15" DateFormat="HH:mm"
+                                                      Style="width:120px" />
+                                </RadzenStack>
+                                <RadzenStack Gap="0.25rem">
+                                    <RadzenLabel Text="A las" Component="horaFin" />
+                                    <RadzenDatePicker TValue="DateTime" @bind-Value="_horaFin" Name="horaFin"
+                                                      TimeOnly="true" ShowTime="true" ShowSeconds="false"
+                                                      HourFormat="24" MinutesStep="15" DateFormat="HH:mm"
+                                                      Style="width:120px" />
+                                </RadzenStack>
+                            }
                         </RadzenStack>
 
-                        @* Con «5 días» a partir de una fecha hay que contar a mano para saber hasta
-                           cuándo llega, y ahí es donde se cuela el error de un día. Va en tarjeta
-                           aparte porque es lo CALCULADO: lo de arriba se teclea, esto sale solo. *@
+                        @* Lo CALCULADO: lo de arriba se teclea, esto sale solo. Con «5 días» a partir
+                           de una fecha hay que contar a mano para saber hasta cuándo llega, y ahí es
+                           donde se cuela el error de un día; con un tramo lo que no se ve de un
+                           vistazo es cuántas horas son, y es lo que el líder va a mirar. *@
                         <RadzenCard Style="border-left:5px solid var(--rz-info)">
                             <RadzenStack Gap="0.35rem">
-                                <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0">
-                                    <RadzenIcon Icon="date_range" /> Cubre <b>hasta el @Hasta.ToString("dd/MM/yyyy")</b>
-                                    (@DiasPedidos día(s) naturales · <b>@CuentasDeCalendario.DiasHabiles(_desde, Hasta) hábil(es)</b>).
-                                </RadzenText>
-                                <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0">
-                                    <RadzenIcon Icon="today" /> Te reincorporas el
-                                    <b>@CuentasDeCalendario.Regreso(Hasta)</b>.
-                                </RadzenText>
-                                <AvisoDeFestivos />
+                                @if (_porHoras)
+                                {
+                                    <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0">
+                                        <RadzenIcon Icon="schedule" /> El <b>@_desde.ToString("dd/MM/yyyy")</b>,
+                                        de <b>@Hhmm(_horaInicio) a @Hhmm(_horaFin)</b>
+                                        @if (HorasPedidas > 0)
+                                        {
+                                            <text> (<b>@HorasPedidas.ToString("0.##") h</b> de las @d.HorasDeLaJornada.ToString("0.##") de la jornada).</text>
+                                        }
+                                        else
+                                        {
+                                            <text>. <b>El tramo está al revés o no dura nada.</b></text>
+                                        }
+                                    </RadzenText>
+                                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                        Un permiso por horas es de un solo día: el resto de la jornada se trabaja.
+                                    </RadzenText>
+                                }
+                                else
+                                {
+                                    <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0">
+                                        <RadzenIcon Icon="date_range" /> Cubre <b>hasta el @Hasta.ToString("dd/MM/yyyy")</b>
+                                        (@DiasPedidos día(s) naturales · <b>@CuentasDeCalendario.DiasHabiles(_desde, Hasta) hábil(es)</b>).
+                                    </RadzenText>
+                                    <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0">
+                                        <RadzenIcon Icon="today" /> Te reincorporas el
+                                        <b>@CuentasDeCalendario.Regreso(Hasta)</b>.
+                                    </RadzenText>
+                                    <AvisoDeFestivos />
+                                }
                             </RadzenStack>
                         </RadzenCard>
 
@@ -212,17 +284,34 @@
                         <RadzenCard>
                             <RadzenStack Gap="0.4rem">
                                 @Renglon("Tipo", EtiquetaDelTipo(d))
-                                @Renglon("Desde", $"{_desde:dd/MM/yyyy}")
-                                @Renglon("Duración", $"{DiasPedidos} día(s) naturales · {CuentasDeCalendario.DiasHabiles(_desde, Hasta)} hábil(es)")
-                                @Renglon("Hasta", $"{Hasta:dd/MM/yyyy}")
-                                @Renglon("Te reincorporas", CuentasDeCalendario.Regreso(Hasta))
+                                @Renglon(_porHoras ? "Día" : "Desde", $"{_desde:dd/MM/yyyy}")
+                                @if (_porHoras)
+                                {
+                                    @* El tramo y las horas se dicen los dos: la hora es lo que hay que
+                                       cuadrar con el equipo y el total es lo que el líder compara. *@
+                                    @Renglon("Horario", $"de {Hhmm(_horaInicio)} a {Hhmm(_horaFin)}")
+                                    @Renglon("Duración", $"{HorasPedidas.ToString("0.##")} h")
+                                }
+                                else
+                                {
+                                    @Renglon("Duración", $"{DiasPedidos} día(s) naturales · {CuentasDeCalendario.DiasHabiles(_desde, Hasta)} hábil(es)")
+                                    @Renglon("Hasta", $"{Hasta:dd/MM/yyyy}")
+                                    @Renglon("Te reincorporas", CuentasDeCalendario.Regreso(Hasta))
+                                }
                                 @Renglon("Motivo", string.IsNullOrWhiteSpace(_motivo) ? "— (falta)" : _motivo!)
                                 @Renglon("Notas", string.IsNullOrWhiteSpace(_notas) ? "— (ninguna)" : _notas!)
                                 @Renglon("Justificante", _archivoDelAlta is { } adjunto ? adjunto.Nombre : "— (ninguno)")
                             </RadzenStack>
                         </RadzenCard>
 
-                        <AvisoDeFestivos />
+                        @* El aviso de los festivos solo cuando se piden DÍAS, igual que en el paso 1.
+                           Habla de los días hábiles y de la fecha de regreso, y un tramo de horas no
+                           enseña ninguno de los dos: dejarlo puesto avisaba de que dos números podían
+                           estar mal en una pantalla donde esos números no salen. *@
+                        @if (!_porHoras)
+                        {
+                            <AvisoDeFestivos />
+                        }
 
                         @* QUIÉN MÁS ESTARÁ FUERA. Aquí y no en un paso propio: ver la nota de la
                            cabecera. Es informativo y nunca impide enviar — coincidir con alguien
@@ -334,7 +423,14 @@
                         <span title="@Rango(p)">@p.Desde.ToString("dd/MM/yyyy")</span>
                     </Template>
                 </RadzenDataGridColumn>
-                <RadzenDataGridColumn TItem="SolicitudDePermisoDto" Title="Días" Property="Dias" Width="80px" />
+                @* La columna dice DURACIÓN y no días, porque ya no todos los permisos se miden en
+                   días: la frase la escribe el servidor (SolicitudDePermisoDto.Duracion) y es la
+                   misma que ve el líder en su pantalla. Se ORDENA por Dias, que es lo que hay en la
+                   base y lo que agrupa lo largo frente a lo corto; los tramos valen 1 y quedan juntos
+                   entre los permisos de un día, que es donde les toca estar. *@
+                <RadzenDataGridColumn TItem="SolicitudDePermisoDto" Title="Duración" Property="Dias" Width="160px">
+                    <Template Context="p">@p.Duracion</Template>
+                </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="SolicitudDePermisoDto" Title="Motivo" Property="Motivo">
                     <Template Context="p">
                         <span title="@Detalle(p)">@(p.Motivo ?? "—")</span>
@@ -445,6 +541,24 @@
     private string? _notas;
     private ArchivoElegido? _archivoDelAlta;
 
+    // ── Días completos o un tramo de horas ───────────────────────────────────
+    //
+    // Las dos horas se guardan en DateTime y no en TimeOnly porque es lo que ata el selector de
+    // Radzen; al mandarlas se quedan solo con la hora (TimeOnly.FromDateTime). La FECHA de esos dos
+    // valores no significa nada y no se manda: la del permiso es _desde.
+    private bool _porHoras;
+    private DateTime _horaInicio = DateTime.Today.AddHours(9);
+    private DateTime _horaFin = DateTime.Today.AddHours(11);
+
+    /// <summary>Las dos formas de pedir un permiso, para el desplegable.</summary>
+    private record FormaDePedir(bool Valor, string Texto);
+
+    private static readonly FormaDePedir[] FormasDePedir =
+    [
+        new(false, "Días completos"),
+        new(true, "Por horas")
+    ];
+
     // ── Quién más estará fuera ───────────────────────────────────────────────
     private AusenciasDelEquipoDto? _equipo;
     private bool _consultandoEquipo;
@@ -456,25 +570,49 @@
     private int? _adjuntandoEn;
     private string _adjuntandoDescripcion = "";
 
-    private int DiasPedidos => Math.Max(1, _dias);
+    /// <summary>Los días que se piden. En un permiso por horas es siempre 1: el tramo es de un día.</summary>
+    private int DiasPedidos => _porHoras ? 1 : Math.Max(1, _dias);
+
     private DateTime Hasta => _desde.Date.AddDays(DiasPedidos - 1);
 
+    /// <summary>Lo que dura el tramo. Cero o menos significa que está al revés o vacío.</summary>
+    private decimal HorasPedidas => (decimal)(_horaFin.TimeOfDay - _horaInicio.TimeOfDay).TotalHours;
+
     private string AyudaDelPaso => _paso == PasoDelPermiso
-        ? "Qué necesitas y cuándo. Las notas y el justificante son opcionales y están abajo, plegados."
+        ? "Qué necesitas y cuándo. Puede ser de días completos o de unas horas de un solo día. Las "
+          + "notas y el justificante son opcionales y están abajo, plegados."
         : "Comprueba que está bien antes de mandarlo: esto es lo que va a leer el líder.";
 
     /// <summary>
-    /// El motivo es obligatorio para pasar de paso, y no es una regla que se invente esta pantalla:
-    /// la exige <c>LeaveRequestService</c> al dar de alta. Decirlo aquí solo evita gastar un viaje a
-    /// la red para que lo rechacen con esas mismas palabras.
+    /// Lo que impide pasar de paso, si algo lo impide.
+    ///
+    /// <para>Ninguna de estas reglas se la inventa la pantalla: el motivo obligatorio y los topes del
+    /// tramo los exige <c>LeaveRequestService</c> al dar de alta, con estas mismas palabras. Decirlo
+    /// aquí solo evita gastar un viaje a la red para que lo rechacen. <b>La barrera de verdad es la
+    /// del servidor</b>: esto corre en el navegador de cada quien.</para>
     /// </summary>
-    private bool PuedeAvanzar =>
-        _paso != PasoDelPermiso || !string.IsNullOrWhiteSpace(_motivo);
+    private string? MotivoParaNoAvanzar
+    {
+        get
+        {
+            if (_paso != PasoDelPermiso) return null;
 
-    private string? MotivoParaNoAvanzar =>
-        _paso == PasoDelPermiso && string.IsNullOrWhiteSpace(_motivo)
-            ? "Escribe el motivo: es lo que el líder va a leer para decidir."
-            : null;
+            if (string.IsNullOrWhiteSpace(_motivo))
+                return "Escribe el motivo: es lo que el líder va a leer para decidir.";
+
+            if (_porHoras && HorasPedidas <= 0)
+                return "El tramo está al revés o no dura nada: la hora de fin tiene que ser posterior "
+                     + "a la de inicio.";
+
+            if (_porHoras && _datos is { } d && HorasPedidas > d.HorasDeLaJornada)
+                return $"Un permiso por horas no puede pasar de {d.HorasDeLaJornada:0} horas, que es la "
+                     + "jornada. Si necesitas el día entero, pídelo como día completo.";
+
+            return null;
+        }
+    }
+
+    private bool PuedeAvanzar => MotivoParaNoAvanzar is null;
 
     protected override Task OnInitializedAsync() => Cargar();
 
@@ -496,6 +634,12 @@
         _tipo = 0;
         _desde = DateTime.Today;
         _dias = 1;
+        // Días completos por omisión: es como se pedían todos hasta ahora y sigue siendo lo más
+        // común. Las horas de arranque son una jornada de mañana cualquiera, para no dejar dos
+        // campos en blanco a quien elija el tramo.
+        _porHoras = false;
+        _horaInicio = DateTime.Today.AddHours(9);
+        _horaFin = DateTime.Today.AddHours(11);
         _motivo = _notas = null;
         _archivoDelAlta = null;
         _equipo = null;
@@ -561,7 +705,11 @@
         {
             var (ok, respuesta) = await Api.EnviarAsync<NuevaSolicitudDePermisoRequest, SolicitudCreadaDto>(
                 "api/ausencias/permisos",
-                new NuevaSolicitudDePermisoRequest((LeaveType)_tipo, _desde, _dias, _motivo, _notas),
+                // Sin tramo va un permiso de días completos, exactamente el mismo cuerpo de siempre.
+                // Con tramo, los días van en 1 porque un permiso por horas es de un solo día.
+                new NuevaSolicitudDePermisoRequest((LeaveType)_tipo, _desde, DiasPedidos, _motivo, _notas,
+                    _porHoras ? TimeOnly.FromDateTime(_horaInicio) : null,
+                    _porHoras ? TimeOnly.FromDateTime(_horaFin) : null),
                 _cancelacion.Token);
 
             if (!ok || respuesta is null) return;
@@ -588,7 +736,7 @@
     private void AbrirAdjunto(SolicitudDePermisoDto p)
     {
         _adjuntandoEn = p.Id;
-        _adjuntandoDescripcion = $"{p.Desde:dd/MM/yyyy} ({p.Dias} día(s))";
+        _adjuntandoDescripcion = $"{p.Desde:dd/MM/yyyy} ({p.Duracion})";
     }
 
     private async Task ElegirParaElAlta(InputFileChangeEventArgs e, MisPermisosDto d)
@@ -675,7 +823,7 @@
             : "Se retira la solicitud antes de que la resuelvan.";
 
         if (!await Avisos.ConfirmarAsync(
-            $"¿Cancelar tu permiso del {p.Desde:dd/MM/yyyy} ({p.Dias} día(s))?\n\n{explicacion}",
+            $"¿Cancelar tu permiso del {p.Desde:dd/MM/yyyy} ({p.Duracion})?\n\n{explicacion}",
             "Cancelar permiso", "Sí, cancelar"))
             return;
 
@@ -723,7 +871,12 @@
     /// Tarjeta de indicador: el título arriba y pequeño, el dato grande. Lo que se busca de un
     /// vistazo es el número.
     /// </summary>
-    private RenderFragment Indicador(string titulo, int valor, string color, string explicacion) => __builder =>
+    /// <remarks>
+    /// El valor llega ya escrito como CADENA y no como número: las horas del año pueden ser 6,5 y
+    /// llevan además su unidad al lado. Con un int no cabía, y con dos versiones del indicador —una
+    /// para números y otra para texto— las cuatro tarjetas acabarían pintándose distinto.
+    /// </remarks>
+    private RenderFragment Indicador(string titulo, string valor, string color, string explicacion) => __builder =>
     {
         <RadzenCard Style="@($"min-width:210px;border-left:5px solid {color}")" title="@explicacion">
             <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-1">@titulo</RadzenText>
@@ -747,8 +900,17 @@
     // y no el servicio, que solo da el texto —un servicio no debe depender del tema visual—. Lo que
     // cambia es que ahora la interfaz lo pone en UN sitio.
 
+    /// <summary>El renglón que se lee al pasar por encima de la fecha.</summary>
     private static string Rango(SolicitudDePermisoDto p) =>
-        p.Dias > 1 ? $"Del {p.Desde:dd/MM/yyyy} al {p.Hasta:dd/MM/yyyy}" : $"Solo el {p.Desde:dd/MM/yyyy}";
+        p.PorHoras ? $"El {p.Desde:dd/MM/yyyy}, {p.Duracion}"
+        : p.Dias > 1 ? $"Del {p.Desde:dd/MM/yyyy} al {p.Hasta:dd/MM/yyyy}"
+        : $"Solo el {p.Desde:dd/MM/yyyy}";
+
+    /// <summary>
+    /// La hora, en 24 h. La escribe esta pantalla porque son los campos que todavía se están
+    /// tecleando; en cuanto el permiso existe, la frase la manda hecha el servidor (<c>Duracion</c>).
+    /// </summary>
+    private static string Hhmm(DateTime valor) => valor.ToString("HH:mm");
 
     private static string Detalle(SolicitudDePermisoDto p) =>
         string.IsNullOrWhiteSpace(p.Notas)

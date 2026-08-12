@@ -275,12 +275,27 @@
         </RadzenCard>
     }
 
+    @*
+        EL DOBLE CLIC SOBRE LA FILA ABRE EL REQUERIMIENTO ENTERO.
+
+        El DETALLE —lo que hay que hacer, escrito largo— no está en ninguna columna de esta tabla:
+        hasta ahora solo se leía abriendo el formulario de EDICIÓN, o sea que para enterarse de qué
+        pedía un requerimiento había que ponerse a editarlo. Tampoco están la fecha de solicitud, la
+        de entrega ni el enlace.
+
+        No hay selección enlazada: los paneles de edición y de adjuntos los abren sus botones, así
+        que el doble clic no puede abrir ni cerrar ninguno por su cuenta.
+    *@
     <RadzenDataGrid data-recorrido="requerimientos-tabla"
                     TItem="RequerimientoDto" Data="@Filas" IsLoading="@_ocupado"
                     AllowSorting="true" AllowPaging="true" PageSize="20"
                     RowRender="@PintarVencidos"
+                    RowDoubleClick="@(r => Avisos.VerDetalleAsync(DetalleDe(r.Data)))"
                     EmptyText="No hay requerimientos que cumplan el filtro.">
         <Columns>
+            <RadzenDataGridColumn TItem="RequerimientoDto" Title="" Width="52px" Sortable="false">
+                <Template Context="r"><BotonDeDetalle Detalle="@DetalleDe(r)" /></Template>
+            </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="RequerimientoDto" Property="Id" Title="ID" Width="70px" />
             <RadzenDataGridColumn TItem="RequerimientoDto" Property="Titulo" Title="Título" />
             <RadzenDataGridColumn TItem="RequerimientoDto" Property="EstadoTexto" Title="Estado" Width="150px">
@@ -801,6 +816,39 @@
     {
         if (args.Data.Vencido) args.Attributes["style"] = "color:var(--rz-danger);font-weight:600";
     }
+
+    /// <summary>
+    /// EL REQUERIMIENTO ENTERO, PARA EL CUADRO QUE ABRE EL DOBLE CLIC.
+    ///
+    /// <para>Las fechas y las horas se escriben con los MISMOS formatos que las celdas
+    /// (<c>dd/MM/yyyy</c>, <c>0.#</c>). Las de solicitud y entrega no tienen columna y se escriben
+    /// igual que la de compromiso, que sí la tiene: son la misma clase de dato y darles dos formatos
+    /// haría dudar de si significan lo mismo.</para>
+    ///
+    /// <para>«Vencido» se dice con PALABRAS. En la rejilla es la fila entera en rojo (ver
+    /// <see cref="PintarVencidos"/>), y el color no viaja a un cuadro de texto: sin la coletilla, el
+    /// único dato que reclama algo sería justo el que se pierde al abrir el detalle.</para>
+    ///
+    /// <para>El DETALLE va el último y como texto largo porque es el motivo de todo esto: es el campo
+    /// que no está en ninguna columna y que hasta ahora obligaba a abrir el formulario de edición
+    /// para poder leerlo.</para>
+    /// </summary>
+    private static DetalleDeFila DetalleDe(RequerimientoDto r) =>
+        new DetalleDeFila("Requerimiento", r.Titulo)
+            .Campo("ID", $"{r.Id}")
+            .Campo("Estado", r.EstadoTexto)
+            .Campo("Prioridad", r.PrioridadTexto)
+            .Campo("Desarrolladores", r.DesarrolladoresTexto)
+            .Campo("Horas estimadas", r.HorasEstimadas?.ToString("0.#"))
+            .Campo("Avance", $"{r.AvancePct}%")
+            .Campo("Fecha de solicitud", r.FechaSolicitud?.ToString("dd/MM/yyyy"))
+            .Campo("Fecha de compromiso", (r.FechaCompromiso?.ToString("dd/MM/yyyy") ?? "")
+                                          + (r.Vencido ? " — vencido" : ""))
+            .Campo("Fecha de entrega", r.FechaEntrega?.ToString("dd/MM/yyyy"))
+            .Campo("Origen", r.OrigenTexto)
+            .Campo("Documentos", r.Adjuntos == 0 ? null : $"{r.Adjuntos}")
+            .Campo("Enlace", r.Enlace)
+            .Texto("Detalle", r.Detalle);
 
     public void Dispose()
     {

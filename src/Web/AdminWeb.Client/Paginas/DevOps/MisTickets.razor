@@ -342,15 +342,33 @@
         </RadzenCard>
     }
 
-    @* ── La lista ────────────────────────────────────────────────────────────── *@
+    @*
+        ── La lista ──────────────────────────────────────────────────────────────
+
+        EL DOBLE CLIC SOBRE LA FILA ABRE EL TICKET ENTERO. Aquí hacen falta las dos cosas que el
+        cuadro resuelve: el TÍTULO de un work item se escribe en una frase larga y la columna lo
+        recorta, y esta rejilla además deja ESCONDER columnas —el selector de columnas y el ancho de
+        la pantalla se llevan por delante la iteración, el área o las etiquetas—, así que lo que se
+        ve depende de cómo la dejó configurada cada quien. El cuadro las enseña todas siempre.
+
+        No hay selección enlazada: los paneles de estimar, comentar o ver la ficha los abren sus
+        botones, así que el doble clic no puede cerrar ni abrir ninguno por su cuenta.
+    *@
     <RadzenDataGrid data-recorrido="mis-tickets-rejilla"
                     TItem="TicketDevOpsDto" Data="@Filas" IsLoading="@_ocupado"
                     AllowSorting="true" AllowPaging="true" PageSize="25"
                     AllowFiltering="true" FilterMode="FilterMode.Advanced"
                     FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive"
                     AllowColumnPicking="true" AllowColumnResize="true"
+                    RowDoubleClick="@(t => Avisos.VerDetalleAsync(DetalleDelTicket.De(t.Data)))"
                     EmptyText="No hay tickets que cumplan el filtro.">
         <Columns>
+            @* Pickable="false", como la columna de los botones: es el camino al detalle para quien
+               navega con el teclado, y esconderlo lo dejaría sin ninguno. *@
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" Title="" Width="52px"
+                                  Sortable="false" Filterable="false" Pickable="false">
+                <Template Context="t"><BotonDeDetalle Detalle="@DetalleDelTicket.De(t)" /></Template>
+            </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="Numero" Title="ID" Width="80px">
                 <Template Context="t">
                     <a href="@t.Url" target="_blank" rel="noopener">@t.Numero</a>

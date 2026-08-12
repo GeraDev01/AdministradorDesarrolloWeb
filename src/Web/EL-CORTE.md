@@ -62,9 +62,9 @@ lo fijan, pero es el ejemplo exacto de lo que solo encuentra arrancar contra dat
 por qué el paso 4 de esta lista empieza por **entrar**, que es lo primero que hay que probar.
 
 En esa misma ejecución la ventana medida fue de **diez segundos** contra una copia con 10.913 filas.
-La migración no mueve datos: crea ocho tablas vacías y agrega veintitrés columnas, y la tabla más
-grande que recibe una tiene noventa y cinco filas. Lo que cuesta son los viajes a la base, no el
-volumen.
+La migración no mueve datos: crea tablas vacías y agrega columnas —ocho tablas y veintitrés columnas
+en aquella medición, y alguna más cada vez que la web añade algo—, y la tabla más grande que recibe
+una tiene noventa y cinco filas. Lo que cuesta son los viajes a la base, no el volumen.
 
 ## Hoy solo hay una cuenta de administrador
 
@@ -184,6 +184,7 @@ Lo que la web añade al esquema —todo aditivo, nada se renombra ni se borra:
 | `Users.SegundoFactorActivo` / `SegundoFactorDesdeUtc` / `SegundoFactorUltimaVentana` | El **estado** del segundo factor de cada cuenta. El secreto no está aquí: va cifrado en `UserSecrets`, como el PAT |
 | `UserRecoveryCodes` | Los códigos de rescate de cada persona, **solo como hash**: ni la base ni un respaldo los contienen en claro |
 | `UserTrustedDevices` | Los navegadores a los que no se les vuelve a pedir el código durante 30 días, también solo como hash |
+| `LeaveRequests.HoraInicio` / `HoraFin` | Pedir un permiso **de horas** —«de 9:00 a 11:00»— y no solo de días completos. Van en nulo en todo el histórico, que es lo que significa «día completo»: no hay nada que rellenar, y el escritorio no se entera porque su modelo no las mapea |
 
 ### 4. Comprobar que arrancó
 

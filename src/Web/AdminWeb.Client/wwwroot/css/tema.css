@@ -1,5 +1,5 @@
 /* ─────────────────────────────────────────────────────────────────────────────
-   Tema propio: GRAFITO Y ÁMBAR, con modo claro y oscuro.
+   Tema propio: GRAFITO Y AZUL CELESTE, con modo claro y oscuro.
 
    Se monta ENCIMA del tema de Radzen redefiniendo sus variables, en vez de
    pelearse con sus reglas a golpe de selector. Radzen construye todo su aspecto
@@ -12,17 +12,26 @@
       del marfil (#faf9f7) al grafito casi negro (#1a1714), y en TODOS los
       neutros del tema se cumple R > G > B: del orden de dos puntos de
       diferencia en los extremos y de veintidós en el centro de la escala. La
-      prueba es objetiva, así que úsala: si al añadir un tono el azul se le sube
-      por encima al verde, ese tono viene de otro tema y devuelve la aplicación
-      al gris azulado de plantilla del que veníamos huyendo.
+      prueba es objetiva, así que úsala: si al añadir un NEUTRO el azul se le
+      sube por encima al verde, ese tono viene de otro tema y devuelve la
+      aplicación al gris azulado de plantilla del que veníamos huyendo. Vale
+      para los neutros y solo para ellos: el acento y los estados llevan su
+      matiz a propósito, y desde que el acento es azul en él B > G > R queriendo.
 
-   2. UN SOLO acento, y es ÁMBAR QUEMADO. El tema de Radzen trae un morado de
+   2. UN SOLO acento, y es AZUL CELESTE. El tema de Radzen trae un morado de
       primario y un rosa de secundario; aquí el secundario NO es un color, es el
       gris cálido de la escala. Dos acentos compiten y ninguno llega a
       significar «esto es lo importante».
 
-   3. EL ACENTO Y EL AVISO SON LOS DOS ÁMBAR, Y POR ESO SE SEPARAN POR SITIO Y
-      POR TONO. Es lo primero que alguien va a querer «arreglar» sin entenderlo,
+      Fue ámbar quemado hasta que se pidió bajarle la voz. El cambio no es de
+      hex: es de familia, y está medido. El acento nuevo pesa lo MISMO en la
+      página —L* 45.9 en claro, clavado el del ámbar que sustituye— y carga
+      catorce puntos menos de croma (C* 54.5 contra 68.7; en oscuro, 44.4 contra
+      69.5). Eso es exactamente lo que se pedía: que pesara menos, no que se
+      viera menos.
+
+   3. EL ACENTO Y EL AVISO NO SE MEZCLAN, Y LA REGLA ES DE SITIO ANTES QUE DE
+      COLOR. Es lo primero que alguien va a querer «arreglar» sin entenderlo,
       así que queda escrito aquí.
 
       Por SITIO: el acento vive solo en el cromo interactivo —botón primario,
@@ -30,23 +39,30 @@
       aviso vive solo sobre datos —celda, etiqueta, banner, icono de fila— y
       NUNCA en un control. Si algún día hace falta un botón que avise, se dice
       con texto y no pintando el botón de --rz-warning: en cuanto el aviso toca
-      un control, el usuario deja de saber si el ámbar significa «pulsa aquí» o
-      «esto vence».
+      un control, el usuario deja de saber si el color significa «pulsa aquí» o
+      «esto vence». Esta mitad de la regla no depende de qué color sea el
+      acento, y por eso sobrevive al cambio de familia.
 
-      Por TONO: el acento es ROJIZO, oscuro y casi saturado del todo —hsl(21,
-      89%, 39%) en claro—; el aviso es AMARILLO, todavía más oscuro y bastante
-      más apagado —hsl(43, 67%, 24%)—. Son 22 grados de matiz, 22 puntos de
-      saturación y 11.4 de L* (ΔE Lab 45.1). En oscuro la separación es mayor y
-      va al revés, con el aviso MÁS CLARO que el acento (ΔL* 19.1, ΔE 48.4). Si
-      alguien aclara --rz-warning «para que se vea más ámbar», lo acerca al
-      acento y se pierde justo lo que costó conseguir.
+      Por TONO: cuando el acento era ámbar, ésta era la separación difícil —21
+      grados de matiz contra el aviso, ΔE 45.1—. Ahora el acento es azul y el
+      aviso amarillo (ΔE 90.2 en claro, 93.9 en oscuro), así que ese par ya no
+      preocupa. El par difícil es OTRO: el acento y --rz-info son los dos
+      azules.
+
+      Por eso el acento es hsl(216, 62%, 48%) y no un celeste de manual. A 200
+      grados caería justo encima de --rz-info (matiz 195) y un botón primario
+      pasaría a parecer un dato informativo; a 216 quedan 21 grados de matiz y
+      ΔE 43.9 en claro (17 grados y ΔE 27.4 en oscuro, donde los dos suben de
+      luminosidad). Si alguien enfría el acento «para que sea más celeste», lo
+      mete en el azul del estado y se pierde justo lo que costó conseguir. Con
+      el verde de éxito no hay riesgo: 91 grados de matiz en claro.
 
       Y ojo con dónde vive la identidad ámbar del aviso: está en
       --rz-warning-light y --rz-warning-lighter, no en --rz-warning.
       --rz-warning es el bronce oscuro y es oscuro porque tiene que cumplir 4.5
-      como texto sobre la tarjeta y a la vez quedar por debajo del acento. Lo
-      que hace que un aviso se lea «ámbar» a un metro de la pantalla es el
-      lavado de oro del fondo del chip, no el color de la letra.
+      como texto sobre la tarjeta. Lo que hace que un aviso se lea «ámbar» a un
+      metro de la pantalla es el lavado de oro del fondo del chip, no el color
+      de la letra.
 
    4. Bordes finos en lugar de sombras. Una herramienta que se pasa el día
       enseñando tablas se lee mejor con líneas que con relieve. En claro, además,
@@ -58,9 +74,11 @@
       sobre marfil se ve verdosa.
 
    5. El color se reserva para el estado. Verde, oro y rojo solo aparecen cuando
-      dicen algo (aprobado, por vencer, vencido). --rz-info es el único frío del
-      tema y está permitido únicamente porque, como los demás estados, vive
-      sobre datos; usarlo de adorno devuelve la aplicación al azul corporativo.
+      dicen algo (aprobado, por vencer, vencido). --rz-info ya no es el único
+      frío del tema —el acento también lo es—, y por eso ahora hay que mirarlos
+      juntos: la separación entre los dos está medida en la decisión 3. Lo que
+      no cambia es que --rz-info vive sobre datos; usarlo de adorno devuelve la
+      aplicación al azul corporativo.
 
    El modo lo decide, por este orden: lo que el usuario haya elegido
    (data-tema en <html>), y si no ha elegido, lo que diga su sistema operativo.
@@ -104,20 +122,32 @@
        deshabilitado. Si cumpliera, no parecería deshabilitado. */
     --rz-text-disabled-color:  #a49a8c;
 
-    /* El acento único: ÁMBAR QUEMADO. Es rojizo a propósito (matiz 21 grados);
-       es lo que lo separa del aviso, que es amarillo (matiz 43). No lo muevas
-       hacia el amarillo. Ver la decisión 3 de la cabecera. */
-    --rz-primary:         #ba490b;
-    --rz-primary-dark:    #9d3d09;
-    --rz-primary-darker:  #82320a;
-    /* Para el anillo de foco cuando cae SOBRE la barra grafito: ahí --rz-primary
-       se queda en 3.53 y éste sube a 4.71. Al revés sobre superficies claras:
-       sobre blanco da 3.72, así que NO vale como color de texto. */
-    --rz-primary-light:   #d75f1a;
+    /* El acento único: AZUL CELESTE. El matiz es 216 y no un celeste de manual;
+       el porqué —y la medida contra --rz-info— están en la decisión 3 de la
+       cabecera. No lo enfríes hacia el 200.
+
+       Es el suelo de contraste del tema: 5.20 sobre la tarjeta, 4.94 sobre el
+       marfil del fondo y 4.66 sobre la cabecera de rejilla, que es la superficie
+       clara más oscura que hay. Aclararlo un paso lo saca de AA en esa última. */
+    --rz-primary:         #2f6bc6;
+    --rz-primary-dark:    #285ca9;
+    --rz-primary-darker:  #214c8c;
+    /* Para el anillo de foco y la marca del acceso cuando caen SOBRE la barra
+       grafito: ahí --rz-primary se queda en 3.43 y éste sube a 5.14. Al revés
+       sobre superficies claras: sobre blanco da 3.47, que basta para dibujar un
+       borde pero NO para texto. */
+    --rz-primary-light:   #4789eb;
     /* Fondo de la entrada de menú activa. No subas el alfa: con .10 el acento
-       encima del lavado da 4.51, y a .12 ya baja de 4.5. */
-    --rz-primary-lighter: rgba(186, 73, 11, .10);
+       encima del lavado da 4.54, y a .12 baja a 4.41. */
+    --rz-primary-lighter: rgba(47, 107, 198, .10);
     --rz-on-primary:      #ffffff;
+    /* LA TINTA DE LAS VARIANTES CLARAS. Sobre --rz-primary-light el blanco se
+       queda en 3.47 —es azul de mediodía, no azul oscuro— y el grafito da 5.14;
+       sobre el lavado del menú activo, la tinta legible es el propio acento
+       (4.54). Sobre -dark y -darker el blanco sigue valiendo (6.57 y 8.48), así
+       que ésos se quedan con lo que trae Radzen y no se declaran. */
+    --rz-on-primary-light:   #1a1714;
+    --rz-on-primary-lighter: #2f6bc6;
 
     /* El secundario NO es otro color: es el gris cálido de la escala. Así los
        botones «secundarios» se leen como lo que son —la opción menos
@@ -137,9 +167,10 @@
     --rz-success:         #2f6b34;
     --rz-success-light:   #4f9a55;
     --rz-success-lighter: rgba(47, 107, 52, .12);
-    /* El bronce oscuro del aviso. Es la pieza clave del tema: va muy por debajo
-       del acento (L* 34.5 contra 45.9) y con 22 puntos menos de saturación.
-       Aclararlo lo acerca al acento y rompe la separación. */
+    /* El bronce oscuro del aviso. Es la pieza clave del tema: es la LETRA del
+       aviso, no su identidad, y por eso va muy por debajo del oro que sí lo es
+       (L* 34.5 contra 57.8). Así cumple 7.91 como texto sobre la tarjeta.
+       Aclararlo lo funde con el oro y el aviso se queda sin sus dos escalones. */
     --rz-warning:         #654e14;
     /* El oro. Aquí vive la identidad ámbar del aviso. Es para iconos y bordes,
        no para texto pequeño: sobre blanco da 3.41, que basta para elemento
@@ -161,9 +192,9 @@
     /* Radzen usa estas ocho para el hover y el pulsado de botones y etiquetas de
        estado. Si no se redefinen, conservan los valores de Material —y
        --rz-warning-dark de Material es #cc7a00, un naranja que asoma al pasar el
-       ratón y pisa justo la separación entre el ámbar del acento y el del aviso.
-       Derivadas de cada estado a ~84% y ~70% de luminosidad, igual que hace la
-       familia del acento. */
+       ratón, rompe el bronce apagado del aviso y devuelve a la pantalla el
+       naranja que el acento acaba de dejar. Derivadas de cada estado a ~84% y
+       ~70% de luminosidad, igual que hace la familia del acento. */
     --rz-success-dark:    #285a2c;
     --rz-success-darker:  #214b24;
     --rz-warning-dark:    #554211;
@@ -227,11 +258,14 @@
     --rz-shadow-5: 0 8px 24px rgba(26, 23, 20, .12);
     --rz-shadow-6: 0 12px 32px rgba(26, 23, 20, .14);
 
-    /* La cabecera de rejilla sube un paso (al 100, antes iba al 50) porque hacía
-       falta: sobre el 50 el acento de una columna ordenable se quedaba en 4.49 y
-       sobre éste da 4.65. La franja de fila alterna sí es el marfil del fondo de
-       página: sobre la tarjeta blanca se nota lo justo para seguir la fila con
-       el ojo y no tanto como para parecer una selección. */
+    /* La cabecera de rejilla va un paso por encima del fondo de página (al 100,
+       no al 50) para que se lea como cabecera sin necesidad de un fondo fuerte.
+       Es la superficie clara más oscura del tema y por eso marca el suelo del
+       acento: una columna ordenable da aquí 4.66, contra 4.94 sobre el marfil
+       del 50. Si esta cabecera se oscurece más, el acento se cae de AA. La
+       franja de fila alterna sí es el marfil del fondo de página: sobre la
+       tarjeta blanca se nota lo justo para seguir la fila con el ojo y no tanto
+       como para parecer una selección. */
     --rz-grid-header-background-color: #f5f2ee;
     --rz-grid-stripe-background-color: #faf9f7;
 
@@ -240,9 +274,10 @@
     --adminweb-acceso-fondo: linear-gradient(160deg, #faf9f7 0%, #e8e3da 100%);
     --adminweb-cargando-color: #7d7568;
     /* Oro pálido. Este banner es aviso sobre datos, así que va en la familia del
-       aviso y NUNCA en la del acento, por mucho que los dos sean ámbar; y su
-       color de texto es exactamente --rz-warning, porque el banner y la celda de
-       una rejilla que avisa tienen que ser el mismo color o el usuario acaba
+       aviso y NUNCA en la del acento —ahora que el acento es azul cuesta más
+       confundirlos, pero la regla es la misma que cuando los dos eran ámbar—; y
+       su color de texto es exactamente --rz-warning, porque el banner y la celda
+       de una rejilla que avisa tienen que ser el mismo color o el usuario acaba
        aprendiendo dos códigos distintos. */
     --adminweb-aviso-fondo: #f7edd0;
     --adminweb-aviso-color: #654e14;
@@ -255,8 +290,9 @@
        en rojo» en una frase que no significa nada. Al declararlos solo aquí
        —y :root casa siempre— valen en los tres modos sin duplicarse.
 
-       Por eso también son los únicos fríos del archivo: son la excepción
-       declarada a la escala cálida, no una que se coló. */
+       Que sean fríos no es un descuido: la escala cálida es la de los NEUTROS,
+       y aquí —como en el acento y en el azul de información— el frío está
+       declarado a propósito. Lo que no puede colarse es un neutro azulado. */
     --adminweb-consola-fondo: #141821;
     /* EL BORDE ES OBLIGATORIO, no es adorno, y lo pide justamente el tema oscuro. El fondo de la
        consola (#141821) contra la tarjeta oscura (#1c1a18) da 1.02: sin una línea alrededor, el
@@ -272,22 +308,43 @@
     --adminweb-consola-error: #fca5a5;
     --adminweb-consola-dato:  #93c5fd;
 
-    /* ── Los puntos de presencia de la barra ─────────────────────────────────
-       Tampoco se repiten en oscuro, y por un motivo distinto: la barra superior
-       es GRAFITO en los dos temas (--rz-header-background-color es #1a1714 en
-       claro y #121110 en oscuro), así que el fondo bajo el punto no cambia y el
-       color tampoco tiene por qué. Si algún día la barra se aclara en el tema
-       claro, estos cinco hay que rehacerlos: están calculados contra grafito
-       (el más flojo, «ausente», da 5.71 sobre #1a1714).
+    /* ── Los puntos de presencia ─────────────────────────────────────────────
+       Tampoco se repiten en oscuro, y por un motivo distinto: donde se
+       calcularon —el botón de estado de la barra superior— el fondo es GRAFITO
+       en los dos temas (--rz-header-background-color es #1a1714 en claro y
+       #121110 en oscuro), así que el fondo bajo el punto no cambia y el color
+       tampoco tiene por qué. Si algún día la barra se aclara en el tema claro,
+       estos cinco hay que rehacerlos: están calculados contra grafito (el más
+       flojo, «ausente», da 5.88 sobre #1a1714 y 6.21 sobre #121110).
 
        NINGUNO sale del semáforo, y es la decisión importante: «Ocupado» en rojo
        convierte a alguien concentrado en una alarma, y «Disponible» en verde
        hace pensar en «correcto». Son cinco categorías, no cinco veredictos, así
        que van en hues separados —verde, violeta, azul, oro y gris— y el único
        desaturado es «ausente», que es el único que significa una ausencia.
-       Ninguno pisa el bronce del acento: el más cercano es el oro de «comida»,
-       a 20 grados de matiz, la misma separación que este archivo exige entre el
-       acento y el aviso. */
+
+       EL QUE HAY QUE VIGILAR ES «REUNIÓN», porque desde que el acento es azul
+       los dos lo son. Y hay que medirlo DOS VECES, porque estos cinco colores
+       se pintan en DOS SITIOS (los reparte ColoresDeEstado.ColorDePresencia):
+       el botón de estado de la barra y la columna «Estado» de «Quién está».
+
+       En la barra el acento no aparece nunca en su tono base —ahí se queda en
+       3.43— sino como --rz-primary-light, y contra ése el punto se separa por
+       ΔE 26.3 en claro (9 grados de matiz, 9.4 de L*) y ΔE 25.3 en oscuro
+       (7 grados, 16.6 de L*).
+
+       En la rejilla de «Quién está» sí sale el tono base, y no de adorno: la
+       pestaña seleccionada de esa misma pantalla la pinta Radzen con
+       --rz-primary. Ahí está el par más justo de todo el archivo, y es el modo
+       oscuro: ΔE 13.4 (9 grados de matiz y solo 4.0 de L*), contra 32.0 en
+       claro. Es lo que costó el cambio de familia —el ámbar tenía 43.1 en ese
+       mismo par— y va escrito para que nadie lo vuelva a descubrir.
+
+       Lo que lo mantiene utilizable no es el color: el punto es un punto y no
+       un rótulo, y la palabra del estado va SIEMPRE a su lado. Si algún día hay
+       que retocar un punto para que no se confunda con el acento, es ése; y
+       antes de moverlo, mírale también el 195 de --rz-info, que le queda justo
+       al otro lado. */
     --adminweb-presencia-disponible: #45c08a;
     --adminweb-presencia-ocupado:    #b98ae0;
     --adminweb-presencia-reunion:    #5aa9e6;
@@ -298,9 +355,9 @@
        va del ACENTO y no del aviso: el oro del aviso diría que los tres primeros
        tienen un problema. Alfas muy bajos a propósito, porque encima va texto
        normal que tiene que seguir cumpliendo contraste. */
-    --adminweb-podio-1: rgba(186, 73, 11, .16);
-    --adminweb-podio-2: rgba(186, 73, 11, .10);
-    --adminweb-podio-3: rgba(186, 73, 11, .06);
+    --adminweb-podio-1: rgba(47, 107, 198, .16);
+    --adminweb-podio-2: rgba(47, 107, 198, .10);
+    --adminweb-podio-3: rgba(47, 107, 198, .06);
 
     /* Serie categórica para las tarjetas de resumen. Se usan como COLOR DE TEXTO
        sobre la tarjeta, no como relleno, y de ahí que sean oscuros: el más flojo
@@ -340,17 +397,36 @@
     --rz-text-secondary-color: #a8a094;
     --rz-text-disabled-color:  #6b6255;
 
-    /* El acento sube: un ámbar oscuro sobre grafito no se ve. Y como el botón
+    /* El acento sube: un azul oscuro sobre grafito no se ve. Y como el botón
        pasa a ser una superficie luminosa, --rz-on-primary baja a GRAFITO: el
-       blanco encima daría 1.7 y sería ilegible, mientras que el grafito da 5.96.
-       Fíjate en que --rz-primary-darker es exactamente el acento del modo claro,
-       así la familia sigue siendo una sola. */
-    --rz-primary:         #e8752e;
-    --rz-primary-dark:    #d4631f;
-    --rz-primary-darker:  #ba490b;
-    --rz-primary-light:   #f2955c;
-    --rz-primary-lighter: rgba(232, 117, 46, .16);
+       blanco encima daría 2.90 y sería ilegible, mientras que el grafito da
+       6.16. Fíjate en que --rz-primary-darker es exactamente el acento del modo
+       claro, así la familia sigue siendo una sola.
+
+       --rz-primary-light sube MÁS de lo que sube el resto de la familia (L*
+       83.3 contra 62.7 del acento) y no es capricho: es la única variante que
+       aterriza sobre la barra grafito, donde ya vive el punto azul de
+       «reunión», y ahí lo que las separa es la luminosidad. Ver la nota de los
+       puntos de presencia en el bloque claro. */
+    --rz-primary:         #6599e6;
+    --rz-primary-dark:    #4b83d8;
+    --rz-primary-darker:  #2f6bc6;
+    --rz-primary-light:   #b8d2f4;
+    --rz-primary-lighter: rgba(101, 153, 230, .16);
     --rz-on-primary:      #1a1714;
+    /* La tinta de las otras cuatro variantes, con el mismo razonamiento que
+       --rz-on-primary y las mismas dos vueltas de tuerca:
+       - En -dark (4.71) y -light (11.53) sigue mandando el grafito.
+       - En -darker la regla SE INVIERTE, igual que en --rz-on-danger-darker:
+         ese tono es el acento del modo claro, o sea oscuro, y ahí el blanco da
+         5.20 contra 3.43 del grafito.
+       - -lighter no es un fondo claro: es el acento al 16 % sobre una
+         superficie oscura, así que la tinta legible es el propio acento (5.20
+         sobre la barra lateral, 4.71 sobre la tarjeta). */
+    --rz-on-primary-dark:    #1a1714;
+    --rz-on-primary-darker:  #ffffff;
+    --rz-on-primary-light:   #1a1714;
+    --rz-on-primary-lighter: #6599e6;
 
     --rz-secondary:         #a8a094;
     --rz-secondary-dark:    #7d7568;
@@ -360,9 +436,11 @@
     --rz-on-secondary:      #1a1714;
 
     /* Los estados también suben de luminosidad: los tonos oscuros del modo claro
-       desaparecen sobre un fondo oscuro. Aquí la separación entre el acento y el
-       aviso va AL REVÉS que en claro —el aviso es el más claro de los dos—, pero
-       sigue siendo la misma separación: 25 grados de matiz y ΔL* 19.1. */
+       desaparecen sobre un fondo oscuro. El que hay que mirar aquí es --rz-info,
+       que sube al mismo terreno que el acento: quedan 17 grados de matiz y ΔE
+       27.4, menos holgura que en claro (21 y 43.9) porque los dos se aclaran.
+       Es la separación que sostiene la decisión 3, así que si alguien mueve este
+       azul, la vuelve a medir. */
     --rz-success:         #63c26e;
     --rz-success-light:   #92d99a;
     --rz-success-lighter: rgba(99, 194, 110, .16);
@@ -479,9 +557,9 @@
        sí habría dos sitios que mantener sincronizados.
 
        Podio y serie sí, porque son los mismos colores medidos contra otro fondo. */
-    --adminweb-podio-1: rgba(232, 117, 46, .16);
-    --adminweb-podio-2: rgba(232, 117, 46, .10);
-    --adminweb-podio-3: rgba(232, 117, 46, .06);
+    --adminweb-podio-1: rgba(101, 153, 230, .16);
+    --adminweb-podio-2: rgba(101, 153, 230, .10);
+    --adminweb-podio-3: rgba(101, 153, 230, .06);
 
     --adminweb-serie-1: #63c9a8;
     --adminweb-serie-2: #a99af0;
@@ -525,12 +603,19 @@
         --rz-text-secondary-color: #a8a094;
         --rz-text-disabled-color:  #6b6255;
 
-        --rz-primary:         #e8752e;
-        --rz-primary-dark:    #d4631f;
-        --rz-primary-darker:  #ba490b;
-        --rz-primary-light:   #f2955c;
-        --rz-primary-lighter: rgba(232, 117, 46, .16);
-        --rz-on-primary:      #1a1714;
+        /* El acento y su tinta. El porqué de cada valor —por qué el grafito va
+           encima, por qué -darker vuelve al blanco y por qué -light sube tanto—
+           está en el bloque de arriba, donde se declara lo mismo. */
+        --rz-primary:         #6599e6;
+        --rz-primary-dark:    #4b83d8;
+        --rz-primary-darker:  #2f6bc6;
+        --rz-primary-light:   #b8d2f4;
+        --rz-primary-lighter: rgba(101, 153, 230, .16);
+        --rz-on-primary:         #1a1714;
+        --rz-on-primary-dark:    #1a1714;
+        --rz-on-primary-darker:  #ffffff;
+        --rz-on-primary-light:   #1a1714;
+        --rz-on-primary-lighter: #6599e6;
 
         --rz-secondary:         #a8a094;
         --rz-secondary-dark:    #7d7568;
@@ -624,9 +709,9 @@
         --adminweb-aviso-color: #f0dc9e;
 
         /* Igual que en el bloque de arriba: consola y presencia no van aquí. */
-        --adminweb-podio-1: rgba(232, 117, 46, .16);
-        --adminweb-podio-2: rgba(232, 117, 46, .10);
-        --adminweb-podio-3: rgba(232, 117, 46, .06);
+        --adminweb-podio-1: rgba(101, 153, 230, .16);
+        --adminweb-podio-2: rgba(101, 153, 230, .10);
+        --adminweb-podio-3: rgba(101, 153, 230, .06);
 
         --adminweb-serie-1: #63c9a8;
         --adminweb-serie-2: #a99af0;
@@ -660,9 +745,9 @@
 
    Radzen pinta .rz-profile-menu con el color primario de serie, porque da por
    hecho que es la ficha del usuario sobre una barra de color. Aquí el resultado
-   era una píldora ámbar maciza que se convertía en lo más llamativo de toda la
-   pantalla —por encima del botón de acción de la página que estuvieras mirando—
-   para decir «Disponible», que no le pide nada a nadie.
+   era una píldora maciza del color del acento que se convertía en lo más
+   llamativo de toda la pantalla —por encima del botón de acción de la página que
+   estuvieras mirando— para decir «Disponible», que no le pide nada a nadie.
 
    Contradice además la regla del propio tema: el acento vive en el cromo que
    INVITA A ACTUAR, y esto es un indicador de estado. El color lo lleva el punto

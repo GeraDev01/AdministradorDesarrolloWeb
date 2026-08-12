@@ -346,4 +346,6 @@ Lo que hay que respetar aunque nada falle al compilar:
 7. **Ningún color escrito a mano**: variables del tema.
 8. **Nada de `MarkupString` ni de `innerHTML` sobre contenido escrito por alguien.** El foro y la
    base de conocimiento llegan al navegador troceados por el servidor y ya validados; el cliente los
-   emite con `@`, que Blazor escapa.
+   emite con `@`, que Blazor escapa. Las imágenes incrustadas en un artículo llegan como un **número**
+   y no como una dirección: la ruta la arma el cliente con ese entero, así que en un `src` no acaba
+   nunca una cadena que haya tecleado una persona.

@@ -4,6 +4,7 @@
 @using AdminWeb.Shared.Dtos
 @using AdminWeb.Shared.Dtos.Bitacora
 @inject ClienteApi Api
+@inject AvisosDeInterfaz Avisos
 
 @*
     La bitácora. Solo el líder: una bitácora que puede consultar cualquiera deja de servir para
@@ -65,14 +66,29 @@
     </RadzenCard>
 
     @* Count + LoadData es la paginación DEL SERVIDOR: la rejilla nunca tiene en memoria más que la
-       página que se está viendo, pase lo que pase con el tamaño de la tabla. *@
+       página que se está viendo, pase lo que pase con el tamaño de la tabla.
+
+       EL DOBLE CLIC SOBRE LA FILA ABRE LA ENTRADA ENTERA, y ésta es la rejilla donde más falta hace:
+       «Detalles» y «Origen» son texto libre que escribe el servidor —un mensaje de error completo,
+       la IP con el navegador entero— y en una celda no cabe ni la mitad. Encima las dos columnas se
+       pueden esconder desde el selector, así que quien viene a explicar un incidente puede tener
+       delante justo la tabla que no enseña lo que necesita.
+
+       No hay selección enlazada, así que el doble clic no descoloca nada: aquí el clic en la fila no
+       abre ningún panel que el segundo clic pudiera cerrar. *@
     <RadzenDataGrid data-recorrido="bitacora-rejilla"
                     @ref="_rejilla" TItem="EntradaBitacoraDto" Data="@_filas" Count="@_total"
                     LoadData="@Cargar" IsLoading="@_cargando"
                     AllowPaging="true" PageSize="50" PageSizeOptions="@(new[] { 25, 50, 100, 200 })"
                     AllowSorting="false"
+                    RowDoubleClick="@(l => Avisos.VerDetalleAsync(DetalleDe(l.Data)))"
                     EmptyText="No hay entradas en ese rango con esos filtros.">
         <Columns>
+            @* Sin Visible: es el camino al detalle para quien navega con el teclado, y el selector de
+               columnas no puede dejarlo sin ninguno. *@
+            <RadzenDataGridColumn TItem="EntradaBitacoraDto" Title="" Width="52px" Sortable="false">
+                <Template Context="l"><BotonDeDetalle Detalle="@DetalleDe(l)" /></Template>
+            </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="EntradaBitacoraDto" Property="Fecha" Title="Fecha/Hora" Width="160px"
                                   Visible="@Ver("Fecha/Hora")">
                 @* Se guarda en UTC y se muestra en la hora de quien mira: es lo que permite que dos
@@ -190,6 +206,31 @@
         AuditOutcome.Denegado => "var(--rz-danger)",
         _                     => "var(--rz-text-secondary-color)"
     };
+
+    /// <summary>
+    /// LA ENTRADA ENTERA, PARA EL CUADRO QUE ABRE EL DOBLE CLIC.
+    ///
+    /// <para>La fecha se escribe con el MISMO formato que la celda —hora local y con segundos—: en
+    /// una bitácora los segundos son el dato con el que se ordenan dos hechos de la misma operación,
+    /// y un cuadro que los recortara contradiría a la tabla de la que salió.</para>
+    ///
+    /// <para>«Detalles» y «Origen» van como texto largo porque los dos lo son: el primero es el
+    /// mensaje que escribió el servidor —a veces un error completo con sus renglones— y el segundo
+    /// lleva la IP y la cadena entera del navegador, que sola ya no cabe en una celda.</para>
+    ///
+    /// <para>El resultado se dice con la PALABRA, que es la que la rejilla ya pinta al lado de su
+    /// punto de color: aquí no hay dónde poner el punto y el color no viaja a un cuadro de texto.</para>
+    /// </summary>
+    private static DetalleDeFila DetalleDe(EntradaBitacoraDto l) =>
+        new DetalleDeFila("Entrada de la bitácora", l.AccionTexto)
+            .Campo("Fecha/Hora", l.Fecha.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss"))
+            .Campo("Usuario", l.Usuario)
+            .Campo("Resultado", l.ResultadoTexto)
+            .Campo("Entidad", l.Entidad)
+            .Campo("ID", l.EntidadId)
+            .Campo("Correlación", l.Correlacion)
+            .Texto("Detalles", l.Detalles)
+            .Texto("Origen", l.Origen);
 
     protected override async Task OnInitializedAsync()
     {

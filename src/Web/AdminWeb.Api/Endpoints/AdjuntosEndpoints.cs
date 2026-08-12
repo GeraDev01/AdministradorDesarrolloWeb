@@ -3,9 +3,9 @@ using AdminWeb.Application.Services;
 namespace AdminWeb.Api.Endpoints;
 
 /// <summary>
-/// Por aquí salen los bytes de todo lo que está guardado en la base: capturas del foro, evidencias
-/// de una actividad, justificantes de un permiso, respaldos de unas vacaciones y los documentos de
-/// un requerimiento.
+/// Por aquí salen los bytes de todo lo que está guardado en la base: capturas del foro, imágenes de
+/// un artículo de la base de conocimiento, evidencias de una actividad, justificantes de un permiso,
+/// respaldos de unas vacaciones y los documentos de un requerimiento.
 ///
 /// Van juntos y no repartidos por módulo porque comparten exactamente el mismo trato —todos
 /// devuelven un BLOB con su nombre y su tipo— y porque la parte delicada conviene tenerla escrita
@@ -13,10 +13,12 @@ namespace AdminWeb.Api.Endpoints;
 /// <see cref="ResultadosDeArchivo.Adjunto"/>.
 ///
 /// <para>El permiso lo comprueba, como regla, cada servicio antes de soltar los bytes: el foro exige
-/// que la entrada siga viva; la evidencia, el justificante y el respaldo, que quien pide sea su dueño
-/// o administrador (<c>RequireOwnershipOrAdmin</c>); los documentos de un requerimiento, que sea el
-/// líder, porque esa pantalla es suya entera. Pedir lo ajeno lanza y sale 403; lo que no existe o
-/// está retirado vuelve vacío y sale 404.</para>
+/// que la entrada siga viva; la imagen de un artículo, que a quien pide le toque ver ESE artículo
+/// —un borrador es privado también en sus capturas, y lo retirado deja de servirse—; la evidencia, el
+/// justificante y el respaldo, que quien pide sea su dueño o administrador
+/// (<c>RequireOwnershipOrAdmin</c>); los documentos de un requerimiento, que sea el líder, porque esa
+/// pantalla es suya entera. Pedir lo ajeno lanza y sale 403; lo que no existe o está retirado vuelve
+/// vacío y sale 404.</para>
 ///
 /// <para><b>Una excepción, y con motivo: la ruta del foro.</b> Lleva política propia
 /// (<c>AdminUDesarrollador</c>), la misma del grupo <c>/api/foro</c>. Sin ella, cerrar el foro a
@@ -40,6 +42,19 @@ public static class AdjuntosEndpoints
         })
         .RequireAuthorization("AdminUDesarrollador")
         .WithSummary("El original de una imagen del foro (la miniatura ya viaja con el hilo)");
+
+        // SIN política de rol, y aquí eso es lo correcto: un artículo publicado lo lee cualquiera con
+        // sesión —Operaciones incluida—, igual que el grupo /api/conocimiento. Lo que decide es la
+        // guarda del servicio, que pregunta por el ARTÍCULO al que pertenece la imagen; poner aquí
+        // una política de rol dejaría fuera precisamente a quien despliega los sistemas que la
+        // documentación explica.
+        grupo.MapGet("/conocimiento/{id:int}", async (
+            int id, HttpContext ctx, ConocimientoService conocimiento, CancellationToken ct) =>
+        {
+            var (bytes, nombre) = await conocimiento.BytesDeImagenAsync(id, ct);
+            return ResultadosDeArchivo.Adjunto(ctx, bytes, nombre);
+        })
+        .WithSummary("Una imagen incrustada en un artículo de la base de conocimiento");
 
         grupo.MapGet("/actividad/{id:int}", async (
             int id, HttpContext ctx, DevActivityService actividades, CancellationToken ct) =>

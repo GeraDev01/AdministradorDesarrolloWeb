@@ -126,12 +126,26 @@
         </RadzenCard>
     }
 
+    @*
+        EL DOBLE CLIC SOBRE LA FILA ABRE LA NOTA ENTERA.
+
+        Hasta ahora el contenido completo solo se leía pulsando «Abrir», que es el formulario de
+        EDICIÓN: para leer una nota había que ponerse a modificarla, con el riesgo de guardar sin
+        querer algo que solo se venía a consultar. El cuadro es de lectura y no toca nada.
+
+        No hay selección enlazada, así que el doble clic no descoloca nada: el panel de edición lo
+        abre su botón.
+    *@
     <RadzenDataGrid data-recorrido="notas-rejilla"
                     TItem="NotaDto" Data="@Lista" IsLoading="@_ocupado"
                     AllowSorting="true" AllowPaging="true" PageSize="15"
                     RowRender="@Pintar"
+                    RowDoubleClick="@(n => Avisos.VerDetalleAsync(DetalleDe(n.Data)))"
                     EmptyText="@(_soloPendientes ? "No queda nada pendiente." : "Todavía no hay notas.")">
         <Columns>
+            <RadzenDataGridColumn TItem="NotaDto" Title="" Width="52px" Sortable="false">
+                <Template Context="n"><BotonDeDetalle Detalle="@DetalleDe(n)" /></Template>
+            </RadzenDataGridColumn>
             <RadzenDataGridColumn TItem="NotaDto" Property="Id" Title="ID" Width="70px" />
             <RadzenDataGridColumn TItem="NotaDto" Property="Titulo" Title="Título">
                 <Template Context="n">
@@ -139,7 +153,8 @@
                     @if (!string.IsNullOrWhiteSpace(n.Contenido))
                     {
                         @* Texto plano, con un recorte para que una nota larga no estire la fila. El
-                           completo se lee al abrirla. *@
+                           completo se lee con doble clic sobre la fila, sin abrir el formulario de
+                           edición. *@
                         <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@Resumen(n.Contenido)</RadzenText>
                     }
                 </Template>
@@ -346,7 +361,8 @@
         else if (args.Data.Atrasada) args.Attributes["style"] = $"color:{Vencido};font-weight:600";
     }
 
-    /// <summary>Tope del recorte del contenido en la rejilla; el texto completo se ve al abrir la nota.</summary>
+    /// <summary>Tope del recorte del contenido en la rejilla; el texto completo se ve con doble clic
+    /// sobre la fila (ver <see cref="DetalleDe"/>) o al abrirla para editarla.</summary>
     private const int MaxResumen = 160;
 
     private static string Resumen(string? texto)
@@ -354,6 +370,29 @@
         texto = (texto ?? "").Trim();
         return texto.Length <= MaxResumen ? texto : texto[..MaxResumen] + "…";
     }
+
+    /// <summary>
+    /// LA NOTA ENTERA, PARA EL CUADRO QUE ABRE EL DOBLE CLIC.
+    ///
+    /// <para>Las dos fechas se escriben con los MISMOS criterios que sus celdas, y son distintos a
+    /// propósito: el recordatorio es un día del calendario y va tal cual, y el alta es un instante en
+    /// UTC que se convierte a la hora de quien mira. Igualarlos aquí adelantaría o atrasaría un día
+    /// el recordatorio de quien esté en otro huso.</para>
+    ///
+    /// <para>«Atrasada» se dice con palabras: en la rejilla es el renglón entero en rojo (ver
+    /// <see cref="Pintar"/>) y el color no viaja a un cuadro de texto.</para>
+    /// </summary>
+    private static DetalleDeFila DetalleDe(NotaDto n) =>
+        new DetalleDeFila("Nota / pendiente", n.Titulo)
+            .Campo("ID", $"{n.Id}")
+            .Campo("Prioridad", n.PrioridadTexto)
+            .Campo("Dev (origen)", n.Desarrollador)
+            .Campo("Estado", n.Completada
+                                 ? "Completado"
+                                 : n.Atrasada ? "Pendiente — atrasada" : "Pendiente")
+            .Campo("Recordatorio", n.Recordatorio?.ToString("dd/MM/yyyy"))
+            .Campo("Alta", n.Alta.ToLocalTime().ToString("dd/MM/yyyy"))
+            .Texto("Contenido", n.Contenido);
 
     public void Dispose()
     {

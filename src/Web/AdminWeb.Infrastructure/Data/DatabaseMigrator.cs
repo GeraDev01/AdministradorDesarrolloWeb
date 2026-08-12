@@ -233,6 +233,8 @@ public static class DatabaseMigrator
                 ""ReviewComment""           TEXT,
                 ""AttachmentBytes""         BLOB,
                 ""AttachmentFileName""      TEXT,
+                ""HoraInicio""              TEXT,
+                ""HoraFin""                 TEXT,
                 CONSTRAINT ""FK_LR_Dev"" FOREIGN KEY (""DeveloperId"") REFERENCES ""Developers""(""Id"") ON DELETE CASCADE
             );
         ");
@@ -248,6 +250,21 @@ public static class DatabaseMigrator
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""LeaveRequests"" ADD COLUMN ""ReviewComment"" TEXT"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""LeaveRequests"" ADD COLUMN ""AttachmentBytes"" BLOB"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""LeaveRequests"" ADD COLUMN ""AttachmentFileName"" TEXT"); } catch { }
+
+        // Permisos POR HORAS: el tramo del día. Se agregan al lado de DaysCount y no en su lugar —
+        // los permisos de días completos siguen existiendo igual, y son todo lo que hay en el
+        // histórico.
+        //
+        // SIN RELLENO, y a propósito: las dos propiedades del modelo son TimeOnly? (anulables), así
+        // que las filas que ya están quedan con NULL en las dos y eso significa exactamente lo que
+        // son, permisos de día completo. La lección del sello de sesión —una columna nueva en NULL
+        // sobre una propiedad NO anulable deja filas que EF no puede materializar— se cumple aquí
+        // por el otro lado: si alguna de estas dos dejara de ser anulable, habría que rellenarla en
+        // esta misma línea o nadie podría leer un solo permiso.
+        //
+        // TEXT porque es lo que el proveedor de SQLite usa para TimeOnly ('HH:mm:ss.fffffff').
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""LeaveRequests"" ADD COLUMN ""HoraInicio"" TEXT"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""LeaveRequests"" ADD COLUMN ""HoraFin"" TEXT"); } catch { }
 
         // ── Infraestructura Azure ─────────────────────────────────
         db.Database.ExecuteSqlRaw(@"
@@ -1355,6 +1372,29 @@ public static class DatabaseMigrator
         try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Know_Autor"" ON ""KnowledgeArticles""(""AuthorUserId"",""Status"")"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Know_Publicado"" ON ""KnowledgeArticles""(""PublishedAtUtc"")"); } catch { }
 
+        // Las imágenes incrustadas en los artículos (SQLite). Van en su propia tabla y no en una
+        // columna del artículo porque son binarios de megas y el cuerpo se lee entero en cada
+        // búsqueda. ESTA ES LA VERSIÓN DE SQLITE; la gemela de SQL Server está traducida en
+        // PatchSqlServer, y ahí el BLOB es varbinary(max).
+        //
+        // Aquí sí hay clave foránea, al revés que el autor del artículo: una imagen sin artículo no
+        // significa nada y nadie podría volver a llegar a ella, así que se va con él en cascada.
+        db.Database.ExecuteSqlRaw(@"
+            CREATE TABLE IF NOT EXISTS ""KnowledgeImages"" (
+                ""Id""               INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                ""ArticleId""        INTEGER NOT NULL,
+                ""FileName""         TEXT    NOT NULL,
+                ""ContentType""      TEXT    NOT NULL,
+                ""Bytes""            BLOB    NOT NULL,
+                ""SizeBytes""        INTEGER NOT NULL DEFAULT 0,
+                ""UploadedByUserId"" INTEGER NOT NULL DEFAULT 0,
+                ""CreatedAtUtc""     TEXT    NOT NULL,
+                CONSTRAINT ""FK_KnowledgeImage_Article"" FOREIGN KEY (""ArticleId"") REFERENCES ""KnowledgeArticles""(""Id"") ON DELETE CASCADE
+            );");
+        // Por artículo: es la única forma en que se piden —«las imágenes de este artículo», para
+        // pintarlas en el editor— además de por su propio identificador, que ya es la clave.
+        try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_KnowImg_Articulo"" ON ""KnowledgeImages""(""ArticleId"",""Id"")"); } catch { }
+
         SembrarVentanaDeCaducidadDeVacaciones(db);
 
         // Al final de la rama, con todas las columnas de horas ya creadas: sin ellas no habría dónde
@@ -1721,6 +1761,20 @@ CREATE UNIQUE INDEX [{indice}] ON [{tabla}]({columnas});");
         Exec("IF COL_LENGTH('LeaveRequests','AttachmentBytes') IS NULL ALTER TABLE [LeaveRequests] ADD [AttachmentBytes] varbinary(max) NULL;");
         Exec("IF COL_LENGTH('LeaveRequests','AttachmentFileName') IS NULL ALTER TABLE [LeaveRequests] ADD [AttachmentFileName] nvarchar(260) NULL;");
         ExecIndex("LeaveRequests", "IX_LeaveRequests_Status", "Status", "[Status]");
+
+        // Permisos POR HORAS: el tramo del día, al lado de DaysCount y no en su lugar. Es la gemela
+        // de la rama SQLite de aquí arriba, con el tipo que le toca a TimeOnly en este dialecto.
+        //
+        // NULLables y SIN RELLENO, y eso es una decisión y no un olvido: las dos propiedades del
+        // modelo son anulables, así que el NULL de las filas que ya están dice la verdad —permiso de
+        // día completo—. Lo que NO se puede hacer nunca es lo del sello de sesión: agregar una
+        // columna que en el modelo sea NO anulable y dejarla en NULL, porque entonces EF no puede
+        // materializar ni una fila y la pantalla entera deja de abrir.
+        //
+        // El escritorio, que sigue leyendo esta misma base hasta el corte, no se entera: son
+        // columnas nuevas que su modelo no mapea, y al ser anulables tampoco le estorban al insertar.
+        Exec("IF COL_LENGTH('LeaveRequests','HoraInicio') IS NULL ALTER TABLE [LeaveRequests] ADD [HoraInicio] time NULL;");
+        Exec("IF COL_LENGTH('LeaveRequests','HoraFin') IS NULL ALTER TABLE [LeaveRequests] ADD [HoraFin] time NULL;");
 
         // Tabla WorkSessions (FK a Developers sin cascada para evitar rutas múltiples de cascada).
         Exec(@"
@@ -2706,6 +2760,34 @@ ALTER TABLE [KnowledgeArticles] ADD [RowVersion] rowversion NOT NULL;");
         ExecIndex("KnowledgeArticles", "IX_Know_Estado", "Status", "[Status],[UpdatedAtUtc]");
         ExecIndex("KnowledgeArticles", "IX_Know_Autor", "AuthorUserId", "[AuthorUserId],[Status]");
         ExecIndex("KnowledgeArticles", "IX_Know_Publicado", "PublishedAtUtc", "[PublishedAtUtc]");
+
+        // Las imágenes incrustadas en los artículos (SQL Server). Va DESPUÉS de la tabla de la que
+        // cuelga y no en la lista de tablas de más arriba: aquella corre antes de que
+        // KnowledgeArticles exista, y una clave foránea hacia una tabla que todavía no está aborta
+        // su sentencia — y con ella todas las que vengan detrás.
+        //
+        // Aquí SÍ hay clave foránea, al revés que el autor: una imagen sin artículo no significa
+        // nada y nadie podría volver a llegar a ella, así que se va con él en cascada. Y no hay
+        // segunda ruta hasta la misma tabla, que es lo que este motor rechaza.
+        //
+        // ESTA ES LA VERSIÓN DE T-SQL: la gemela de SQLite está traducida en la otra rama, con
+        // BLOB donde aquí va varbinary(max).
+        Exec(@"
+IF OBJECT_ID(N'[KnowledgeImages]', N'U') IS NULL
+CREATE TABLE [KnowledgeImages] (
+    [Id] int IDENTITY(1,1) NOT NULL CONSTRAINT [PK_KnowledgeImages] PRIMARY KEY,
+    [ArticleId] int NOT NULL,
+    [FileName] nvarchar(260) NOT NULL,
+    [ContentType] nvarchar(100) NOT NULL,
+    [Bytes] varbinary(max) NOT NULL,
+    [SizeBytes] bigint NOT NULL DEFAULT 0,
+    [UploadedByUserId] int NOT NULL DEFAULT 0,
+    [CreatedAtUtc] datetime2 NOT NULL,
+    CONSTRAINT [FK_KnowledgeImage_Article] FOREIGN KEY ([ArticleId]) REFERENCES [KnowledgeArticles]([Id]) ON DELETE CASCADE
+);");
+        // Por artículo: es la única forma en que se piden —«las imágenes de este artículo», para
+        // pintarlas en el editor— además de por su propio identificador, que ya es la clave.
+        ExecIndex("KnowledgeImages", "IX_KnowImg_Articulo", "ArticleId", "[ArticleId],[Id]");
 
         return fallidas;
     }

@@ -10,12 +10,13 @@ namespace AdminWeb.Application.Tests;
 /// <summary>
 /// LA MIGRACIÓN de la base de conocimiento contra una base que YA EXISTE.
 ///
-/// <para><b>Por qué esto no sobra.</b> La tabla la crea sola <c>EnsureCreated</c> en una base nueva,
-/// así que sin esta prueba el CREATE TABLE del migrador —el que de verdad va a correr contra la base
-/// de producción, que lleva años de datos— no se ejecutaría NUNCA en la suite. Y ese es exactamente
-/// el camino que ya falló una vez y en silencio: una sentencia mal escrita aborta la suya y todas
-/// las que vienen detrás, mientras el arranque anuncia «Esquema al día». Aquí se le quita la tabla a
-/// la base y se obliga al migrador a crearla de verdad.</para>
+/// <para><b>Por qué esto no sobra.</b> Las tablas las crea solas <c>EnsureCreated</c> en una base
+/// nueva, así que sin esta prueba los CREATE TABLE del migrador —los que de verdad van a correr
+/// contra la base de producción, que lleva años de datos— no se ejecutarían NUNCA en la suite. Y ese
+/// es exactamente el camino que ya falló una vez y en silencio: una sentencia mal escrita aborta la
+/// suya y todas las que vienen detrás, mientras el arranque anuncia «Esquema al día». Aquí se le
+/// quitan a la base las dos —los artículos y sus imágenes— y se obliga al migrador a crearlas de
+/// verdad.</para>
 ///
 /// <para><b>Solo se ejerce SQLite</b>, que es el motor que se puede levantar en una prueba. La rama
 /// de SQL Server escribe LAS MISMAS columnas con los tipos de aquel motor —corchetes, nvarchar,
@@ -39,10 +40,14 @@ public class ConocimientoMigracionTests : IDisposable
         var db = TestDb.New();
         _contextos.Add(db);
 
+        // Las imágenes PRIMERO: cuelgan de los artículos con clave foránea, y SQLite no deja tirar
+        // la tabla a la que apunta una que sigue en pie.
+        db.Database.ExecuteSqlRaw(@"DROP TABLE ""KnowledgeImages""");
         db.Database.ExecuteSqlRaw(@"DROP TABLE ""KnowledgeArticles""");
         Assert.False(Existe(db, "KnowledgeArticles"),
             "La base de partida no debería traer ya la tabla: si la trae, el migrador no tendría " +
             "que crearla y esa mitad del trabajo se quedaría sin probar.");
+        Assert.False(Existe(db, "KnowledgeImages"));
 
         return db;
     }
@@ -82,6 +87,29 @@ public class ConocimientoMigracionTests : IDisposable
 
         // RowVersion NO se crea en SQLite: no existe el tipo y el modelo la ignora en este motor.
         Assert.DoesNotContain("RowVersion", columnas);
+    }
+
+    [Fact]
+    public void Migrador_CreaTambienLaTablaDeLasImagenes()
+    {
+        // Por el mismo motivo que la de arriba: en una base nueva la crea EnsureCreated desde el
+        // modelo, así que sin esta prueba el CREATE TABLE que de verdad va a correr contra la base
+        // de producción no se ejecutaría NUNCA en la suite. Y esta cuelga de la anterior con una
+        // clave foránea, que es justo lo que aborta una sentencia cuando se escribe en mal orden.
+        var db = BaseSinConocimiento();
+
+        var fallidas = DatabaseMigrator.EnsureUpToDate(db);
+
+        Assert.Empty(fallidas);
+        Assert.True(Existe(db, "KnowledgeImages"));
+
+        var columnas = Columnas(db, "KnowledgeImages");
+        foreach (var esperada in new[]
+                 {
+                     "Id", "ArticleId", "FileName", "ContentType",
+                     "Bytes", "SizeBytes", "UploadedByUserId", "CreatedAtUtc"
+                 })
+            Assert.Contains(esperada, columnas);
     }
 
     [Fact]

@@ -177,8 +177,9 @@ public class AusenciasService(
             .ToList();
 
         if (usuarioActual.DeveloperId is not int devId)
-            return new MisPermisosDto(false, new ResumenDePermisosDto(0, 0, 0), [], tipos,
-                LeaveRequestService.MaxDias, ArchivosSubidos.MaxBytes);
+            return new MisPermisosDto(false, new ResumenDePermisosDto(0, 0, 0, 0m), [], tipos,
+                LeaveRequestService.MaxDias, ArchivosSubidos.MaxBytes,
+                LeaveRequestService.HorasDeLaJornada);
 
         // No se reusa LeaveRequestService.DeDesarrolladorAsync, y el motivo es el tamaño: devuelve la
         // entidad completa, con los bytes del justificante dentro. En el escritorio eso era una
@@ -194,6 +195,8 @@ public class AusenciasService(
                 l.Type,
                 l.Date,
                 l.DaysCount,
+                l.HoraInicio,
+                l.HoraFin,
                 l.Reason,
                 l.Notes,
                 l.Status,
@@ -213,6 +216,11 @@ public class AusenciasService(
                 l.Date,
                 l.Date.Date.AddDays(Math.Max(1, l.DaysCount) - 1),
                 l.DaysCount,
+                LeaveRequestService.EsPorHoras(l.HoraInicio, l.HoraFin),
+                l.HoraInicio,
+                l.HoraFin,
+                LeaveRequestService.Horas(l.HoraInicio, l.HoraFin),
+                LeaveRequestService.Duracion(l.DaysCount, l.HoraInicio, l.HoraFin),
                 l.Status,
                 LeaveRequestService.Etiqueta(l.Status),
                 l.Reason,
@@ -228,16 +236,26 @@ public class AusenciasService(
         int anio = DateTime.Today.Year;
         var aprobados = filas.Where(l => l.Status == LeaveStatus.Aprobada && l.Date.Year == anio).ToList();
 
+        // Los DÍAS y las HORAS se cuentan por separado y no se mezclan. Sumarle a los días la
+        // fracción de jornada de cada tramo exigiría decidir cuánto dura la jornada de cada persona
+        // —dato que la ficha no tiene— y, sobre todo, dejaría el contador de días sin poder
+        // compararse con el de los años anteriores, que solo tuvo días completos. Se enseñan los dos
+        // números juntos en la cabecera; ninguno de los dos miente por su cuenta.
         var resumen = new ResumenDePermisosDto(
             EsperandoRespuesta: filas.Count(l => l.Status == LeaveStatus.Pendiente),
             AprobadosEsteAnio: aprobados.Count,
-            DiasAprobadosEsteAnio: aprobados.Sum(l => l.DaysCount));
+            DiasAprobadosEsteAnio: aprobados
+                .Where(l => !LeaveRequestService.EsPorHoras(l.HoraInicio, l.HoraFin))
+                .Sum(l => l.DaysCount),
+            HorasAprobadasEsteAnio: aprobados
+                .Sum(l => LeaveRequestService.Horas(l.HoraInicio, l.HoraFin)));
 
         // El tope del archivo es el de ArchivosSubidos y no el del servicio de permisos, porque es
         // ArchivosSubidos quien valida la subida: si algún día dejaran de coincidir, el formulario
         // tiene que enseñar el número que de verdad va a aplicarse.
         return new MisPermisosDto(true, resumen, solicitudes, tipos,
-            LeaveRequestService.MaxDias, ArchivosSubidos.MaxBytes);
+            LeaveRequestService.MaxDias, ArchivosSubidos.MaxBytes,
+            LeaveRequestService.HorasDeLaJornada);
     }
 
     /// <summary>
@@ -250,8 +268,11 @@ public class AusenciasService(
     /// habría que comprobar en cada llamada que es el propio, y el día que se olvidara sería «pide
     /// un permiso a nombre de otro».
     /// </remarks>
+    /// <param name="horaInicio">El tramo, cuando se pide POR HORAS. Los dos en nulo son un permiso de
+    /// días completos, que es lo que llega de cualquier cliente que no conozca el tramo.</param>
     public async Task<(bool ok, string mensaje, int id)> SolicitarPermisoAsync(
         LeaveType tipo, DateTime desde, int dias, string? motivo, string? notas,
+        TimeOnly? horaInicio = null, TimeOnly? horaFin = null,
         CancellationToken ct = default)
     {
         AuthorizationGuard.RequireLoggedIn(usuarioActual);
@@ -265,6 +286,8 @@ public class AusenciasService(
             Type = tipo,
             Date = desde.Date,
             DaysCount = dias,
+            HoraInicio = horaInicio,
+            HoraFin = horaFin,
             Reason = motivo,
             Notes = notas
         };
@@ -291,7 +314,10 @@ public class AusenciasService(
         // tirarlos. Quién es el dueño lo comprueba EditarAsync, que es donde tiene que decidirse.
         var actual = await db.LeaveRequests.AsNoTracking()
             .Where(l => l.Id == permisoId)
-            .Select(l => new { l.DeveloperId, l.Type, l.Date, l.DaysCount, l.Reason, l.Notes })
+            .Select(l => new
+            {
+                l.DeveloperId, l.Type, l.Date, l.DaysCount, l.HoraInicio, l.HoraFin, l.Reason, l.Notes
+            })
             .FirstOrDefaultAsync(ct);
 
         if (actual == null) return (false, "La solicitud ya no existe. Actualiza la lista.");
@@ -302,6 +328,10 @@ public class AusenciasService(
             Type = actual.Type,
             Date = actual.Date,
             DaysCount = actual.DaysCount,
+            // El tramo se reenvía como los demás campos: EditarAsync reemplaza la solicitud entera,
+            // así que omitirlo convertiría en día completo un permiso de horas al colgarle la receta.
+            HoraInicio = actual.HoraInicio,
+            HoraFin = actual.HoraFin,
             Reason = actual.Reason,
             Notes = actual.Notes,
             AttachmentBytes = contenido,

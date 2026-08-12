@@ -50,7 +50,7 @@ internal static class CatalogoDelManual
 
             # Cómo está organizado el menú
 
-            Arriba del todo, fuera de los grupos, va lo que usa todo el mundo: **Avisos**, **Conocimiento** (esta base), **Foro**, **Dashboard** y **Mi acceso**. Debajo, los grupos que te correspondan por rol: «Lo mío» y «Herramientas» si eres desarrollador; «Equipo», «Trabajo», «Despliegue e Infraestructura», «Integraciones y Correo» y «Administración» si eres líder; «Despliegue» si eres de operaciones.
+            Arriba del todo, fuera de los grupos, va lo que se abre todos los días: **Avisos** y **Conocimiento** (esta base), que los ve cualquier rol, más **Foro** y **Dashboard** para quien los tenga. Debajo, los grupos que te correspondan por rol: «Lo mío» y «Herramientas» si eres desarrollador; «Equipo», «Trabajo», «Despliegue e Infraestructura», «Integraciones y Correo» y «Administración» si eres líder; «Despliegue» si eres de operaciones. Y al final del todo, para los tres roles, **«Mi cuenta»**: lo tuyo, no lo de tu trabajo. Ahí está `Mi acceso`, que es donde se administra tu segundo factor.
 
             Cuando una entrada del menú lleva un número al lado, ese número es algo que te está esperando ahí dentro. Pasa el ratón por encima y el globo te dice qué es.
 
@@ -108,7 +108,7 @@ internal static class CatalogoDelManual
             "El segundo factor y qué hacer si pierdes el teléfono",
             "manual, acceso, segundo factor, codigos de rescate",
             """
-            El segundo factor es el código de seis dígitos que la plataforma te pide después de la contraseña. Es obligatorio para todas las cuentas, sin excepción, y se administra desde `Mi acceso` (`/segundo-factor`).
+            El segundo factor es el código de seis dígitos que la plataforma te pide después de la contraseña. Es obligatorio para todas las cuentas, sin excepción, y se administra desde `Mi acceso` (`/segundo-factor`), en el grupo «Mi cuenta» que el menú deja al final para los tres roles.
 
             # Por qué se pide
 
@@ -202,8 +202,8 @@ internal static class CatalogoDelManual
             """),
 
         new("permisos",
-            "Permisos y ausencias de un día: cuándo se pide un permiso y no vacaciones",
-            "manual, permisos, ausencias, incapacidad",
+            "Permisos y ausencias cortas: cuándo se pide un permiso y no vacaciones",
+            "manual, permisos, ausencias, incapacidad, horas",
             """
             Un **permiso** es una ausencia corta y con motivo: una cita médica, un asunto familiar, una incapacidad, un curso. Se pide desde `Mis Permisos` (`/mis-permisos`) y el líder los resuelve en `/permisos`.
 
@@ -220,9 +220,18 @@ internal static class CatalogoDelManual
 
             Al pedirlo eliges el tipo, que es lo que le dice al líder de qué se trata: permiso personal, incapacidad, cita médica, asunto familiar, capacitación u otro. El tipo no cambia las reglas del trámite; sirve para entenderlo de un vistazo y para las cuentas de fin de año.
 
+            # Días completos o por horas
+
+            La **duración** se elige al pedirlo, y son dos formas distintas de ausentarse:
+
+            - **Días completos**, como siempre: uno o varios días seguidos.
+            - **Por horas**: un tramo dentro de un solo día —«de 9:00 a 11:00»—, que es lo que de verdad se pide cuando uno va al dentista y vuelve a trabajar. El tramo no puede pasar de la jornada ni pisar otro permiso tuyo que siga vivo ese día; si necesitas el día entero, pídelo como días completos.
+
+            En el recuento del año los dos no se mezclan: hay una tarjeta de días y otra de horas. Un rato de una mañana no son «medio día» para todo el mundo, así que no se convierte nada.
+
             # Cómo se pide
 
-            1. En `Mis Permisos` das de alta la solicitud: fecha, tipo y motivo. **El motivo es obligatorio**, porque es lo único que le permite al líder resolver sin tener que preguntarte.
+            1. En `Mis Permisos` das de alta la solicitud: tipo, fecha, duración y motivo. **El motivo es obligatorio**, porque es lo único que le permite al líder resolver sin tener que preguntarte.
             2. Si tienes justificante —la constancia médica, el correo del curso— cuélgalo. Se admite hasta 15 MB, y solo mientras la solicitud siga pendiente: una vez resuelta, lo que el líder aprobó fue el justificante que tenía delante, y cambiarlo por debajo dejaría su decisión hablando de otro documento.
             3. Nace **Pendiente**, y ahí espera respuesta.
 
@@ -535,8 +544,11 @@ internal static class CatalogoDelManual
             - Doble asterisco para la **negrita** y acentos graves para el `código`, dentro de la misma línea.
             - Enlaces, escritos tal cual o con etiqueta.
             - Tres acentos graves en su propia línea abren y cierran un bloque de código, y dentro de él no se interpreta nada.
+            - `![lo que se ve](imagen:12)`, sola en su renglón: una imagen. No la escribes tú — pegas la captura con Ctrl+V en el recuadro del editor, se sube en ese momento y la marca aparece puesta al final del texto para que la muevas donde la quieras.
 
-            No hay HTML, ni tablas, ni imágenes. Y ojo con una cosa: **los saltos de línea se respetan tal como los escribas**, así que un párrafo se escribe de corrido y se deja una línea en blanco para empezar el siguiente.
+            De las imágenes solo se incrustan las que subas ahí. Una dirección de otro sitio se queda en enlace, y es a propósito: lo que ilustra un artículo revisado no puede cambiar después sin que nadie se entere, ni contarle a un tercero quién lo está leyendo.
+
+            No hay HTML ni tablas. Y ojo con una cosa: **los saltos de línea se respetan tal como los escribas**, así que un párrafo se escribe de corrido y se deja una línea en blanco para empezar el siguiente.
 
             Un artículo cabe en unas ocho páginas. Si no cabe, pártelo en varios y enlázalos, que además es como se encuentran después.
 

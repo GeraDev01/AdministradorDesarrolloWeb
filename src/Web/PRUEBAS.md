@@ -170,6 +170,7 @@ comprueba que la columna volvió **y que no devolvió ninguna sentencia fallida*
 - [FuncionDeEquipoMigracionTests.cs](tests/AdminWeb.Application.Tests/FuncionDeEquipoMigracionTests.cs) — una columna
 - [MigracionDelSegundoFactorTests.cs](tests/AdminWeb.Application.Tests/MigracionDelSegundoFactorTests.cs) — tres columnas y dos tablas
 - [ConocimientoMigracionTests.cs](tests/AdminWeb.Application.Tests/ConocimientoMigracionTests.cs), [MigracionDePlazosAHorasTests.cs](tests/AdminWeb.Application.Tests/MigracionDePlazosAHorasTests.cs)
+- [PermisosPorHorasMigracionTests.cs](tests/AdminWeb.Application.Tests/PermisosPorHorasMigracionTests.cs) — dos columnas anulables, con la comprobación de que los permisos de antes se siguen leyendo por el modelo
 
 La receta completa para añadir una columna está en
 [MODELO-DE-DATOS.md](MODELO-DE-DATOS.md#cómo-se-cambia-el-esquema).

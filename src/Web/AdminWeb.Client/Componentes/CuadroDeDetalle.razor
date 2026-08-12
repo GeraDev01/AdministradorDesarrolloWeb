@@ -1,0 +1,75 @@
+@*
+    EL CUADRO CON EL DETALLE DE UNA FILA. Uno solo para todas las rejillas.
+
+    Es UN componente y no uno por pantalla a propósito. Seis copias del mismo cuadro es como nacen
+    las asimetrías de esta aplicación: se arregla una —el texto que no respetaba los saltos de línea,
+    el campo vacío que salía en blanco— y las otras cinco se quedan atrás sin que nadie se entere.
+    Lo que cambia de una rejilla a otra son los campos, y eso lo arma la pantalla (ver DetalleDeFila);
+    lo que se ve y cómo se cierra es siempre esto.
+
+    ES DE LECTURA. No lleva ningún botón que haga nada: editar, retirar, liberar y todo lo demás
+    viven en la fila y en la barra de su pantalla, y repetirlos aquí dejaría dos sitios desde los que
+    disparar la misma acción — con uno de los dos apagándose el día que cambie la regla de cuándo se
+    puede. El único gesto del cuadro es cerrarlo.
+
+    Se abre con AvisosDeInterfaz.VerDetalleAsync, que es quien pone Escape y el clic fuera.
+
+    ── EL PINTADO ────────────────────────────────────────────────────────────────────────────────
+
+      · Los campos cortos van en una rejilla de dos columnas —etiqueta y valor— con la etiqueta
+        atenuada: es una lista que se barre con la vista, y con los dos textos al mismo peso hay que
+        leerla entera para encontrar uno.
+      · Los textos largos van DEBAJO y a ancho completo, cada uno con su etiqueta encima. Ahí está
+        `white-space:pre-wrap`, que es literalmente el motivo de que este cuadro exista: sin él los
+        saltos de línea del navegador se comen y una descripción de tres párrafos vuelve a leerse
+        como un solo bloque corrido.
+      · `overflow-wrap:anywhere` en todo lo que sea texto del usuario: una URL o un identificador
+        largo sin espacios no parte por sí solo y ensancharía el cuadro hasta salirse de la pantalla.
+
+    Los estilos van EN LÍNEA y no en una hoja aparte porque no hay dónde: css/app.css es de toda la
+    aplicación y el aislamiento de CSS por componente no está enganchado en index.html, así que un
+    .razor.css no llegaría a cargarse nunca. Es el mismo criterio que sigue el resto del marcado de
+    esta carpeta.
+*@
+
+<RadzenStack Gap="1rem">
+    @if (Detalle.Titulo.Length > 0)
+    {
+        <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0" Style="overflow-wrap:anywhere">
+            @Detalle.Titulo
+        </RadzenText>
+    }
+
+    @if (Detalle.Cortos.Any())
+    {
+        <div style="display:grid;grid-template-columns:minmax(6rem,max-content) 1fr;gap:.4rem 1rem;align-items:baseline">
+            @foreach (var c in Detalle.Cortos)
+            {
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0" Style="opacity:.7">
+                    @c.Etiqueta
+                </RadzenText>
+                <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0"
+                            Style="@($"overflow-wrap:anywhere{(c.EstaVacio ? ";opacity:.5" : "")}")">
+                    @c.Valor
+                </RadzenText>
+            }
+        </div>
+    }
+
+    @foreach (var t in Detalle.Largos)
+    {
+        <RadzenStack Gap="0.25rem">
+            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0" Style="opacity:.7">
+                @t.Etiqueta
+            </RadzenText>
+            @* Un div y no un RadzenText: el texto va tal cual, con sus saltos de línea, y las clases
+               tipográficas de Radzen traen su propio interlineado y sus márgenes. *@
+            <div style="@($"white-space:pre-wrap;overflow-wrap:anywhere{(t.EstaVacio ? ";opacity:.5" : "")}")">@t.Valor</div>
+        </RadzenStack>
+    }
+</RadzenStack>
+
+@code {
+    /// <summary>Los campos de la fila, ya armados por la pantalla que la enseña.</summary>
+    [Parameter, EditorRequired] public DetalleDeFila Detalle { get; set; } = new("Detalle");
+}

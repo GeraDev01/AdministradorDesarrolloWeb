@@ -58,9 +58,12 @@ public static class Menu
 {
     public static IReadOnlyList<GrupoDeMenu> Para(UserRole? rol) => rol switch
     {
-        UserRole.Admin => Admin,
-        UserRole.Desarrollador => Desarrollador,
-        UserRole.Operaciones => Operaciones,
+        // «Mi cuenta» se engancha AQUÍ, en un solo sitio, y no dentro de cada una de las tres listas.
+        // Es el mismo grupo para los tres roles, y escribirlo tres veces es la forma segura de que el
+        // día que se le añada algo se le añada a dos.
+        UserRole.Admin => [.. Admin, MiCuenta],
+        UserRole.Desarrollador => [.. Desarrollador, MiCuenta],
+        UserRole.Operaciones => [.. Operaciones, MiCuenta],
         _ => []
     };
 
@@ -115,18 +118,6 @@ public static class Menu
             items.Add(new ItemDeMenu("forum", "Foro", "foro"));
             items.Add(new ItemDeMenu("speed", "Dashboard", "dashboard"));
         }
-
-        // El segundo factor lo tiene TODO el mundo —es obligatorio— y por eso esta entrada no depende
-        // del rol. No está aquí para activarlo: eso ocurre solo la primera vez y el servidor lleva a
-        // esa pantalla sin que nadie la busque. Está para lo de después, que es lo que si no no
-        // tendría por dónde alcanzarse: ver en qué navegadores se dejó de pedir el código y dejar de
-        // confiar en ellos, y emitir códigos de rescate nuevos cuando quedan pocos.
-        //
-        // «shield» y no «lock»: el candado ya significa «cerrado / privado» en otras pantallas, y
-        // «key» es lo que se usa para credenciales de integraciones. Comprobado en iconos.txt, que es
-        // la lista de lo que trae el recorte de la fuente; un nombre que no esté ahí no deja hueco,
-        // pinta la PALABRA dentro del menú.
-        items.Add(new ItemDeMenu("shield", "Mi acceso", "segundo-factor"));
 
         return items;
     }
@@ -320,4 +311,49 @@ public static class Menu
             new("dns", "Estado de servidores", "estado-de-servidores"),
         ]),
     ];
+
+    /// <summary>
+    /// Lo de la CUENTA de quien mira, que no es lo mismo que su trabajo.
+    ///
+    /// <para>Los demás grupos de este archivo nombran áreas —el equipo, el trabajo, los despliegues,
+    /// las integraciones—, y en ninguna de ellas se le ocurre entrar a quien viene a revisar en qué
+    /// navegadores dejó de pedírsele el código: eso se busca donde está lo de uno mismo. Arriba,
+    /// suelto, tampoco era el sitio: ahí van las puertas que se abren TODOS los días —Avisos y
+    /// Conocimiento para cualquiera, más Foro y Dashboard para quien los tenga (ver
+    /// <see cref="Sueltos"/>)—, y esto se toca dos veces al año. Mezclarlo con ellas le daba a un
+    /// ajuste anual el mismo peso visual que a la bandeja de avisos.</para>
+    ///
+    /// <para><b>El grupo es propio y no una entrada colgada de un grupo que ya existiera</b> porque
+    /// toda cuenta tiene contraseña y segundo factor, sea cual sea el rol, y no hay ni un solo grupo
+    /// que vean los tres: «Administración» es del líder, «Herramientas» del desarrollador y
+    /// «Despliegue» de operaciones. Colgarlo de cualquiera de ellos lo dejaría fuera para dos de cada
+    /// tres personas; colgarlo de uno distinto en cada rol haría que «está en tal sitio» dejara de
+    /// poder decirse por teléfono, que es justo cuando se dice —cuando alguien perdió el teléfono y
+    /// hay que guiarle a ciegas—.</para>
+    ///
+    /// <para>Y va el ÚLTIMO de todos: no es trabajo, así que no debe empujar hacia abajo lo que sí se
+    /// abre a diario.</para>
+    ///
+    /// <para><b>Hoy dentro solo está «Mi acceso», que administra el SEGUNDO FACTOR</b> —códigos de
+    /// rescate y equipos recordados— y nada más. Queda dicho para que el párrafo de arriba no se lea
+    /// como que la contraseña también está aquí: <c>/cambiar-contrasena</c> existe como pantalla pero
+    /// no tiene entrada en ningún sitio del menú, ni antes ni ahora — solo se llega si el servidor
+    /// empuja a ella con <c>MUST_CHANGE_PASSWORD</c> o escribiendo la dirección. Este grupo es su
+    /// sitio natural el día que se decida darle una puerta; no se le puso aquí porque añadir una
+    /// entrada nueva al menú no era parte de mover ésta.</para>
+    /// </summary>
+    private static readonly GrupoDeMenu MiCuenta = new("Mi cuenta",
+    [
+        // El segundo factor lo tiene TODO el mundo —es obligatorio— y por eso esta entrada no depende
+        // del rol. No está aquí para activarlo: eso ocurre solo la primera vez y el servidor lleva a
+        // esa pantalla sin que nadie la busque. Está para lo de después, que es lo que si no no
+        // tendría por dónde alcanzarse: ver en qué navegadores se dejó de pedir el código y dejar de
+        // confiar en ellos, y emitir códigos de rescate nuevos cuando quedan pocos.
+        //
+        // «shield» y no «lock»: el candado ya significa «cerrado / privado» en otras pantallas, y
+        // «key» es lo que se usa para credenciales de integraciones. Comprobado en iconos.txt, que es
+        // la lista de lo que trae el recorte de la fuente; un nombre que no esté ahí no deja hueco,
+        // pinta la PALABRA dentro del menú.
+        new("shield", "Mi acceso", "segundo-factor"),
+    ]);
 }

@@ -18,16 +18,30 @@
     sitio hasta tenerlo presentable, y la base de conocimiento se quedaría sin la mitad de lo que
     debería contener. Por eso hay dos botones y no uno: guardar es una cosa, mandarlo es otra.
 
-    ── NO HAY VISTA PREVIA, Y ES A PROPÓSITO ──────────────────────────────────────────────────────
+    ── NO HAY VISTA PREVIA DEL TEXTO, Y ES A PROPÓSITO ────────────────────────────────────────────
 
     Quien decide qué es un título, qué es un enlace y qué es código es el SERVIDOR: esa decisión es
     la que hace que un artículo no pueda ejecutar nada en el navegador de quien lo lea. Una vista
     previa dibujada aquí sería una SEGUNDA interpretación del mismo texto, hecha en la máquina de
     quien escribe, y en cuanto se separara de la de verdad enseñaría una cosa distinta de la que se
-    va a publicar — que es peor que no enseñar nada. Lo que sí hay es la lista de las cinco marcas
+    va a publicar — que es peor que no enseñar nada. Lo que sí hay es la lista de las seis marcas
     que existen, ahí abajo: son pocas a propósito, y con eso se documenta cualquier cosa.
 
+    Las IMÁGENES sí se ven mientras se escribe, y eso no contradice lo anterior porque aquí no se
+    interpreta nada. Se enseña la imagen que YA está guardada en el artículo, pedida por su número a
+    la misma ruta que la va a servir cuando el artículo se lea. Y hace falta verla: lo que se pega
+    es una captura, y de un vistazo se sabe si es la que se quería o la de la ventana de al lado.
+
     Guardado el artículo, se abre para verlo tal como quedó de verdad.
+
+    ── LAS IMÁGENES SE SUBEN AL PEGARLAS, Y ANTES QUE EL TEXTO ────────────────────────────────────
+
+    Para que el cuerpo pueda NOMBRAR una imagen —![descripción](imagen:12)— hace falta que ya tenga
+    número, y para tener número hace falta un artículo del que colgar. Por eso, si se pega una
+    captura en un artículo que todavía no existe, se guarda solo el borrador antes de subirla: es lo
+    único que evita el adjunto huérfano y, sobre todo, es lo que hace que pegar funcione a la
+    primera. Pegar es lo que más se usa; obligar a guardar, salir y volver a entrar habría acabado
+    con que nadie ponga capturas.
 *@
 
 <PageTitle>@(EsNuevo ? "Escribir un artículo" : "Editar el artículo")</PageTitle>
@@ -86,9 +100,55 @@
                 </RadzenStack>
 
                 <details data-recorrido="escribir-marcas">
-                    <summary style="cursor:pointer;font-size:.85rem">Las marcas que se entienden (son cinco)</summary>
+                    <summary style="cursor:pointer;font-size:.85rem">Las marcas que se entienden (son seis)</summary>
                     <RadzenText TextStyle="TextStyle.Caption" Style="margin:.4rem 0 0;white-space:pre-wrap">@Ayuda</RadzenText>
                 </details>
+
+                @* ── Imágenes ───────────────────────────────────────────────────────── *@
+                <div data-recorrido="escribir-imagenes">
+                    <RadzenStack Gap="0.5rem">
+                        <RadzenText TextStyle="TextStyle.Subtitle2" Style="margin:0">
+                            <RadzenIcon Icon="image" /> Imágenes del artículo
+                        </RadzenText>
+
+                        @* El mismo componente que el foro: pegar con Ctrl+V dentro del recuadro, o
+                           elegir el archivo. Aquí se sube EN CUANTO llega en vez de esperar al envío
+                           del formulario, porque hasta que la imagen no tiene número no se la puede
+                           nombrar desde el texto. *@
+                        <PegarImagen Imagenes="@_pegadas" ImagenesChanged="@SubirImagenAsync"
+                                     Maximo="1" MaxBytes="@MaxBytesImagen" />
+
+                        @if (_imagenes.Count > 0)
+                        {
+                            <RadzenText TextStyle="TextStyle.Caption" Style="margin:0">
+                                @($"{_imagenes.Count} de {MaxImagenes}.") Cambia el texto entre corchetes
+                                por lo que describe cada imagen: es lo que se lee cuando no carga, y lo
+                                que oye quien usa un lector de pantalla.
+                            </RadzenText>
+
+                            <RadzenStack Orientation="Orientation.Horizontal" Wrap="FlexWrap.Wrap" Gap="0.6rem">
+                                @foreach (var img in _imagenes)
+                                {
+                                    <div style="border:1px solid var(--rz-border-color);border-radius:var(--rz-border-radius);padding:.35rem;max-width:200px">
+                                        @* La ruta se arma con el NÚMERO, igual que al leer el artículo:
+                                           es la misma imagen y el mismo camino, así que lo que se ve
+                                           aquí es exactamente lo que se va a publicar. *@
+                                        <img src="@Ruta(img)" alt="@img.Nombre" loading="lazy"
+                                             style="display:block;max-width:100%;height:auto" />
+                                        <RadzenText TextStyle="TextStyle.Caption"
+                                                    Style="margin:.25rem 0 0;overflow-wrap:anywhere">
+                                            @img.Nombre
+                                        </RadzenText>
+                                        <RadzenButton Text="Poner en el texto" Icon="add"
+                                                      ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+                                                      Disabled="@_ocupado" Click="@(() => PonerMarca(img))"
+                                                      title="Añade su marca al final del texto" />
+                                    </div>
+                                }
+                            </RadzenStack>
+                        }
+                    </RadzenStack>
+                </div>
             </RadzenStack>
         </RadzenCard>
 
@@ -154,6 +214,14 @@
     private const int MaxEtiquetas = 300;
     private const int MaxCuerpo = 20_000;
 
+    /// <summary>
+    /// Los topes de las imágenes, y valen lo mismo que arriba: el que cuenta lo aplica
+    /// <c>ConocimientoService</c>. Aquí sirven para avisar antes de subir dos megas para que los
+    /// rechacen, y para que el recuadro de pegar diga en su texto cuánto cabe.
+    /// </summary>
+    private const int MaxImagenes = 12;
+    private const long MaxBytesImagen = 2L * 1024 * 1024;
+
     /// <summary>Lo mínimo para que valga la pena hacer que el líder abra la cola.</summary>
     private const int MinCuerpoParaMandar = 40;
 
@@ -162,9 +230,12 @@
         "- punto de una lista        1. punto numerado\n" +
         "**negrita**                 `código dentro de una línea`\n" +
         "```sql   …líneas de código…   ```   (las tres comillas, en su propia línea)\n" +
-        "Las direcciones se vuelven enlaces solas; para ponerles nombre, [así](https://…).\n\n" +
-        "Todo lo demás es texto tal cual. No hay imágenes, ni tablas, ni HTML: dentro de un bloque de " +
-        "código no se interpreta nada, así que un script lleno de # comentarios no se convierte en títulos.";
+        "Las direcciones se vuelven enlaces solas; para ponerles nombre, [así](https://…).\n" +
+        "![lo que se ve](imagen:12)   una imagen ya subida aquí abajo, SOLA en su renglón.\n\n" +
+        "Todo lo demás es texto tal cual. No hay tablas ni HTML, y las imágenes son las que se " +
+        "suben aquí: una dirección de fuera no se incrusta, se queda en enlace. Dentro de un bloque " +
+        "de código no se interpreta nada, así que un script lleno de # comentarios no se convierte " +
+        "en títulos.";
 
     private string _titulo = "", _cuerpo = "", _etiquetas = "";
     private KnowledgeStatus _estado = KnowledgeStatus.Borrador;
@@ -188,7 +259,30 @@
     private int? _enElFormulario;
     private bool _preparado;
 
+    /// <summary>Las imágenes que ya tiene el artículo, con la marca con la que nombrarlas.</summary>
+    private List<ConocimientoImagenDto> _imagenes = [];
+
+    /// <summary>
+    /// Lo que acaba de llegar del portapapeles o del selector de archivos. Se vacía en cuanto se
+    /// sube: este componente es el conducto de UNA imagen cada vez, no una lista que se envía al
+    /// final — a diferencia del foro, aquí la imagen tiene que estar guardada antes de que el texto
+    /// pueda nombrarla.
+    /// </summary>
+    private List<ImagenAdjunta> _pegadas = [];
+
+    /// <summary>
+    /// El artículo que se creó SOLO para poder colgar de él la primera imagen, cuando se pegó una
+    /// captura en uno que todavía no existía. Desde ese momento esta pantalla ya edita algo real
+    /// aunque la dirección siga siendo la de «nuevo»: guardar tiene que ir a ESE artículo y no crear
+    /// un segundo, que es lo que pasaría si el guardado siguiera mirando solo la ruta.
+    /// </summary>
+    private int? _guardado;
+
     private bool EsNuevo => Id is null;
+
+    /// <summary>El artículo con el que se está trabajando de verdad. Null mientras no exista ninguno.</summary>
+    private int? IdActual => Id ?? _guardado;
+
     private int Largo => _cuerpo?.Length ?? 0;
 
     /// <summary>
@@ -216,11 +310,15 @@
         if (EsNuevo)
         {
             // Se entra a escribir uno nuevo, quizá desde el que se acababa de editar: la pantalla se
-            // reutiliza, así que hay que dejarla en blanco a mano.
+            // reutiliza, así que hay que dejarla en blanco a mano. El borrador que se hubiera creado
+            // para colgar una imagen también se olvida: aquel artículo ya no es éste.
             _titulo = _cuerpo = _etiquetas = "";
             _estado = KnowledgeStatus.Borrador;
             _puedoEnviar = false;   // uno nuevo se manda por ser nuevo, no por este permiso
             _noSePuede = null;
+            _guardado = null;
+            _imagenes = [];
+            _pegadas = [];
             return;
         }
 
@@ -250,6 +348,20 @@
         // analizados: el análisis es de ida, y reconstruir el original a partir de él perdería
         // exactamente lo que el autor escribió.
         _cuerpo = a.Fuente ?? "";
+
+        _guardado = null;   // se edita el de la ruta; no hay ninguno creado a medias
+        _pegadas = [];
+        await CargarImagenesAsync();
+    }
+
+    /// <summary>
+    /// Trae las imágenes que ya tiene el artículo. Sin ellas, quien vuelve a editar no tendría cómo
+    /// volver a nombrar una captura cuya marca borró del texto, y acabaría subiéndola otra vez.
+    /// </summary>
+    private async Task CargarImagenesAsync()
+    {
+        if (IdActual is not int id) { _imagenes = []; return; }
+        _imagenes = await Api.LeerAsync<List<ConocimientoImagenDto>>($"api/conocimiento/{id}/imagenes") ?? [];
     }
 
     /// <summary>
@@ -273,7 +385,11 @@
             var cuerpo = new ConocimientoEscrituraDto(_titulo, _cuerpo, _etiquetas);
             int id;
 
-            if (EsNuevo)
+            // Se mira IdActual y no la ruta: si al pegar una captura se creó el borrador, este
+            // artículo YA existe aunque se haya entrado por «/conocimiento/nuevo», y guardar tiene
+            // que actualizarlo. Mirando la ruta se crearía un segundo artículo cada vez que se
+            // guardara, y la imagen se quedaría colgando del primero.
+            if (IdActual is not int existente)
             {
                 var (ok, creado) = await Api.EnviarAsync<ConocimientoEscrituraDto, ConocimientoCreadoDto>(
                     "api/conocimiento", cuerpo);
@@ -284,14 +400,14 @@
             }
             else
             {
-                var r = await Http.CambiarAsync($"api/conocimiento/{Id}", cuerpo);
+                var r = await Http.CambiarAsync($"api/conocimiento/{existente}", cuerpo);
                 if (!r.Ok)
                 {
                     if (!string.IsNullOrEmpty(r.Mensaje)) Avisos.Error(r.Mensaje);
                     return;
                 }
 
-                id = Id!.Value;
+                id = existente;
                 if (!mandar) Avisos.Exito(r.Mensaje);
             }
 
@@ -313,7 +429,109 @@
         finally { _ocupado = false; }
     }
 
-    /// <summary>Volver: al artículo si ya existía, y a la lista si todavía no.</summary>
+    // ── Imágenes ─────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Sube la imagen que se acaba de pegar o de elegir, y deja su marca puesta en el texto.
+    ///
+    /// <para><b>Se sube ahora y no al guardar</b>, al revés que en el foro: allí las imágenes viajan
+    /// con el formulario y se evita así el adjunto huérfano, pero aquí el texto tiene que poder
+    /// NOMBRAR la imagen, y para nombrarla hace falta el número que solo existe una vez guardada. El
+    /// huérfano se evita por el otro lado: la imagen cuelga del artículo desde el primer momento y se
+    /// va con él si se borra.</para>
+    ///
+    /// <para>Los topes de peso y de formato los aplica el servidor mirando los BYTES; el recuadro de
+    /// pegar ya frena lo que se pase de tamaño antes de subirlo, que es cortesía y no defensa.</para>
+    /// </summary>
+    private async Task SubirImagenAsync(List<ImagenAdjunta> imagenes)
+    {
+        // El componente es un conducto, no una lista: se vacía en el acto para que la siguiente
+        // captura entre por el mismo sitio sin que haya que quitar la anterior a mano.
+        _pegadas = [];
+
+        if (imagenes.Count == 0) return;
+        var imagen = imagenes[^1];
+
+        _ocupado = true;
+        try
+        {
+            if (await AsegurarArticuloAsync() is not int id) return;
+
+            // El tipo de contenido NO se declara a propósito: el servidor decide qué es el archivo
+            // mirando sus bytes, y creerle al navegador sería justo lo que se quiere evitar. Es la
+            // misma regla que sigue EnvioDeImagenes en el foro; no se reutiliza aquel porque manda
+            // además la miniatura, y aquí no hay miniatura que guardar.
+            var formulario = new MultipartFormDataContent
+            {
+                { new ByteArrayContent(imagen.Contenido), "imagen", imagen.Nombre }
+            };
+
+            var (ok, subida) = await Api.SubirAsync<ConocimientoImagenDto>(
+                $"api/conocimiento/{id}/imagenes", formulario);
+            if (!ok || subida is null) return;
+
+            _imagenes = [.. _imagenes, subida];
+            PonerMarca(subida);
+        }
+        finally { _ocupado = false; }
+    }
+
+    /// <summary>
+    /// El artículo del que colgar la imagen, creándolo como borrador si todavía no existe.
+    ///
+    /// <para>Es lo que hace que pegar funcione a la primera mientras se escribe algo nuevo. Lo que se
+    /// crea es un borrador privado —no lo ve nadie más— con lo que haya escrito hasta ese momento, y
+    /// se dice que se hizo: guardar por tu cuenta algo que la persona no pidió guardar, y callarlo,
+    /// es de las cosas que hacen desconfiar de una pantalla.</para>
+    ///
+    /// <para>Si el servidor rechaza la creación —el título todavía es corto, que es el caso normal—
+    /// se enseña SU mensaje y no se sube nada: no hay artículo del que colgar la imagen.</para>
+    /// </summary>
+    private async Task<int?> AsegurarArticuloAsync()
+    {
+        if (IdActual is int id) return id;
+
+        var (ok, creado) = await Api.EnviarAsync<ConocimientoEscrituraDto, ConocimientoCreadoDto>(
+            "api/conocimiento", new ConocimientoEscrituraDto(_titulo, _cuerpo, _etiquetas));
+
+        if (!ok || creado is null) return null;
+
+        _guardado = creado.Id;
+        Avisos.Exito("Se guardó el borrador para poder guardar la imagen. Sigue siendo privado.");
+        PendientesDeConocimiento.Avisar();
+        return creado.Id;
+    }
+
+    /// <summary>
+    /// Pone la marca de una imagen al final del texto, en su propio renglón — que es como se
+    /// reconoce.
+    ///
+    /// <para>Al final y no donde está el cursor: llevar el cursor de un <c>textarea</c> exige bajar a
+    /// JavaScript, y lo que se ganaría no compensa. Mover una línea es un corte y un pegado, y así lo
+    /// dice el aviso.</para>
+    /// </summary>
+    private void PonerMarca(ConocimientoImagenDto imagen)
+    {
+        var texto = _cuerpo ?? "";
+        var separador = texto.Length == 0 ? "" : texto.EndsWith("\n") ? "\n" : "\n\n";
+
+        _cuerpo = texto + separador + imagen.Marca + "\n";
+
+        // El tope del cuerpo lo aplica el servidor, pero si la marca no cabe conviene decirlo aquí:
+        // el mensaje del rechazo llegaría al guardar, cuando ya no se entiende qué lo causó.
+        if (_cuerpo.Length > MaxCuerpo)
+            Avisos.Aviso($"El texto pasa de {MaxCuerpo:N0} caracteres. Recorta antes de guardar.");
+    }
+
+    /// <summary>
+    /// La ruta de una imagen del artículo. Se arma con el NÚMERO, igual que al leerlo: lo que se ve
+    /// aquí sale de la misma ruta que lo servirá después, así que no puede enseñar una cosa distinta
+    /// de la que se va a publicar.
+    /// </summary>
+    private static string Ruta(ConocimientoImagenDto imagen) => $"api/adjuntos/conocimiento/{imagen.Id}";
+
+    /// <summary>Volver: al artículo si ya existe —incluido el borrador que se creó para una imagen—,
+    /// y a la lista si todavía no hay ninguno.</summary>
     private void Volver() =>
-        Navegacion.NavigateTo(Id is int id ? $"conocimiento/{id}" : "conocimiento");
+        Navegacion.NavigateTo(IdActual is int id ? $"conocimiento/{id}" : "conocimiento");
 }

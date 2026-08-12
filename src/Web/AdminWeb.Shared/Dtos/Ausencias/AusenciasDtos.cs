@@ -232,16 +232,35 @@ public record NuevaSolicitudDeVacacionesRequest(DateTime Inicio, DateTime Fin, s
 /// número que la API va a rechazar.</param>
 /// <param name="MaxJustificanteBytes">El tope del archivo, por el mismo motivo: avisar antes de
 /// empujar 20 MB por la red para que los rechacen. El que cuenta lo aplica el servidor.</param>
+/// <param name="HorasDeLaJornada">Lo más largo que puede ser un permiso POR HORAS, por lo mismo que
+/// <paramref name="MaxDias"/>: para que el formulario avise antes de mandar un tramo que la API va a
+/// rechazar. Más que una jornada ya es el día entero y se pide como día completo.</param>
 public record MisPermisosDto(
     bool TieneFicha,
     ResumenDePermisosDto Resumen,
     IReadOnlyList<SolicitudDePermisoDto> Solicitudes,
     IReadOnlyList<OpcionDto> TiposDePermiso,
     int MaxDias,
-    long MaxJustificanteBytes);
+    long MaxJustificanteBytes,
+    decimal HorasDeLaJornada);
 
-/// <summary>Los tres indicadores de la cabecera, los mismos que enseñaba el escritorio.</summary>
-public record ResumenDePermisosDto(int EsperandoRespuesta, int AprobadosEsteAnio, int DiasAprobadosEsteAnio);
+/// <summary>
+/// Los indicadores de la cabecera: los tres del escritorio y el de las horas, que es nuevo porque
+/// antes no había permisos por horas que contar.
+/// </summary>
+/// <param name="DiasAprobadosEsteAnio">Días de los permisos aprobados <b>de día completo</b>. Los de
+/// horas NO se convierten a fracciones de día y ésa es la decisión de fondo: media jornada no son
+/// «0,5 días» para todo el mundo, y repartir un tramo de dos horas entre los días haría que este
+/// número dejara de poderse comparar con el de los años anteriores. Las horas se cuentan al lado, en
+/// <paramref name="HorasAprobadasEsteAnio"/>, y quien mire los dos ve la ausencia entera sin que
+/// ninguno de los dos mienta.</param>
+/// <param name="HorasAprobadasEsteAnio">Horas de los permisos aprobados por horas. Sale decimal
+/// porque un tramo puede ser de hora y media.</param>
+public record ResumenDePermisosDto(
+    int EsperandoRespuesta,
+    int AprobadosEsteAnio,
+    int DiasAprobadosEsteAnio,
+    decimal HorasAprobadasEsteAnio);
 
 /// <summary>
 /// Una solicitud de permiso propia.
@@ -250,7 +269,15 @@ public record ResumenDePermisosDto(int EsperandoRespuesta, int AprobadosEsteAnio
 /// <c>/api/adjuntos/permiso/{id}</c> cuando alguien pulsa.
 /// </summary>
 /// <param name="Hasta">Último día cubierto, ya calculado. Con «5 días desde una fecha» hay que
-/// contar a mano para saber hasta cuándo llega, y ahí es donde se cuela el error de un día.</param>
+/// contar a mano para saber hasta cuándo llega, y ahí es donde se cuela el error de un día. En un
+/// permiso por horas es el mismo día que <paramref name="Desde"/>: el tramo cabe en una jornada.</param>
+/// <param name="PorHoras">El permiso es de un TRAMO de un día y no de días completos.</param>
+/// <param name="HoraInicio">Las horas del tramo, en nulo cuando el permiso es de días completos.</param>
+/// <param name="Horas">Lo que dura el tramo. Cero en los de día completo: un día de ausencia no se
+/// convierte a horas, ver <see cref="ResumenDePermisosDto"/>.</param>
+/// <param name="Duracion">Cuánto dura, ya escrito: «2 día(s)» o «2 h (de 09:00 a 11:00)». Lo redacta
+/// el servidor —igual que las etiquetas de tipo y estado— para que esta pantalla y la del líder no
+/// puedan contar la misma ausencia de dos maneras.</param>
 /// <param name="LoRegistroElLider">Los permisos que capturó el administrador no son solicitudes del
 /// desarrollador; se ven igual, pero no se corrigen desde aquí.</param>
 /// <param name="SePuedeAdjuntar">Un justificante solo se puede colgar mientras la solicitud siga
@@ -262,6 +289,11 @@ public record SolicitudDePermisoDto(
     DateTime Desde,
     DateTime Hasta,
     int Dias,
+    bool PorHoras,
+    TimeOnly? HoraInicio,
+    TimeOnly? HoraFin,
+    decimal Horas,
+    string Duracion,
     LeaveStatus Estado,
     string EtiquetaEstado,
     string? Motivo,
@@ -273,13 +305,21 @@ public record SolicitudDePermisoDto(
     bool SePuedeAdjuntar,
     bool SePuedeEliminar);
 
-/// <summary>Alta de una solicitud de permiso. Como la de vacaciones, es siempre para uno mismo.</summary>
+/// <summary>
+/// Alta de una solicitud de permiso. Como la de vacaciones, es siempre para uno mismo.
+/// </summary>
+/// <param name="Dias">Días completos. En un permiso por horas va en 1: el tramo es de un solo día.</param>
+/// <param name="HoraInicio">El tramo, <b>solo</b> si se pide por horas. Los dos en nulo —que es lo
+/// que manda cualquier cliente que no sepa de esto— significan «día completo», que es como se pidieron
+/// todos los permisos hasta ahora.</param>
 public record NuevaSolicitudDePermisoRequest(
     LeaveType Tipo,
     DateTime Desde,
     int Dias,
     string? Motivo,
-    string? Notas);
+    string? Notas,
+    TimeOnly? HoraInicio = null,
+    TimeOnly? HoraFin = null);
 
 // ── Comunes a las dos pantallas ─────────────────────────────────────────────────
 

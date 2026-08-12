@@ -1,3 +1,4 @@
+using AdminWeb.Client.Componentes;
 using Microsoft.JSInterop;
 using Radzen;
 
@@ -11,9 +12,15 @@ namespace AdminWeb.Client.Servicios;
 /// asíncrono y devuelve una tarea. Esta clase es la traducción de aquel patrón, resuelta una vez
 /// para las ~80 ventanas que vendrán detrás.
 ///
-/// La distinción que importa: lo que solo informa se muestra como aviso pasajero (no interrumpe), y
-/// lo que pide una decisión se muestra como diálogo (sí interrumpe). En el escritorio ambos casos
-/// eran el mismo MessageBox y por eso confirmar «¿guardar?» costaba lo mismo que decir «guardado».
+/// La distinción que importa: lo que solo informa DE PASO se muestra como aviso pasajero (no
+/// interrumpe), y lo que pide una decisión se muestra como diálogo (sí interrumpe). En el escritorio
+/// ambos casos eran el mismo MessageBox y por eso confirmar «¿guardar?» costaba lo mismo que decir
+/// «guardado».
+///
+/// Y hay un tercer caso que no es ninguno de los dos, así que se nombra en vez de colarlo en el
+/// segundo: lo que hay que LEER —el detalle completo de una fila de rejilla, que en la celda no
+/// cabe—. Interrumpe como un diálogo, pero no pregunta nada ni devuelve respuesta: se abre, se lee y
+/// se cierra.
 /// </summary>
 public class AvisosDeInterfaz(NotificationService notificaciones, DialogService dialogos, IJSRuntime js)
 {
@@ -82,4 +89,41 @@ public class AvisosDeInterfaz(NotificationService notificaciones, DialogService 
         var respuesta = await js.InvokeAsync<string?>("prompt", mensaje, "");
         return respuesta;
     }
+
+    // ── Enseñar (interrumpe, pero no pide nada) ──────────────────────────────
+
+    /// <summary>
+    /// El detalle completo de una fila de rejilla. Lo abre el doble clic sobre la fila y el botón
+    /// del ojo, que son el mismo camino por dos puertas (ver <c>BotonDeDetalle.razor</c>).
+    ///
+    /// <para>Se puede cerrar de TRES formas y las tres van declaradas aquí:</para>
+    /// <list type="bullet">
+    ///   <item>Escape. Radzen ya lo hace por omisión; se escribe igualmente porque es un requisito
+    ///   del cuadro y no un valor de fábrica del que se pueda depender en silencio.</item>
+    ///   <item>Pinchando fuera. Eso NO es lo de fábrica —Radzen lo trae apagado— y hay que pedirlo.
+    ///   Es lo que se espera de algo que solo se lee: nadie busca un botón para dejar de mirar.</item>
+    ///   <item>El aspa de la barra de título, para quien navega con el teclado.</item>
+    /// </list>
+    ///
+    /// <para>Ni arrastrable ni redimensionable: son gestos de ventana que solo estorban en algo que
+    /// se abre para leer diez renglones y se cierra. El ancho se queda en <c>min()</c> porque el
+    /// texto largo necesita medida cómoda de lectura, pero un cuadro de 46 rem en un teléfono se
+    /// sale de la pantalla.</para>
+    ///
+    /// <para>Devuelve una tarea que termina al cerrarse, y nadie la mira: no hay respuesta que
+    /// recoger. Se espera igualmente para que una excepción al abrirlo no se pierda.</para>
+    /// </summary>
+    public async Task VerDetalleAsync(DetalleDeFila detalle) =>
+        await dialogos.OpenAsync<CuadroDeDetalle>(
+            detalle.Encabezado,
+            new Dictionary<string, object> { [nameof(CuadroDeDetalle.Detalle)] = detalle },
+            new DialogOptions
+            {
+                Width = "min(46rem, 92vw)",
+                CloseDialogOnEsc = true,
+                CloseDialogOnOverlayClick = true,
+                ShowClose = true,
+                Draggable = false,
+                Resizable = false
+            });
 }

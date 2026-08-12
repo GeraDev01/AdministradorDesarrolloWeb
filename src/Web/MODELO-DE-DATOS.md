@@ -10,7 +10,7 @@
 > [AppDbContext.cs](AdminWeb.Infrastructure/Data/AppDbContext.cs), con la razón de cada decisión al
 > lado. Nada de eso se repite aquí.
 
-Hoy son **69 entidades**, **69 `DbSet`** y **46 enumeraciones**. Es la **misma base** que usaba la
+Hoy son **70 entidades**, **70 `DbSet`** y **46 enumeraciones**. Es la **misma base** que usaba la
 aplicación de escritorio: mismas tablas, mismas columnas, mismos nombres en inglés. Lo que la web
 añadió es aditivo y está listado en [EL-CORTE.md](EL-CORTE.md#3-apuntar-la-web-a-producción-y-arrancarla).
 
@@ -85,22 +85,31 @@ Por eso el ranking, los KPI, los reportes y el PDF funcionan sin saber que el po
 `VacationRequest` · `VacationDocument` · `LeaveRequest` · `SignatureProfile`
 
 Vacaciones y permisos son **dos flujos distintos** y no comparten tabla: unas vacaciones son un rango
-de fechas que genera un documento firmado; un permiso es un día con su justificante.
-`SignatureProfile` guarda las firmas manuscritas que se estampan en el documento.
+de fechas que genera un documento firmado; un permiso son uno o varios días —o **un tramo de horas de
+un solo día**, en `HoraInicio`/`HoraFin`— con su justificante. Esas dos columnas van en nulo en los
+permisos de día completo, que es todo el histórico: el nulo significa «día completo» y por eso no hay
+nada que rellenar al migrar. `SignatureProfile` guarda las firmas manuscritas que se estampan en el
+documento.
 
-### 8. Comunicación y conocimiento — 12
+### 8. Comunicación y conocimiento — 13
 
-`ForumPost` · `ForumLike` · `ForumAttachment` · `KnowledgeArticle` · `Suggestion` ·
-`SuggestionVote` · `Minute` · `MinuteActionItem` · `Notification` · `Note` · `Template` ·
-`DocumentTemplate`
+`ForumPost` · `ForumLike` · `ForumAttachment` · `KnowledgeArticle` · `KnowledgeImage` ·
+`Suggestion` · `SuggestionVote` · `Minute` · `MinuteActionItem` · `Notification` · `Note` ·
+`Template` · `DocumentTemplate`
 
-Todo lo que el equipo escribe. Dos cosas que no se ven en el nombre:
+Todo lo que el equipo escribe. Tres cosas que no se ven en el nombre:
 
 - **El foro es una sola tabla autorreferente.** Una publicación y un comentario son la misma fila con
   distinto `ParentId`; `RootId` es lo que permite traer un hilo entero de una vez.
 - **El glosario no es otra tabla.** Un término del glosario es un `KnowledgeArticle` corto con sus
   etiquetas; una guía larga es otro con las suyas. Partirlo en dos habría obligado a buscar dos
   veces y a decidir en cuál va cada cosa cuando un término crece.
+- **Las imágenes de un artículo sí son otra tabla**, `KnowledgeImage`, por lo mismo que las del foro:
+  son binarios de megas y el cuerpo del artículo se lee entero en cada búsqueda. El cuerpo las nombra
+  por NÚMERO —`![descripción](imagen:12)`— y nunca por una dirección: es lo que permite incrustar
+  imágenes sin que el texto que escribe una persona acabe dentro de un atributo del navegador de
+  quien lee. A diferencia de `ForumAttachment` no guarda miniatura, porque lo que se pinta aquí es un
+  diagrama al ancho de la columna y no un recuadro de 200 píxeles.
 
 ### 9. Integraciones y SLA — 9
 
@@ -233,7 +242,7 @@ los servicios, y romperlas no da error de integridad.
 | **Un solo registro de asistencia por día y persona** | `AttendanceService` | — |
 | **El secreto del segundo factor no está en `Users`**: vive cifrado en `UserSecrets`, como el PAT | [User.cs](AdminWeb.Domain/Entities/User.cs) | Una columna en claro sería una llave de acceso legible para quien consulte la base |
 | **Los códigos de rescate y los equipos recordados se guardan solo como hash** | `UserRecoveryCode`, `UserTrustedDevice` | Ni la base ni un respaldo los contienen en claro |
-| **El cuerpo del foro y de la base de conocimiento es TEXTO**, y el servidor lo entrega troceado y con los enlaces ya validados | `ForumRichText`, `ConocimientoTexto` | `MarkupString` sobre eso es XSS almacenado con la sesión de quien lee |
+| **El cuerpo del foro y de la base de conocimiento es TEXTO**, y el servidor lo entrega troceado, con los enlaces ya validados y las imágenes nombradas por NÚMERO | `ForumRichText`, `ConocimientoTexto` | `MarkupString` sobre eso es XSS almacenado con la sesión de quien lee; una dirección de imagen que llegara del cuerpo lo sería igual, dentro de un atributo |
 | **La clave de licencia de un programa no viaja con la rejilla.** Se pide de una en una y queda en la bitácora como `AuditAction.Read` | `CatalogosService` | Al editar, mandarla nula la **conserva**; para quitarla hay que mandar algo en blanco |
 
 ---

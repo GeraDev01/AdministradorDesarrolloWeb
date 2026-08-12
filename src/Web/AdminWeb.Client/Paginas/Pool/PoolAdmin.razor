@@ -330,13 +330,35 @@
                             </RadzenAlert>
                         }
 
+                        @*
+                            EL DOBLE CLIC ABRE EL DETALLE DE LA FILA, y aquí hacía más falta que en
+                            ninguna otra rejilla: el DETALLE de la actividad —lo que hay que hacer,
+                            escrito largo— no está en NINGUNA columna de esta tabla. Cabía en el
+                            formulario de edición y en ningún otro sitio, así que para leerlo había
+                            que ponerse a editar una actividad que a lo mejor solo se quería mirar.
+
+                            Esta rejilla no lleva selección enlazada, así que el doble clic no puede
+                            descolocar nada: el primer clic no abre ningún panel y el segundo no lo
+                            cierra.
+                        *@
                         <RadzenDataGrid data-recorrido="pool-tabla"
                                         TItem="ActividadDelPoolDto" Data="@Actividades" IsLoading="@_ocupado"
                                         AllowSorting="true" AllowPaging="true" PageSize="15"
                                         RowRender="@ApagarLasCerradas"
+                                        RowDoubleClick="@(a => Avisos.VerDetalleAsync(DetalleDe(a.Data)))"
                                         EmptyText="No hay actividades que cumplan el filtro.">
                             <Columns>
-                                <RadzenDataGridColumn TItem="ActividadDelPoolDto" Property="Titulo" Title="Actividad" />
+                                <RadzenDataGridColumn TItem="ActividadDelPoolDto" Title="" Width="52px" Sortable="false">
+                                    <Template Context="a"><BotonDeDetalle Detalle="@DetalleDe(a)" /></Template>
+                                </RadzenDataGridColumn>
+                                @* MinWidth y no Width: esta columna es la única sin ancho fijo, o sea
+                                   la que se queda con lo que sobre. Cuando las demás suman más que
+                                   la ventana, lo que sobra es CERO y el título de la actividad
+                                   desaparece — medido a 1440 px, que no es una ventana estrecha.
+                                   Con un mínimo, lo que cede es la tabla (aparece su barra
+                                   horizontal) en vez de cederlo el dato con el que se decide. *@
+                                <RadzenDataGridColumn TItem="ActividadDelPoolDto" Property="Titulo" Title="Actividad"
+                                                      MinWidth="220px" />
                                 <RadzenDataGridColumn TItem="ActividadDelPoolDto" Property="TipoTexto" Title="Tipo" Width="120px" />
                                 <RadzenDataGridColumn TItem="ActividadDelPoolDto" Property="ComplejidadTexto"
                                                       Title="Complejidad" Width="120px" />
@@ -565,7 +587,10 @@
                                         Value="@_seleccion" ValueChanged="@Seleccionar"
                                         EmptyText="No hay nada por verificar.">
                             <Columns>
-                                <RadzenDataGridColumn TItem="EntregaPorVerificarDto" Property="Titulo" Title="Actividad" />
+                                @* MinWidth por lo mismo que en la rejilla de arriba: sin él, el título
+                                   es lo primero que la tabla sacrifica cuando no cabe. *@
+                                <RadzenDataGridColumn TItem="EntregaPorVerificarDto" Property="Titulo" Title="Actividad"
+                                                      MinWidth="220px" />
                                 <RadzenDataGridColumn TItem="EntregaPorVerificarDto" Property="TipoTexto" Title="Tipo" Width="120px" />
                                 <RadzenDataGridColumn TItem="EntregaPorVerificarDto" Property="Puntos" Title="Puntos"
                                                       Width="90px" TextAlign="TextAlign.Right">
@@ -1515,6 +1540,40 @@
         ?? _configuracion?.Matriz
                .FirstOrDefault(m => m.Tipo == a.Tipo && m.Complejidad == a.Complejidad)?.HorasLimite
         ?? 0m;
+
+    /// <summary>
+    /// LA FILA ENTERA, PARA EL CUADRO QUE ABRE EL DOBLE CLIC.
+    ///
+    /// <para>Los valores se piden a los MISMOS ayudantes que pintan las celdas —<c>HorasDelPool</c>
+    /// para el plazo, el esfuerzo y la fecha de entrega, y las etiquetas que manda el servidor para
+    /// el tipo, el estado y la prioridad—. No se formatea nada por segunda vez a propósito: dos
+    /// formatos del mismo dato es tener dos verdades, y la que se corregiría el día que cambie una
+    /// sería solo una de las dos.</para>
+    ///
+    /// <para>Lo que la rejilla dice CON COLOR se escribe aquí con palabras. «Vencida» se pinta allá
+    /// tiñendo la fecha de ámbar, y el color no viaja a un cuadro de texto; sin la coletilla, el dato
+    /// que más urge sería justo el que se pierde al abrir el detalle.</para>
+    ///
+    /// <para>El DETALLE va el último y como texto largo porque es el motivo de todo esto: es el campo
+    /// que no está en ninguna columna de la rejilla.</para>
+    /// </summary>
+    private DetalleDeFila DetalleDe(ActividadDelPoolDto a) =>
+        new DetalleDeFila("Actividad del pool", a.Titulo)
+            .Campo("Tipo", a.TipoTexto)
+            .Campo("Complejidad", a.ComplejidadTexto)
+            .Campo("Puntos", a.PuntosMaximos > a.Puntos
+                                 ? $"{a.Puntos} (máx. {a.PuntosMaximos} con los criterios extra)"
+                                 : $"{a.Puntos}")
+            .Campo("Criterios extra", a.CuantosCriteriosExtra > 0 ? $"{a.CuantosCriteriosExtra}" : null)
+            .Campo("Prioridad", a.PrioridadTexto)
+            .Campo("Estado", a.EstadoTexto)
+            .Campo("Quién la tiene", a.QuienLaTiene)
+            .Campo("Plazo", HorasDelPool.Plazo(PlazoEfectivo(a)) + (a.Horas is null ? " (de la matriz)" : ""))
+            .Campo("Esfuerzo", HorasDelPool.Esfuerzo(a.HorasEstimadas))
+            .Campo("Entrega esperada", HorasDelPool.Limite(a.LimiteUtc) + (a.Vencida ? " — vencida" : ""))
+            .Campo("Devoluciones", $"{a.Devoluciones}")
+            .Campo("Enlace", a.Enlace)
+            .Texto("Detalle", a.Detalle);
 
     /// <summary>
     /// Por qué una actividad puede no tener esfuerzo estimado, para el hover de la columna. Sin esto,

@@ -1,7 +1,7 @@
 @using AdminWeb.Shared.Dtos.Conocimiento
 
 @*
-    Pinta el cuerpo de un artículo: títulos, párrafos, listas y bloques de código.
+    Pinta el cuerpo de un artículo: títulos, párrafos, listas, bloques de código e imágenes.
 
     ── POR QUÉ ESTO NO ES UN «RENDERIZADOR DE MARKDOWN» ───────────────────────────────────────────
 
@@ -21,10 +21,15 @@
          quien lee y se puede manipular, así que decidir aquí qué es un enlace no valdría de defensa.
       3. Cada ancla lleva rel="noopener noreferrer": sin noopener, la página que se abre puede
          redirigir la nuestra desde window.opener.
+      4. La dirección de una IMAGEN no llega: llega su NÚMERO, y la ruta se arma aquí con él. En el
+         src no acaba nunca una cadena que haya tecleado una persona, así que no hay dónde meter un
+         onerror, ni un javascript:, ni un data:, ni una dirección de otro sitio. Si algún día el
+         bloque trajera la dirección ya hecha, esta pantalla tendría que validarla — y validar aquí
+         no vale de nada, porque esto corre en la máquina de quien lee.
 
-    Dentro de un bloque de código no se pinta nada especial —ni negritas, ni enlaces— porque el
-    servidor tampoco los analizó: ahí una dirección es código, y un renglón que empieza por # es un
-    comentario, no un título.
+    Dentro de un bloque de código no se pinta nada especial —ni negritas, ni enlaces, ni imágenes—
+    porque el servidor tampoco los analizó: ahí una dirección es código, un renglón que empieza por #
+    es un comentario y la marca de una imagen es el ejemplo de cómo se escribe.
 *@
 
 @foreach (var bloque in Bloques)
@@ -55,6 +60,27 @@
                 <li style="margin:.15rem 0">@Renglon(r)</li>
             }
         </ul>
+    }
+    else if (bloque.Tipo == TipoDeBloque.Imagen)
+    {
+        @* max-width:100% con height:auto es lo que impide que un diagrama de 1900 píxeles desborde la
+           columna en un teléfono: la imagen se encoge hasta el ancho disponible y conserva su forma.
+           Sin el height:auto, el navegador respetaría el alto original y la aplastaría. *@
+        <figure style="margin:0 0 .9rem">
+            @* Se abre en otra pestaña porque el detalle de una captura casi nunca se lee al ancho de
+               la columna: ahí se ve que hay un diagrama, y se abre para leer lo que dice. *@
+            <a href="@Ruta(bloque)" target="_blank" rel="noopener noreferrer"
+               title="Abrir la imagen a tamaño completo (en otra pestaña)">
+                <img src="@Ruta(bloque)" alt="@Alternativo(bloque)" loading="lazy"
+                     style="display:block;max-width:100%;height:auto;border:1px solid var(--rz-border-color);border-radius:var(--rz-border-radius)" />
+            </a>
+            @if (Descripcion(bloque) is { Length: > 0 } pie)
+            {
+                @* El pie repite la descripción que ya va en el alt, y no sobra: el alt solo lo lee
+                   quien no ve la imagen, y un diagrama sin decir de qué es obliga a adivinarlo. *@
+                <figcaption style="margin:.3rem 0 0;font-size:.8rem;color:var(--rz-text-secondary-color)">@pie</figcaption>
+            }
+        </figure>
     }
     else if (bloque.Tipo == TipoDeBloque.Codigo)
     {
@@ -98,6 +124,25 @@
         if (renglon is null) return;
         @foreach (var s in renglon.Segmentos){if (s.Url is not null){<a href="@s.Url" target="_blank" rel="noopener noreferrer" title="@($"{s.Url} (se abre en otra pestaña)")">@s.Texto</a>}else if (s.Codigo){<code style="padding:.05rem .3rem;border-radius:3px;background:var(--rz-base-200);font-family:var(--rz-font-family-monospace, monospace);font-size:.88em">@s.Texto</code>}else if (s.Negrita){<strong>@s.Texto</strong>}else{@s.Texto}}
     };
+
+    /// <summary>
+    /// La ruta de una imagen, armada aquí a partir del NÚMERO que mandó el servidor. Esta es la
+    /// línea que sostiene la promesa de arriba: lo único variable es un entero, así que la cadena
+    /// que acaba en el <c>src</c> no puede traer nada de lo que alguien escribiera en el artículo.
+    /// </summary>
+    private static string Ruta(ConocimientoBloqueDto bloque) => $"api/adjuntos/conocimiento/{bloque.ImagenId}";
+
+    /// <summary>La descripción que escribió el autor. Vacía si no puso ninguna.</summary>
+    private static string Descripcion(ConocimientoBloqueDto bloque) =>
+        string.Concat(bloque.Renglones.SelectMany(r => r.Segmentos).Select(s => s.Texto)).Trim();
+
+    /// <summary>
+    /// El texto alternativo. Nunca vacío: un <c>alt</c> en blanco significa «esta imagen es
+    /// decorativa, sáltatela», y en documentación no lo es nunca — quien la lea con un lector de
+    /// pantalla se quedaría sin saber siquiera que ahí había algo.
+    /// </summary>
+    private static string Alternativo(ConocimientoBloqueDto bloque) =>
+        Descripcion(bloque) is { Length: > 0 } d ? d : "Imagen del artículo";
 
     /// <summary>
     /// El texto crudo de un bloque de código, en una sola cadena.

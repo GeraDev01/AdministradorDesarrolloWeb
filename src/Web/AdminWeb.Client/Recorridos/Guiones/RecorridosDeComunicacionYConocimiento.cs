@@ -396,9 +396,17 @@ public sealed class RecorridosDeComunicacionYConocimiento : IFuenteDeRecorridos
             "distinto de lo que se publica. Al guardar se abre el artículo tal como quedó de verdad."),
 
         new Paso("escribir-marcas", "Las marcas que se entienden",
-            "Son cinco y están desplegadas aquí para no tener que acordarse de ellas. Todo lo demás " +
-            "es texto tal cual: no hay imágenes ni tablas, y dentro de un bloque de código no se " +
+            "Son seis y están desplegadas aquí para no tener que acordarse de ellas. Todo lo demás " +
+            "es texto tal cual: no hay tablas ni HTML, y dentro de un bloque de código no se " +
             "interpreta nada, así que un script lleno de comentarios no se convierte en títulos."),
+
+        new Paso("escribir-imagenes", "Diagramas y capturas",
+            "Pulsa dentro del recuadro y pega la captura con Ctrl+V; también puedes elegir el " +
+            "archivo. Se sube en ese momento y su marca queda puesta al final del texto, para que la " +
+            "muevas donde la quieras. Cambia lo que va entre corchetes por lo que describe la " +
+            "imagen: es lo que se lee cuando no carga. Solo se incrustan las imágenes que subas " +
+            "aquí — una dirección de otro sitio se queda en enlace, porque lo que ilustra un " +
+            "artículo revisado no puede cambiar después sin que nadie se entere."),
 
         new Paso("escribir-borrador", "Guardar y seguir otro día",
             "Guarda sin mandárselo a nadie. Un borrador puede quedarse a medias el tiempo que haga " +

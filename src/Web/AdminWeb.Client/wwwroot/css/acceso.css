@@ -78,11 +78,12 @@
 
     /* El acento SOBRE grafito usa la variante clara en los dos modos, que es para
        lo que el tema la tiene: lo dice en tema.css junto a --rz-primary-light
-       —sobre la barra grafito el acento base se queda en 3.53 y éste sube a
-       4.71—. Ojo con la simetría, que es fácil de romper: esa misma variable NO
-       vale sobre superficie clara (da 3.72 sobre blanco), así que sirve aquí y no
-       en la mitad del formulario. Se declara una sola vez para revisarlo en un
-       sitio el día que haga falta. */
+       —sobre la barra grafito el acento base se queda en 3.43 y éste sube a 5.14
+       en claro y a 12.18 en oscuro—. Ojo con la simetría, que es fácil de romper:
+       esa misma variable NO vale sobre superficie clara (da 3.47 sobre blanco, de
+       sobra para un borde y muy lejos de los 4.5 de un texto), así que sirve aquí
+       y no en la mitad del formulario. Se declara una sola vez para revisarlo en
+       un sitio el día que haga falta. */
     --acceso-acento: var(--rz-primary-light);
 }
 
@@ -124,10 +125,10 @@
     flex: 0 0 auto;
 }
 
-/* Troquel: el cuadrado va en ámbar y la M se «recorta» dejando ver el grafito del
-   propio panel. Elegido así porque es legible por construcción en los dos modos
-   —el acento claro es claro y el grafito es oscuro, siempre— en vez de depender
-   de que dos colores concretos contrasten. */
+/* Troquel: el cuadrado va en el acento y la M se «recorta» dejando ver el grafito
+   del propio panel. Elegido así porque es legible por construcción en los dos
+   modos —el acento claro es claro y el grafito es oscuro, siempre— en vez de
+   depender de que dos colores concretos contrasten. */
 .acceso-marca-trazo rect { fill: var(--acceso-acento); }
 .acceso-marca-trazo path { fill: var(--rz-header-background-color); }
 
@@ -147,14 +148,15 @@
     /* Se apaga por COLOR y no con opacity, aunque opacity sea lo primero que uno
        escribe. La opacidad se aplica al elemento entero, y este elemento lleva
        colgado el filete de acento del ::before: apagarlo al 72% se lo llevaba por
-       delante y lo dejaba en 3.04 sobre el grafito, cuando a plena fuerza da
-       4.72. Tocando solo el color, el filete se queda como estaba.
+       delante y lo dejaba en 3.25 sobre el grafito —rozando el 3:1 que pide un
+       elemento no textual—, cuando a plena fuerza da 5.14. Tocando solo el color,
+       el filete se queda como estaba.
        Sobre grafito no vale --rz-text-secondary-color; ver la cabecera. */
     color: color-mix(in srgb, var(--rz-header-color) 72%, transparent);
 }
 
 /* El único otro sitio donde aparece el acento en esta mitad. Un filete corto
-   basta para que el ámbar esté presente sin empapelar. */
+   basta para que el acento esté presente sin empapelar. */
 .acceso-lema::before {
     content: "";
     display: block;

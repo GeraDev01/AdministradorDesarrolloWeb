@@ -244,10 +244,11 @@ public static class AusenciasEndpoints
             NuevaSolicitudDePermisoRequest cuerpo, AusenciasService ausencias, CancellationToken ct) =>
         {
             var (ok, mensaje, id) = await ausencias.SolicitarPermisoAsync(
-                cuerpo.Tipo, cuerpo.Desde, cuerpo.Dias, cuerpo.Motivo, cuerpo.Notas, ct);
+                cuerpo.Tipo, cuerpo.Desde, cuerpo.Dias, cuerpo.Motivo, cuerpo.Notas,
+                cuerpo.HoraInicio, cuerpo.HoraFin, ct);
             return ok ? Results.Ok(new SolicitudCreadaDto(true, mensaje, id)) : Rechazo(mensaje);
         })
-        .WithSummary("Solicita un permiso para uno mismo; queda pendiente de que el líder lo resuelva");
+        .WithSummary("Solicita un permiso para uno mismo, de días completos o de un tramo de horas");
 
         grupo.MapPost("/permisos/{id:int}/cancelacion", async (
             int id, CancelacionRequest? cuerpo, LeaveRequestService permisos, CancellationToken ct) =>

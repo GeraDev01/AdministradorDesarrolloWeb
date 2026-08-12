@@ -27,10 +27,15 @@ namespace AdminWeb.Api.Endpoints;
 /// equivocarse; lo que sí hace el endpoint es traducir el rechazo a un 400 con el mensaje que
 /// escribió el servicio, que explica el motivo concreto.</para>
 ///
-/// <para><b>Sin testigo antifalsificación</b>, a diferencia del foro: aquí no se suben archivos y
-/// todo va en JSON. Un cuerpo JSON obliga al navegador a preguntar antes (preflight) y sin política
-/// CORS no llega; lo que sí llegaría desde cualquier página es un formulario multipart, y aquí no
-/// hay ninguno.</para>
+/// <para><b>El testigo antifalsificación hace falta en UNA sola ruta</b>, la de subir una imagen, y
+/// es la única multipart de todo el grupo. El resto va en JSON, y un cuerpo JSON no se puede
+/// provocar desde otra página —obliga al navegador a preguntar antes y no hay política CORS que lo
+/// permita—; un formulario multipart sí llegaría aquí con la cookie de sesión puesta. La cookie es
+/// SameSite=Strict y eso ya lo frena, pero el testigo es la barrera que no depende de que un
+/// navegador implemente bien SameSite. Lo exige <c>UseAntiforgery</c> por el solo hecho de que la
+/// ruta lea un formulario, y lo adjunta <c>ClienteApi.SubirAsync</c> sin que la pantalla tenga que
+/// acordarse. <b>No le pongas <c>DisableAntiforgery</c> para que «funcione» desde una herramienta de
+/// pruebas.</b></para>
 /// </summary>
 public static class ConocimientoEndpoints
 {
@@ -120,6 +125,50 @@ public static class ConocimientoEndpoints
         })
         .RequireAuthorization("AdminUDesarrollador")
         .WithSummary("Manda el artículo a la cola del líder");
+
+        // ── Imágenes del artículo ────────────────────────────────────────────────
+        //
+        // En dos tiempos y no en el mismo envío que el texto: para que el cuerpo pueda NOMBRAR una
+        // imagen hace falta que ya tenga número. Así el cuerpo sigue sin llevar una sola dirección
+        // escrita por una persona, que es de donde salen los agujeros de esta clase de pantalla.
+        //
+        // Una imagen por llamada, y por eso la parte se llama «imagen» en singular: es lo que hace
+        // el editor cada vez que alguien pega una captura, y le devuelve la marca ya armada para
+        // meterla en el texto en ese mismo gesto.
+
+        grupo.MapPost("/{id:int}/imagenes", async (
+            int id, IFormCollection formulario, ConocimientoService conocimiento, CancellationToken ct) =>
+        {
+            var archivo = formulario.Files.GetFile("imagen");
+            if (archivo == null)
+                return Results.BadRequest(new ResultadoDto(false, "No llegó ninguna imagen."));
+
+            // El peso se mira ANTES de leer nada: cargar en memoria lo que el servicio va a rechazar
+            // después sería regalar una forma barata de tumbar el servidor. La comprobación que
+            // cuenta —que los bytes sean de verdad una imagen— sigue estando en el servicio, que es
+            // por donde pasa todo lo que se guarda.
+            if (archivo.Length > ConocimientoService.MaxBytesImagen)
+                return Results.BadRequest(new ResultadoDto(false,
+                    $"«{archivo.FileName}» pesa {ForumMedia.Tamano(archivo.Length)} y el tope por imagen es " +
+                    $"{ForumMedia.Tamano(ConocimientoService.MaxBytesImagen)}."));
+
+            using var memoria = new MemoryStream();
+            await archivo.CopyToAsync(memoria, ct);
+
+            var (ok, mensaje, imagen) = await conocimiento.GuardarImagenAsync(
+                id, archivo.FileName, memoria.ToArray(), ct);
+
+            return ok && imagen != null
+                ? Results.Ok(imagen)
+                : Results.BadRequest(new ResultadoDto(false, mensaje));
+        })
+        .RequireAuthorization("AdminUDesarrollador")
+        .WithSummary("Sube una imagen al artículo y devuelve la marca con la que nombrarla");
+
+        grupo.MapGet("/{id:int}/imagenes", async (
+            int id, ConocimientoService conocimiento, CancellationToken ct) =>
+            Results.Ok(await conocimiento.ImagenesDeAsync(id, ct)))
+        .WithSummary("Las imágenes que ya tiene el artículo, sin los bytes (van por /api/adjuntos)");
 
         grupo.MapDelete("/{id:int}", async (
             int id, ConocimientoService conocimiento, CancellationToken ct) =>

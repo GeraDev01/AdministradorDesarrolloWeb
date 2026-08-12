@@ -19,6 +19,38 @@ public class LeaveRequest
     public int DaysCount { get; set; } = 1;
     public string? Reason { get; set; }
 
+    // ── El tramo, cuando el permiso es de HORAS ──────────────────────────────
+    //
+    // Los permisos siguen pudiendo ser de días completos —eso es todo lo que hay en el histórico— y
+    // ADEMÁS pueden ser de un rato de un día. Quien lo pide elige; no se sustituye una cosa por la
+    // otra.
+    //
+    // Las dos columnas son ANULABLES, y ahí está lo importante para la base que ya existe: un
+    // permiso de día completo NO tiene tramo, así que el NULL es un valor legítimo del modelo y no
+    // una fila a medio migrar. Es justo lo contrario del sello de sesión (ver
+    // SelloDeSesionMigracionTests), donde la propiedad era NO anulable y una columna nueva en NULL
+    // dejaba filas que EF no podía materializar. Si algún día se agrega aquí una columna no
+    // anulable, hay que rellenarla en el migrador el mismo día.
+    //
+    // Los nombres van en español aunque los de al lado sean ingleses: la entidad se portó tal cual
+    // del escritorio, pero lo que la web añade se escribe en el idioma del proyecto. Es lo que ya se
+    // hizo en PoolActivity con HorasLimite y HorasEstimadas al lado de DiasLimite.
+    //
+    // Y son dos columnas NUEVAS en vez de reinterpretar DaysCount porque el escritorio sigue leyendo
+    // esta tabla hasta el corte: allí un permiso por horas se verá como el día en el que cae, que es
+    // lo más parecido a la verdad que esa aplicación puede enseñar.
+
+    /// <summary>
+    /// Hora a la que empieza el permiso cuando es POR HORAS; nula en los de día completo.
+    ///
+    /// <para>Va junto con <see cref="HoraFin"/>: las dos o ninguna, y eso lo garantiza
+    /// <c>LeaveRequestService</c> al validar. Una sola llena no significaría nada.</para>
+    /// </summary>
+    public TimeOnly? HoraInicio { get; set; }
+
+    /// <summary>Hora a la que termina el tramo. Ver <see cref="HoraInicio"/>.</summary>
+    public TimeOnly? HoraFin { get; set; }
+
     /// <summary>
     /// Texto libre heredado de cuando esta pantalla era el registro manual del administrador.
     /// Se sigue mostrando para no perder el histórico, pero ya no es lo que decide: eso es
@@ -59,7 +91,12 @@ public class LeaveRequest
     /// </summary>
     public byte[]? RowVersion { get; set; }
 
-    /// <summary>Última fecha cubierta por el permiso, contando el día de inicio.</summary>
+    /// <summary>
+    /// Última fecha cubierta por el permiso, contando el día de inicio.
+    ///
+    /// <para>Un permiso POR HORAS es siempre de un solo día —el tramo cabe en una jornada—, así que
+    /// su <see cref="DaysCount"/> es 1 y esto devuelve su propia fecha. La cuenta no cambió.</para>
+    /// </summary>
     public DateTime EndDate => Date.Date.AddDays(Math.Max(1, DaysCount) - 1);
 
     public bool EsSolicitudDelDesarrollador => RequestedByDeveloperId != null;

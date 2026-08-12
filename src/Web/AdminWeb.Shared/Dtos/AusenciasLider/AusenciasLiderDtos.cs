@@ -189,20 +189,29 @@ public record RenombrarFirmaRequest(string Nombre);
 /// </summary>
 /// <param name="MaxDias">El tope que aplica <c>LeaveRequestService</c>, para que el formulario de
 /// registro no deje escribir un número que la API va a rechazar.</param>
+/// <param name="HorasDeLaJornada">El otro tope del mismo servicio: lo más largo que puede ser un
+/// permiso POR HORAS. Viaja por lo mismo que el anterior, y además para que el formulario pueda
+/// explicar en pantalla de dónde sale el límite.</param>
 public record PermisosDelLiderDto(
     IReadOnlyList<PermisoDelLiderDto> Permisos,
     IReadOnlyList<OpcionDeFiltroDto<int>> Desarrolladores,
     IReadOnlyList<OpcionDeFiltroDto<LeaveType>> Tipos,
     IReadOnlyList<OpcionDeFiltroDto<LeaveStatus>> Estados,
     int Pendientes,
-    int MaxDias);
+    int MaxDias,
+    decimal HorasDeLaJornada);
 
 /// <summary>
 /// Un permiso visto por quien lo resuelve. Como en vacaciones, el justificante <b>no viaja aquí</b>:
 /// se pide por <c>/api/adjuntos/permiso/{id}</c>, que ya sirve todos los adjuntos con el mismo trato.
 /// </summary>
 /// <param name="Hasta">Último día cubierto, ya calculado. Con «5 días desde una fecha» hay que
-/// contar a mano para saber hasta cuándo llega, y ahí es donde se cuela el error de un día.</param>
+/// contar a mano para saber hasta cuándo llega, y ahí es donde se cuela el error de un día. En un
+/// permiso por horas es el mismo día que <paramref name="Desde"/>: el tramo cabe en una jornada.</param>
+/// <param name="PorHoras">Es un TRAMO de un día y no días completos.</param>
+/// <param name="Duracion">Cuánto dura, ya escrito por el servidor: «2 día(s)» o
+/// «2 h (de 09:00 a 11:00)». Es la MISMA frase que ve quien pidió el permiso en «Mis permisos», y
+/// viene hecha justamente para que no puedan discrepar.</param>
 /// <param name="LoRegistroElLider">La capturó el líder (el trámite ocurrió fuera de la aplicación) en
 /// vez de pedirla el desarrollador. Nace aprobada, así que nunca aparece en la cola de pendientes.
 /// </param>
@@ -223,6 +232,11 @@ public record PermisoDelLiderDto(
     DateTime Desde,
     DateTime Hasta,
     int Dias,
+    bool PorHoras,
+    TimeOnly? HoraInicio,
+    TimeOnly? HoraFin,
+    decimal Horas,
+    string Duracion,
     LeaveStatus Estado,
     string EtiquetaEstado,
     string? Motivo,
@@ -246,13 +260,17 @@ public record ResolucionDePermisoRequest(string? Comentario);
 /// mismo un trámite que ya resolvió. Es la decisión que el escritorio dejó escrita en
 /// <c>LeaveRequestsControl</c> y que sin este alta dejaría fuera a la mitad de los permisos reales.
 /// </summary>
+/// <param name="HoraInicio">El tramo, si lo que se concedió fueron unas horas y no el día entero.
+/// Los dos en nulo significan «día completo», que es como se capturaba todo hasta ahora.</param>
 public record RegistroDePermisoRequest(
     int DesarrolladorId,
     LeaveType Tipo,
     DateTime Desde,
     int Dias,
     string? Motivo,
-    string? Notas);
+    string? Notas,
+    TimeOnly? HoraInicio = null,
+    TimeOnly? HoraFin = null);
 
 /// <summary>
 /// Corregir los datos de un permiso que sigue pendiente.
@@ -265,12 +283,17 @@ public record RegistroDePermisoRequest(
 /// <para>Tampoco viaja el desarrollador: una solicitud no cambia de dueño. Lo fija el servicio a
 /// partir de la fila que ya existe.</para>
 /// </summary>
+/// <param name="HoraInicio">El tramo corregido. Mandar los dos en nulo es lo que convierte un
+/// permiso por horas en uno de día completo: es la única forma de deshacer un tramo capturado por
+/// error, así que el servicio escribe estas dos columnas aunque lleguen vacías.</param>
 public record CorreccionDePermisoRequest(
     LeaveType Tipo,
     DateTime Desde,
     int Dias,
     string? Motivo,
-    string? Notas);
+    string? Notas,
+    TimeOnly? HoraInicio = null,
+    TimeOnly? HoraFin = null);
 
 // ── Actividades libres del equipo ───────────────────────────────────────────────
 

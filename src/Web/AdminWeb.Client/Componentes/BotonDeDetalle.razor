@@ -1,0 +1,32 @@
+@inject AvisosDeInterfaz Avisos
+
+@*
+    EL CAMINO AL DETALLE QUE NO ES EL DOBLE CLIC.
+
+    El doble clic sobre la fila abre el mismo cuadro y es el gesto que se pidió, pero no puede ser la
+    ÚNICA forma de llegar, por dos motivos distintos y los dos suficientes:
+
+      · Quien navega con el teclado no tiene doble clic. Sin este botón, el detalle completo de una
+        fila —que a veces es el único sitio donde se puede leer la descripción entera— sería
+        sencillamente inalcanzable para esa persona.
+      · Un doble clic no se ve. Nada en una rejilla anuncia que las filas se abren, así que sin un
+        control a la vista la función existe para quien se lo contaron y para nadie más.
+
+    Va como componente y no como cinco líneas copiadas en cada rejilla para que el dibujo, el texto
+    del globo y lo que hace sean los mismos en todas: en cuanto se copian, una acaba diciendo «Ver» y
+    otra «Detalle», y se leen como cosas distintas.
+
+    El ojo («visibility») es MIRAR, que es exactamente lo que hace: el cuadro no edita nada. «info»
+    habría sido el otro candidato, pero en esta aplicación ese glifo es el de los avisos informativos
+    y aquí no se está avisando de nada.
+*@
+
+<RadzenButton Icon="visibility" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.ExtraSmall"
+              Click="@(() => Avisos.VerDetalleAsync(Detalle))"
+              title="Ver el detalle completo de esta fila. También se abre con doble clic sobre ella."
+              aria-label="Ver el detalle completo de esta fila" />
+
+@code {
+    /// <summary>Los campos de la fila, armados por la pantalla igual que para el doble clic.</summary>
+    [Parameter, EditorRequired] public DetalleDeFila Detalle { get; set; } = new("Detalle");
+}

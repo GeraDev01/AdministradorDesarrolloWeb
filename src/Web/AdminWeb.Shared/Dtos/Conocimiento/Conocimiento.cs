@@ -4,8 +4,13 @@ namespace AdminWeb.Shared.Dtos.Conocimiento;
 
 /// <summary>
 /// Qué clase de bloque es. Es la lista COMPLETA de lo que la base de conocimiento sabe pintar, y
-/// que sea corta es la decisión, no una etapa: cada forma nueva es una forma más de equivocarse al
-/// pintarla, y con títulos, listas, código y párrafos ya se documenta cualquier cosa.
+/// que sea corta sigue siendo la decisión: cada forma nueva es una forma más de equivocarse al
+/// pintarla.
+///
+/// <para>La quinta —la imagen— se añadió porque documentar sin diagramas ni capturas obliga a
+/// describir con palabras una pantalla, que es justo lo que nadie hace: se deja de escribir el
+/// artículo. Entró sin abrir camino nuevo, y esa es la condición: el bloque no trae una dirección
+/// sino un NÚMERO, así que quien lo pinta no recibe ninguna cadena tecleada por nadie.</para>
 /// </summary>
 public enum TipoDeBloque
 {
@@ -15,7 +20,12 @@ public enum TipoDeBloque
     /// <summary>Lista de puntos. Cada renglón es un punto; <c>Numerada</c> dice si van con número.</summary>
     Lista = 2,
     /// <summary>Bloque de código. Sus renglones son texto CRUDO: dentro no se interpreta nada.</summary>
-    Codigo = 3
+    Codigo = 3,
+    /// <summary>
+    /// Una imagen guardada en el artículo. <c>ImagenId</c> dice cuál, y su único renglón trae la
+    /// descripción —el texto alternativo y el pie—, que puede ir vacía.
+    /// </summary>
+    Imagen = 4
 }
 
 /// <summary>
@@ -49,12 +59,23 @@ public record ConocimientoRenglonDto(IReadOnlyList<ConocimientoSegmentoDto> Segm
 /// <param name="Nivel">1, 2 o 3 en un título. Cero en todo lo demás.</param>
 /// <param name="Numerada">Solo en una lista: sus puntos van numerados en vez de con viñeta.</param>
 /// <param name="Lenguaje">Solo en código, y solo si el autor lo escribió junto a las comillas.</param>
+/// <param name="ImagenId">
+/// Solo en una imagen: qué imagen del artículo es. Cero en todo lo demás.
+///
+/// <para><b>Un número y no una dirección, y ahí está toda la defensa de las imágenes.</b> Quien
+/// pinta esto arma la ruta él mismo a partir del entero (<c>/api/adjuntos/conocimiento/{id}</c>), de
+/// modo que en el atributo <c>src</c> nunca acaba una cadena que haya escrito una persona: no hay
+/// dónde meter un <c>onerror</c>, ni un <c>javascript:</c>, ni un <c>data:</c>, ni una dirección de
+/// otro sitio. Si algún día alguien añade aquí un campo con la dirección ya hecha, esa propiedad
+/// desaparece — y entonces sí haría falta validar en el cliente, que es donde no se puede.</para>
+/// </param>
 public record ConocimientoBloqueDto(
     TipoDeBloque Tipo,
     IReadOnlyList<ConocimientoRenglonDto> Renglones,
     int Nivel = 0,
     bool Numerada = false,
-    string? Lenguaje = null);
+    string? Lenguaje = null,
+    int ImagenId = 0);
 
 /// <summary>
 /// Un artículo tal como sale en una lista de resultados: sin el cuerpo entero, con un extracto de
@@ -135,12 +156,29 @@ public record ConocimientoPendientesDto(
 /// <summary>Una etiqueta con cuántos artículos publicados la llevan. Es el índice de la base.</summary>
 public record ConocimientoEtiquetaDto(string Etiqueta, int Articulos);
 
+/// <summary>
+/// Una imagen ya guardada en un artículo, SIN sus bytes: solo lo que hace falta para pintarla y para
+/// nombrarla desde el texto. Los bytes se piden aparte a <c>/api/adjuntos/conocimiento/{id}</c>, que
+/// los sirve con el tipo deducido de ellos mismos y con <c>nosniff</c> — así el navegador los cachea
+/// en vez de rebajárselos en cada tecla que se escriba en el editor.
+/// </summary>
+/// <param name="Marca">
+/// Lo que hay que escribir en el cuerpo para que esta imagen se vea, ya armado por el servidor. La
+/// pantalla no compone esa sintaxis: quien la interpreta y quien la escribe tienen que ser el mismo,
+/// o el día que cambie el patrón el editor seguirá produciendo marcas que ya no se reconocen.
+/// </param>
+public record ConocimientoImagenDto(int Id, string Nombre, string Marca, long Bytes);
+
 /// <summary>Lo que devuelve crear: el mensaje del servicio y el identificador para poder abrirlo.</summary>
 public record ConocimientoCreadoDto(int Id, string Mensaje);
 
 // ── Lo que manda la pantalla ─────────────────────────────────────────────────────
 
-/// <summary>Alta o edición de un artículo. Va en JSON: aquí no se suben archivos.</summary>
+/// <summary>
+/// Alta o edición de un artículo. Va en JSON, también cuando el texto nombra imágenes: lo que viaja
+/// aquí es la marca —el número de la imagen—, no sus bytes. Las imágenes se suben antes, una a una y
+/// por su propia ruta multipart, porque para poder nombrarlas hace falta que ya tengan número.
+/// </summary>
 public record ConocimientoEscrituraDto(string? Titulo, string? Cuerpo, string? Etiquetas);
 
 /// <summary>

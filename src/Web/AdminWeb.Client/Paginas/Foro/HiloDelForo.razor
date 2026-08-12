@@ -93,9 +93,10 @@
             @* La sangría por nivel es lo que enseña de qué cuelga cada respuesta. *@
             <div data-recorrido="hilo-entrada" @key="e.Id" style="@Sangria(e.Nivel)">
                 @* Sin color de respaldo detrás de la variable: ese respaldo era el azul de la
-                   plantilla anterior y, si la variable faltara, el hilo saldría con una franja azul
-                   en medio de una aplicación ámbar y nadie sabría de dónde vino. Sin respaldo, la
-                   franja no se pinta y el fallo se ve. *@
+                   plantilla anterior y, si la variable faltara, el hilo saldría con una franja de
+                   otra paleta y nadie sabría de dónde vino. Ahora que el acento también es azul,
+                   con más motivo: ese respaldo se parecería lo bastante al acento como para pasar
+                   por bueno. Sin respaldo, la franja no se pinta y el fallo se ve. *@
                 <RadzenCard Style="@(e.EsPublicacion ? "border-left:4px solid var(--rz-primary)" : null)">
                     <RadzenStack Gap="0.35rem">
                         <RadzenText TextStyle="TextStyle.Caption" Style="margin:0"

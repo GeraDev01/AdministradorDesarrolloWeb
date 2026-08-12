@@ -48,6 +48,17 @@ public record ConocimientoFiltro(
 /// segmentos por <see cref="ConocimientoTexto"/>, con los enlaces validados en el servidor. La única
 /// excepción es <c>Fuente</c>, el texto con su marcado sin interpretar, y solo va a quien puede
 /// editarlo — porque es lo que se le pone en el formulario.</para>
+///
+/// <para><b>Las imágenes son filas propias</b> (<see cref="KnowledgeImage"/>) y el cuerpo las nombra
+/// por número, no por dirección: se suben una a una con <see cref="GuardarImagenAsync"/>, que es
+/// donde se comprueban el tipo —por los BYTES— y el peso, y se sirven por
+/// <see cref="BytesDeImagenAsync"/>, que vuelve a preguntar si a quien las pide le toca ver ESE
+/// artículo. Un borrador es privado también en sus capturas, y lo retirado deja de servirse: si no,
+/// retirar no querría decir nada.</para>
+///
+/// <para>Y al leer el artículo se le pasa al analizador la lista de las imágenes que TIENE
+/// (<c>NumerosDeImagenAsync</c>), para que una marca con un número de otro artículo —o de ninguno—
+/// no acabe pintando una etiqueta hacia una ruta que contesta 404.</para>
 /// </summary>
 public class ConocimientoService(
     AppDbContext db, ICurrentUser currentUser, AuditService audit, NotificationService notifications)
@@ -78,6 +89,23 @@ public class ConocimientoService(
 
     public const int TamanoPaginaPorOmision = 10;
     public const int TamanoPaginaMaximo = 50;
+
+    /// <summary>
+    /// Imágenes por artículo. Más que el foro (que admite seis) porque aquí es donde tienen sentido:
+    /// un procedimiento se explica pantalla por pantalla. El tope existe igualmente, y no solo por el
+    /// tamaño: las que ya no nombra el texto se quedan guardadas —quitarlas al guardar borraría la
+    /// captura de quien cortó la marca para pegarla más abajo—, así que sin límite un artículo que se
+    /// reescribe muchas veces acumularía sin fin.
+    /// </summary>
+    public const int MaxImagenes = 12;
+
+    /// <summary>
+    /// Tope por imagen. La mitad que en el foro, y no por ser más estrictos: allí lo que se pinta es
+    /// una miniatura y el original solo viaja cuando alguien pulsa, mientras que aquí no hay
+    /// miniatura —un diagrama a 400 píxeles no se lee— y lo que se guarda es exactamente lo que se
+    /// baja cada vez que alguien abre el artículo. Una captura de pantalla normal ronda los 200 KB.
+    /// </summary>
+    public const long MaxBytesImagen = 2L * 1024 * 1024;
 
     // ── Escribir ─────────────────────────────────────────────────────────────────
 
@@ -470,6 +498,175 @@ public class ConocimientoService(
         return (true, "Borrado.");
     }
 
+    // ── Imágenes ─────────────────────────────────────────────────────────────────
+    //
+    // Van aparte del texto y en dos tiempos: primero se sube la imagen y se le da un NÚMERO, y
+    // después el cuerpo la nombra con la marca ![descripción](imagen:N). No es un rodeo, es lo que
+    // permite que el cuerpo siga sin contener una sola dirección escrita por una persona — que es de
+    // donde salen los agujeros de esta clase de pantalla. Ver ConocimientoTexto.
+
+    /// <summary>
+    /// Guarda una imagen dentro de un artículo y devuelve la marca con la que nombrarla.
+    ///
+    /// <para><b>El tipo lo dictan los BYTES, nunca la extensión</b>, con el mismo reconocedor que el
+    /// foro (<see cref="ForumMedia.TipoDeImagen"/>): estos bytes se sirven después por HTTP con el
+    /// tipo que aquí se decide, y un HTML o un SVG servidos como imagen se ejecutan como guion en el
+    /// navegador de quien abre el artículo, con su sesión. Llamar «diagrama.png» a otra cosa no cuela
+    /// aquí, y es la razón de que la comprobación viva en el servicio y no en el endpoint: por aquí
+    /// pasa todo lo que se guarda.</para>
+    ///
+    /// <para>Quién puede subir es lo MISMO que quién puede editar —su autor, o el líder—, y por el
+    /// mismo motivo: una imagen es parte del artículo. Comprobarlo aquí y no solo en el endpoint es
+    /// la costumbre de la casa: a un servicio se le llama desde rutas que nacen abiertas.</para>
+    /// </summary>
+    public async Task<(bool ok, string mensaje, ConocimientoImagenDto? imagen)> GuardarImagenAsync(
+        int articuloId, string? nombre, byte[]? bytes, CancellationToken ct = default)
+    {
+        AuthorizationGuard.RequireAdminOrDesarrollador(currentUser, Ambito);
+        if (currentUser.UserId is not int userId) return (false, "No hay una sesión válida.", null);
+
+        var articulo = await db.KnowledgeArticles.AsNoTracking().FirstOrDefaultAsync(a => a.Id == articuloId, ct);
+        if (articulo == null || !PuedeVer(articulo)) return (false, NoExiste, null);
+        if (articulo.AuthorUserId != currentUser.UserId && !currentUser.IsAdmin)
+            return (false, "Solo puedes poner imágenes en lo que tú escribiste.", null);
+
+        // El nombre se limpia con el mismo saneador que el resto de subidas: llega del navegador y
+        // acaba siendo el nombre con el que se descarga la imagen.
+        var limpio = ArchivosSubidos.NombreSeguro(nombre);
+        if (limpio.Length == 0) limpio = "imagen";
+
+        if (bytes == null || bytes.Length == 0)
+            return (false, $"«{limpio}» llegó vacía. Vuelve a pegarla o a elegirla.", null);
+
+        if (bytes.LongLength > MaxBytesImagen)
+            return (false, $"«{limpio}» pesa {ForumMedia.Tamano(bytes.LongLength)} y el tope por imagen es " +
+                           $"{ForumMedia.Tamano(MaxBytesImagen)}. Recórtala o guárdala con menos calidad.", null);
+
+        var tipo = ForumMedia.TipoDeImagen(bytes);
+        if (tipo == null)
+            return (false, $"«{limpio}» no es una imagen: se admiten PNG, JPG, GIF y BMP. " +
+                           "Lo que cuenta es el contenido del archivo, no cómo termine su nombre.", null);
+
+        int ya = await db.KnowledgeImages.CountAsync(i => i.ArticleId == articuloId, ct);
+        if (ya >= MaxImagenes)
+            return (false, $"Este artículo ya tiene {MaxImagenes} imágenes, que es el tope. " +
+                           "Si de verdad hacen falta más, pártelo en varios artículos y enlázalos.", null);
+
+        var imagen = new KnowledgeImage
+        {
+            ArticleId        = articuloId,
+            FileName         = limpio,
+            ContentType      = tipo,
+            Bytes            = bytes,
+            SizeBytes        = bytes.LongLength,
+            UploadedByUserId = userId,
+            CreatedAtUtc     = DateTime.UtcNow
+        };
+        db.KnowledgeImages.Add(imagen);
+        await db.SaveChangesAsync(ct);
+
+        await audit.RecordAsync(AuditAction.Update, "KnowledgeArticle", articuloId.ToString(),
+            $"Imagen añadida a un artículo: «{limpio}» ({ForumMedia.Tamano(imagen.SizeBytes)})", ct);
+
+        return (true, "Imagen guardada. Ya está nombrada en el texto: mueve esa línea donde la quieras.",
+                Presentar(imagen.Id, imagen.FileName, imagen.SizeBytes));
+    }
+
+    /// <summary>
+    /// Las imágenes que ya tiene el artículo, sin sus bytes. Las pide el editor para poder volver a
+    /// nombrar una que se borró del texto sin tener que subirla otra vez.
+    /// </summary>
+    public async Task<List<ConocimientoImagenDto>> ImagenesDeAsync(int articuloId, CancellationToken ct = default)
+    {
+        AuthorizationGuard.RequireLoggedIn(currentUser);
+
+        var articulo = await db.KnowledgeArticles.AsNoTracking().FirstOrDefaultAsync(a => a.Id == articuloId, ct);
+        if (articulo == null || !PuedeVer(articulo)) return [];
+
+        return (await db.KnowledgeImages.AsNoTracking()
+            .Where(i => i.ArticleId == articuloId)
+            .OrderBy(i => i.Id)
+            .Select(i => new { i.Id, i.FileName, i.SizeBytes })
+            .ToListAsync(ct))
+            .Select(i => Presentar(i.Id, i.FileName, i.SizeBytes))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Los bytes de una imagen, para servirlos.
+    ///
+    /// <para><b>La visibilidad es la DEL ARTÍCULO, comprobada aquí y contra la fila de verdad.</b> Un
+    /// borrador es privado de quien lo escribe, y si sus capturas se pudieran bajar por número, esa
+    /// privacidad dependería de que nadie probara números. Lo mismo con lo retirado: si la imagen se
+    /// siguiera sirviendo, retirar un artículo no querría decir nada. Es la misma regla que el foro
+    /// aplica a las suyas.</para>
+    ///
+    /// <para>Vacío cuando no existe o cuando no le toca verla —quien lo sirve lo traduce en un 404—:
+    /// distinguir los dos casos confirmaría que ese artículo existe.</para>
+    /// </summary>
+    public async Task<(byte[] bytes, string nombre)> BytesDeImagenAsync(
+        int imagenId, CancellationToken ct = default)
+    {
+        AuthorizationGuard.RequireLoggedIn(currentUser);
+
+        var imagen = await db.KnowledgeImages.AsNoTracking()
+            .Where(i => i.Id == imagenId)
+            .Select(i => new { i.Bytes, i.FileName, i.ArticleId })
+            .FirstOrDefaultAsync(ct);
+
+        if (imagen == null) return ([], "");
+
+        var articulo = await db.KnowledgeArticles.AsNoTracking()
+            .FirstOrDefaultAsync(a => a.Id == imagen.ArticleId, ct);
+
+        return articulo != null && PuedeVer(articulo) ? (imagen.Bytes, imagen.FileName) : ([], "");
+    }
+
+    /// <summary>
+    /// Los números de las imágenes que el artículo tiene DE VERDAD, para que analizar el cuerpo no
+    /// se crea cualquier número que alguien haya tecleado.
+    ///
+    /// <para>Sin esto, un cuerpo copiado de otro artículo —o una marca escrita a mano con un número
+    /// equivocado— pintaba una etiqueta hacia una ruta que contesta 404 y el lector se quedaba con
+    /// el recuadro roto del navegador sin que nada le explicara nada. Peor todavía cuando el número
+    /// era el de la captura de un BORRADOR: su autor la veía y el resto del equipo no, así que quien
+    /// publicaba daba por bueno lo que a los demás les salía roto. Comprobado aquí, esa marca vuelve
+    /// a ser texto y se lee en el artículo, que es como se descubre y se arregla.</para>
+    ///
+    /// <para>La consulta solo se hace si el cuerpo nombra alguna: la inmensa mayoría de los artículos
+    /// no llevan imágenes, y leer uno no tiene por qué costar una consulta de más.</para>
+    /// </summary>
+    private async Task<IReadOnlySet<int>> NumerosDeImagenAsync(
+        int articuloId, string? cuerpo, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(cuerpo) || !cuerpo.Contains("](imagen:", StringComparison.Ordinal))
+            return new HashSet<int>();
+
+        return (await db.KnowledgeImages.AsNoTracking()
+            .Where(i => i.ArticleId == articuloId)
+            .Select(i => i.Id)
+            .ToListAsync(ct))
+            .ToHashSet();
+    }
+
+    /// <summary>
+    /// La imagen como la ve la pantalla. La MARCA se arma aquí y no allá para que la sintaxis viva
+    /// donde vive quien la interpreta: dos sitios que la escriban acabarían escribiéndola distinto.
+    /// </summary>
+    private static ConocimientoImagenDto Presentar(int id, string nombre, long bytes) =>
+        new(id, nombre, ConocimientoTexto.Marca(id, SinExtension(nombre)), bytes);
+
+    /// <summary>
+    /// El nombre sin su extensión, que es lo que se ofrece como descripción de la imagen. Se ofrece
+    /// para que haya algo que leer cuando la imagen no carga, no porque valga: «captura_2026-08-12T…»
+    /// no describe nada, y por eso el editor pide en voz alta que se cambie.
+    /// </summary>
+    private static string SinExtension(string nombre)
+    {
+        int punto = nombre.LastIndexOf('.');
+        return punto > 0 ? nombre[..punto] : nombre;
+    }
+
     // ── Buscar y leer ────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -529,7 +726,7 @@ public class ConocimientoService(
         return new ConocimientoArticuloDto(
             a.Id,
             a.Title,
-            ConocimientoTexto.Analizar(a.Body),
+            ConocimientoTexto.Analizar(a.Body, await NumerosDeImagenAsync(a.Id, a.Body, ct)),
             edita ? a.Body : null,
             a.Tags,
             a.Status,

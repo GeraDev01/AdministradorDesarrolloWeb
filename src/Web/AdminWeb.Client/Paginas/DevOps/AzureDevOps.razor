@@ -420,7 +420,20 @@
         </RadzenCard>
     }
 
-    @* ── La rejilla grande ───────────────────────────────────────────────────── *@
+    @*
+        ── La rejilla grande ─────────────────────────────────────────────────────
+
+        EL DOBLE CLIC SOBRE LA FILA ABRE EL TICKET ENTERO, y es la MISMA puerta y el mismo cuadro que
+        en «Mis tickets»: es la misma rejilla del mismo dato vista por el líder, y dos pantallas
+        gemelas donde una fila se abre y la otra no se leen como si hicieran cosas distintas.
+
+        Aquí pesa además que la rejilla nace con columnas OCULTAS —iteración y área traen
+        Visible="false"— y que los ajustes de columnas se guardan por persona: lo que se ve depende
+        de cómo la dejó cada quien. El cuadro las enseña todas siempre.
+
+        No hay selección enlazada: los paneles de comentar, reasignar o mover de estado los abren sus
+        botones, así que el doble clic no puede abrir ni cerrar ninguno por su cuenta.
+    *@
     <RadzenDataGrid data-recorrido="devops-rejilla"
                     @ref="_rejilla" TItem="TicketDevOpsDto" Data="@_filas" IsLoading="@_ocupado"
                     AllowSorting="true" AllowPaging="true" PageSize="25"
@@ -428,9 +441,24 @@
                     FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive"
                     AllowColumnPicking="true" AllowColumnResize="true"
                     @bind-Settings="_ajustes"
+                    RowDoubleClick="@(t => Avisos.VerDetalleAsync(DetalleDelTicket.De(t.Data)))"
                     EmptyText="No hay tickets sincronizados que cumplan el filtro.">
         <Columns>
-            <RadzenDataGridColumn TItem="TicketDevOpsDto" Title="" Width="46px"
+            @* UniqueID en LAS TRES columnas sin Property, y no es cosmético: esta rejilla guarda la
+               configuración de columnas de cada persona (@bind-Settings), y Radzen empareja lo
+               guardado con lo pintado por el nombre de la propiedad. En una columna sin dato ese
+               nombre es null, así que con dos o más el emparejamiento deja de poder distinguirlas y
+               un ancho o una visibilidad guardados acaban aplicados a la columna de al lado. Con un
+               identificador propio y estable —que Radzen también persiste— cada una se reconoce.
+               Son literales escritos a mano a propósito: si salieran del índice o del título, mover
+               una columna o traducirla invalidaría en silencio lo que la gente ya tiene guardado. *@
+            @* Pickable="false", como las otras dos columnas sin dato: es el camino al detalle para
+               quien navega con el teclado, y esconderlo lo dejaría sin ninguno. *@
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" UniqueID="detalle" Title="" Width="52px"
+                                  Sortable="false" Filterable="false" Pickable="false">
+                <Template Context="t"><BotonDeDetalle Detalle="@DetalleDelTicket.De(t)" /></Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" UniqueID="vigilancia" Title="" Width="46px"
                                   Sortable="false" Filterable="false" Pickable="false">
                 @* La campana con ondas: este ticket «suena», y es lo único que dice esta columna. *@
                 <Template Context="t">
@@ -503,7 +531,7 @@
             <RadzenDataGridColumn TItem="TicketDevOpsDto" Property="ActualizadoUtc" Title="Actualizado" Width="120px">
                 <Template Context="t">@(t.ActualizadoUtc?.ToLocalTime().ToString("dd/MM/yyyy") ?? "—")</Template>
             </RadzenDataGridColumn>
-            <RadzenDataGridColumn TItem="TicketDevOpsDto" Title="" Width="330px"
+            <RadzenDataGridColumn TItem="TicketDevOpsDto" UniqueID="acciones" Title="" Width="330px"
                                   Sortable="false" Filterable="false" Pickable="false">
                 @* Los seis botones de la fila eran emojis dentro del texto. Ahora son iconos de la
                    fuente: un emoji lo dibuja el sistema operativo con su propia paleta, así que en la

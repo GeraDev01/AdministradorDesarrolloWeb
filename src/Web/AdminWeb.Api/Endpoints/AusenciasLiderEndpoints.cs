@@ -316,7 +316,8 @@ public static class AusenciasLiderEndpoints
                 Opciones<LeaveType>(LeaveRequestService.EtiquetaTipo),
                 Opciones<LeaveStatus>(LeaveRequestService.Etiqueta),
                 pendientes,
-                LeaveRequestService.MaxDias));
+                LeaveRequestService.MaxDias,
+                LeaveRequestService.HorasDeLaJornada));
         })
         .WithSummary("Los permisos del equipo, con las pendientes primero, y los desplegables");
 
@@ -346,7 +347,8 @@ public static class AusenciasLiderEndpoints
             int id, CorreccionDePermisoRequest cuerpo, LeaveRequestService permisos, CancellationToken ct) =>
         {
             var (ok, mensaje) = await permisos.CorregirPendienteAsync(
-                id, cuerpo.Tipo, cuerpo.Desde, cuerpo.Dias, cuerpo.Motivo, cuerpo.Notas, ct);
+                id, cuerpo.Tipo, cuerpo.Desde, cuerpo.Dias, cuerpo.Motivo, cuerpo.Notas,
+                cuerpo.HoraInicio, cuerpo.HoraFin, ct);
             return Resultado(ok, mensaje);
         })
         .WithSummary("Corrige los datos de un permiso pendiente sin tocar su justificante");
@@ -526,6 +528,13 @@ public static class AusenciasLiderEndpoints
         l.Date,
         l.EndDate,
         l.DaysCount,
+        LeaveRequestService.EsPorHoras(l.HoraInicio, l.HoraFin),
+        l.HoraInicio,
+        l.HoraFin,
+        LeaveRequestService.Horas(l.HoraInicio, l.HoraFin),
+        // La frase de la duración la escribe el servicio, como las etiquetas: es la misma que ve
+        // quien pidió el permiso, y armarla aquí sería la segunda copia que un día discrepa.
+        LeaveRequestService.Duracion(l.DaysCount, l.HoraInicio, l.HoraFin),
         l.Status,
         LeaveRequestService.Etiqueta(l.Status),
         l.Reason,
@@ -576,6 +585,8 @@ public static class AusenciasLiderEndpoints
         Type = c.Tipo,
         Date = c.Desde,
         DaysCount = c.Dias,
+        HoraInicio = c.HoraInicio,
+        HoraFin = c.HoraFin,
         Reason = c.Motivo,
         Notes = c.Notas
     };

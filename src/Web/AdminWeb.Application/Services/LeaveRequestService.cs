@@ -1,3 +1,4 @@
+using System.Globalization;
 using AdminWeb.Domain.Entities;
 using AdminWeb.Domain.Security;
 using AdminWeb.Infrastructure.Data;
@@ -16,6 +17,12 @@ namespace AdminWeb.Application.Services;
 ///
 /// Las reglas viven en el servicio y no en la UI, igual que en <see cref="VacationRequestService"/>:
 /// una pantalla que decide por su cuenta acaba enseñando un botón que el servicio luego rechaza.
+///
+/// <para><b>DE DÍAS COMPLETOS Y DE HORAS.</b> Un permiso puede ser de uno o varios días enteros
+/// —como toda la vida, y como es todo el histórico— o de UN TRAMO de un solo día: «de 9:00 a 11:00».
+/// Lo elige quien lo pide. Lo segundo se guarda en <see cref="LeaveRequest.HoraInicio"/> y
+/// <see cref="LeaveRequest.HoraFin"/>; sin tramo, el permiso es de día completo y todo se comporta
+/// exactamente igual que antes de que esto existiera.</para>
 /// </summary>
 public class LeaveRequestService(AppDbContext db, ICurrentUser currentUser, AuditService audit)
 {
@@ -23,6 +30,78 @@ public class LeaveRequestService(AppDbContext db, ICurrentUser currentUser, Audi
     public const int MaxAdjuntoBytes = 15 * 1024 * 1024;
 
     public const int MaxDias = 365;
+
+    /// <summary>
+    /// Lo que dura una jornada, y por tanto lo más largo que puede ser un permiso POR HORAS: más que
+    /// eso ya es el día entero y se pide como día completo.
+    ///
+    /// <para>Es el MISMO ocho con el que el pool convirtió sus plazos de días a horas (ver
+    /// <c>PoolSeed</c> y la conversión del migrador). La empresa no tiene una jornada configurable
+    /// por persona, así que inventar aquí un segundo número —o leerlo de la ficha, que no lo trae—
+    /// sería fabricar una regla que nadie ha decidido.</para>
+    /// </summary>
+    public const decimal HorasDeLaJornada = 8m;
+
+    // ── Días completos y horas ───────────────────────────────────────────────
+    //
+    // Estas ayudas son ESTÁTICAS y toman los campos sueltos en vez de la entidad, a propósito: las
+    // pantallas se arman desde proyecciones ligeras —«Mis permisos» no trae los 15 MB del
+    // justificante— y sin esto habría dos formas de decir cuánto dura un permiso, la de la entidad y
+    // la de la proyección. Dos formas es como se acaba enseñando «1 día» en una lista y «2 h» en la
+    // otra para la misma fila.
+
+    /// <summary>
+    /// El permiso es de un tramo de horas y no de días completos. Basta con que el par esté puesto:
+    /// las dos horas viajan juntas o no viajan (lo garantiza la validación).
+    /// </summary>
+    public static bool EsPorHoras(TimeOnly? inicio, TimeOnly? fin) => inicio is not null && fin is not null;
+
+    /// <summary>
+    /// Cuántas horas cubre el tramo. Cero para un permiso de día completo: <b>no</b> se convierte la
+    /// jornada en horas, porque un día de ausencia no son ocho horas de ausencia para todo el mundo
+    /// y ese número inventado acabaría sumándose en algún indicador.
+    /// </summary>
+    public static decimal Horas(TimeOnly? inicio, TimeOnly? fin) =>
+        EsPorHoras(inicio, fin) && fin!.Value > inicio!.Value
+            ? (decimal)(fin.Value - inicio.Value).TotalHours
+            : 0m;
+
+    /// <summary>
+    /// Cuánto dura el permiso, escrito para leerse: «2 día(s)» o «2 h (de 09:00 a 11:00)».
+    ///
+    /// <para>La escribe el SERVIDOR y viaja hecha a las dos pantallas —la de quien pide y la de quien
+    /// resuelve— por lo mismo que las etiquetas de tipo y estado: dos plantillas de texto para el
+    /// mismo dato acaban diciendo cosas distintas y nadie lo nota hasta que alguien compara.</para>
+    ///
+    /// <para>Para un permiso de días completos devuelve <b>exactamente</b> el texto de siempre. Eso
+    /// importa porque esta cadena acaba en la BITÁCORA a través de <see cref="Describir"/>: los
+    /// asientos viejos y los nuevos de un permiso de días tienen que seguir leyéndose igual.</para>
+    /// </summary>
+    public static string Duracion(int dias, TimeOnly? inicio, TimeOnly? fin) =>
+        EsPorHoras(inicio, fin)
+            ? $"{EnPalabras(fin!.Value - inicio!.Value)} (de {Hhmm(inicio.Value)} a {Hhmm(fin.Value)})"
+            : $"{dias} día(s)";
+
+    /// <summary>La hora, siempre en 24 h y con la misma cara en cualquier servidor.</summary>
+    public static string Hhmm(TimeOnly hora) => hora.ToString("HH:mm", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Un rato, en palabras: «45 min», «2 h», «2 h 30 min». Se dice así y no «2.5 h» porque el
+    /// separador decimal cambia con la cultura del servidor y «2.5 h» en una pantalla y «2,5 h» en
+    /// otra es justo la clase de diferencia que hace dudar del número.
+    /// </summary>
+    private static string EnPalabras(TimeSpan duracion)
+    {
+        int horas = (int)duracion.TotalHours;
+        int minutos = duracion.Minutes;
+
+        return (horas, minutos) switch
+        {
+            (0, _) => $"{minutos} min",
+            (_, 0) => $"{horas} h",
+            _      => $"{horas} h {minutos} min"
+        };
+    }
 
     /// <summary>Se puede cancelar mientras siga viva: pendiente, o aprobada pero ya no se va a tomar.</summary>
     public static bool PuedeCancelar(LeaveStatus estado) =>
@@ -100,6 +179,9 @@ public class LeaveRequestService(AppDbContext db, ICurrentUser currentUser, Audi
         var (valido, error) = Validar(borrador, exigirMotivo: true);
         if (!valido) return (false, error, null);
 
+        var (libre, choque) = await SinPisarOtroPermisoAsync(borrador, excluir: null, ct);
+        if (!libre) return (false, choque, null);
+
         borrador.Status = LeaveStatus.Pendiente;
         borrador.RequestedByDeveloperId = borrador.DeveloperId;
         borrador.ApprovedBy = null;
@@ -128,6 +210,9 @@ public class LeaveRequestService(AppDbContext db, ICurrentUser currentUser, Audi
 
         var (valido, error) = Validar(borrador, exigirMotivo: false);
         if (!valido) return (false, error, null);
+
+        var (libre, choque) = await SinPisarOtroPermisoAsync(borrador, excluir: null, ct);
+        if (!libre) return (false, choque, null);
 
         borrador.Status = LeaveStatus.Aprobada;
         borrador.RequestedByDeveloperId = null;
@@ -160,9 +245,16 @@ public class LeaveRequestService(AppDbContext db, ICurrentUser currentUser, Audi
         var (valido, errorVal) = Validar(cambios, exigirMotivo: l.EsSolicitudDelDesarrollador);
         if (!valido) return (false, errorVal);
 
+        // Excluyéndose a sí misma: si no, la solicitud que se está editando se contaría como el
+        // permiso que ya ocupa ese tramo y no habría forma de guardarla.
+        var (libre, choque) = await SinPisarOtroPermisoAsync(cambios, excluir: l.Id, ct);
+        if (!libre) return (false, choque);
+
         l.Type = cambios.Type;
         l.Date = cambios.Date.Date;
         l.DaysCount = cambios.DaysCount;
+        l.HoraInicio = cambios.HoraInicio;
+        l.HoraFin = cambios.HoraFin;
         l.Reason = Limpiar(cambios.Reason);
         l.Notes = Limpiar(cambios.Notes);
         l.AttachmentBytes = cambios.AttachmentBytes;
@@ -187,8 +279,9 @@ public class LeaveRequestService(AppDbContext db, ICurrentUser currentUser, Audi
     ///
     /// <para><b>Las columnas del adjunto ni se leen ni se escriben.</b> Se comprueba con una
     /// proyección —de quién es y en qué estado está— y se escribe con una actualización directa de
-    /// las cinco columnas que cambian. Cargar la entidad habría traído los 15 MB del justificante a
-    /// la memoria del servidor para acabar cambiando una frase.</para>
+    /// las siete columnas que cambian (las cinco de siempre más el tramo de horas). Cargar la entidad
+    /// habría traído los 15 MB del justificante a la memoria del servidor para acabar cambiando una
+    /// frase.</para>
     ///
     /// <para>El precio de escribir así es que se pierde el sello de concurrencia
     /// (<c>RowVersion</c>), que solo actúa al guardar una entidad rastreada. A cambio, la condición
@@ -197,9 +290,12 @@ public class LeaveRequestService(AppDbContext db, ICurrentUser currentUser, Audi
     /// filtro. Dos correcciones simultáneas del mismo texto siguen ganándolas la última, que es lo
     /// mismo que pasaba en el escritorio.</para>
     /// </remarks>
+    /// <param name="horaInicio">El tramo, si el permiso corregido es por horas. Los dos en nulo lo
+    /// dejan como permiso de día completo, que es también la forma de quitarle las horas a uno que
+    /// se capturó por error como tramo.</param>
     public async Task<(bool ok, string mensaje)> CorregirPendienteAsync(
         int requestId, LeaveType tipo, DateTime fecha, int dias, string? motivo, string? notas,
-        CancellationToken ct = default)
+        TimeOnly? horaInicio = null, TimeOnly? horaFin = null, CancellationToken ct = default)
     {
         AuthorizationGuard.RequireLoggedIn(currentUser);
 
@@ -226,6 +322,8 @@ public class LeaveRequestService(AppDbContext db, ICurrentUser currentUser, Audi
             Type = tipo,
             Date = fecha,
             DaysCount = dias,
+            HoraInicio = horaInicio,
+            HoraFin = horaFin,
             Reason = motivo,
             Notes = notas
         };
@@ -233,12 +331,20 @@ public class LeaveRequestService(AppDbContext db, ICurrentUser currentUser, Audi
         var (valido, error) = ValidarDatos(borrador, exigirMotivo: ficha.RequestedByDeveloperId != null);
         if (!valido) return (false, error);
 
+        var (libre, choque) = await SinPisarOtroPermisoAsync(borrador, excluir: requestId, ct);
+        if (!libre) return (false, choque);
+
         int filas = await db.LeaveRequests
             .Where(x => x.Id == requestId && x.Status == LeaveStatus.Pendiente)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(x => x.Type, borrador.Type)
                 .SetProperty(x => x.Date, borrador.Date)
                 .SetProperty(x => x.DaysCount, borrador.DaysCount)
+                // El tramo se escribe SIEMPRE, también cuando llega vacío: es lo que permite
+                // devolverle a un permiso su condición de día completo. Sin esta pareja de líneas,
+                // quitarle las horas desde la pantalla del líder no habría cambiado nada en la base.
+                .SetProperty(x => x.HoraInicio, borrador.HoraInicio)
+                .SetProperty(x => x.HoraFin, borrador.HoraFin)
                 .SetProperty(x => x.Reason, borrador.Reason)
                 .SetProperty(x => x.Notes, borrador.Notes), ct);
 
@@ -367,12 +473,122 @@ public class LeaveRequestService(AppDbContext db, ICurrentUser currentUser, Audi
         if (l.DaysCount > MaxDias) return (false, $"El permiso no puede pasar de {MaxDias} días.");
         if (l.Date == default) return (false, "Indica la fecha de inicio.");
 
+        var (tramoOk, errorDelTramo) = ValidarElTramo(l);
+        if (!tramoOk) return (false, errorDelTramo);
+
         if (exigirMotivo && string.IsNullOrWhiteSpace(l.Reason))
             return (false, "Escribe el motivo: es lo que el líder va a leer para decidir.");
 
         l.Reason = Limpiar(l.Reason);
         l.Notes = Limpiar(l.Notes);
         l.Date = l.Date.Date;
+        return (true, "");
+    }
+
+    /// <summary>
+    /// Las reglas del TRAMO, cuando el permiso es por horas. Sin tramo no hay nada que comprobar: es
+    /// un permiso de días completos y sale por aquí sin tocarse, que es lo que mantiene intacto el
+    /// comportamiento de todo lo anterior.
+    /// </summary>
+    private static (bool ok, string error) ValidarElTramo(LeaveRequest l)
+    {
+        // Una hora suelta no es un tramo: sin las dos no se sabe cuánto dura, y guardarlo así dejaría
+        // una fila que ninguna pantalla puede contar. Se dice cuál falta.
+        if (l.HoraInicio is null && l.HoraFin is null) return (true, "");
+        if (l.HoraInicio is null) return (false, "Falta la hora de inicio del permiso.");
+        if (l.HoraFin is null) return (false, "Falta la hora de fin del permiso.");
+
+        // Un permiso no se mide en segundos. Solo pueden llegar llamando a la API a mano —el selector
+        // va a saltos de quince minutos—, y si se guardaran, la ficha diría «2 h» mientras el total
+        // del año sumaría 2,0003: dos números que no cuadran y nadie sabe cuál creer.
+        var inicio = new TimeOnly(l.HoraInicio.Value.Hour, l.HoraInicio.Value.Minute);
+        var fin = new TimeOnly(l.HoraFin.Value.Hour, l.HoraFin.Value.Minute);
+        l.HoraInicio = inicio;
+        l.HoraFin = fin;
+
+        // Al revés o de cero: las dos cosas se dicen con la misma frase porque son el mismo error de
+        // captura —la hora de fin no es posterior a la de inicio— y separarlas solo daría dos mensajes
+        // para el mismo arreglo.
+        if (fin <= inicio)
+            return (false, "El tramo está al revés o no dura nada: la hora de fin tiene que ser " +
+                           "posterior a la de inicio.");
+
+        var horas = (decimal)(fin - inicio).TotalHours;
+        if (horas > HorasDeLaJornada)
+            return (false, $"Un permiso por horas no puede pasar de {HorasDeLaJornada:0} horas, que es " +
+                           "la jornada. Si necesitas el día entero, pídelo como día completo.");
+
+        // Un tramo vive dentro de UN día: pedir «de 9:00 a 11:00» durante tres días no es un tramo,
+        // son tres tramos, y guardarlo como uno solo haría que la ficha dijera 2 h cuando fueron 6.
+        if (l.DaysCount > 1)
+            return (false, "Un permiso por horas es de un solo día. Deja los días en 1 y elige el " +
+                           "tramo, o pídelo como días completos.");
+
+        return (true, "");
+    }
+
+    /// <summary>
+    /// Que el permiso no PISE otro que ya exista ese día.
+    ///
+    /// <para><b>Solo se comprueba cuando el permiso es POR HORAS</b>, y es una decisión, no un
+    /// descuido. Pedir dos tramos que se solapan el mismo día es contradictorio —la persona no puede
+    /// estar dos veces fuera de 9 a 11— y hasta hoy nadie podía equivocarse así porque los tramos no
+    /// existían. Poner el mismo veto a los permisos de DÍAS COMPLETOS cambiaría el comportamiento de
+    /// lo que lleva años funcionando: hoy el líder puede capturar dos permisos que se pisan (una
+    /// incapacidad que se alarga sobre un permiso ya concedido, por ejemplo) y rechazárselo de golpe
+    /// sería quitarle una salida sin que nadie lo haya pedido.</para>
+    ///
+    /// <para>Lo que sí mira el tramo es TODO lo que cubra ese día, incluidos los permisos de días
+    /// completos: pedir dos horas de un día que ya está entero de permiso no tiene sentido.</para>
+    ///
+    /// <para>Solo estorban los permisos VIVOS —pendientes y aprobados—. Uno rechazado o cancelado no
+    /// ocupa nada, y tratarlo como si ocupara impediría volver a pedir lo que a uno le negaron.</para>
+    /// </summary>
+    /// <param name="excluir">El propio permiso cuando se está corrigiendo: si no, se pisaría a sí mismo.</param>
+    private async Task<(bool ok, string error)> SinPisarOtroPermisoAsync(
+        LeaveRequest l, int? excluir, CancellationToken ct)
+    {
+        if (!EsPorHoras(l.HoraInicio, l.HoraFin)) return (true, "");
+
+        var dia = l.Date.Date;
+
+        // Se traen los candidatos y se decide en memoria. El filtro fino —«¿este permiso llega hasta
+        // ese día?»— depende de Date + DaysCount, y una consulta con AddDays sobre una columna es lo
+        // que cada motor traduce a su manera. El acotado sí viaja a la base y basta para que esto no
+        // recorra la tabla: nada que empiece más de MaxDias antes puede alcanzar el día, porque ése es
+        // el permiso más largo que se deja pedir.
+        var candidatos = await db.LeaveRequests.AsNoTracking()
+            .Where(x => x.DeveloperId == l.DeveloperId
+                     && (excluir == null || x.Id != excluir)
+                     && (x.Status == LeaveStatus.Pendiente || x.Status == LeaveStatus.Aprobada)
+                     && x.Date <= dia
+                     && x.Date >= dia.AddDays(-MaxDias))
+            .Select(x => new { x.Date, x.DaysCount, x.HoraInicio, x.HoraFin, x.Status })
+            .ToListAsync(ct);
+
+        // El tramo que se está pidiendo. Se saca aquí porque EsPorHoras ya garantizó que están los dos.
+        var inicio = l.HoraInicio!.Value;
+        var fin = l.HoraFin!.Value;
+
+        foreach (var otro in candidatos)
+        {
+            var ultimoDia = otro.Date.Date.AddDays(Math.Max(1, otro.DaysCount) - 1);
+            if (ultimoDia < dia) continue;   // termina antes; no toca ese día
+
+            // Sin tramo es un permiso de día completo, y ése ocupa el día entero.
+            if (otro.HoraInicio is not TimeOnly otroInicio || otro.HoraFin is not TimeOnly otroFin)
+                return (false, $"Ese día ya tiene un permiso de día completo ({Etiqueta(otro.Status)}). " +
+                               "Pedir además unas horas del mismo día no cambiaría nada: cancela aquél " +
+                               "o corrígelo.");
+
+            // Dos tramos que solo se TOCAN por el extremo —de 9 a 11 y de 11 a 13— no se pisan: son
+            // dos ausencias seguidas, y son perfectamente pedibles.
+            if (inicio < otroFin && otroInicio < fin)
+                return (false, $"Ese día ya hay un permiso {Etiqueta(otro.Status).ToLowerInvariant()} " +
+                               $"de {Hhmm(otroInicio)} a {Hhmm(otroFin)}, y el tramo que pides se " +
+                               "pisa con él.");
+        }
+
         return (true, "");
     }
 
@@ -411,8 +627,16 @@ public class LeaveRequestService(AppDbContext db, ICurrentUser currentUser, Audi
         return n.Length == 0 ? "justificante" : n;
     }
 
+    /// <summary>
+    /// Lo que se escribe en la BITÁCORA de cada movimiento del permiso.
+    ///
+    /// <para>Para un permiso de días completos dice lo mismo de siempre —«🩺 Cita médica 10/09/2026
+    /// (2 día(s))»— y eso es deliberado: los asientos ya escritos se tienen que poder leer y buscar
+    /// junto a los nuevos. Lo que cambia es que un permiso por horas dice sus horas en vez de fingir
+    /// que fue un día entero.</para>
+    /// </summary>
     private static string Describir(LeaveRequest l) =>
-        $"{EtiquetaTipo(l.Type)} {l.Date:dd/MM/yyyy} ({l.DaysCount} día(s))";
+        $"{EtiquetaTipo(l.Type)} {l.Date:dd/MM/yyyy} ({Duracion(l.DaysCount, l.HoraInicio, l.HoraFin)})";
 
     /// <summary>
     /// En qué situación está la solicitud, con la PALABRA SOLA.

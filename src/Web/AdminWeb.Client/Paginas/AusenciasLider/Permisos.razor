@@ -22,6 +22,13 @@
         la celda; aquí son columnas propias, porque en una tabla web el tooltip no está a mano en una
         tableta y esto es lo que se lee para decidir.
 
+    DE DÍAS COMPLETOS Y DE HORAS. Un permiso puede ser de días enteros —como toda la vida, y como es
+    todo el histórico— o de un TRAMO de un solo día: «de 9:00 a 11:00». Aquí eso se ve en la columna
+    «Duración», que trae la frase ya escrita por el servidor —la misma que lee quien lo pidió— y se
+    puede capturar en los dos paneles de abajo, el de registro y el de corrección. Los dos usan el
+    mismo desplegable de duración por una razón concreta: si registrar dejara pedir horas y corregir
+    no, un permiso capturado por error como día completo no se podría enmendar sin borrarlo.
+
     CORREGIR UN PENDIENTE, y por qué ahora sí. Esto faltaba porque el único camino que había
     (LeaveRequestService.EditarAsync) reemplaza la solicitud ENTERA con lo que se le mande, adjunto
     incluido: desde una pantalla que no sube archivos, arreglar una falta de ortografía en el motivo
@@ -108,15 +115,46 @@
                                               DateFormat="dd/MM/yyyy" ShowTime="false" Style="width:170px" />
                         </RadzenStack>
                         <RadzenStack Gap="0.25rem">
-                            <RadzenLabel Text="Días" Component="diasNuevo" />
-                            <RadzenNumeric TValue="int" @bind-Value="_diasRegistro" Name="diasNuevo"
-                                           Min="1" Max="@d.MaxDias" Style="width:110px" />
+                            <RadzenLabel Text="Duración" Component="duracionNueva" />
+                            <RadzenDropDown TValue="bool" @bind-Value="_porHorasRegistro" Name="duracionNueva"
+                                            Data="@FormasDePedir" TextProperty="Texto" ValueProperty="Valor"
+                                            Style="width:170px" />
                         </RadzenStack>
-                        @* El último día cubierto, a la vista mientras se captura: con «5 días desde
-                           una fecha» hay que contar a mano, y ahí es donde se cuela el error de un día. *@
-                        <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0">
-                            <b>Hasta el @HastaRegistro.ToString("dd/MM/yyyy")</b>
-                        </RadzenText>
+                        @if (!_porHorasRegistro)
+                        {
+                            <RadzenStack Gap="0.25rem">
+                                <RadzenLabel Text="Días" Component="diasNuevo" />
+                                <RadzenNumeric TValue="int" @bind-Value="_diasRegistro" Name="diasNuevo"
+                                               Min="1" Max="@d.MaxDias" Style="width:110px" />
+                            </RadzenStack>
+                            @* El último día cubierto, a la vista mientras se captura: con «5 días desde
+                               una fecha» hay que contar a mano, y ahí es donde se cuela el error de un día. *@
+                            <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0">
+                                <b>Hasta el @HastaRegistro.ToString("dd/MM/yyyy")</b>
+                            </RadzenText>
+                        }
+                        else
+                        {
+                            @* El tramo, en 24 h y a saltos de 15 minutos. La fecha es la de «Desde»:
+                               un permiso por horas es de un solo día. *@
+                            <RadzenStack Gap="0.25rem">
+                                <RadzenLabel Text="De las" Component="horaInicioNueva" />
+                                <RadzenDatePicker TValue="DateTime" @bind-Value="_horaInicioRegistro"
+                                                  Name="horaInicioNueva" TimeOnly="true" ShowTime="true"
+                                                  ShowSeconds="false" HourFormat="24" MinutesStep="15"
+                                                  DateFormat="HH:mm" Style="width:120px" />
+                            </RadzenStack>
+                            <RadzenStack Gap="0.25rem">
+                                <RadzenLabel Text="A las" Component="horaFinNueva" />
+                                <RadzenDatePicker TValue="DateTime" @bind-Value="_horaFinRegistro"
+                                                  Name="horaFinNueva" TimeOnly="true" ShowTime="true"
+                                                  ShowSeconds="false" HourFormat="24" MinutesStep="15"
+                                                  DateFormat="HH:mm" Style="width:120px" />
+                            </RadzenStack>
+                            <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0">
+                                <b>@TramoDescrito(_horaInicioRegistro, _horaFinRegistro, d)</b>
+                            </RadzenText>
+                        }
                     </RadzenStack>
 
                     <RadzenTextArea @bind-Value="_motivoRegistro" Rows="2" MaxLength="1000" Style="width:100%"
@@ -167,13 +205,42 @@
                                               DateFormat="dd/MM/yyyy" ShowTime="false" Style="width:170px" />
                         </RadzenStack>
                         <RadzenStack Gap="0.25rem">
-                            <RadzenLabel Text="Días" Component="diasCorregir" />
-                            <RadzenNumeric TValue="int" @bind-Value="_diasCorreccion" Name="diasCorregir"
-                                           Min="1" Max="@d.MaxDias" Style="width:110px" />
+                            <RadzenLabel Text="Duración" Component="duracionCorregir" />
+                            <RadzenDropDown TValue="bool" @bind-Value="_porHorasCorreccion" Name="duracionCorregir"
+                                            Data="@FormasDePedir" TextProperty="Texto" ValueProperty="Valor"
+                                            Style="width:170px" />
                         </RadzenStack>
-                        <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0">
-                            <b>Hasta el @HastaCorreccion.ToString("dd/MM/yyyy")</b>
-                        </RadzenText>
+                        @if (!_porHorasCorreccion)
+                        {
+                            <RadzenStack Gap="0.25rem">
+                                <RadzenLabel Text="Días" Component="diasCorregir" />
+                                <RadzenNumeric TValue="int" @bind-Value="_diasCorreccion" Name="diasCorregir"
+                                               Min="1" Max="@d.MaxDias" Style="width:110px" />
+                            </RadzenStack>
+                            <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0">
+                                <b>Hasta el @HastaCorreccion.ToString("dd/MM/yyyy")</b>
+                            </RadzenText>
+                        }
+                        else
+                        {
+                            <RadzenStack Gap="0.25rem">
+                                <RadzenLabel Text="De las" Component="horaInicioCorregir" />
+                                <RadzenDatePicker TValue="DateTime" @bind-Value="_horaInicioCorreccion"
+                                                  Name="horaInicioCorregir" TimeOnly="true" ShowTime="true"
+                                                  ShowSeconds="false" HourFormat="24" MinutesStep="15"
+                                                  DateFormat="HH:mm" Style="width:120px" />
+                            </RadzenStack>
+                            <RadzenStack Gap="0.25rem">
+                                <RadzenLabel Text="A las" Component="horaFinCorregir" />
+                                <RadzenDatePicker TValue="DateTime" @bind-Value="_horaFinCorreccion"
+                                                  Name="horaFinCorregir" TimeOnly="true" ShowTime="true"
+                                                  ShowSeconds="false" HourFormat="24" MinutesStep="15"
+                                                  DateFormat="HH:mm" Style="width:120px" />
+                            </RadzenStack>
+                            <RadzenText TextStyle="TextStyle.Body1" class="rz-mb-0">
+                                <b>@TramoDescrito(_horaInicioCorreccion, _horaFinCorreccion, d)</b>
+                            </RadzenText>
+                        }
 
                         @if (enCorreccion.TieneJustificante)
                         {
@@ -240,7 +307,13 @@
                 <RadzenDataGridColumn TItem="PermisoDelLiderDto" Title="Hasta" Property="Hasta" Width="110px">
                     <Template Context="l">@l.Hasta.ToString("dd/MM/yyyy")</Template>
                 </RadzenDataGridColumn>
-                <RadzenDataGridColumn TItem="PermisoDelLiderDto" Title="Días" Property="Dias" Width="75px" />
+                @* DURACIÓN y no «Días»: ya no todos los permisos se miden en días. La frase la escribe
+                   el servidor y es la misma que ve quien pidió el permiso en «Mis permisos» — armarla
+                   aquí sería la segunda copia que un día dice otra cosa. Se ORDENA por Dias, que es lo
+                   que hay en la base; los tramos valen 1 y quedan con los permisos de un día. *@
+                <RadzenDataGridColumn TItem="PermisoDelLiderDto" Title="Duración" Property="Dias" Width="160px">
+                    <Template Context="l">@l.Duracion</Template>
+                </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="PermisoDelLiderDto" Title="Motivo" Property="Motivo">
                     <Template Context="l">@(l.Motivo ?? "—")</Template>
                 </RadzenDataGridColumn>
@@ -334,12 +407,28 @@
     private int? _developerId;
     private LeaveStatus? _estado = LeaveStatus.Pendiente;
 
+    /// <summary>Las dos formas de medir un permiso, para los desplegables de los dos paneles.</summary>
+    private record FormaDePedir(bool Valor, string Texto);
+
+    private static readonly FormaDePedir[] FormasDePedir =
+    [
+        new(false, "Días completos"),
+        new(true, "Por horas")
+    ];
+
     // ── Registro de un permiso ya concedido ──────────────────────────────────
+    //
+    // Las horas viven en DateTime y no en TimeOnly porque es lo que ata el selector de Radzen; al
+    // mandarlas se quedan solo con la hora. La fecha de esos dos valores no significa nada: la del
+    // permiso es «Desde», porque un tramo es de un solo día.
     private bool _registrando;
     private int? _devRegistro;
     private LeaveType? _tipoRegistro = LeaveType.PermisoPersonal;
     private DateTime _desdeRegistro = DateTime.Today;
     private int _diasRegistro = 1;
+    private bool _porHorasRegistro;
+    private DateTime _horaInicioRegistro = DateTime.Today.AddHours(9);
+    private DateTime _horaFinRegistro = DateTime.Today.AddHours(11);
     private string? _motivoRegistro;
     private string? _notasRegistro;
 
@@ -353,10 +442,31 @@
     private LeaveType? _tipoCorreccion;
     private DateTime _desdeCorreccion = DateTime.Today;
     private int _diasCorreccion = 1;
+    private bool _porHorasCorreccion;
+    private DateTime _horaInicioCorreccion = DateTime.Today.AddHours(9);
+    private DateTime _horaFinCorreccion = DateTime.Today.AddHours(11);
     private string? _motivoCorreccion;
     private string? _notasCorreccion;
 
     private DateTime HastaCorreccion => _desdeCorreccion.Date.AddDays(Math.Max(1, _diasCorreccion) - 1);
+
+    /// <summary>
+    /// El tramo que se está capturando, contado en vivo: cuánto dura y si cabe en la jornada. Es el
+    /// equivalente del «Hasta el …» de los días — lo que no se ve de un vistazo al teclear dos horas.
+    ///
+    /// <para>El tope lo manda el servidor en el DTO y aquí solo se enseña: quien lo aplica es
+    /// <c>LeaveRequestService</c>, y esta pantalla corre en la máquina de cada quien.</para>
+    /// </summary>
+    private static string TramoDescrito(DateTime inicio, DateTime fin, PermisosDelLiderDto d)
+    {
+        var horas = (decimal)(fin.TimeOfDay - inicio.TimeOfDay).TotalHours;
+
+        if (horas <= 0) return "El tramo está al revés o no dura nada.";
+        if (horas > d.HorasDeLaJornada)
+            return $"{horas:0.##} h: pasa de las {d.HorasDeLaJornada:0.##} de la jornada.";
+
+        return $"Son {horas:0.##} h de la jornada.";
+    }
 
     protected override Task OnInitializedAsync() => Cargar();
 
@@ -428,6 +538,11 @@
         _tipoRegistro = LeaveType.PermisoPersonal;
         _desdeRegistro = DateTime.Today;
         _diasRegistro = 1;
+        // Días completos por omisión: es lo que se captura casi siempre y lo que se capturaba antes
+        // de que el tramo existiera.
+        _porHorasRegistro = false;
+        _horaInicioRegistro = DateTime.Today.AddHours(9);
+        _horaFinRegistro = DateTime.Today.AddHours(11);
         _motivoRegistro = null;
         _notasRegistro = null;
         _registrando = true;
@@ -446,8 +561,13 @@
         {
             var (ok, respuesta) = await Api.EnviarAsync<RegistroDePermisoRequest, ResultadoDto>(
                 "api/ausencias-lider/permisos/registro",
-                new RegistroDePermisoRequest(dev, tipo, _desdeRegistro, _diasRegistro,
-                    _motivoRegistro, _notasRegistro),
+                // Con tramo, los días van en 1: un permiso por horas es de un solo día. Sin tramo, el
+                // cuerpo es exactamente el de siempre.
+                new RegistroDePermisoRequest(dev, tipo, _desdeRegistro,
+                    _porHorasRegistro ? 1 : _diasRegistro,
+                    _motivoRegistro, _notasRegistro,
+                    _porHorasRegistro ? TimeOnly.FromDateTime(_horaInicioRegistro) : null,
+                    _porHorasRegistro ? TimeOnly.FromDateTime(_horaFinRegistro) : null),
                 _cancelacion.Token);
 
             if (!ok) return;
@@ -470,6 +590,11 @@
         _tipoCorreccion = l.Tipo;
         _desdeCorreccion = l.Desde.Date;
         _diasCorreccion = l.Dias;
+        // El panel arranca como está el permiso. Las horas de un permiso de día completo no vienen,
+        // así que se ofrece un tramo de mañana por si se está corrigiendo justamente eso.
+        _porHorasCorreccion = l.PorHoras;
+        _horaInicioCorreccion = DateTime.Today.Add(l.HoraInicio?.ToTimeSpan() ?? TimeSpan.FromHours(9));
+        _horaFinCorreccion = DateTime.Today.Add(l.HoraFin?.ToTimeSpan() ?? TimeSpan.FromHours(11));
         _motivoCorreccion = l.Motivo;
         _notasCorreccion = l.Notas;
         _registrando = false;
@@ -481,9 +606,15 @@
 
         // Ni el desarrollador ni el justificante viajan: el dueño no cambia y el archivo no es de
         // quien está corrigiendo. Lo que se manda es exactamente lo que se está viendo editar.
+        //
+        // El tramo VACÍO también se manda, y es lo que permite devolver a día completo un permiso
+        // capturado por error como horas: el servicio escribe esas dos columnas aunque lleguen nulas.
         if (await Enviar($"api/ausencias-lider/permisos/{l.Id}/correccion",
-                new CorreccionDePermisoRequest(tipo, _desdeCorreccion.Date, _diasCorreccion,
-                    _motivoCorreccion, _notasCorreccion)))
+                new CorreccionDePermisoRequest(tipo, _desdeCorreccion.Date,
+                    _porHorasCorreccion ? 1 : _diasCorreccion,
+                    _motivoCorreccion, _notasCorreccion,
+                    _porHorasCorreccion ? TimeOnly.FromDateTime(_horaInicioCorreccion) : null,
+                    _porHorasCorreccion ? TimeOnly.FromDateTime(_horaFinCorreccion) : null)))
             _corrigiendo = null;
     }
 

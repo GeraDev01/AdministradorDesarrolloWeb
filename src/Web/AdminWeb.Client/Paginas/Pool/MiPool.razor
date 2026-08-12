@@ -83,7 +83,11 @@
                                         Value="@_seleccion" ValueChanged="@Seleccionar"
                                         EmptyText="Todavía no has tomado ninguna actividad del pool. Búscalas en «Disponibles».">
                             <Columns>
-                                <RadzenDataGridColumn TItem="MiActividadDelPoolDto" Property="Titulo" Title="Actividad" />
+                                @* MinWidth: es la única columna sin ancho fijo, así que se queda con
+                                   lo que sobre — y cuando las demás no dejan nada, el título de la
+                                   actividad se pinta con cero de ancho y desaparece. *@
+                                <RadzenDataGridColumn TItem="MiActividadDelPoolDto" Property="Titulo" Title="Actividad"
+                                                      MinWidth="220px" />
                                 <RadzenDataGridColumn TItem="MiActividadDelPoolDto" Property="TipoTexto" Title="Tipo" Width="130px" />
                                 <RadzenDataGridColumn TItem="MiActividadDelPoolDto" Property="Puntos" Title="Puntos"
                                                       Width="90px" TextAlign="TextAlign.Right">
@@ -418,12 +422,32 @@
                             </RadzenCard>
                         }
 
+                        @*
+                            EL DOBLE CLIC ABRE EL DETALLE COMPLETO DE LA FILA.
+
+                            Es la rejilla con la que se DECIDE qué tomar, y la columna «Detalle»
+                            enseña ochenta caracteres con puntos suspensivos (ver Resumir). Ochenta
+                            caracteres son media línea: quien tenía que decidir con eso, o tomaba la
+                            actividad para poder leerla entera, o la dejaba pasar. Ahora se lee
+                            completa sin comprometerse a nada.
+
+                            No lleva selección enlazada, así que el doble clic no descoloca nada: el
+                            panel de tomar la actividad lo abre su botón, no el clic en la fila.
+                        *@
                         <RadzenDataGrid data-recorrido="mi-pool-disponibles"
                                         TItem="ActividadLibreDto" Data="@d.Disponibles" IsLoading="@_ocupado"
                                         AllowSorting="true" AllowPaging="true" PageSize="15"
+                                        RowDoubleClick="@(a => Avisos.VerDetalleAsync(DetalleDe(a.Data)))"
                                         EmptyText="No hay actividades libres en el pool ahora mismo.">
                             <Columns>
-                                <RadzenDataGridColumn TItem="ActividadLibreDto" Property="Titulo" Title="Actividad" />
+                                <RadzenDataGridColumn TItem="ActividadLibreDto" Title="" Width="52px" Sortable="false">
+                                    <Template Context="a"><BotonDeDetalle Detalle="@DetalleDe(a)" /></Template>
+                                </RadzenDataGridColumn>
+                                @* MinWidth, y aquí es lo más grave de las cuatro: ésta es la rejilla
+                                   con la que se elige qué actividad tomar, y sin el mínimo el
+                                   título se quedaba en cero — se elegía a ciegas. *@
+                                <RadzenDataGridColumn TItem="ActividadLibreDto" Property="Titulo" Title="Actividad"
+                                                      MinWidth="220px" />
                                 <RadzenDataGridColumn TItem="ActividadLibreDto" Property="TipoTexto" Title="Tipo" Width="130px" />
                                 <RadzenDataGridColumn TItem="ActividadLibreDto" Property="ComplejidadTexto"
                                                       Title="Complejidad" Width="130px" />
@@ -495,6 +519,10 @@
                                     </Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="ActividadLibreDto" Property="Detalle" Title="Detalle" Width="260px">
+                                    @* Recortado a propósito: en una columna de 260 px no cabe otra
+                                       cosa y una fila de tres renglones acabaría con la lectura de
+                                       la tabla. Lo que ya no es, desde el cuadro de detalle, es un
+                                       callejón sin salida: el texto entero está a un doble clic. *@
                                     <Template Context="a">@Resumir(a.Detalle)</Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="ActividadLibreDto" Title="" Width="190px" Sortable="false">
@@ -757,11 +785,44 @@
         _                             => "Completa todos los puntos para poder entregarla."
     };
 
+    /// <summary>
+    /// El detalle apretado en una línea, para que quepa en su columna. Los saltos se cambian por
+    /// espacios porque una celda de rejilla los ignoraría y dejaría las palabras pegadas.
+    ///
+    /// <para>Recorta, y eso deja de ser un problema desde que existe el cuadro de detalle: lo que
+    /// aquí se corta se lee entero con doble clic sobre la fila (ver <see cref="DetalleDe"/>).</para>
+    /// </summary>
     private static string Resumir(string? texto)
     {
         texto = (texto ?? "").Replace('\n', ' ').Replace('\r', ' ').Trim();
         return texto.Length <= 80 ? texto : texto[..80] + "…";
     }
+
+    /// <summary>
+    /// LA FILA ENTERA DE UNA ACTIVIDAD LIBRE, PARA EL CUADRO QUE ABRE EL DOBLE CLIC.
+    ///
+    /// <para>Los valores salen de los MISMOS ayudantes que pintan las celdas —<c>HorasDelPool</c>
+    /// para el plazo y las etiquetas del servidor para el tipo, la complejidad y la prioridad—: dos
+    /// formatos del mismo dato serían dos verdades, y el día que cambiara una se corregiría sola.</para>
+    ///
+    /// <para>Los criterios extra van como texto largo y uno por renglón, igual que en su columna.
+    /// Son lo que se pide DE MÁS y hay que poder leerlos antes de tomar nada: enterarse después
+    /// convertiría el extra en una trampa, que es justo lo que su columna existe para evitar.</para>
+    /// </summary>
+    private static DetalleDeFila DetalleDe(ActividadLibreDto a) =>
+        new DetalleDeFila("Actividad libre del pool", a.Titulo)
+            .Campo("Tipo", a.TipoTexto)
+            .Campo("Complejidad", a.ComplejidadTexto)
+            .Campo("Puntos", a.PuntosMaximos > a.Puntos
+                                 ? $"{a.Puntos} (hasta {a.PuntosMaximos} con los criterios extra)"
+                                 : $"{a.Puntos}")
+            .Campo("Prioridad", a.PrioridadTexto)
+            .Campo("Plazo", HorasDelPool.Plazo(a.HorasEfectivas))
+            .Campo("Enlace", a.Enlace)
+            .Texto("Además se evalúa", a.CriteriosExtra.Count == 0
+                       ? null
+                       : string.Join("\n", a.CriteriosExtra.Select(c => $"+{c.Puntos}  {c.Nombre}")))
+            .Texto("Detalle", a.Detalle);
 
     /// <summary>Solo lo urgente se colorea. Si todo llevara color, el color dejaría de avisar.</summary>
     private static BadgeStyle EstiloDePrioridad(PoolPriority p) => p switch

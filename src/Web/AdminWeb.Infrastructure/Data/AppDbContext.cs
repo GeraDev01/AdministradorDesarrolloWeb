@@ -118,6 +118,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     // con etiquetas distintas. Ver KnowledgeArticle.
     public DbSet<KnowledgeArticle> KnowledgeArticles => Set<KnowledgeArticle>();
 
+    // Las imágenes incrustadas SÍ van aparte, y por lo mismo que las del foro: son binarios de
+    // megas y el cuerpo del artículo se lee entero en cada búsqueda. Ver KnowledgeImage.
+    public DbSet<KnowledgeImage> KnowledgeImages => Set<KnowledgeImage>();
+
     // ── Propias de la web ────────────────────────────────────────────────────
     // No existen en el escritorio: sustituyen a cosas que allí vivían en la máquina de cada quien
     // (el token de DevOps cifrado con DPAPI, la configuración de columnas) o que no hacían falta
@@ -722,6 +726,17 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasIndex(a => new { a.Status, a.UpdatedAtUtc });
             e.HasIndex(a => new { a.AuthorUserId, a.Status });
             e.HasIndex(a => a.PublishedAtUtc);
+        });
+
+        // Las imágenes del artículo SÍ cuelgan de él en cascada, al revés que el autor: una captura
+        // sin artículo no significa nada y nadie podría llegar a ella —el cuerpo que la nombraba se
+        // fue con el artículo—, así que quedaría ocupando megas sin que nada la enseñe nunca.
+        modelBuilder.Entity<KnowledgeImage>(e =>
+        {
+            e.HasOne(i => i.Article).WithMany().HasForeignKey(i => i.ArticleId).OnDelete(DeleteBehavior.Cascade);
+            e.Property(i => i.FileName).IsRequired().HasMaxLength(260);
+            e.Property(i => i.ContentType).IsRequired().HasMaxLength(100);
+            e.HasIndex(i => new { i.ArticleId, i.Id });
         });
 
         // Bitácora de tramos trabajados (sin FK a propósito: registro histórico de tiempo por día).

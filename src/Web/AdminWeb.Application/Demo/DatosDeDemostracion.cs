@@ -1822,24 +1822,34 @@ private static string HistorialDeDemo(params (DateTime CuandoUtc, string Texto)[
                 Notes        = "Se avisó por teléfono el mismo lunes a primera hora.",
                 CreatedAt    = ahora.AddDays(-13)
             },
-            // Pendiente y FUTURA: la que está esperando respuesta ahora mismo.
+            // Pendiente y FUTURA: la que está esperando respuesta ahora mismo. Y es POR HORAS, que es
+            // como se piden de verdad los trámites de media mañana: el tramo va en HoraInicio/HoraFin
+            // y los días se quedan en 1, porque un permiso por horas cabe en un solo día. Sin un
+            // ejemplo así, la demostración enseñaría la mitad de lo que la pantalla sabe hacer.
             new()
             {
                 DeveloperId            = b.Caro.Id,
                 Type                   = LeaveType.PermisoPersonal,
                 Date                   = ProximoHabil(DateTime.Today.AddDays(4)),
                 DaysCount              = 1,
+                HoraInicio             = new TimeOnly(9, 0),
+                HoraFin                = new TimeOnly(13, 0),
                 Reason                 = "Trámite en el banco para el crédito de la casa; solo la mañana.",
                 Status                 = LeaveStatus.Pendiente,
                 RequestedByDeveloperId = b.Caro.Id,
                 CreatedAt              = ahora.AddHours(-19)
             },
+            // El otro permiso por horas, éste de dos: sirve para que en la lista se vean juntos un
+            // tramo largo, uno corto y los de días completos, que es lo que enseña la columna de
+            // duración.
             new()
             {
                 DeveloperId            = b.Dani.Id,
                 Type                   = LeaveType.CitaMedica,
                 Date                   = ProximoHabil(DateTime.Today.AddDays(2)),
                 DaysCount              = 1,
+                HoraInicio             = new TimeOnly(16, 0),
+                HoraFin                = new TimeOnly(18, 0),
                 Reason                 = "Cita con el dentista; salgo a las 16:00.",
                 Status                 = LeaveStatus.Pendiente,
                 RequestedByDeveloperId = b.Dani.Id,

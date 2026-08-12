@@ -425,14 +425,18 @@ public sealed class RecorridosDePersonasYAusencias : IFuenteDeRecorridos
                 "su cuenta, marcados como suyos."),
 
             new Paso("permisos-indicadores", "Cómo vas",
-                "Lo que sigue esperando respuesta, cuántos permisos te aprobaron este año y cuántos " +
-                "días suman. No hay saldo que gastar como en vacaciones: esto es un recuento, no un " +
-                "límite."),
+                "Lo que sigue esperando respuesta, cuántos permisos te aprobaron este año y cuánto " +
+                "suman. Los días y las horas se cuentan en tarjetas distintas y no se mezclan: la de " +
+                "días suma solo los permisos de día completo y la de horas, los tramos, porque un " +
+                "rato de una mañana no son «medio día» para todo el mundo. No hay saldo que gastar " +
+                "como en vacaciones: esto es un recuento, no un límite."),
 
             new Paso("permisos-solicitar", "Pedir un permiso",
                 "Son dos pasos y no cinco a propósito, porque un permiso se pide con prisa: en el " +
-                "primero van tipo, fecha, días y motivo —con las notas y el justificante plegados " +
-                "abajo, que casi nunca hacen falta— y el segundo es el resumen. El motivo es " +
+                "primero van tipo, fecha, duración y motivo —con las notas y el justificante plegados " +
+                "abajo, que casi nunca hacen falta— y el segundo es el resumen. La duración se elige: " +
+                "días completos, como siempre, o un tramo de horas de un solo día —«de 9:00 a 11:00»—, " +
+                "que es lo que de verdad se pide cuando uno va al dentista y vuelve. El motivo es " +
                 "obligatorio: es lo único que el líder va a leer para decidir."),
 
             new Paso("permisos-lista", "Tus solicitudes",
@@ -517,10 +521,12 @@ public sealed class RecorridosDePersonasYAusencias : IFuenteDeRecorridos
                 "explicación es lo que hace que la gente deje de pedir las cosas por aquí."),
 
             new Paso("permisos-lider-corregir", "Corregir un pendiente",
-                "Arregla los datos capturados —tipo, fecha, días, motivo y notas— sin tocar nada más: " +
-                "el justificante que subió quien lo pidió sigue adjunto tal cual, la solicitud no " +
-                "cambia de dueño y sigue esperando tu respuesta. Solo se puede sobre lo que todavía " +
-                "está pendiente."),
+                "Arregla los datos capturados —tipo, fecha, duración, motivo y notas— sin tocar nada " +
+                "más: el justificante que subió quien lo pidió sigue adjunto tal cual, la solicitud " +
+                "no cambia de dueño y sigue esperando tu respuesta. La duración se corrige entera, " +
+                "días completos o tramo de horas, y por eso este panel lleva el mismo desplegable que " +
+                "el de registrar: un permiso capturado por error como día entero no se podría " +
+                "enmendar sin borrarlo. Solo se puede sobre lo que todavía está pendiente."),
 
             new Paso("permisos-lider-eliminar", "Eliminar",
                 "Borra el permiso del historial y no se puede deshacer. No es lo mismo que rechazar: " +
