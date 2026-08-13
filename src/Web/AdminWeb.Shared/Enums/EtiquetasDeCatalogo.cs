@@ -142,6 +142,25 @@ public static class EtiquetasDeCatalogo
     };
 
     /// <summary>
+    /// El mismo rol, sabiendo si el equipo cuelga de otro: quien lidera un SUBEQUIPO es «Líder de
+    /// subequipo».
+    ///
+    /// <para><b>Es una etiqueta DERIVADA y no un rol nuevo</b>, y la diferencia es lo único que
+    /// importa aquí. Un valor nuevo del enum se guardaría en la ficha, y en cuanto alguien recolgara
+    /// el equipo —que se hace arrastrando una caja del organigrama, y no toca ningún rol— ese valor se
+    /// quedaría viejo: un equipo raíz con un «líder de subequipo» dentro, o al revés. Derivándolo de
+    /// dónde cuelga el equipo, la palabra no puede desmentir al dibujo. Además el entero del enum lo
+    /// comparte la aplicación de escritorio, que no conoce ningún valor nuevo.</para>
+    ///
+    /// <para><b>Y no cambia ni un permiso.</b> Liderar agrupa, no reparte: ninguna política ni el
+    /// guardián de autorización miran <c>TeamRole</c>. Esto es cómo se llama, no qué puede hacer.</para>
+    /// </summary>
+    /// <param name="esSubequipo">Si su equipo cuelga de otro. Falso también para quien no tiene
+    /// equipo: sin equipo no hay de qué ser subequipo.</param>
+    public static string RolDeEquipo(TeamRole r, bool esSubequipo) =>
+        r == TeamRole.Lider && esSubequipo ? "Líder de subequipo" : RolDeEquipo(r);
+
+    /// <summary>
     /// Color del rol, en hex para la web. Son los mismos ARGB que pintaba el tablero del escritorio
     /// (<c>TeamsControl.RoleColor</c>): la gente ya asocia «verde = backend» de un vistazo y perder
     /// esa asociación en la mudanza costaría más que conservarla.

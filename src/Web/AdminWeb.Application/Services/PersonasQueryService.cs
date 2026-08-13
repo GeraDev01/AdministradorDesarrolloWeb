@@ -1,4 +1,4 @@
-using AdminWeb.Domain.Documentos;
+﻿using AdminWeb.Domain.Documentos;
 using AdminWeb.Domain.Entities;
 using AdminWeb.Domain.Equipos;
 using AdminWeb.Domain.Security;
@@ -746,19 +746,24 @@ public class PersonasQueryService(
             var lider = miembros.FirstOrDefault(m => m.TeamRole == TeamRole.Lider)
                         ?? miembros.FirstOrDefault(m => m.Id == t.LeadDeveloperId);
 
+            // Si este equipo cuelga de otro, quien lo lidera es «Líder de subequipo». Se saca del
+            // ÁRBOL y no de la ficha de la persona: así la palabra no puede desmentir al dibujo el
+            // día que alguien recuelgue el equipo arrastrando su caja, que no toca ningún rol.
+            bool esSubequipo = jerarquia.PadreDe(t.Id) is not null;
+
             var integrantes = new List<PersonaDelOrganigramaDto>(miembros.Count);
-            if (lider != null) integrantes.Add(Persona(lider, TeamRole.Lider, esLider: true));
+            if (lider != null) integrantes.Add(Persona(lider, TeamRole.Lider, esLider: true, esSubequipo));
 
             var resto = miembros.Where(m => lider == null || m.Id != lider.Id).ToList();
             foreach (var rol in EtiquetasDeCatalogo.OrdenDeRoles)
                 integrantes.AddRange(resto.Where(m => m.TeamRole == rol)
-                                          .Select(m => Persona(m, rol, esLider: false)));
+                                          .Select(m => Persona(m, rol, esLider: false, esSubequipo)));
 
             // El colador: OrdenDeRoles no incluye «Líder», así que un segundo líder marcado en la
             // ficha —que AsignarRolAsync ya no permite, pero que pudo quedar de antes— no entraría
             // por ninguna vuelta del bucle y desaparecería del diagrama sin dejar rastro.
             integrantes.AddRange(resto.Where(m => !EtiquetasDeCatalogo.OrdenDeRoles.Contains(m.TeamRole))
-                                      .Select(m => Persona(m, m.TeamRole, esLider: false)));
+                                      .Select(m => Persona(m, m.TeamRole, esLider: false, esSubequipo)));
 
             return new EquipoDelOrganigramaDto(
                 t.Id, t.Name, Limpiar(t.Description), Limpiar(t.ColorHex), lider?.FullName,
@@ -812,9 +817,20 @@ public class PersonasQueryService(
             organigrama.GeneradoEl);
     }
 
-    private static PersonaDelOrganigramaDto Persona(Developer d, TeamRole rol, bool esLider) =>
+    /// <summary>
+    /// Una persona dentro de su caja del organigrama.
+    ///
+    /// <para>Aquí se resuelve el TEXTO del rol UNA vez, y de aquí sale tanto lo que se ve en pantalla
+    /// como lo que se imprime en el PDF —el papel se traduce de esto, no de otra consulta—. Por eso
+    /// «Líder de subequipo» se decide en este método y en ninguno más: dos sitios que resuelvan la
+    /// misma palabra acaban diciendo cosas distintas del mismo equipo.</para>
+    /// </summary>
+    /// <param name="esSubequipo">Si el equipo de esta persona cuelga de otro. Falso por omisión, que
+    /// es lo que necesita quien no tiene equipo: sin equipo no hay de qué ser subequipo.</param>
+    private static PersonaDelOrganigramaDto Persona(
+        Developer d, TeamRole rol, bool esLider, bool esSubequipo = false) =>
         new(d.Id, d.FullName, Limpiar(d.Seniority), rol,
-            EtiquetasDeCatalogo.RolDeEquipo(rol), EtiquetasDeCatalogo.ColorDeRol(rol),
+            EtiquetasDeCatalogo.RolDeEquipo(rol, esSubequipo), EtiquetasDeCatalogo.ColorDeRol(rol),
             Limpiar(d.TeamFunction), esLider);
 
     private static IntegranteImpreso Impreso(PersonaDelOrganigramaDto p) =>

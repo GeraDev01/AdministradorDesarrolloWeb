@@ -340,6 +340,125 @@ public class GeneradorDeDocumentosTests
         Assert.Equal(1, CuantasHojas(pdf));
     }
 
+    /// <summary>
+    /// <b>Con UNA sola rama no hay reparto: su árbol va en la primera hoja.</b>
+    ///
+    /// <para>Es la foto de esta casa —un equipo raíz y todo colgando de él— y era la que peor salía:
+    /// la primera hoja gastaba tres cuartos de página en una caja sola y mandaba a pasar página para
+    /// ver tres subequipos que cabían debajo de sobra. Repartir tiene sentido cuando hay varias ramas
+    /// que no se pueden mezclar; con una, el reparto es la mitad del papel en blanco.</para>
+    ///
+    /// <para><b>El caso es el MÁS PEQUEÑO que distingue las dos maquetaciones</b>, y no el de la casa,
+    /// a propósito: un padre y un hijo, sin gente. Antes daba dos hojas —una para la organización y
+    /// otra para la rama— y ahora tiene que dar una. Con el árbol entero de la casa las dos
+    /// maquetaciones dan dos hojas, porque el contenido desborda por altura de todas formas, y la
+    /// prueba no distinguiría nada: pasaría igual con el reparto puesto y quitado.</para>
+    ///
+    /// <para>Y dice menos de lo que parece, que conviene saberlo: que quepa NO significa que esté bien
+    /// maquetado. Eso se mira.</para>
+    /// </summary>
+    [Fact]
+    public void UNA_SOLA_RAMA_no_abre_hoja_aparte()
+    {
+        var datos = new DatosDeEquipos(
+            [Equipo("Desarrollo Web", null, "#2563EB"), Equipo("Soporte", "Desarrollo Web")],
+            [], 2, "13/08/2026 20:26");
+
+        var pdf = Generador.OrganizacionDeEquipos(datos);
+
+        EsUnPdf(pdf);
+        Assert.Equal(1, CuantasHojas(pdf));
+    }
+
+    /// <summary>
+    /// <b>El texto que el PDF lleva DENTRO tiene que decir lo mismo que el que se ve.</b>
+    ///
+    /// <para>Lato une «ti» en un solo glifo y lo incrusta sin correspondencia de vuelta a las dos
+    /// letras. En el papel se leía bien y el texto del archivo perdía la pareja: «prácticas» se
+    /// copiaba «práccas» y «características» salía «caracteríscas». O sea que el Ctrl+F no encontraba
+    /// media hoja, copiar y pegar producía faena, y un lector de pantalla lee lo que se copia.</para>
+    ///
+    /// <para><b>Esto no lo caza mirando el documento</b>, que es justo por lo que estuvo así: hay que
+    /// abrirlo y copiar. Se comprueba sobre los bytes buscando la pareja de letras cruda dentro de la
+    /// tabla de correspondencias del propio PDF, que es de donde el lector saca lo que copia.</para>
+    /// </summary>
+    [Fact]
+    public void EL_TEXTO_DEL_PDF_no_se_come_la_pareja_ti()
+    {
+        var datos = new DatosDeEquipos(
+            [
+                new EquipoImpreso("Desarrollo", "Mantiene las plataformas.", null, "#2563EB", null,
+                    [new IntegranteImpreso("Ana Ruiz", "Senior", "Líder",
+                        "Supervisa las mejores prácticas de codificación en tiempo y forma.", true)],
+                    [], [])
+            ],
+            [], 1, "13/08/2026 20:26");
+
+        var pdf = Generador.OrganizacionDeEquipos(datos);
+        EsUnPdf(pdf);
+
+        // Un glifo que no sabe decir qué letra es se declara apuntando a <0000>. Con la ligadura
+        // encendida, el de «ti» era exactamente eso.
+        Assert.False(TieneGlifosSinLetra(pdf),
+            "El PDF lleva glifos sin correspondencia a letra: lo que se copie de ahí saldrá incompleto.");
+    }
+
+    /// <summary>
+    /// ¿Hay algún glifo declarado sin decir qué letra es? Se mira la tabla /ToUnicode del propio
+    /// documento, que es de donde el lector saca el texto al copiar.
+    /// </summary>
+    private static bool TieneGlifosSinLetra(byte[] pdf)
+    {
+        foreach (var cmap in FlujosDescomprimidos(pdf))
+        {
+            if (!cmap.Contains("beginbfchar", StringComparison.Ordinal)
+                && !cmap.Contains("beginbfrange", StringComparison.Ordinal)) continue;
+
+            foreach (System.Text.RegularExpressions.Match m in
+                     System.Text.RegularExpressions.Regex.Matches(cmap, @"<[0-9A-Fa-f]+>\s*<(0000)+>"))
+                if (m.Success) return true;
+        }
+        return false;
+    }
+
+    /// <summary>Los flujos del PDF, descomprimidos cuando se puede. Los que no, se ignoran: aquí solo
+    /// interesan las tablas de texto, que sí lo están.</summary>
+    private static IEnumerable<string> FlujosDescomprimidos(byte[] pdf)
+    {
+        const string abre = "stream";
+        const string cierra = "endstream";
+        var texto = System.Text.Encoding.Latin1.GetString(pdf);
+
+        int i = 0;
+        while ((i = texto.IndexOf(abre, i, StringComparison.Ordinal)) >= 0)
+        {
+            int ini = i + abre.Length;
+            while (ini < texto.Length && (texto[ini] == '\r' || texto[ini] == '\n')) ini++;
+
+            int fin = texto.IndexOf(cierra, ini, StringComparison.Ordinal);
+            if (fin < 0) yield break;
+
+            var datos = System.Text.Encoding.Latin1.GetBytes(texto[ini..fin]);
+            string? claro = null;
+            try
+            {
+                using var origen = new MemoryStream(datos);
+                using var zip = new System.IO.Compression.ZLibStream(
+                    origen, System.IO.Compression.CompressionMode.Decompress);
+                using var destino = new MemoryStream();
+                zip.CopyTo(destino);
+                claro = System.Text.Encoding.Latin1.GetString(destino.ToArray());
+            }
+            catch
+            {
+                // Flujo sin comprimir o comprimido de otra forma: no es una tabla de texto.
+            }
+
+            if (claro is not null) yield return claro;
+            i = fin + cierra.Length;
+        }
+    }
+
     /// <summary>Un solo equipo, sin nada colgando y sin nadie fuera: el organigrama más pequeño que existe.</summary>
     [Fact]
     public void UnSoloEquipo_SeGenera()

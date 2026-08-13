@@ -394,6 +394,26 @@ public class GeneradorDeDocumentosQuestPdf : IGeneradorDeDocumentos
     /// ella— y no entre una y otra, para que las verticales del árbol lo crucen sin cortarse.</summary>
     private const float EspacioEntreSubequipos = 8f;
 
+    /// <summary>Lo ancho que es la franja de color de una caja. Cuatro puntos, los mismos que el borde
+    /// izquierdo de la caja en pantalla.</summary>
+    private const float FranjaDeColor = 4f;
+
+    /// <summary>
+    /// El sitio que hay que tener libre para EMPEZAR a dibujar una caja de equipo.
+    ///
+    /// <para>Sale de sumar lo que ocupa una caja hasta que dice algo: la cabecera —nombre, de quién
+    /// cuelga, descripción y el recuento de gente— más dos personas con su función. Por debajo de eso
+    /// el corte deja en la hoja un membrete y nada más, que es lo que pasaba con «Soporte»: su nombre
+    /// cerraba una hoja y su gente entera abría la siguiente.</para>
+    ///
+    /// <para><b>Es un mínimo, no una prohibición</b>, y esa es toda la diferencia con
+    /// <c>ShowEntire</c>. Aquel exige que la caja QUEPA ENTERA y lanza <c>DocumentLayoutException</c>
+    /// cuando el contenido es más alto que la hoja: un equipo de sesenta personas dejaría a la casa
+    /// entera sin organigrama, no solo a ese equipo. Con <c>EnsureSpace</c>, si no cabe el mínimo se
+    /// pasa de hoja, y si ni en una hoja limpia cabe, se dibuja y se parte como hasta ahora.</para>
+    /// </summary>
+    private const float SitioMinimoDeCaja = 120f;
+
     public byte[] OrganizacionDeEquipos(DatosDeEquipos d) => DocumentoDelOrganigrama(d).GeneratePdf();
 
     /// <summary>El documento antes de convertirlo en bytes. Va aparte porque el diagrama es lo único
@@ -406,6 +426,10 @@ public class GeneradorDeDocumentosQuestPdf : IGeneradorDeDocumentos
             var ramas = Ramas(d.Equipos);
 
             doc.Page(pagina => HojaDeLaOrganizacion(pagina, d, ramas));
+
+            // Con una sola rama, sus subequipos ya salieron en la primera hoja y no hay nada que
+            // repartir: una segunda hoja repetiría el mismo árbol bajo otro membrete.
+            if (ramas.Count == 1) return;
 
             foreach (var rama in ramas.Where(r => r.Subequipos.Count > 0))
                 doc.Page(pagina => HojaDeUnaRama(pagina, d, rama));
@@ -454,8 +478,14 @@ public class GeneradorDeDocumentosQuestPdf : IGeneradorDeDocumentos
             {
                 var fila = cajas.Skip(desde).Take(CajasPorFila).ToList();
 
-                col.Item().Element(e => Reparto(e, fila.Count));
-                col.Item().PaddingBottom(12).Row(r =>
+            // La barra del reparto y las cajas que cuelgan de ella van en UN SOLO elemento, y con su
+            // mínimo de sitio. Sueltos, el corte de página podía dejar la barra cerrando una hoja y
+            // sus cajas abriendo la siguiente: una barra de la que no cuelga nada, encima de unas
+            // cajas que parecen colgar del membrete.
+            col.Item().PaddingBottom(12).EnsureSpace(SitioMinimoDeCaja).Column(bloque =>
+            {
+                bloque.Item().Element(e => Reparto(e, fila.Count));
+                bloque.Item().Row(r =>
                 {
                     // El hueco entre cajas se hace con relleno DENTRO de cada celda y no con el
                     // «Spacing» de la fila, y de eso depende que las líneas caigan donde deben: con
@@ -469,7 +499,10 @@ public class GeneradorDeDocumentosQuestPdf : IGeneradorDeDocumentos
                         r.RelativeItem().PaddingHorizontal(EspacioEntreCajas / 2)
                          .Element(x => CajaDeEquipo(x, caja.Equipo,
                             ColorDeLaBanda(caja.Equipo.ColorHex, Linea),
-                            caja.CuantosSubequipos, suRamaEnOtraHoja: caja.Subequipos.Count > 0));
+                            caja.CuantosSubequipos,
+                            // Con una sola rama su árbol va debajo, en esta misma hoja: mandar al
+                            // lector a una hoja 2 que ya no existe es peor que no decirle nada.
+                            suRamaEnOtraHoja: caja.Subequipos.Count > 0 && ramas.Count > 1));
 
                     // Los huecos de la última fila se reservan igual. Sin esto, dos equipos solos se
                     // estirarían a media hoja cada uno y no parecerían del mismo tamaño que los de la
@@ -477,7 +510,17 @@ public class GeneradorDeDocumentosQuestPdf : IGeneradorDeDocumentos
                     for (int hueco = fila.Count; hueco < CajasPorFila; hueco++)
                         r.RelativeItem();
                 });
+            });
             }
+
+            // LA RAMA, EN ESTA MISMA HOJA CUANDO SOLO HAY UNA. Con un único equipo raíz —que es la
+            // casa hoy— la primera hoja gastaba tres cuartos de página en una caja sola y mandaba a
+            // pasar página para ver tres subequipos que cabían debajo de sobra. Cuando hay VARIAS
+            // ramas cada una sigue llevándose su hoja: ahí el reparto no es desperdicio, es lo que
+            // impide leer dos ramas seguidas como si fueran una.
+            if (ramas.Count == 1 && ramas[0].Subequipos.Count > 0)
+                Subequipos(col, ramas[0].Subequipos, [],
+                    ColorDeLaBanda(ramas[0].Equipo.ColorHex, Linea));
         });
 
         pagina.Footer().Element(PieDePagina);
@@ -562,7 +605,9 @@ public class GeneradorDeDocumentosQuestPdf : IGeneradorDeDocumentos
         // adentro no se dibujan: caerían todas en la misma columna, una encima de otra.
         int pasos = Math.Min(verticales.Count, NivelesConSangria);
 
-        c.Layers(capas =>
+        // El mínimo de sitio va FUERA de las capas y envolviéndolas: pedido dentro, cada capa lo
+        // negociaría por su cuenta y las líneas podrían quedarse en una hoja y la caja en la otra.
+        c.EnsureSpace(SitioMinimoDeCaja).Layers(capas =>
         {
             capas.Layer().Row(r =>
             {
@@ -642,7 +687,10 @@ public class GeneradorDeDocumentosQuestPdf : IGeneradorDeDocumentos
             // Cuántos equipos NO se dibujan en esta hoja porque están en la de su rama. Sin este
             // renglón, quien cuente las cajas de aquí y las compare con el «12 equipo(s)» de arriba
             // pensaría que al documento le faltan equipos.
-            int enOtrasHojas = ramas.Sum(r => r.CuantosSubequipos);
+            //
+            // Con UNA sola rama no hay ninguno en otra hoja: su árbol va aquí debajo. Decir que están
+            // «en la hoja de su rama» mandaría a buscar una hoja que no se ha impreso.
+            int enOtrasHojas = ramas.Count == 1 ? 0 : ramas.Sum(r => r.CuantosSubequipos);
 
             col.Item().AlignCenter().Border(1).BorderColor(Tinta).Padding(8).Column(caja =>
             {
@@ -726,14 +774,25 @@ public class GeneradorDeDocumentosQuestPdf : IGeneradorDeDocumentos
         Math.Max(cuantas - 0.5f, CajasPorFila / 2f);
 
     /// <summary>
-    /// La caja de un equipo: banda de color, nombre, a qué se dedica y su gente.
+    /// La caja de un equipo: franja de color, nombre, a qué se dedica y su gente.
     ///
-    /// <para><b>El color va en la banda de arriba y NUNCA detrás de un texto.</b> Lo teclea una
-    /// persona en una caja de texto, así que puede ser cualquier cosa —un amarillo pálido o un azul
-    /// marino—; con el nombre del equipo encima, el primero deja el texto ilegible en blanco y el
-    /// segundo en negro, y no hay forma de acertar sin adivinar el color. En una banda maciza sobre
-    /// el borde de la caja no hay nada que leer encima: el color identifica, y el texto se lee
-    /// siempre en tinta sobre papel.</para>
+    /// <para><b>El color va en una franja y NUNCA detrás de un texto.</b> Lo teclea una persona en una
+    /// caja de texto, así que puede ser cualquier cosa —un amarillo pálido o un azul marino—; con el
+    /// nombre del equipo encima, el primero deja el texto ilegible en blanco y el segundo en negro, y
+    /// no hay forma de acertar sin adivinar el color. En una franja maciza no hay nada que leer
+    /// encima: el color identifica, y el texto se lee siempre en tinta sobre papel.</para>
+    ///
+    /// <para><b>A la IZQUIERDA y no arriba, que es donde estaba.</b> Tres motivos, y ninguno es de
+    /// gusto. Es el mismo sitio que en pantalla (<c>app.css</c>, borde izquierdo de la caja), así que
+    /// quien mira el papel después del diagrama reconoce lo mismo. Una banda de 6 puntos cruzando una
+    /// caja apaisada son veinticinco centímetros de color saturado que pesan más que el nombre del
+    /// equipo, y en una hoja con tres cajas se leen como tres tajos. Y sobre todo: la banda de arriba
+    /// se quedaba HUÉRFANA al partirse la caja de página —el color arriba y su caja en la hoja
+    /// siguiente—, que es la «barra descolocada» que se veía; una franja lateral viaja con la caja
+    /// pase lo que pase.</para>
+    ///
+    /// <para>Sin color no se pinta franja. Antes se pintaba con el gris del borde, que es literalmente
+    /// el color de la línea de al lado y se lee como una impresión que salió mal.</para>
     /// </summary>
     /// <param name="color">Ya resuelto por quien dibuja: el suyo, el heredado de su rama o el gris.
     /// La caja no lo decide porque para decidirlo hay que saber de qué rama cuelga, y eso es del
@@ -743,10 +802,14 @@ public class GeneradorDeDocumentosQuestPdf : IGeneradorDeDocumentos
     /// lector; si están justo debajo, decírselo sería mandarlo a donde ya está mirando.</param>
     private static void CajaDeEquipo(IContainer c, EquipoImpreso eq, string color, int subequipos,
         bool suRamaEnOtraHoja) =>
-        c.Border(1).BorderColor(Linea).Column(col =>
+        c.Border(1).BorderColor(Linea).Row(caja =>
         {
-            col.Item().Height(6).Background(color);
+            // LA FRANJA DEL COLOR, a la izquierda. Sin franja cuando el equipo no tiene color: antes
+            // se pintaba el gris del borde, que en papel se lee como una impresión que salió mal.
+            if (color != Linea) caja.ConstantItem(FranjaDeColor).Background(color);
 
+            caja.RelativeItem().Column(col =>
+            {
             col.Item().Padding(8).PaddingBottom(6).Column(cab =>
             {
                 cab.Item().Text(eq.Nombre).SemiBold().FontSize(12).FontColor(Tinta);
@@ -817,6 +880,7 @@ public class GeneradorDeDocumentosQuestPdf : IGeneradorDeDocumentos
                 if (eq.Proyectos.Count > 0)
                     gente.Item().Text($"Proyectos: {string.Join(", ", eq.Proyectos)}")
                         .FontSize(7).FontColor(Tenue);
+            });
             });
         });
 
@@ -952,11 +1016,28 @@ public class GeneradorDeDocumentosQuestPdf : IGeneradorDeDocumentos
 
     // ── Piezas comunes ──────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// La hoja de siempre, vertical.
+    ///
+    /// <para><b>Las LIGADURAS van apagadas, y no es una decisión tipográfica.</b> Lato une «ti» en un
+    /// solo glifo, y ese glifo se incrusta sin correspondencia de vuelta a las dos letras. En el papel
+    /// se lee bien, pero el texto que el PDF lleva dentro pierde la pareja: «prácticas» se copia
+    /// «práccas», «tiempo» sale «empo» y «características» sale «caracteríscas». O sea que el Ctrl+F no
+    /// encuentra la mitad de las palabras del castellano de oficina, copiar y pegar produce faena, y un
+    /// lector de pantalla lee lo que se copia, no lo que se ve.</para>
+    ///
+    /// <para>Se apaga la característica <c>liga</c> ENTERA porque es una sola y no se puede partir por
+    /// pares: se pierden también «fi» y «fl», que en un documento de oficina no las echa de menos nadie
+    /// y que además solo cambian la forma, no el texto. El cambio va aquí y en
+    /// <see cref="HojaApaisada"/>, en las dos: cada documento declara una de las dos, y arreglar solo
+    /// una deja el defecto vivo en los otros.</para>
+    /// </summary>
     private static void Hoja(PageDescriptor pagina)
     {
         pagina.Size(PageSizes.Letter);
         pagina.Margin(2, Unit.Centimetre);
-        pagina.DefaultTextStyle(t => t.FontSize(10).FontColor(Tinta));
+        pagina.DefaultTextStyle(t => t.FontSize(10).FontColor(Tinta)
+            .DisableFontFeature(FontFeatures.StandardLigatures));
     }
 
     /// <summary>
@@ -967,12 +1048,16 @@ public class GeneradorDeDocumentosQuestPdf : IGeneradorDeDocumentos
     /// <para>La declaran por igual la hoja de la organización y la de cada rama: son el mismo
     /// documento repartido, y una rama en vertical detrás de un resumen apaisado se lee como si
     /// alguien hubiera imprimido dos papeles distintos y los hubiera grapado.</para>
+    ///
+    /// <para>Las ligaduras van apagadas por lo mismo que en <see cref="Hoja"/>: sin eso, el texto que
+    /// este documento lleva dentro se come la pareja «ti» y deja de poderse buscar ni copiar.</para>
     /// </summary>
     private static void HojaApaisada(PageDescriptor pagina)
     {
         pagina.Size(PageSizes.Letter.Landscape());
         pagina.Margin(1.2f, Unit.Centimetre);
-        pagina.DefaultTextStyle(t => t.FontSize(10).FontColor(Tinta));
+        pagina.DefaultTextStyle(t => t.FontSize(10).FontColor(Tinta)
+            .DisableFontFeature(FontFeatures.StandardLigatures));
     }
 
     private static void Titulo(IContainer c, string titulo, string subtitulo) =>

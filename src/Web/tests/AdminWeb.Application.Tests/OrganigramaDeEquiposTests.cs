@@ -1,4 +1,4 @@
-using AdminWeb.Application.Services;
+﻿using AdminWeb.Application.Services;
 using AdminWeb.Domain.Entities;
 using AdminWeb.Domain.Security;
 using AdminWeb.Infrastructure.Data;
@@ -331,6 +331,74 @@ public class OrganigramaDeEquiposTests
         Assert.True(alfa.Integrantes[0].EsLider);
         Assert.Equal("Senior", alfa.Integrantes[0].Nivel);
         Assert.Contains(alfa.Integrantes, i => i.Funcion == "Mantiene la pasarela de pagos");
+    }
+
+    // ── Cómo se llama quien lidera ───────────────────────────────────────────────
+
+    /// <summary>
+    /// <b>Quien lidera un SUBEQUIPO se llama «Líder de subequipo»; quien lidera un equipo raíz sigue
+    /// siendo «Líder».</b>
+    ///
+    /// <para>Y lo decide EL ÁRBOL, no la ficha de la persona. Es lo que comprueba la segunda mitad de
+    /// esta prueba y es todo el motivo de que sea una etiqueta derivada y no un rol nuevo: recolgar un
+    /// equipo se hace arrastrando su caja por el organigrama, y ese gesto no toca ningún rol. Con un
+    /// valor guardado, el mismo arrastre dejaría a un equipo raíz con un «líder de subequipo» dentro
+    /// —o al revés— sin que nadie lo hubiera decidido y sin nada que lo delatara.</para>
+    /// </summary>
+    [Fact]
+    public async Task ELROTULO_DEL_LIDER_lo_decide_de_donde_cuelga_su_equipo()
+    {
+        var db = TestDb.New();
+        db.Teams.Add(new Team { Id = 1, Name = "Desarrollo Web" });
+        db.Teams.Add(new Team { Id = 2, Name = "Soporte", EquipoPadreId = 1 });
+        db.Developers.Add(new Developer { Id = 1, FullName = "Ana", IsActive = true, TeamId = 1, TeamRole = TeamRole.Lider });
+        db.Developers.Add(new Developer { Id = 2, FullName = "Beto", IsActive = true, TeamId = 2, TeamRole = TeamRole.Lider });
+        db.SaveChanges();
+        var svc = Nuevo(db, UsuarioDePrueba.Como(UserRole.Admin));
+
+        var org = await svc.OrganigramaAsync();
+        Assert.Equal("Líder", Rotulo(org, "Desarrollo Web"));
+        Assert.Equal("Líder de subequipo", Rotulo(org, "Soporte"));
+
+        // Y ahora se recuelga «Soporte» como equipo raíz SIN tocar el rol de nadie: el rótulo tiene
+        // que cambiar solo. Con un valor guardado en la ficha, aquí se quedaría el de antes.
+        db.Teams.Find(2)!.EquipoPadreId = null;
+        db.SaveChanges();
+        db.ChangeTracker.Clear();
+
+        var despues = await svc.OrganigramaAsync();
+        Assert.Equal("Líder", Rotulo(despues, "Soporte"));
+    }
+
+    /// <summary>El rótulo del rol que sale dibujado para quien lidera ese equipo.</summary>
+    private static string Rotulo(OrganigramaDto org, string equipo) =>
+        org.Equipos.Single(e => e.Nombre == equipo).Integrantes.Single(i => i.EsLider).RolTexto;
+
+    /// <summary>
+    /// El rótulo del papel es EL MISMO que el de la pantalla, y no una segunda traducción.
+    ///
+    /// <para>El PDF se arma traduciendo el organigrama ya resuelto, así que basta con que el texto
+    /// viaje; se comprueba igual porque el día que alguien le dé al papel su propia consulta —que es
+    /// lo que había antes— los dos empezarán a decir cosas distintas del mismo equipo, y eso no lo
+    /// nota nadie hasta que alguien pone las dos cosas una al lado de la otra en una junta.</para>
+    /// </summary>
+    [Fact]
+    public async Task EL_PAPEL_DICE_LO_MISMO_QUE_LA_PANTALLA_sobre_el_lider()
+    {
+        var db = TestDb.New();
+        db.Teams.Add(new Team { Id = 1, Name = "Desarrollo Web" });
+        db.Teams.Add(new Team { Id = 2, Name = "Soporte", EquipoPadreId = 1 });
+        db.Developers.Add(new Developer { Id = 1, FullName = "Ana", IsActive = true, TeamId = 1, TeamRole = TeamRole.Lider });
+        db.Developers.Add(new Developer { Id = 2, FullName = "Beto", IsActive = true, TeamId = 2, TeamRole = TeamRole.Lider });
+        db.SaveChanges();
+        var svc = Nuevo(db, UsuarioDePrueba.Como(UserRole.Admin));
+
+        var papel = await svc.DatosDeEquiposAsync();
+
+        Assert.Equal("Líder",
+            papel.Equipos.Single(e => e.Nombre == "Desarrollo Web").Integrantes.Single(i => i.EsLider).Rol);
+        Assert.Equal("Líder de subequipo",
+            papel.Equipos.Single(e => e.Nombre == "Soporte").Integrantes.Single(i => i.EsLider).Rol);
     }
 
     // ── La guarda ────────────────────────────────────────────────────────────────

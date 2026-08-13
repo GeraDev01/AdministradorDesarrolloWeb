@@ -1,4 +1,4 @@
-using AdminWeb.Domain.Equipos;
+﻿using AdminWeb.Domain.Equipos;
 using AdminWeb.Domain.Security;
 using AdminWeb.Infrastructure.Data;
 using AdminWeb.Shared.Dtos.Catalogos;
@@ -62,6 +62,10 @@ public class CatalogosQueryService(AppDbContext db, ICurrentUser currentUser)
                 d.Id, d.FullName, d.Email, d.Phone, d.Seniority, d.HireDate, d.Address,
                 d.EquipmentSerial, d.VacationDaysLeft, d.IsActive, d.TeamRole, d.Notes,
                 Equipo = d.Team != null ? d.Team.Name : null,
+                // Si su equipo cuelga de otro, quien lo lidera se llama «Líder de subequipo». Se lee
+                // aquí, en la misma consulta, y no con una segunda vuelta a la base: el rótulo tiene
+                // que decir lo mismo que el organigrama de la pantalla de al lado.
+                EsSubequipo = d.Team != null && d.Team.EquipoPadreId != null,
                 // Contado en la base: traer las asignaciones para hacerles Count() en memoria era
                 // barato con 20 desarrolladores y deja de serlo con años de requerimientos.
                 Asignados = d.Assignments.Count()
@@ -71,7 +75,8 @@ public class CatalogosQueryService(AppDbContext db, ICurrentUser currentUser)
         return filas.Select(d => new DesarrolladorDto(
             d.Id, d.FullName, d.Email, d.Phone, d.Seniority, d.HireDate, d.Address,
             d.EquipmentSerial, d.VacationDaysLeft, d.Asignados, cuentas.Contains(d.Id),
-            d.IsActive, d.Equipo, d.TeamRole, EtiquetasDeCatalogo.RolDeEquipo(d.TeamRole),
+            d.IsActive, d.Equipo, d.TeamRole,
+            EtiquetasDeCatalogo.RolDeEquipo(d.TeamRole, d.EsSubequipo),
             d.Notes)).ToList();
     }
 

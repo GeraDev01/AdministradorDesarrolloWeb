@@ -1,4 +1,4 @@
-using AdminWeb.Domain.Documentos;
+﻿using AdminWeb.Domain.Documentos;
 using AdminWeb.Domain.Security;
 using AdminWeb.Infrastructure.Data;
 using AdminWeb.Shared.Enums;
@@ -62,7 +62,10 @@ public class FichaDeDesarrolladorQueryService(
             .Select(d => new
             {
                 d.FullName, d.Email, d.Phone, d.Seniority, d.HireDate, d.TeamId, d.TeamRole,
-                Equipo = d.Team != null ? d.Team.Name : null
+                Equipo = d.Team != null ? d.Team.Name : null,
+                // Para el rótulo del líder: quien lidera un equipo que cuelga de otro es «Líder de
+                // subequipo». Se lee aquí para que la ficha diga lo mismo que el organigrama.
+                EsSubequipo = d.Team != null && d.Team.EquipoPadreId != null
             })
             .FirstOrDefaultAsync(ct);
         if (dev == null) return null;
@@ -101,7 +104,9 @@ public class FichaDeDesarrolladorQueryService(
             Equipo: dev.Equipo,
             // Sin equipo no hay rol que enseñar: «Sin rol» al lado de «Sin equipo» se lee como si
             // fueran dos huecos distintos cuando en realidad es el mismo.
-            RolEnElEquipo: dev.TeamId == null ? null : EtiquetasDeCatalogo.RolDeEquipo(dev.TeamRole),
+            RolEnElEquipo: dev.TeamId == null
+                ? null
+                : EtiquetasDeCatalogo.RolDeEquipo(dev.TeamRole, dev.EsSubequipo),
             FechaDeIngreso: dev.HireDate,
             PuntosAprobadosDelAnio: puntos,
             TiempoTotal: WorkSessionService.Format(
