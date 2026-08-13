@@ -472,8 +472,10 @@
                                cuatro, y las filas eran un reparto del ancho del lienzo y no la jerarquía;
                                ahora dónde cae cada caja lo decide de quién cuelga, que no es un ajuste de
                                nadie. «Tamaño» sí sigue, y ahora cambia el tamaño de letra del contenedor:
-                               dentro del diagrama todas las medidas van en «em», así que las cajas, las
-                               sangrías y las líneas crecen juntas y no solo el texto. *@
+                               dentro del diagrama todas las medidas van en «em», así que las cajas, los
+                               huecos y las líneas crecen juntos y no solo el texto. Con un organigrama
+                               clásico ese selector deja de ser un gusto y pasa a ser la herramienta con
+                               la que un árbol ancho cabe en la pantalla; la otra es el plegado. *@
                             <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.35rem">
                                 <RadzenLabel Text="Tamaño:" Component="escala" />
                                 <RadzenDropDown TValue="int" @bind-Value="_escala" Name="escala"
@@ -521,153 +523,12 @@
                                  role="group" aria-label="@AriaDelDiagrama(_organigrama)"
                                  @ondragenter="@EntrarEnElLienzo">
 
-                                @foreach (var caja in TrazadoDelOrganigrama.Trazar(_paraDibujar, _plegados))
-                                {
-                                    var c = caja;                                  // el de esta vuelta, para los manejadores
-                                    var equipo = EquipoDeLaCaja(c.Id);             // nulo en las dos cajas que no son equipos
-                                    var gente = GenteDeLaCaja(c.Id);
-                                    int? equipoDeLaCaja = c.Id > 0 ? c.Id : null;  // de dónde sale quien se arrastre de aquí
-                                    var admite = AceptaLaSoltada(c.Id);
-
-                                    <div class="organigrama-fila">
-                                        @* Las líneas del árbol. Van marcadas como decorativas: lo que dicen
-                                           —de quién cuelga cada equipo— está escrito con letras en la caja y
-                                           en su etiqueta, que es lo que oye quien no ve el dibujo. *@
-                                        @foreach (var guia in c.Guias)
-                                        {
-                                            <span class="@ClaseDeGuia(guia)" aria-hidden="true"></span>
-                                        }
-
-                                        @* role="group": una caja no es un control —dentro hay varios—,
-                                           pero sin rol el lector de pantalla no anuncia su etiqueta y
-                                           quien navega a ciegas se encontraría con los botones sueltos
-                                           sin saber de qué equipo son. *@
-                                        <div class="@ClasesDeCaja(c, admite)" style="@EstiloDeCaja(c)"
-                                             role="group" aria-label="@AriaDeLaCaja(c)"
-                                             data-soltar="@(admite ? "si" : "no")"
-                                             @ondragenter="@(() => EntrarEnCaja(c.Id))"
-                                             @ondragover:preventDefault="@admite"
-                                             @ondrop:preventDefault="true"
-                                             @ondrop="@(() => SoltarEn(c.Id))">
-
-                                            @* La cabecera es el asa del equipo: se arrastra ella y no la caja
-                                               entera, para que arrastrar a una persona de dentro no arrastre
-                                               además a su equipo. Las dos cajas que no son equipos —la de
-                                               arriba y la de «sin equipo»— no se arrastran: no hay nada que
-                                               colgar de ningún sitio. *@
-                                            <div class="organigrama-cabecera"
-                                                 draggable="@(equipo is null ? "false" : "true")"
-                                                 data-arrastre="@equipo?.Nombre"
-                                                 @ondragstart="@(() => ArrastrarEquipo(c.Id))"
-                                                 @ondragend="@TerminarArrastre">
-
-                                                @if (equipo is not null)
-                                                {
-                                                    <RadzenIcon Icon="drag_indicator" class="organigrama-asa"
-                                                                Style="font-size:1.05em"
-                                                                title="Arrastra esta cabecera para colgar el equipo de otro" />
-                                                }
-
-                                                @* Plegar es un BOTÓN de verdad y ya no la caja entera. Antes la
-                                                   caja era el interruptor porque dentro no había nada más;
-                                                   ahora tiene personas que se arrastran y un lápiz que abre el
-                                                   editor, y un clic en cualquiera de ellos plegaría la caja de
-                                                   paso. Además un <button> ya responde a Enter y a espacio sin
-                                                   que haya que escribirlo. *@
-                                                @* «|| c.Plegada» no es de más: «Plegar todos» pliega TODOS los
-                                                   equipos, incluido el que no tiene gente ni nada colgando, y a ese
-                                                   las dos primeras condiciones no le sacaban botón. Se quedaba
-                                                   plegado —con su descripción y sus contadores escondidos— y sin
-                                                   ningún control suyo para volver a abrirlo: había que desplegar la
-                                                   pantalla entera. Una caja no puede quedar en un estado que su
-                                                   propio interruptor no deshaga. *@
-                                                @if (c.TieneRama || gente.Count > 0 || c.Plegada)
-                                                {
-                                                    <button type="button" class="organigrama-plegar"
-                                                            aria-expanded="@(c.Plegada ? "false" : "true")"
-                                                            title="@(c.Plegada ? "Desplegar" : "Plegar") esta caja y lo que le cuelga"
-                                                            @onclick="@(() => AlternarPliegue(c.Id))">
-                                                        <RadzenIcon Icon="@(c.Plegada ? "expand_more" : "expand_less")"
-                                                                    Style="font-size:1.1em" />
-                                                    </button>
-                                                }
-
-                                                <span class="organigrama-nombre">@NombreDeLaCaja(c.Id)</span>
-                                                <span class="organigrama-apunte">@ContadoresDeLaCaja(c, gente.Count)</span>
-
-                                                @if (equipo is not null)
-                                                {
-                                                    @* El editor se abre desde aquí y no solo desde la pestaña de
-                                                       al lado: es el camino con teclado para «cuelga de», y
-                                                       tenerlo en la misma caja que se arrastra es lo que hace
-                                                       que las dos formas sean de verdad la misma función. *@
-                                                    <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Light"
-                                                                  Size="ButtonSize.ExtraSmall"
-                                                                  title="Editar este equipo, incluido de cuál cuelga"
-                                                                  Disabled="@_ocupado" Click="@(() => AbrirEquipo(equipo))" />
-                                                }
-                                            </div>
-
-                                            @if (!c.Plegada)
-                                            {
-                                                <div class="organigrama-cuerpo">
-                                                    @if (c.Id == RaizId)
-                                                    {
-                                                        <p class="organigrama-nota">
-                                                            Todo cuelga de aquí. Un equipo soltado en esta caja deja de
-                                                            colgar de otro y vuelve a ser un equipo raíz.
-                                                        </p>
-                                                    }
-                                                    else if (equipo is not null && !string.IsNullOrWhiteSpace(equipo.Descripcion))
-                                                    {
-                                                        <p class="organigrama-nota">@equipo.Descripcion</p>
-                                                    }
-
-                                                    @* La gente, cada quien en su renglón arrastrable. Vienen del
-                                                       servidor con el líder delante y ya marcado: quién lo es
-                                                       depende de dos datos que pueden discrepar y esa regla no se
-                                                       decide en la pantalla. *@
-                                                    @foreach (var persona in gente)
-                                                    {
-                                                        var p = persona;
-                                                        <div class="@ClasesDePersona(p)" draggable="true"
-                                                             data-arrastre="@p.Nombre"
-                                                             title="Arrastra a @p.Nombre hasta el equipo al que pase"
-                                                             @ondragstart="@(() => ArrastrarPersona(p, equipoDeLaCaja))"
-                                                             @ondragend="@TerminarArrastre">
-                                                            <RadzenIcon Icon="drag_indicator" class="organigrama-asa"
-                                                                        Style="font-size:.95em" />
-                                                            @if (p.EsLider)
-                                                            {
-                                                                <RadzenIcon Icon="workspace_premium" Style="font-size:.95em"
-                                                                            title="Líder del equipo" />
-                                                            }
-                                                            <span class="@(p.EsLider ? "organigrama-lider" : "")">
-                                                                @EtiquetaDePersona(p)
-                                                            </span>
-                                                            @if (!string.IsNullOrWhiteSpace(p.Funcion))
-                                                            {
-                                                                <span class="organigrama-funcion">@p.Funcion</span>
-                                                            }
-                                                        </div>
-                                                    }
-
-                                                    @if (gente.Count == 0 && c.Id != RaizId)
-                                                    {
-                                                        <p class="organigrama-nota">(sin integrantes)</p>
-                                                    }
-
-                                                    @if (equipo is not null && (equipo.Sistemas.Count > 0 || equipo.Proyectos.Count > 0))
-                                                    {
-                                                        <p class="organigrama-nota">
-                                                            @equipo.Sistemas.Count sistema(s) &nbsp;·&nbsp; @equipo.Proyectos.Count proyecto(s)
-                                                        </p>
-                                                    }
-                                                </div>
-                                            }
-                                        </div>
-                                    </div>
-                                }
+                                <ul class="organigrama-nivel organigrama-nivel--raiz">
+                                    @foreach (var raiz in TrazadoDelOrganigrama.Armar(_paraDibujar, _plegados))
+                                    {
+                                        @PintarNodo(raiz)
+                                    }
+                                </ul>
                             </div>
                         </RadzenCard>
 
@@ -685,6 +546,172 @@
             </Tabs>
         </RadzenTabs>
     }
+
+@code {
+    /// <summary>
+    /// UNA CAJA Y SU RAMA, dibujadas. Se llama a sí misma, que es lo que convierte la lista de nodos
+    /// en el organigrama: la caja arriba y sus hijos debajo, en una fila.
+    ///
+    /// <para><b>Los hijos son HERMANOS de la caja, no van dentro de ella</b>, y eso no es un detalle
+    /// de maquetación: los manejadores de soltada viven en la caja, así que colocando la rama fuera
+    /// las cajas no se anidan NUNCA entre sí. Si los hijos fueran dentro, soltar a alguien en un
+    /// subequipo lo soltaría además en su padre y en su abuelo —los eventos suben— y habría que ir
+    /// cortando la propagación caja por caja. Aquí no hace falta cortar nada, y por eso el lienzo
+    /// puede seguir enterándose de cuándo el puntero salió de todas las cajas.</para>
+    /// </summary>
+    private RenderFragment<NodoDelOrganigrama> PintarNodo => nodo =>
+        @<li class="organigrama-nodo">
+            @{
+                var c = nodo;
+                var equipo = EquipoDeLaCaja(c.Id);             // nulo en las dos cajas que no son equipos
+                var gente = GenteDeLaCaja(c.Id);
+                int? equipoDeLaCaja = c.Id > 0 ? c.Id : null;  // de dónde sale quien se arrastre de aquí
+                var admite = AceptaLaSoltada(c.Id);
+            }
+
+            @* role="group": una caja no es un control —dentro hay varios—,
+               pero sin rol el lector de pantalla no anuncia su etiqueta y
+               quien navega a ciegas se encontraría con los botones sueltos
+               sin saber de qué equipo son. *@
+            <div class="@ClasesDeCaja(c, admite)" style="@EstiloDeCaja(c)"
+                 role="group" aria-label="@AriaDeLaCaja(c)"
+                 data-soltar="@(admite ? "si" : "no")"
+                 @ondragenter="@(() => EntrarEnCaja(c.Id))"
+                 @ondragover:preventDefault="@admite"
+                 @ondrop:preventDefault="true"
+                 @ondrop="@(() => SoltarEn(c.Id))">
+
+                @* La cabecera es el asa del equipo: se arrastra ella y no la caja
+                   entera, para que arrastrar a una persona de dentro no arrastre
+                   además a su equipo. Las dos cajas que no son equipos —la de
+                   arriba y la de «sin equipo»— no se arrastran: no hay nada que
+                   colgar de ningún sitio. *@
+                <div class="organigrama-cabecera"
+                     draggable="@(equipo is null ? "false" : "true")"
+                     data-arrastre="@equipo?.Nombre"
+                     @ondragstart="@(() => ArrastrarEquipo(c.Id))"
+                     @ondragend="@TerminarArrastre">
+
+                    @if (equipo is not null)
+                    {
+                        <RadzenIcon Icon="drag_indicator" class="organigrama-asa"
+                                    Style="font-size:1.05em"
+                                    title="Arrastra esta cabecera para colgar el equipo de otro" />
+                    }
+
+                    @* Plegar es un BOTÓN de verdad y ya no la caja entera. Antes la
+                       caja era el interruptor porque dentro no había nada más;
+                       ahora tiene personas que se arrastran y un lápiz que abre el
+                       editor, y un clic en cualquiera de ellos plegaría la caja de
+                       paso. Además un <button> ya responde a Enter y a espacio sin
+                       que haya que escribirlo. *@
+                    @* «|| c.Plegada» no es de más: «Plegar todos» pliega TODOS los
+                       equipos, incluido el que no tiene gente ni nada colgando, y a ese
+                       las dos primeras condiciones no le sacaban botón. Se quedaba
+                       plegado —con su descripción y sus contadores escondidos— y sin
+                       ningún control suyo para volver a abrirlo: había que desplegar la
+                       pantalla entera. Una caja no puede quedar en un estado que su
+                       propio interruptor no deshaga. *@
+                    @if (c.TieneRama || gente.Count > 0 || c.Plegada)
+                    {
+                        <button type="button" class="organigrama-plegar"
+                                aria-expanded="@(c.Plegada ? "false" : "true")"
+                                title="@(c.Plegada ? "Desplegar" : "Plegar") esta caja y lo que le cuelga"
+                                @onclick="@(() => AlternarPliegue(c.Id))">
+                            <RadzenIcon Icon="@(c.Plegada ? "expand_more" : "expand_less")"
+                                        Style="font-size:1.1em" />
+                        </button>
+                    }
+
+                    <span class="organigrama-nombre">@NombreDeLaCaja(c.Id)</span>
+                    <span class="organigrama-apunte">@ContadoresDeLaCaja(c, gente.Count)</span>
+
+                    @if (equipo is not null)
+                    {
+                        @* El editor se abre desde aquí y no solo desde la pestaña de
+                           al lado: es el camino con teclado para «cuelga de», y
+                           tenerlo en la misma caja que se arrastra es lo que hace
+                           que las dos formas sean de verdad la misma función. *@
+                        <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Light"
+                                      Size="ButtonSize.ExtraSmall"
+                                      title="Editar este equipo, incluido de cuál cuelga"
+                                      Disabled="@_ocupado" Click="@(() => AbrirEquipo(equipo))" />
+                    }
+                </div>
+
+                @if (!c.Plegada)
+                {
+                    <div class="organigrama-cuerpo">
+                        @if (c.Id == RaizId)
+                        {
+                            <p class="organigrama-nota">
+                                Todo cuelga de aquí. Un equipo soltado en esta caja deja de
+                                colgar de otro y vuelve a ser un equipo raíz.
+                            </p>
+                        }
+                        else if (equipo is not null && !string.IsNullOrWhiteSpace(equipo.Descripcion))
+                        {
+                            <p class="organigrama-nota">@equipo.Descripcion</p>
+                        }
+
+                        @* La gente, cada quien en su renglón arrastrable. Vienen del
+                           servidor con el líder delante y ya marcado: quién lo es
+                           depende de dos datos que pueden discrepar y esa regla no se
+                           decide en la pantalla. *@
+                        @foreach (var persona in gente)
+                        {
+                            var p = persona;
+                            <div class="@ClasesDePersona(p)" draggable="true"
+                                 data-arrastre="@p.Nombre"
+                                 title="Arrastra a @p.Nombre hasta el equipo al que pase"
+                                 @ondragstart="@(() => ArrastrarPersona(p, equipoDeLaCaja))"
+                                 @ondragend="@TerminarArrastre">
+                                <RadzenIcon Icon="drag_indicator" class="organigrama-asa"
+                                            Style="font-size:.95em" />
+                                @if (p.EsLider)
+                                {
+                                    <RadzenIcon Icon="workspace_premium" Style="font-size:.95em"
+                                                title="Líder del equipo" />
+                                }
+                                <span class="@(p.EsLider ? "organigrama-lider" : "")">
+                                    @EtiquetaDePersona(p)
+                                </span>
+                                @if (!string.IsNullOrWhiteSpace(p.Funcion))
+                                {
+                                    <span class="organigrama-funcion">@p.Funcion</span>
+                                }
+                            </div>
+                        }
+
+                        @if (gente.Count == 0 && c.Id != RaizId)
+                        {
+                            <p class="organigrama-nota">(sin integrantes)</p>
+                        }
+
+                        @if (equipo is not null && (equipo.Sistemas.Count > 0 || equipo.Proyectos.Count > 0))
+                        {
+                            <p class="organigrama-nota">
+                                @equipo.Sistemas.Count sistema(s) &nbsp;·&nbsp; @equipo.Proyectos.Count proyecto(s)
+                            </p>
+                        }
+                    </div>
+                }
+            </div>
+
+            @* LA RAMA, debajo y en una fila. Vacía cuando la caja está plegada o no tiene hijos, y
+               entonces no se pinta el <ul>: un contenedor vacío seguiría dibujando el arranque de la
+               línea vertical y parecería que ahí cuelga algo que no se ve. *@
+            @if (c.Hijos.Count > 0)
+            {
+                <ul class="organigrama-nivel">
+                    @foreach (var hijo in c.Hijos)
+                    {
+                        @PintarNodo(hijo)
+                    }
+                </ul>
+            }
+        </li>;
+}
 </RadzenStack>
 
 @code {
@@ -987,9 +1014,11 @@
 
     // ── El dibujo ────────────────────────────────────────────────────────────
     //
-    // El diagrama es un árbol con sangrías hecho de elementos normales del navegador, no un SVG.
-    // Dónde cae cada caja y qué líneas la unen a su rama lo decide TrazadoDelOrganigrama, que se
-    // prueba aparte; aquí se pinta lo que aquel dijo y se atiende el arrastre.
+    // El diagrama es un organigrama clásico hecho de listas normales del navegador, no un SVG: cada
+    // caja centrada sobre sus hijos, que van debajo en una fila. De qué caja cuelga cada caja lo
+    // decide TrazadoDelOrganigrama, que se prueba aparte; las LÍNEAS que las unen no las calcula
+    // nadie, las pinta app.css con :first-child y :last-child sobre el anidamiento. Aquí se pinta el
+    // árbol que aquel armó y se atiende el arrastre.
     //
     // El cambio de SVG a marcado normal no es de estilo: en un SVG los elementos no admiten
     // «draggable», así que un diagrama dibujado ahí solo se puede arrastrar escribiendo el gesto
@@ -1289,7 +1318,7 @@
         _ => EquipoDeLaCaja(cajaId)?.Integrantes ?? []
     };
 
-    private string ContadoresDeLaCaja(CajaTrazada caja, int personas)
+    private string ContadoresDeLaCaja(NodoDelOrganigrama caja, int personas)
     {
         if (caja.Id == RaizId && _organigrama is { } org) return ResumenDeLaRaiz(org);
 
@@ -1303,7 +1332,7 @@
     /// <summary>El color del equipo va en el borde izquierdo, que es donde estaba en las tarjetas de la
     /// pestaña de al lado. La caja de arriba lleva el acento y la de «sin equipo» el gris de bordes,
     /// porque ninguna de las dos es un equipo y no puede llevar color de equipo.</summary>
-    private string EstiloDeCaja(CajaTrazada caja)
+    private string EstiloDeCaja(NodoDelOrganigrama caja)
     {
         var color = caja.Id switch
         {
@@ -1315,7 +1344,7 @@
         return $"border-left-color:{color}";
     }
 
-    private string ClasesDeCaja(CajaTrazada caja, bool admite)
+    private string ClasesDeCaja(NodoDelOrganigrama caja, bool admite)
     {
         var clases = "organigrama-caja";
         if (_arrastrando is not null) clases += admite ? " organigrama-caja--admite" : " organigrama-caja--veta";
@@ -1327,14 +1356,6 @@
         _arrastrando is { EsEquipo: false } lo && lo.Id == persona.Id
             ? "organigrama-persona organigrama-persona--viaja"
             : "organigrama-persona";
-
-    private static string ClaseDeGuia(GuiaDelArbol guia) => guia switch
-    {
-        GuiaDelArbol.Linea => "organigrama-guia organigrama-guia--linea",
-        GuiaDelArbol.Codo => "organigrama-guia organigrama-guia--codo",
-        GuiaDelArbol.CodoFinal => "organigrama-guia organigrama-guia--codo organigrama-guia--final",
-        _ => "organigrama-guia"
-    };
 
     // ── Textos ───────────────────────────────────────────────────────────────
 
@@ -1363,7 +1384,7 @@
     /// sitio del diagrama —las líneas de la izquierda son decoración y así están marcadas— y es la
     /// mitad de lo que un organigrama cuenta.
     /// </summary>
-    private string AriaDeLaCaja(CajaTrazada caja)
+    private string AriaDeLaCaja(NodoDelOrganigrama caja)
     {
         if (caja.Id == RaizId)
             return _organigrama is { } org ? $"Organización. {ResumenDeLaRaiz(org)}." : "Organización.";

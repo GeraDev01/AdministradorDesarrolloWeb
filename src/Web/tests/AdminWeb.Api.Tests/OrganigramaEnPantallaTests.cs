@@ -5,13 +5,13 @@ using Xunit;
 namespace AdminWeb.Api.Tests;
 
 /// <summary>
-/// EL ORGANIGRAMA DE LA PANTALLA: el trazado del árbol y las soltadas que se pueden aceptar.
+/// EL ORGANIGRAMA DE LA PANTALLA: el árbol que se dibuja y las soltadas que se pueden aceptar.
 ///
 /// <para>Las dos mitades de lo que se puede comprobar sin abrir un navegador. La primera es el
-/// DIBUJO: dónde cae cada caja y qué líneas la unen a su rama, que es lo que convierte una lista de
-/// equipos en un organigrama y lo que deja de ser cierto en cuanto alguien pliega una rama o el
-/// árbol se hace hondo. La segunda es la SOLTADA: qué cajas pueden recibir lo que se arrastra, que
-/// es la comprobación que le ahorra a la gente soltar algo para que el servidor le conteste que no.</para>
+/// DIBUJO: de qué caja cuelga cada caja, que es lo que convierte una lista de equipos en un
+/// organigrama y lo que deja de ser cierto en cuanto alguien pliega una rama o el árbol se hace
+/// hondo. La segunda es la SOLTADA: qué cajas pueden recibir lo que se arrastra, que es la
+/// comprobación que le ahorra a la gente soltar algo para que el servidor le conteste que no.</para>
 ///
 /// <para>Viven en el proyecto de la API y no en el de Application por lo mismo que
 /// <c>RecorridosGuiadosTests</c>: es el único de los dos que ve <c>AdminWeb.Client</c>, porque la API
@@ -19,158 +19,164 @@ namespace AdminWeb.Api.Tests;
 ///
 /// <para><b>Lo que estas pruebas NO alcanzan</b>, para que no se confunda con lo que sí: el gesto en
 /// sí —que el navegador acepte la soltada, que la caja se resalte y que al soltar se llame a
-/// <c>MoverPersonasAsync</c>— vive dentro del componente y solo se ve abriendo la pantalla. Lo que se
+/// <c>MoverPersonasAsync</c>— vive dentro del componente y solo se ve abriendo la pantalla. Tampoco
+/// alcanzan las LÍNEAS que unen las cajas: en un organigrama clásico no las calcula nadie, las pinta
+/// la hoja de estilo con <c>:first-child</c> y <c>:last-child</c> sobre el árbol anidado. Lo que se
 /// puede aislar está aislado aquí a propósito, y es justo lo que se rompe en silencio.</para>
 /// </summary>
 public class OrganigramaEnPantallaTests
 {
-    // ── El trazado ───────────────────────────────────────────────────────────
+    // ── El árbol ─────────────────────────────────────────────────────────────
     //
     // Las cajas entran como (identificador, nivel) y en orden de dibujo, que es como las manda el
     // servidor. La caja de arriba —la de la organización, que en la pantalla es -1— va la primera y
-    // en el nivel 0; los equipos cuelgan de ella, así que empiezan en el 1.
+    // en el nivel 0; los equipos cuelgan de ella, así que empiezan en el 1. Lo que sale es un árbol:
+    // cada nodo con su rama dentro, que es lo que la pantalla recorre para dibujar el organigrama.
 
-    private static IReadOnlyList<CajaTrazada> Trazar(params (int Id, int Nivel)[] cajas) =>
-        TrazadoDelOrganigrama.Trazar([.. cajas.Select(c => new CajaPorTrazar(c.Id, c.Nivel))], new HashSet<int>());
+    private static IReadOnlyList<NodoDelOrganigrama> Armar(params (int Id, int Nivel)[] cajas) =>
+        TrazadoDelOrganigrama.Armar([.. cajas.Select(c => new CajaPorTrazar(c.Id, c.Nivel))], new HashSet<int>());
 
-    private static IReadOnlyList<CajaTrazada> TrazarPlegando(int[] plegados, params (int Id, int Nivel)[] cajas) =>
-        TrazadoDelOrganigrama.Trazar([.. cajas.Select(c => new CajaPorTrazar(c.Id, c.Nivel))], new HashSet<int>(plegados));
+    private static IReadOnlyList<NodoDelOrganigrama> ArmarPlegando(int[] plegados, params (int Id, int Nivel)[] cajas) =>
+        TrazadoDelOrganigrama.Armar([.. cajas.Select(c => new CajaPorTrazar(c.Id, c.Nivel))], new HashSet<int>(plegados));
 
-    private static CajaTrazada Caja(IReadOnlyList<CajaTrazada> trazado, int id) =>
-        trazado.Single(c => c.Id == id);
+    private static NodoDelOrganigrama Caja(IReadOnlyList<NodoDelOrganigrama> arbol, int id) =>
+        TrazadoDelOrganigrama.Recorrer(arbol).Single(c => c.Id == id);
+
+    /// <summary>Los identificadores de los hijos DIRECTOS, en el orden en que se van a dibujar.</summary>
+    private static int[] Hijos(IReadOnlyList<NodoDelOrganigrama> arbol, int id) =>
+        [.. Caja(arbol, id).Hijos.Select(h => h.Id)];
 
     [Fact]
-    public void UN_ARBOL_DE_VARIOS_NIVELES_lleva_cada_linea_donde_toca()
+    public void UN_ARBOL_DE_VARIOS_NIVELES_cuelga_cada_caja_de_la_suya()
     {
-        // Organización
-        // ├─ Web ──────── (1)
-        // │  ├─ Front ─── (2)
-        // │  │  └─ UX ─── (3)
-        // │  └─ Back ──── (4)
-        // ├─ Datos ────── (5)
-        // └─ Sin equipo — (0)
-        var trazado = Trazar((-1, 0), (1, 1), (2, 2), (3, 3), (4, 2), (5, 1), (0, 1));
+        //          Organización
+        //        ┌──────┴──────┬─────────────┐
+        //      Web(1)       Datos(5)   Sin equipo(0)
+        //     ┌───┴───┐
+        //  Front(2) Back(4)
+        //     │
+        //   UX(3)
+        var arbol = Armar((-1, 0), (1, 1), (2, 2), (3, 3), (4, 2), (5, 1), (0, 1));
 
-        Assert.Empty(Caja(trazado, -1).Guias);
+        // Una sola raíz: la caja de arriba. Todo lo demás cuelga de ella, y por eso el dibujo tiene
+        // una única cabeza aunque los equipos no tengan padre entre ellos.
+        Assert.Equal(new[] { -1 }, arbol.Select(n => n.Id));
 
-        // «Web» tiene a «Datos» debajo, así que su codo sigue bajando.
-        Assert.Equal(new[] { GuiaDelArbol.Codo }, Caja(trazado, 1).Guias);
+        Assert.Equal(new[] { 1, 5, 0 }, Hijos(arbol, -1));
+        Assert.Equal(new[] { 2, 4 }, Hijos(arbol, 1));
+        Assert.Equal(new[] { 3 }, Hijos(arbol, 2));
+        Assert.Empty(Caja(arbol, 3).Hijos);
+        Assert.Empty(Caja(arbol, 4).Hijos);
+        Assert.Empty(Caja(arbol, 5).Hijos);
+    }
 
-        // «Front» va sangrado una vez: por su columna de fuera pasa la vertical de «Web», que aún
-        // tiene hermanos debajo, y su propio codo sigue porque después viene «Back».
-        Assert.Equal(new[] { GuiaDelArbol.Linea, GuiaDelArbol.Codo }, Caja(trazado, 2).Guias);
+    [Fact]
+    public void LOS_HERMANOS_CONSERVAN_SU_ORDEN()
+    {
+        // El árbol se arma recorriendo la lista AL REVÉS —un nodo necesita a sus hijos ya hechos para
+        // nacer—, así que el orden de los hermanos es justo lo que se puede invertir sin que nada más
+        // se note. Y el orden importa: el servidor los manda alfabéticos y la pantalla los pinta de
+        // izquierda a derecha tal cual.
+        var arbol = Armar((-1, 0), (1, 1), (2, 1), (3, 1), (4, 1), (5, 1));
 
-        // «UX» cuelga de «Front» y es lo último de esa rama: dos verticales de paso y un codo final.
-        Assert.Equal(new[] { GuiaDelArbol.Linea, GuiaDelArbol.Linea, GuiaDelArbol.CodoFinal }, Caja(trazado, 3).Guias);
-
-        // «Back» cierra la rama de «Web», pero la de «Web» sigue: la vertical de fuera se mantiene.
-        Assert.Equal(new[] { GuiaDelArbol.Linea, GuiaDelArbol.CodoFinal }, Caja(trazado, 4).Guias);
-
-        Assert.Equal(new[] { GuiaDelArbol.Codo }, Caja(trazado, 5).Guias);
-        Assert.Equal(new[] { GuiaDelArbol.CodoFinal }, Caja(trazado, 0).Guias);
+        Assert.Equal(new[] { 1, 2, 3, 4, 5 }, Hijos(arbol, -1));
     }
 
     [Fact]
     public void TIENE_RAMA_solo_quien_lleva_algo_colgando()
     {
-        var trazado = Trazar((-1, 0), (1, 1), (2, 2), (3, 3), (4, 2), (5, 1), (0, 1));
+        var arbol = Armar((-1, 0), (1, 1), (2, 2), (3, 3), (4, 2), (5, 1), (0, 1));
 
-        Assert.True(Caja(trazado, -1).TieneRama);
-        Assert.True(Caja(trazado, 1).TieneRama);
-        Assert.True(Caja(trazado, 2).TieneRama);
-        Assert.False(Caja(trazado, 3).TieneRama);
-        Assert.False(Caja(trazado, 4).TieneRama);
-        Assert.False(Caja(trazado, 5).TieneRama);
-        Assert.False(Caja(trazado, 0).TieneRama);
+        Assert.True(Caja(arbol, -1).TieneRama);
+        Assert.True(Caja(arbol, 1).TieneRama);
+        Assert.True(Caja(arbol, 2).TieneRama);
+        Assert.False(Caja(arbol, 3).TieneRama);
+        Assert.False(Caja(arbol, 4).TieneRama);
+        Assert.False(Caja(arbol, 5).TieneRama);
+        Assert.False(Caja(arbol, 0).TieneRama);
     }
 
     [Fact]
-    public void HONDO_Y_ESTRECHO_cada_nivel_cuesta_una_sangria_y_ninguna_vertical()
+    public void HONDO_Y_ESTRECHO_una_cadena_de_cinco_baja_de_uno_en_uno()
     {
-        // Una cadena de cinco: es el caso que en un dibujo de cajas colgando en horizontal deja la
-        // pantalla vacía. Aquí son cinco renglones seguidos, cada uno una sangría más adentro.
-        var trazado = Trazar((-1, 0), (1, 1), (2, 2), (3, 3), (4, 4), (5, 5));
+        var arbol = Armar((-1, 0), (1, 1), (2, 2), (3, 3), (4, 4), (5, 5));
 
-        Assert.Equal(6, trazado.Count);
-        for (int nivel = 1; nivel <= 5; nivel++)
+        Assert.Equal(6, TrazadoDelOrganigrama.Recorrer(arbol).Count());
+        for (int id = 1; id <= 4; id++)
         {
-            var caja = Caja(trazado, nivel);
-            Assert.Equal(nivel, caja.Nivel);
-            Assert.Equal(nivel, caja.Guias.Count);
-
-            // Nadie tiene hermanos: por las columnas de fuera no pasa ninguna vertical y la de dentro
-            // es un codo final.
-            Assert.All(caja.Guias.Take(nivel - 1), g => Assert.Equal(GuiaDelArbol.Ninguna, g));
-            Assert.Equal(GuiaDelArbol.CodoFinal, caja.Guias[^1]);
+            Assert.Equal(id, Caja(arbol, id).Nivel);
+            Assert.Equal(new[] { id + 1 }, Hijos(arbol, id));
         }
+        Assert.Empty(Caja(arbol, 5).Hijos);
     }
 
     [Fact]
-    public void ANCHO_Y_PLANO_todos_al_mismo_nivel_y_solo_el_ultimo_cierra()
+    public void ANCHO_Y_PLANO_veinte_equipos_cuelgan_todos_de_arriba()
     {
-        // Veinte equipos sin padre, que es la foto de hoy. Ninguno sangra más que otro y el diagrama
-        // crece hacia abajo: no hay nada que quepa o deje de caber a lo ancho.
+        // Veinte equipos sin padre, que es la foto de hoy: veinte cajas en una fila. Es el caso que
+        // en un organigrama clásico obliga a desplazar el lienzo de lado, y el que las dos
+        // herramientas de la pantalla —el tamaño y el plegado— están para hacer manejable.
         var cajas = new List<(int, int)> { (-1, 0) };
         for (int id = 1; id <= 20; id++) cajas.Add((id, 1));
 
-        var trazado = Trazar([.. cajas]);
+        var arbol = Armar([.. cajas]);
 
-        Assert.Equal(21, trazado.Count);
-        for (int id = 1; id < 20; id++) Assert.Equal(new[] { GuiaDelArbol.Codo }, Caja(trazado, id).Guias);
-        Assert.Equal(new[] { GuiaDelArbol.CodoFinal }, Caja(trazado, 20).Guias);
-        Assert.All(trazado.Where(c => c.Id > 0), c => Assert.False(c.TieneRama));
+        Assert.Equal(21, TrazadoDelOrganigrama.Recorrer(arbol).Count());
+        Assert.Equal(Enumerable.Range(1, 20), Hijos(arbol, -1));
+        Assert.All(TrazadoDelOrganigrama.Recorrer(arbol).Where(c => c.Id > 0), c => Assert.False(c.TieneRama));
     }
 
     [Fact]
     public void PLEGAR_esconde_la_rama_ENTERA_y_dice_cuanta()
     {
         // Plegar «Web» (1) esconde a sus dos hijos y al nieto: tres cajas, no una.
-        var trazado = TrazarPlegando([1], (-1, 0), (1, 1), (2, 2), (3, 3), (4, 2), (5, 1));
+        var arbol = ArmarPlegando([1], (-1, 0), (1, 1), (2, 2), (3, 3), (4, 2), (5, 1));
 
-        Assert.Equal(new[] { -1, 1, 5 }, trazado.Select(c => c.Id));
+        Assert.Equal(new[] { -1, 1, 5 }, TrazadoDelOrganigrama.Recorrer(arbol).Select(c => c.Id));
 
-        var web = Caja(trazado, 1);
+        var web = Caja(arbol, 1);
         Assert.True(web.Plegada);
-        Assert.True(web.TieneRama);
+        Assert.Empty(web.Hijos);
+        Assert.True(web.TieneRama);     // sigue teniendo rama: es lo único que la deja desplegarse
         Assert.Equal(3, web.Escondidos);
     }
 
     [Fact]
-    public void PLEGAR_recalcula_las_lineas_con_lo_que_QUEDA_a_la_vista()
+    public void PLEGAR_UNA_RAMA_no_toca_a_las_de_al_lado()
     {
-        // Sin plegar, «Front» (2) tiene a «Back» (3) debajo y su codo sigue bajando. Plegando a
-        // «Web» (1), los dos desaparecen: si las líneas se calcularan con la lista completa, «Web»
-        // seguiría dibujando un codo que baja hacia una caja que ya no está.
-        var conTodo = Trazar((-1, 0), (1, 1), (2, 2), (3, 2));
-        // La columna de fuera de «Front» va vacía y no con una vertical: «Web» es lo último que
-        // cuelga de la organización, así que por ahí ya no baja ninguna línea.
-        Assert.Equal(new[] { GuiaDelArbol.Ninguna, GuiaDelArbol.Codo }, Caja(conTodo, 2).Guias);
-        Assert.Equal(new[] { GuiaDelArbol.CodoFinal }, Caja(conTodo, 1).Guias);
+        var arbol = ArmarPlegando([1], (-1, 0), (1, 1), (2, 2), (3, 2), (5, 1), (6, 2));
 
-        var plegado = TrazarPlegando([1], (-1, 0), (1, 1), (2, 2), (3, 2));
-        Assert.Equal(new[] { -1, 1 }, plegado.Select(c => c.Id));
-        Assert.Equal(new[] { GuiaDelArbol.CodoFinal }, Caja(plegado, 1).Guias);
-        Assert.Equal(2, Caja(plegado, 1).Escondidos);
+        Assert.Equal(new[] { 1, 5 }, Hijos(arbol, -1));
+        Assert.Equal(2, Caja(arbol, 1).Escondidos);
+        Assert.Equal(new[] { 6 }, Hijos(arbol, 5));   // la rama de al lado sigue entera
     }
 
     [Fact]
     public void PLEGAR_UNA_HOJA_no_esconde_a_nadie_ni_a_sus_hermanos()
     {
-        var trazado = TrazarPlegando([2], (-1, 0), (1, 1), (2, 2), (3, 2));
+        var arbol = ArmarPlegando([2], (-1, 0), (1, 1), (2, 2), (3, 2));
 
-        Assert.Equal(new[] { -1, 1, 2, 3 }, trazado.Select(c => c.Id));
-        Assert.Equal(0, Caja(trazado, 2).Escondidos);
-        Assert.True(Caja(trazado, 2).Plegada);   // la caja se pliega igual: esconde a su gente
+        Assert.Equal(new[] { -1, 1, 2, 3 }, TrazadoDelOrganigrama.Recorrer(arbol).Select(c => c.Id));
+        Assert.Equal(0, Caja(arbol, 2).Escondidos);
+
+        // La caja se pliega IGUAL aunque no tenga subequipos: lo que esconde entonces es a su gente,
+        // que es el motivo por el que se pliega la mayoría de las veces. Atarlo a que tuviera rama
+        // dejaba a esas cajas con un interruptor que no hacía nada.
+        Assert.True(Caja(arbol, 2).Plegada);
+        Assert.False(Caja(arbol, 2).TieneRama);
     }
 
     [Fact]
     public void SIN_PLEGAR_NADA_no_se_pierde_ninguna_caja_ni_cambia_el_orden()
     {
+        // Recorrer el árbol tiene que devolver exactamente la lista que entró: el anidamiento cambia
+        // dónde se dibuja cada caja, no cuáles hay ni en qué orden se leen.
         var entradas = new (int, int)[] { (-1, 0), (7, 1), (3, 2), (9, 1), (0, 1) };
-        var trazado = Trazar(entradas);
+        var arbol = Armar(entradas);
 
-        Assert.Equal(entradas.Select(e => e.Item1), trazado.Select(c => c.Id));
-        Assert.Equal(entradas.Select(e => e.Item2), trazado.Select(c => c.Nivel));
+        var recorrido = TrazadoDelOrganigrama.Recorrer(arbol).ToList();
+        Assert.Equal(entradas.Select(e => e.Item1), recorrido.Select(c => c.Id));
+        Assert.Equal(entradas.Select(e => e.Item2), recorrido.Select(c => c.Nivel));
     }
 
     [Fact]
@@ -178,31 +184,45 @@ public class OrganigramaEnPantallaTests
     {
         // Un salto de tres alturas de golpe no lo puede producir el servidor; sí un círculo escrito a
         // mano contra la base. Se recorta al siguiente nivel posible: el dibujo sale raro —que es lo
-        // que hay que ver— pero ninguna caja se queda sin sus columnas ni desaparece.
-        var trazado = Trazar((-1, 0), (1, 4), (2, 9), (3, 1));
+        // que hay que ver— pero ninguna caja se queda colgando de un padre que no está.
+        var arbol = Armar((-1, 0), (1, 4), (2, 9), (3, 1));
 
-        Assert.Equal(4, trazado.Count);
-        Assert.Equal(1, Caja(trazado, 1).Nivel);
-        Assert.Equal(2, Caja(trazado, 2).Nivel);
-        Assert.All(trazado, c => Assert.Equal(c.Nivel, c.Guias.Count));
+        Assert.Equal(4, TrazadoDelOrganigrama.Recorrer(arbol).Count());
+        Assert.Equal(new[] { -1 }, arbol.Select(n => n.Id));
+        Assert.Equal(1, Caja(arbol, 1).Nivel);
+        Assert.Equal(2, Caja(arbol, 2).Nivel);
+        Assert.Equal(new[] { 1, 3 }, Hijos(arbol, -1));
+        Assert.Equal(new[] { 2 }, Hijos(arbol, 1));
     }
 
     [Fact]
     public void LA_PRIMERA_CAJA_siempre_arranca_arriba_del_todo()
     {
-        // Aunque llegue con nivel propio: si empezara sangrada, sus columnas apuntarían a un padre
-        // que no está en la lista.
-        var trazado = Trazar((5, 3), (6, 4));
+        // Aunque llegue con nivel propio: si empezara sangrada, colgaría de un padre que no está en
+        // la lista y el dibujo se quedaría sin cabeza.
+        var arbol = Armar((5, 3), (6, 4));
 
-        Assert.Equal(0, trazado[0].Nivel);
-        Assert.Empty(trazado[0].Guias);
-        Assert.Equal(1, trazado[1].Nivel);
+        Assert.Equal(new[] { 5 }, arbol.Select(n => n.Id));
+        Assert.Equal(0, arbol[0].Nivel);
+        Assert.Equal(new[] { 6 }, Hijos(arbol, 5));
     }
 
     [Fact]
-    public void SIN_CAJAS_no_hay_trazado()
+    public void VARIAS_RAICES_se_dibujan_una_al_lado_de_otra()
     {
-        Assert.Empty(TrazadoDelOrganigrama.Trazar([], new HashSet<int>()));
+        // La pantalla manda siempre la caja de arriba primero, así que hoy hay una sola raíz. Se
+        // comprueba igual porque el árbol no lo exige y el marcado tampoco: la fila de arriba del
+        // todo admite varias cajas sin que ninguna cuelgue de nada.
+        var arbol = Armar((1, 0), (2, 1), (3, 0), (4, 0));
+
+        Assert.Equal(new[] { 1, 3, 4 }, arbol.Select(n => n.Id));
+        Assert.Equal(new[] { 2 }, Hijos(arbol, 1));
+    }
+
+    [Fact]
+    public void SIN_CAJAS_no_hay_arbol()
+    {
+        Assert.Empty(TrazadoDelOrganigrama.Armar([], new HashSet<int>()));
     }
 
     // ── La soltada de un equipo ──────────────────────────────────────────────

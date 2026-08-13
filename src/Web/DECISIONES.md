@@ -507,14 +507,27 @@ todos los demás; no añade ninguna operación.
 y con eso se pierden el cursor del sistema, la imagen que arrastra el navegador y que otras
 aplicaciones entiendan la soltada.
 
-**Se dibuja con sangrías y no con cajas colgando en horizontal**, por lo que le pasa a cada forma
-cuando el árbol se deforma: el árbol **ancho y plano** —veinte equipos sin padre, que es la casa hoy—
-en horizontal ocupa veinte anchos de caja y hay que arrastrar la barra de abajo para leerlo; con
-sangrías crece hacia abajo, que es la dirección en la que una página ya sabe desplazarse. El **hondo y
-estrecho** en horizontal es un dibujo casi vacío; con sangrías cada nivel cuesta una sangría fija. Es
-la misma razón por la que el PDF también usa sangrías, y la de más peso ahora que el diagrama se
-edita: **con sangrías las cajas son hermanas en el marcado, nunca una dentro de otra**, y una soltada
-sobre una caja anidada caería además en todas las que la contienen.
+**En pantalla es un organigrama clásico** —cada caja centrada sobre sus hijos, que van debajo en una
+fila, unidos por líneas—, **y en el PDF sigue siendo un árbol con sangrías**. Los mismos datos
+dibujados de dos maneras, a propósito, porque el papel y la pantalla se rompen por sitios distintos.
+
+En pantalla lo eligió el dueño, y lo que se gana es que **la forma del dibujo ES la forma de la
+organización**: se ve de quién cuelga cada equipo sin leer un solo renglón. Lo que cuesta, dicho sin
+adornos: **crece a lo ancho**, así que los veinte equipos sin padre que hay hoy ocupan veinte anchos de
+caja y hay que desplazar el lienzo de lado. Es el precio de que la posición signifique algo, y por eso
+la pantalla conserva las dos herramientas que hacen manejable un árbol ancho: el **selector de tamaño**
+y el **plegado**. Con sangrías eso no pasaba —crecían hacia abajo, que es la dirección en la que una
+página ya sabe desplazarse—, y ése fue el motivo de la forma anterior.
+
+En el PDF no cambió nada, y no por inercia: en papel la hoja no crece, así que un dibujo de arriba
+abajo dobla su ancho en cada nivel y a la tercera generación o se encoge hasta no leerse o se sale del
+papel. Ahí la sangría sigue siendo la respuesta correcta.
+
+**Y que la pantalla sea un árbol no obligó a anidar las cajas.** En el marcado la rama va JUNTO a la
+caja de la que cuelga y no dentro de ella, así que dos cajas no se contienen nunca. Importa porque los
+eventos suben: con las cajas anidadas, soltar a alguien en un subequipo lo soltaría además en su padre
+y en su abuelo, y habría que ir cortando la propagación caja por caja. Las líneas que las unen no las
+calcula nadie: las pinta la hoja de estilo con `:first-child` y `:last-child` sobre ese anidamiento.
 
 **Lo que decide qué se puede soltar está en una clase aparte**
 ([TrazadoDelOrganigrama.cs](AdminWeb.Client/Organigrama/TrazadoDelOrganigrama.cs)) y no dentro del

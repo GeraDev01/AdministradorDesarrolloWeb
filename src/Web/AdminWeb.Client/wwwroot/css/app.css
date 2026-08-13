@@ -191,89 +191,133 @@ html, body {
 
 /* ── EL ORGANIGRAMA DE LA PANTALLA DE EQUIPOS ─────────────────────────────────
 
-   Un árbol con sangrías: cada caja se corre una columna por nivel y las líneas de
-   la izquierda dicen de quién cuelga. Qué se dibuja en cada columna lo decide
-   TrazadoDelOrganigrama; aquí solo se pinta lo que aquel dijo.
+   Un ORGANIGRAMA CLÁSICO: cada caja centrada sobre sus hijos, que van debajo en
+   una fila, y líneas uniéndolos. La forma del dibujo ES la forma de la
+   organización — se ve de quién cuelga cada equipo sin leer un solo renglón.
+
+   Las líneas las pinta ESTA hoja con pseudo-elementos, no las calcula nadie: en
+   un árbol anidado, saber si una caja es la primera o la última de su fila es lo
+   único que hace falta, y para eso están :first-child y :last-child. Antes había
+   un trazado que decidía columna a columna qué línea tocaba; con esta forma
+   sobra.
 
    Todas las medidas van en `em` y no en `rem` a propósito: el selector de tamaño
    de la pantalla cambia el `font-size` del contenedor y con eso se escala el
-   diagrama entero —cajas, sangrías y líneas a la vez—. Con `rem` la letra crecería
+   diagrama entero —cajas, huecos y líneas a la vez—. Con `rem` la letra crecería
    y las cajas se quedarían igual.
 
-   Antes esto era un SVG, y el motivo del cambio no es estético: los elementos de
-   un SVG no admiten `draggable`, así que un diagrama dibujado ahí no se puede
-   arrastrar sin escribir a mano el gesto entero con eventos de puntero. */
+   No es un SVG, y el motivo no es estético: los elementos de un SVG no admiten
+   `draggable`, así que un diagrama dibujado ahí no se puede arrastrar sin
+   escribir el gesto entero a mano con eventos de puntero. */
 
 .organigrama {
-    /* Lo hondo cabe por sangría y lo ancho crece hacia abajo, así que el
-       desplazamiento horizontal solo aparece con árboles muy profundos o con el
-       tamaño subido — que es justo cuando alguien pide letra grande a cambio de
-       moverse. */
+    /* Un organigrama clásico crece A LO ANCHO, y eso es lo que se aceptó al
+       elegirlo: veinte equipos raíz ocupan veinte anchos de caja. El lienzo se
+       desplaza de lado, y las dos herramientas para que quepa son el selector de
+       tamaño y el plegado. */
     overflow-x: auto;
-    padding: .2em 0;
+    padding: .4em 0 .2em;
+    /* Centra el diagrama cuando cabe: la fila de arriba es un elemento EN LÍNEA
+       —para que su ancho lo marque el contenido y no el lienzo—, y un elemento en
+       línea se alinea con `text-align`. Las cajas lo devuelven a la izquierda,
+       porque dentro de una caja se lee texto y no se mira un dibujo. */
+    text-align: center;
 }
 
-.organigrama-fila {
-    display: flex;
-    align-items: stretch;
-}
-
-/* Una columna de sangría. El hueco entre cajas va DENTRO de la caja (su margen
-   inferior) y no en la fila: si separara las filas, las verticales se cortarían
-   entre una caja y la siguiente. */
-.organigrama-guia {
+/* Una fila de hermanos. `inline-flex` y no `flex` para que el ancho del lienzo lo
+   marque el contenido y no el contenedor: con `flex`, un árbol más ancho que la
+   pantalla se comprimiría en vez de desplazarse. */
+.organigrama-nivel {
+    display: inline-flex;
+    justify-content: center;
+    align-items: flex-start;
+    list-style: none;
+    margin: 0;
+    padding: 1.2em 0 0;
     position: relative;
-    flex: 0 0 1.4em;
 }
 
-.organigrama-guia::before,
-.organigrama-guia::after { content: ""; position: absolute; }
+/* La vertical que baja del padre hasta la fila de sus hijos.
 
-/* La vertical: entera cuando la rama sigue debajo; cortada en el codo cuando la
-   caja es la última de su rama. */
-.organigrama-guia--linea::before,
-.organigrama-guia--codo::before {
-    left: 50%;
+   LIMITACIÓN CONOCIDA, escrita para que no se lea como un defecto: esta bajada
+   cae en el centro de la FILA, mientras que el travesaño va del centro del primer
+   hijo al del último. Cuando los hermanos tienen ramas de anchos muy distintos
+   —uno con nietos y otro suelto— esos dos puntos no coinciden y la bajada entra
+   en el travesaño descentrada. Se ve, se lee igual, y cuadrarlo pide medir las
+   cajas ya dibujadas: es JavaScript sobre el diagrama y una segunda pasada de
+   maquetado en cada arrastre. Con la casa como está —equipos casi todos sin
+   subequipos, o sea filas parejas— no se nota. */
+.organigrama-nivel::before {
+    content: "";
+    position: absolute;
     top: 0;
-    bottom: 0;
+    left: 50%;
+    height: 1.2em;
     border-left: 1px solid var(--rz-border-color);
 }
 
-/* El codo final lleva las dos clases —la del codo y ésta—, así que aquí se apaga
-   el «bottom» de la regla de arriba a mano: dejar que lo resuelva la regla de
-   sobre-restricción del navegador funciona, pero es de las cosas que el siguiente
-   que lo lea da por rotas. */
-.organigrama-guia--final::before {
-    left: 50%;
-    top: 0;
-    bottom: auto;
-    height: 1.35em;
-    border-left: 1px solid var(--rz-border-color);
+/* La fila de arriba del todo no cuelga de nadie: ni vertical ni hueco para ella. */
+.organigrama-nivel--raiz { padding-top: 0; }
+.organigrama-nivel--raiz::before { display: none; }
+
+.organigrama-nodo {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 1.2em .5em 0;
+    position: relative;
 }
 
-/* La horizontal que entra en la caja, a la altura del renglón del nombre. */
-.organigrama-guia--codo::after,
-.organigrama-guia--final::after {
-    left: 50%;
-    right: 0;
-    top: 1.35em;
+/* Las dos mitades del travesaño que une a los hermanos, y la vertical que baja a
+   cada caja. Cada nodo pinta su mitad izquierda y su mitad derecha; juntas hacen
+   la línea horizontal de la fila entera sin que nadie tenga que medirla. */
+.organigrama-nodo::before,
+.organigrama-nodo::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    width: 50%;
+    height: 1.2em;
     border-top: 1px solid var(--rz-border-color);
 }
 
+.organigrama-nodo::before { right: 50%; }
+.organigrama-nodo::after  { left: 50%; border-left: 1px solid var(--rz-border-color); }
+
+/* El primero no tiene travesaño a su izquierda y el último no lo tiene a su
+   derecha: si lo tuvieran, la línea sobresaldría por los extremos de la fila y
+   quedaría colgando sin unir nada. Es el mismo defecto que hubo que arreglar en
+   el PDF, aquí resuelto por el propio marcado.
+
+   Se quita el `border-top` y no el pseudo-elemento entero a propósito: el `::after`
+   lleva ADEMÁS la vertical que baja a la caja. Y con esto el hijo único sale gratis
+   —es a la vez el primero y el último, así que se queda sin las dos mitades del
+   travesaño y solo con su bajada—, sin una regla `:only-child` que lo repita. */
+.organigrama-nodo:first-child::before { border-top: 0 none; }
+.organigrama-nodo:last-child::after   { border-top: 0 none; }
+
+/* Las cajas de arriba del todo no cuelgan de nada. */
+.organigrama-nivel--raiz > .organigrama-nodo { padding-top: 0; }
+.organigrama-nivel--raiz > .organigrama-nodo::before,
+.organigrama-nivel--raiz > .organigrama-nodo::after { display: none; }
+
 .organigrama-caja {
-    flex: 1 1 auto;
-    /* Un mínimo para que el nombre y sus contadores quepan en un renglón por muy
-       hondo que esté, y un máximo para que una caja suelta no se estire a lo ancho
-       de una pantalla grande y deje de leerse como una caja. */
-    min-width: 17em;
-    max-width: 44em;
-    margin-bottom: .4em;
+    /* Ancho FIJO y no elástico: en un organigrama las cajas de un mismo nivel
+       tienen que verse iguales, o el dibujo sugiere una jerarquía que no existe.
+       El contenido que no quepa se parte en más renglones, que es lo que hace una
+       caja de organigrama de toda la vida.
+
+       19em y no menos porque en la cabecera caben cinco cosas —el asa, el botón de
+       plegar, el nombre, los contadores y el lápiz—, y con menos ancho un nombre
+       de dos palabras ya empieza a partirse en todas las cajas a la vez. */
+    width: 19em;
     border: 1px solid var(--rz-border-color);
     /* El borde izquierdo lleva el color del equipo, que se pinta en línea porque
        lo teclea una persona y es un dato, no una decisión de la hoja de estilo. */
     border-left-width: 4px;
     border-radius: var(--rz-border-radius);
     background: var(--rz-card-background-color);
+    text-align: left;
 }
 
 .organigrama-cabecera {
@@ -284,17 +328,31 @@ html, body {
     cursor: grab;
 }
 
+/* SIN envolver, y con los controles a tamaño fijo. Envolviendo, en cuanto el
+   nombre y los contadores llenaban el renglón, el lápiz se caía él solo a una
+   segunda línea vacía y la caja crecía por debajo. Lo que cede es el TEXTO —el
+   nombre y los contadores se parten en más renglones—, que es lo que se puede
+   leer igual partido; un botón partido no existe. */
+.organigrama-cabecera > *:not(.organigrama-nombre) { flex: 0 0 auto; }
+
 /* La caja de arriba y la de «sin equipo» no se arrastran: no son equipos. */
 .organigrama-cabecera[draggable="false"] { cursor: default; }
 
+/* `min-width:0` para que el nombre pueda encogerse: un elemento flexible no baja
+   por debajo de su contenido mientras valga `auto`, y entonces un nombre de equipo
+   largo empuja al lápiz fuera de una caja que ya no se estira. `anywhere` es el
+   último recurso, para la palabra sola que no cabe ni en un renglón entero. */
 .organigrama-nombre {
     font-weight: 600;
     flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 .organigrama-apunte {
     color: var(--rz-text-secondary-color);
     font-size: .82em;
+    text-align: right;
 }
 
 .organigrama-cuerpo {

@@ -149,15 +149,17 @@ Con el mismo patrón está
 [OrganigramaEnPantallaTests.cs](tests/AdminWeb.Api.Tests/OrganigramaEnPantallaTests.cs), que cubre
 las dos mitades del organigrama que se pueden aislar del navegador:
 
-- **el trazado del árbol** —qué sangría le toca a cada caja y qué líneas la unen a su rama—, con el
-  árbol de varios niveles, el hondo y estrecho, el ancho y plano, el efecto de plegar una rama (que
-  esconde el subárbol **entero** y recalcula las líneas con lo que queda a la vista) y un nivel
-  imposible, de los que solo puede producir un círculo escrito a mano contra la base;
+- **el árbol** —de qué caja cuelga cada caja y en qué orden salen los hermanos—, con el árbol de
+  varios niveles, el hondo y estrecho, el ancho y plano, el efecto de plegar una rama (que esconde el
+  subárbol **entero** y dice cuántas cajas se traga) y un nivel imposible, de los que solo puede
+  producir un círculo escrito a mano contra la base;
 - **la soltada**: qué cajas pueden recibir lo que se arrastra. Ni sobre sí mismo, ni sobre su propia
   rama por larga que sea, ni donde ya está.
 
 Lo que **no** alcanza, y conviene no confundirlo con lo que sí: el gesto —que el navegador acepte la
 soltada y que la caja se resalte— vive dentro del componente y solo se ve abriendo la pantalla.
+Tampoco las **líneas** que unen las cajas: en un organigrama clásico no las calcula nadie, las pinta
+la hoja de estilo con `:first-child` y `:last-child` sobre el árbol anidado, y eso solo se ve mirando.
 
 Sí alcanza, en cambio, la condición con la que el organigrama se abrió a la edición, y por eso está
 escrita como prueba en

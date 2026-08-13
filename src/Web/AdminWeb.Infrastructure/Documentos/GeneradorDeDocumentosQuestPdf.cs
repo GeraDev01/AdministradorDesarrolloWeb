@@ -315,14 +315,19 @@ public class GeneradorDeDocumentosQuestPdf : IGeneradorDeDocumentos
     //     real de la fuente.
     //
     // Lo que sí se conserva es el CONCEPTO: mismo nodo arriba, mismas cajas, mismo orden y la misma
-    // caja final de «sin equipo». Quien vea la pantalla y luego la primera hoja del papel reconoce el
-    // dibujo, y los dos meten los subequipos con SANGRÍA por la misma razón —ver TrazadoDelOrganigrama
-    // en el cliente—: un árbol de arriba abajo dobla su ancho en cada nivel y ni la hoja ni la caja de
-    // una pantalla crecen con él.
+    // caja final de «sin equipo». Quien vea la pantalla y luego la primera hoja del papel reconoce de
+    // qué documento se trata.
     //
-    // En lo que NO se parecen es en cómo reparten el sitio, y es porque el sitio no es el mismo: la
-    // pantalla tiene UNA superficie que se desplaza y se pliega, así que ahí cabe el árbol entero de
-    // corrido; el papel no se desplaza pero sí pasa de hoja, así que aquí cada rama se lleva la suya.
+    // En lo que NO se parecen es en CÓMO DIBUJAN LA JERARQUÍA, y no es un descuido: la pantalla es un
+    // organigrama clásico —la caja arriba y sus hijos debajo, en una fila— y aquí los subequipos van
+    // con SANGRÍA. En pantalla el lienzo se desplaza de lado y el árbol puede crecer a lo ancho todo
+    // lo que haga falta; el papel no crece, y un árbol de arriba abajo dobla su ancho en cada nivel,
+    // así que a la tercera generación o se encoge hasta no leerse o se sale de la hoja. Reducirlo
+    // para que quepa arregla un diagrama en una pantalla, donde se puede acercar; éste se imprime.
+    //
+    // Tampoco reparten el sitio igual, y es por lo mismo: la pantalla tiene UNA superficie que se
+    // desplaza y se pliega, así que ahí cabe el árbol entero de corrido; el papel no se desplaza pero
+    // sí pasa de hoja, así que aquí cada rama se lleva la suya.
     // No es que se contradigan —el orden, los nombres y de quién cuelga cada uno salen de la misma
     // consulta—: es la misma estructura repartida como cada soporte puede. Y por lo mismo el papel
     // sigue listando los sistemas y los proyectos de cada equipo por su nombre, que es lo que se viene
