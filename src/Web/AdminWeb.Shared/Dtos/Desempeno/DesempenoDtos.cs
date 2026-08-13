@@ -28,6 +28,9 @@ public record RankingIndividualFilaDto(
 /// integrantes de los que se le asignaron al equipo como tal, porque son dos cosas que se ganan de
 /// forma distinta y sumarlas sin más escondería cuál de las dos está moviendo el marcador.
 /// </summary>
+/// <param name="Total">Lo del equipo: sus integrantes más sus puntos propios. Es el que ordena la
+/// tabla. Aquí solo hay equipos que compiten —los que tienen subequipos no salen—, así que no existe
+/// un total «de la rama»: la rama son las filas de sus hijos.</param>
 public record RankingEquipoFilaDto(
     int Posicion,
     string Medalla,
@@ -40,12 +43,25 @@ public record RankingEquipoFilaDto(
 
 /// <summary>Los dos rankings del período para la pantalla de desempeño del administrador.</summary>
 /// <param name="IncluyeNivelLead">Si se pidieron también los de nivel Lead (fuera de concurso).</param>
+/// <param name="EquiposQueNoCompiten">Los que tienen subequipos y por eso NO salen en el ranking.
+/// Viaja para que la pantalla pueda explicar la ausencia: una tabla de la que un equipo desaparece
+/// sin decir por qué se lee como una avería. Vacía cuando no hay jerarquía, que es como estaba todo
+/// antes de los subequipos.</param>
 public record DesempenoAdminDto(
     int Anio,
     int Mes,
     bool IncluyeNivelLead,
     IReadOnlyList<RankingIndividualFilaDto> Individual,
-    IReadOnlyList<RankingEquipoFilaDto> Equipos);
+    IReadOnlyList<RankingEquipoFilaDto> Equipos,
+    IReadOnlyList<EquipoFueraDelRankingDto> EquiposQueNoCompiten);
+
+/// <summary>
+/// Un equipo que no compite por tener subequipos colgando.
+/// </summary>
+/// <param name="PersonasDirectas">Cuántas personas tiene asignadas a él MISMO, no a sus subequipos.
+/// Con cero, la ausencia solo hay que explicarla; con más de cero hay puntos que no cuentan para
+/// ningún equipo, y eso hay que decirlo por su nombre.</param>
+public record EquipoFueraDelRankingDto(int TeamId, string Equipo, int PersonasDirectas);
 
 /// <summary>
 /// Una autocalificación esperando el sí o el no del líder, con TODA la evidencia que la respalda.

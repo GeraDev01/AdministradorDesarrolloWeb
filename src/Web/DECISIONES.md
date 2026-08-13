@@ -400,6 +400,190 @@ contrato vigente es
 
 ---
 
+## Colgar un equipo de otro agrupa, pero no reparte permisos
+
+**Lo que sorprende:** los equipos ahora forman un árbol (`Team.EquipoPadreId`), y aun así **ser líder
+de un equipo —de cualquiera— no da acceso a nada**. No hay una sola comprobación de permisos que mire
+`LeadDeveloperId` ni `TeamRole.Lider`: quién puede hacer qué lo decide el **rol de la cuenta**
+(`UserRole`), como antes de que existieran los subequipos.
+
+**Por qué:** el encargo lo pedía al revés de como suena. Se pidió que el líder del equipo padre mande
+sobre los subequipos **y que el líder de un subequipo no gane ninguna función**, porque sigue siendo
+un desarrollador. Si se hiciera que liderar un equipo diera poderes, los líderes de subequipo los
+ganarían de rebote — exactamente lo contrario. Como aquí el equipo nunca ha decidido permisos, la
+primera mitad ya se cumple sin escribir nada (el líder del padre manda porque su **cuenta** es de
+administrador) y la segunda se cumple sola. Inventar una autoridad nueva derivada del árbol sería
+crear el problema que se pedía evitar.
+
+**Dónde SÍ se propaga la jerarquía:** por donde el equipo ya se usaba.
+
+- **Agrupar.** El organigrama —pantalla y PDF— sale en orden de dibujo, cada padre delante de su rama,
+  y cada caja dice de quién cuelga.
+- **«Es de mi equipo».** Pasa a ser *mi rama*: mi equipo, los que cuelgan de él y aquellos de los que
+  cuelga. Los **hermanos no** —otro subequipo del mismo padre es otro equipo—, o la marca acabaría
+  señalando a casi todo el mundo y dejaría de significar algo.
+- **Puntuar.** Aparece `TotalConSubequipos`, que suma la rama entera. **No entra en el total que
+  compite ni ordena la tabla**: si lo hiciera, un equipo padre le ganaría siempre a sus propios
+  subequipos por llevar sus puntos dentro, y el ranking dejaría de ser una competencia entre iguales.
+
+**Dónde NO se propaga, y por qué en cada sitio.** Cambiarlo todo a «la rama» por inercia habría roto
+más de lo que arregla:
+
+| Sitio | Qué mira | Por qué |
+|---|---|---|
+| `CatalogosQueryService` — contadores 🖥/📁 de cada caja | El equipo **exacto** | Un sistema lo mantiene el equipo al que se le asignó. Sumarle los de sus subequipos pondría en la caja del padre sistemas por los que hay que preguntarle a otra gente, que es justo lo que se viene a averiguar a un organigrama |
+| `ReportesService` — «Resumen por equipo» | El equipo **exacto**, y una columna nueva que dice de quién cuelga | Es una hoja que se exporta y lleva sus propias cifras grandes (total, promedio, máximo). Si el padre sumara su rama, esas cifras contarían dos veces a la misma gente y el total dejaría de ser el de la empresa. La columna «Cuelga de» va **la última** para no mover los índices con los que el reporte declara qué columna agrupa y cuál suma |
+| `ReportesService` — filtro por personas | El equipo **exacto** de cada persona | Añadir los equipos de encima colaría en la hoja justo las cifras que el filtro quería dejar fuera |
+| `ReportesService` — «Carga de trabajo», columna Equipo | El equipo **exacto** | La columna contesta «¿dónde está esta persona?»; el equipo de arriba la colocaría donde no trabaja |
+| `FichaDeDesarrolladorQueryService`, «Mi panel» | El equipo **exacto** | Es *tu* equipo, no tu área |
+| `PersonasQueryService.AsignarRolAsync` — un solo líder | El equipo **exacto** | Cada subequipo tiene su propio líder, y sigue sin ganar nada por serlo |
+
+**Al borrar un equipo, sus subequipos SUBEN** a colgar del abuelo (o quedan como raíz). No se borran
+en cascada —quien borra un equipo intermedio está deshaciendo un nivel de agrupación, no dando de baja
+tres equipos con su gente dentro— y tampoco se prohíbe el borrado mientras tenga hijos, que obligaría
+a desarmar la rama a mano para quitar una caja. La pantalla lo dice antes de confirmar y el mensaje de
+después cuenta cuántos subieron.
+
+**El desplegable «cuelga de» no ofrece ni el propio equipo ni su rama**, pero eso es una comodidad y no
+la regla: la barrera está en el servicio, porque a esa dirección se la puede llamar sin pasar por la
+pantalla. El filtro vive en [ArbolDeEquipos](AdminWeb.Client/Servicios/ArbolDeEquipos.cs) y no dentro
+del `@code` de la pantalla para poder probarlo — «ni él ni sus nietos» es la clase de regla que se
+rompe sin que se note al mirar.
+
+**El DTO del organigrama va PLANO, con la referencia al padre, y no anidado.** Hay dos dibujantes y no
+reparten el sitio igual: la pantalla dibuja el árbol de corrido en una superficie que se desplaza y se
+pliega, y el PDF lo parte en hojas, una por rama. Con una estructura anidada, cada uno tendría que
+rehacerla a su manera y con su propio orden, que es como el papel empieza a contradecir a la pantalla;
+plano y **ya ordenado**, los dos leen lo mismo, y el que necesita el árbol lo arma agrupando por el
+padre sin tocar el orden de los hermanos. Además, anidar obligaría al DTO a referirse a sí mismo, y un ciclo escrito a mano contra la
+base dejaría de ser un dibujo raro para convertirse en un serializador dando vueltas.
+
+**Los ciclos se impiden en el servicio, no en la pantalla**, y con dos vueltas: antes de guardar
+—«¿este padre está debajo de mí?»— y **otra vez después**, porque dos guardados simultáneos pueden
+pasar los dos por la primera con cambios que por separado son válidos y juntos cierran el anillo.
+Quien confirma el último lo ve y deshace lo suyo.
+
+---
+
+## El organigrama de la pantalla se edita, y por eso no tiene camino propio
+
+**Lo que sorprende:** el diagrama de la pestaña «Organigrama» **se arrastra** —una persona a otra
+caja, la cabecera de un equipo sobre otro— y aun así en el código no hay ninguna operación nueva. Y
+si se buscan los comentarios de hace unos meses, decían justo lo contrario: que el diagrama **no** se
+editaba, y explicaban por qué.
+
+**Por qué cambió, y por qué el motivo de antes sigue siendo bueno.** Aquel motivo era que un diagrama
+editable daría **dos formas** de mover a alguien de equipo —la lista con botones, con su motivo, su
+rotación registrada y sus reglas de líder y rol, y el diagrama—, y que dos caminos para la misma
+escritura acaban siempre con uno de los dos olvidándose de una regla. Eso no ha dejado de ser cierto:
+lo que se hizo fue quitar el segundo camino, no aceptarlo. Soltar a alguien en otra caja llama a
+`MoverPersonasAsync`, **el mismo método del que cuelga el botón** «Mover al equipo»: el mismo cuadro
+pidiendo el motivo, la misma petición, el mismo servicio. Soltar un equipo sobre otro manda la **misma
+petición** que el desplegable «cuelga de» del editor, con todos los campos del equipo dentro — esa
+petición guarda lo que trae, así que mandarla a medias borraría la descripción y el color. El arrastre
+es una forma de *llegar* a la operación, no una operación.
+
+De ahí sale la regla para el que venga: **si al arrastre hubiera que darle una petición propia, el
+arrastre está mal planteado**. El día que se le escriba un atajo que guarde por su cuenta, vuelve
+entero el problema que el diagrama de solo lectura evitaba.
+
+**Y arrastrar no es la única forma**, que es la otra mitad de la decisión. Todo lo que se arrastra se
+hace también con el teclado desde «Organización» —las dos listas con sus botones para la gente, y
+«cuelga de» en el editor del equipo para la jerarquía, que ahora se abre también desde el lápiz de
+cada caja del diagrama—. Un gesto que pide apuntar con precisión de píxel no puede ser la única puerta
+a una función.
+
+Y la equivalencia se mide en lo que queda ESCRITO, no en dónde acaba la gente. La lista de la derecha
+tiene un tercer botón, «Pasar de equipo», que no estaba: con los dos de antes —«Mover al equipo», que
+solo lee la lista de quien no tiene equipo, y «Quitar del equipo», que siempre manda a «sin equipo»—
+llevar a alguien de un equipo a otro sin ratón salían dos operaciones, o sea **dos rotaciones en el
+historial, una de ellas a «sin equipo», donde esa persona nunca estuvo**. El arrastre habría quedado
+como la única forma de registrar bien un cambio de equipo, que es una manera más silenciosa del mismo
+problema que esta pantalla lleva un año evitando. El botón nuevo llama a `MoverPersonasAsync` como
+todos los demás; no añade ninguna operación.
+
+**El dibujo dejó de ser un SVG**, y tampoco es estético: en un SVG los elementos **no admiten
+`draggable`**, así que arrastrar ahí obliga a escribir el gesto entero a mano con eventos de puntero —
+y con eso se pierden el cursor del sistema, la imagen que arrastra el navegador y que otras
+aplicaciones entiendan la soltada.
+
+**Se dibuja con sangrías y no con cajas colgando en horizontal**, por lo que le pasa a cada forma
+cuando el árbol se deforma: el árbol **ancho y plano** —veinte equipos sin padre, que es la casa hoy—
+en horizontal ocupa veinte anchos de caja y hay que arrastrar la barra de abajo para leerlo; con
+sangrías crece hacia abajo, que es la dirección en la que una página ya sabe desplazarse. El **hondo y
+estrecho** en horizontal es un dibujo casi vacío; con sangrías cada nivel cuesta una sangría fija. Es
+la misma razón por la que el PDF también usa sangrías, y la de más peso ahora que el diagrama se
+edita: **con sangrías las cajas son hermanas en el marcado, nunca una dentro de otra**, y una soltada
+sobre una caja anidada caería además en todas las que la contienen.
+
+**Lo que decide qué se puede soltar está en una clase aparte**
+([TrazadoDelOrganigrama.cs](AdminWeb.Client/Organigrama/TrazadoDelOrganigrama.cs)) y no dentro del
+`@code` de la pantalla, para poder probarlo sin navegador. La pantalla **no acepta** una soltada
+imposible —soltar un equipo dentro de su propia rama, o a alguien en el equipo en el que ya está—: se
+ve apagada antes de soltar, con una frase que dice por qué. Sigue sin ser la barrera; la barrera es el
+servidor, que rechaza el círculo mirando lo que hay escrito y otra vez después de guardar.
+
+---
+
+## El organigrama en PDF se reparte por ramas, no por altura
+
+**Lo que sorprende:** el PDF del organigrama abre **una hoja nueva por cada equipo que tiene
+subequipos**, aunque lo que llevara dentro cupiera de sobra en la que se estaba usando. Parece papel
+desperdiciado, y encima el mismo documento dibuja de dos maneras distintas.
+
+**Por qué:** QuestPDF pagina solo y parte por donde le toca. Con un árbol, el corte por altura es lo
+peor que puede pasar: **una rama partida entre dos hojas se lee como dos organigramas distintos**,
+porque las cajas que abren la hoja siguiente no dicen de dónde vienen. Así que el corte lo decide la
+estructura:
+
+- **La primera hoja** es la organización de un vistazo: el nodo de arriba, los equipos **raíz** en
+  filas por el ancho del papel y la caja de quien no está en ninguno. Es el documento de siempre —
+  mientras nadie cuelgue un equipo de otro, no hay ninguna hoja más y el PDF sale exactamente igual
+  que antes de que existieran los subequipos, que es como está la casa hoy.
+- **Una hoja por rama de equipo raíz**, con el nombre del equipo en la cabecera. La rama va entera —
+  hijos, nietos y lo que haya—, así que un subequipo de en medio **no** abre hoja aparte: sale en la
+  de su raíz, que es donde se lee de un golpe cómo encaja. Una rama nunca comparte hoja con otra, y
+  si no cabe, las hojas que la continúan **repiten esa cabecera**: se sabe de qué rama son sin buscar
+  hacia atrás. Eso lo da declarar una `Page` de QuestPDF por rama, no un salto de página.
+- El equipo del que cuelga la rama **no se dibuja dos veces**: su caja, con su gente, se queda en la
+  primera hoja y da nombre a la suya. Cada caja de la primera dice cuántos equipos hay en su rama y
+  **en qué hoja** están; el número lo pone QuestPDF al cerrar el documento.
+
+**Dentro de una rama, el árbol va con sangría y no de arriba abajo.** Un dibujo de arriba abajo dobla
+su ancho en cada nivel y la hoja no crece: a la tercera generación o se encoge hasta no leerse o se
+sale del papel. La sangría crece en línea recta y admite la profundidad que haga falta — y sobre todo
+**se puede cortar sin perder el hilo**: en un dibujo de arriba abajo el corte parte un renglón de
+hermanos y deja en la hoja anterior las líneas que los unían, mientras que con las cajas una debajo de
+otra lo peor que pasa es que **una caja se parta por dentro** y su gente siga en la hoja siguiente. Eso
+último sí ocurre —QuestPDF parte por donde le cabe— y el fragmento que abre la hoja no repite el nombre
+del equipo; quien sigue diciendo de quién es todo eso es la cabecera de la hoja, que es de la rama.
+Forzar que la caja no se parta no es opción: un equipo con más gente de la que cabe en una hoja dejaría
+de poderse dibujar y con él el documento entero. **Lo que tampoco se hizo fue escalar el diagrama para
+que quepa**: eso arregla un organigrama en una pantalla, donde se puede acercar; éste se imprime, y a la
+segunda reducción los nombres hay que leerlos con lupa.
+
+**Las líneas del árbol se dibujan en una capa de fondo, con la caja en la primaria.** Es lo que permite
+que la vertical de un padre **pase de largo** por el costado de la rama de su primer hijo y llegue hasta
+el segundo: sin ella, el codo de un hermano que no es el primero sale flotando en el blanco, a la altura
+de una caja con la que no tiene nada que ver, y el dibujo deja de decir de quién cuelga. Va en capas y no
+al lado de la caja dentro de una fila porque ahí una vertical solo puede medir lo que mida su propio
+contenido —cero—, y estirarla obligaría a pedir todo el espacio disponible, con lo que cada caja acabaría
+midiendo la hoja entera. Con capas, la altura la manda la caja y las líneas se ajustan a ella; el precio
+es que el maquetado de capas tiene que saber partirse cuando una caja no cabe, y por eso hay una prueba
+con un subequipo de ochenta personas.
+
+**El color de la banda: el suyo, y si no tiene, el de su rama.** Colgar un equipo de otro no le quita
+el color que alguien eligió para él — sería tirar esa decisión sin avisar y dejar indistinguibles a los
+subequipos de una rama. Pero el que **no** tiene ninguno hereda el de arriba en vez de caer al gris,
+que es el mismo color del borde de la caja: en la hoja de una rama, una banda que no se ve rompe la
+columna de color justo donde se está leyendo que todas esas cajas son de la misma rama.
+
+**El papel sigue enseñando más que la pantalla**, y a propósito: cada caja lista **los sistemas y los
+proyectos por su nombre**. Es lo que se lleva a una junta para saber a quién preguntarle por un
+sistema, y «3 sistemas» no responde esa pregunta.
+
+---
+
 ## Otras cosas pequeñas que parecen errores
 
 | Lo que se ve | Lo que es |

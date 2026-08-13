@@ -122,6 +122,38 @@
                                               Title="# Miembros" Width="120px" TextAlign="TextAlign.Right" />
                     </Columns>
                 </RadzenDataGrid>
+
+                @* POR QUÉ FALTA UN EQUIPO. Los que tienen subequipos no compiten, y una tabla de la
+                   que un equipo simplemente desaparece se lee como un fallo: alguien nota a fin de
+                   mes que el suyo ya no sale y no tiene forma de saber si es la regla o una avería.
+                   Por eso se nombran, y por eso se dice además cuánta gente directa tienen: ése es
+                   el caso que duele, porque sus puntos no cuentan para ningún equipo. Con cero
+                   integrantes propios no hay nada que echar en falta y basta con explicar la
+                   ausencia. *@
+                @if (_datos?.EquiposQueNoCompiten is { Count: > 0 } fuera)
+                {
+                    <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false"
+                                 Title="Por qué no salen todos los equipos" class="rz-mt-3">
+                        <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                            En el ranking compiten los equipos que hacen el trabajo. Uno con
+                            subequipos colgando no juega: si sumara lo de sus hijos les ganaría
+                            siempre, y si compitiera solo con lo suyo saldría a cero por ser un
+                            paraguas. Ahora mismo están fuera
+                            @(string.Join(", ", fuera.Select(e => e.Equipo))).
+                        </RadzenText>
+                        @if (fuera.Any(e => e.PersonasDirectas > 0))
+                        {
+                            <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0" Style="margin-top:.5rem">
+                                Y hay gente asignada directamente a
+                                @(string.Join(", ", fuera.Where(e => e.PersonasDirectas > 0)
+                                    .Select(e => $"{e.Equipo} ({e.PersonasDirectas})"))):
+                                <b>sus puntos no cuentan para ningún equipo</b>. En el ranking
+                                individual cuentan igual. Si eso no es lo que quieres, muévelos a un
+                                subequipo.
+                            </RadzenText>
+                        }
+                    </RadzenAlert>
+                }
             </RadzenTabsItem>
 
             <RadzenTabsItem Text="@TituloDePendientes()" Icon="pending">

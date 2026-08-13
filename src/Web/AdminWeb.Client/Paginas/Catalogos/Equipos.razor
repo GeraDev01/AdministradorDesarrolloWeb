@@ -1,6 +1,6 @@
 @page "/equipos"
 @attribute [Authorize(Policy = "SoloAdmin")]
-@using System.Globalization
+@using AdminWeb.Client.Organigrama
 @using AdminWeb.Shared.Dtos.Personas
 @implements IDisposable
 @inject ClienteApi Api
@@ -8,19 +8,37 @@
 @inject Descargas Descargas
 
 @*
-    Los equipos, en dos pestañas: la de SIEMPRE, donde se crea, se mueve y se asigna, y el
-    ORGANIGRAMA, que solo se mira.
+    Los equipos, en dos pestañas: la de SIEMPRE —donde se crea, se mueve y se asigna con listas y
+    botones— y el ORGANIGRAMA, que es el mismo trabajo dibujado como árbol y que TAMBIÉN se edita:
+    se arrastra a una persona hasta otra caja para cambiarla de equipo, y la cabecera de un equipo
+    sobre otro para colgarlo de él.
 
-    Que el diagrama no se edite es una decisión, no una carencia. Un organigrama que además fuera
-    editable tendría que dejar arrastrar personas entre cajas, y entonces habría DOS formas de mover a
-    alguien de equipo: la de la pestaña de al lado —con su motivo, su rotación registrada y sus reglas
-    de líder y rol— y la del diagrama. Dos caminos para la misma escritura terminan siempre igual: uno
-    de los dos se olvida de una de las reglas. Aquí el diagrama enseña y la pestaña de al lado manda.
+    POR QUÉ ESO ES SEGURO, que es lo que aquí estuvo escrito al revés mientras el diagrama era de
+    solo lectura. El motivo de entonces era que un diagrama editable daría DOS formas de mover a
+    alguien de equipo —la de la pestaña de al lado, con su motivo, su rotación registrada y sus
+    reglas de líder y rol, y la del diagrama—, y que dos caminos para la misma escritura acaban
+    siempre con uno de los dos olvidándose de una regla. Ese razonamiento no ha cambiado: lo que
+    cambia es que aquí NO hay dos caminos. Soltar a alguien en otra caja llama a MoverPersonasAsync,
+    que es el mismo método al que llama el botón «Mover al equipo» —el mismo motivo pedido, la misma
+    petición, el mismo servicio y las mismas reglas—, y soltar un equipo sobre otro manda la MISMA
+    petición que el desplegable «Cuelga de» del editor. El arrastre es una forma de LLEGAR a la
+    operación, no una operación nueva; si alguna vez alguien escribe aquí un atajo que guarde por su
+    cuenta, vuelve el problema entero.
+
+    Y arrastrar no es la única forma, que es la otra condición. Todo lo que se arrastra se puede
+    hacer sin ratón desde «Organización»: las dos listas con sus botones para la gente y «Cuelga de»,
+    en el editor del equipo, para la jerarquía. Lo que solo se pudiera arrastrar dejaría fuera a quien
+    navega con el teclado.
+
+    Y «lo mismo» quiere decir el MISMO movimiento, no un resultado parecido: por eso la lista de la
+    derecha tiene «Pasar de equipo». Con solo los dos botones de antes, llevar a alguien de un equipo
+    a otro sin ratón había que hacerlo en dos —quitarlo y volver a meterlo—, y eso deja DOS rotaciones
+    en el historial, una de ellas a «sin equipo», donde la persona nunca estuvo. El arrastre habría
+    sido la única forma de que el historial contara lo que de verdad pasó.
 
     Lo que YA HABÍA y sigue igual: crear y editar equipos, mover gente con motivo, asignar roles, el
-    historial de rotaciones y el PDF. Lo que cambia respecto al escritorio —el arrastrar y soltar
-    sustituido por dos listas con botones, y el rol en un desplegable en vez de en el clic derecho—
-    está explicado abajo, donde ocurre.
+    historial de rotaciones y el PDF. El rol se cambia en un desplegable en vez de en el clic derecho
+    del escritorio, y está explicado abajo, donde ocurre.
 
     Solo aparecen los desarrolladores activos, igual que en el escritorio: un organigrama con quien
     ya no está deja de describir al equipo.
@@ -61,6 +79,22 @@
                                        Style="width:18rem" />
                     </RadzenStack>
 
+                    @* DE QUÉ EQUIPO CUELGA. Vacío es un equipo raíz, que es lo que son todos hasta
+                       que alguien arme subequipos.
+
+                       La lista no ofrece ni el propio equipo ni los que cuelgan de él: elegir uno de
+                       esos cerraría la jerarquía en círculo y el servidor lo rechaza igual, pero
+                       ofrecerlo sería enseñar una puerta cerrada. La barrera está en el servidor —a
+                       esta dirección se la puede llamar sin pasar por aquí—; esto es la comodidad, y
+                       vive en ArbolDeEquipos para poder probarla. *@
+                    <RadzenStack Gap="0.25rem">
+                        <RadzenLabel Text="Cuelga de" Component="padreEquipo" />
+                        <RadzenDropDown TValue="int?" @bind-Value="_padreEquipo" Name="padreEquipo"
+                                        Data="@PosiblesPadres" TextProperty="Etiqueta" ValueProperty="Id"
+                                        AllowClear="true" Placeholder="Ninguno: es un equipo raíz"
+                                        Style="width:16rem" Disabled="@_ocupado" />
+                    </RadzenStack>
+
                     <RadzenStack Gap="0.25rem">
                         <RadzenLabel Text="Color (hex)" Component="colorEquipo" />
                         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
@@ -83,6 +117,16 @@
                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                     El color tiene que ser «#RRGGBB» (seis dígitos). Si se deja vacío o mal escrito, el
                     equipo se dibuja con el color de la aplicación, en pantalla y en el PDF.
+                </RadzenText>
+
+                @* Que quede escrito donde se decide, porque es la pregunta que va a surgir: colgar un
+                   equipo de otro ORDENA el organigrama y agrupa la puntuación por rama. No reparte
+                   permisos: quién puede hacer qué lo sigue diciendo el rol de la cuenta, y el líder de
+                   un subequipo sigue siendo un desarrollador. *@
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                    «Cuelga de» agrupa: el organigrama dibuja el subequipo bajo su equipo y el ranking
+                    suma aparte lo que aporta la rama. No cambia lo que nadie puede hacer en la
+                    aplicación, que lo decide el rol de su cuenta.
                 </RadzenText>
 
                 <RadzenTextArea @bind-Value="_descripcionEquipo" Rows="2" Style="width:100%"
@@ -168,7 +212,7 @@
                                             <RadzenDropDown TValue="int?" @bind-Value="_equipoDestino" Name="destino"
                                                             Data="@_organigrama.Equipos" TextProperty="Nombre" ValueProperty="Id"
                                                             Placeholder="Elige un equipo" Style="min-width:14rem"
-                                                            Change="@(_ => _marcadosDelEquipo.Clear())" Disabled="@_ocupado" />
+                                                            Change="@(_ => CambiarDeEquipoMirado())" Disabled="@_ocupado" />
                                         </RadzenStack>
 
                                         <div style="max-height:20rem;overflow:auto;padding:.25rem 0">
@@ -228,12 +272,40 @@
                                                 }
                                             }
                                         </div>
+
+                                        @* PASAR DE UN EQUIPO A OTRO SIN RATÓN, que es lo que el diagrama de al lado
+                                           hace en un solo gesto arrastrando. Sin esto, con el teclado había que
+                                           «Quitar del equipo» y después «Mover al equipo», y eso NO es el mismo
+                                           movimiento: deja DOS rotaciones en el historial —una a «sin equipo» y otra
+                                           al equipo nuevo— en vez de la única que explica lo que de verdad pasó.
+                                           Aquello convertía el arrastre en la única forma de registrar bien un cambio
+                                           de equipo, que es justo lo que esta pantalla no puede permitirse.
+
+                                           No es un camino de escritura nuevo: llama a MoverPersonasAsync, el mismo
+                                           método del que cuelgan los otros dos botones y la soltada del diagrama. *@
+                                        @if (EquipoElegido is not null)
+                                        {
+                                            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                                         Gap="0.5rem" Wrap="FlexWrap.Wrap" Style="margin-top:.5rem">
+                                                <RadzenLabel Text="Pasar los marcados a:" Component="otroEquipo" />
+                                                <RadzenDropDown TValue="int?" @bind-Value="_otroEquipo" Name="otroEquipo"
+                                                                Data="@OtrosEquipos" TextProperty="Nombre" ValueProperty="Id"
+                                                                Placeholder="Elige el equipo al que pasan"
+                                                                Style="min-width:13rem" Disabled="@_ocupado" />
+                                                <RadzenButton Text="Pasar de equipo" Icon="group_add"
+                                                              ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                                              Disabled="@(_ocupado || _otroEquipo is null || _marcadosDelEquipo.Count == 0)"
+                                                              Click="@PasarAOtroEquipo" />
+                                            </RadzenStack>
+                                        }
                                     </div>
                                 </div>
 
                                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                                     Mover a alguien le deja «sin rol» y sin función en su nuevo equipo, y suelta el cargo
-                                    de líder del que deja. Cada movimiento queda registrado como rotación.
+                                    de líder del que deja. Cada movimiento queda registrado como rotación. «Pasar de
+                                    equipo» lleva a los marcados de un equipo a otro en un solo movimiento, así que deja
+                                    una sola rotación y no dos: es lo mismo que arrastrarlos en el organigrama.
                                 </RadzenText>
                             </RadzenStack>
                         </RadzenCard>
@@ -290,6 +362,17 @@
                                                               Disabled="@_ocupado" Click="@(() => EliminarEquipo(equipo))" />
                                             </RadzenStack>
                                         </RadzenStack>
+                                        @* De quién cuelga, cuando cuelga de alguien. Escrito y no
+                                           dibujado con sangrías: estas tarjetas se envuelven según el
+                                           ancho que haya, así que un subequipo puede quedar en otro
+                                           renglón que su padre y ninguna sangría se leería como lo que
+                                           es. TagName.P por lo mismo que los tres textos de abajo. *@
+                                        @if (NombreDeEquipo(equipo.EquipoPadreId) is string suPadre)
+                                        {
+                                            <RadzenText TextStyle="TextStyle.Caption" TagName="TagName.P" Style="margin:0">
+                                                Subequipo de @suPadre
+                                            </RadzenText>
+                                        }
                                         @* TagName.P Y NO el automático, aquí y en la descripción de abajo.
                                            Con «Auto», un Caption sale en un <span>, o sea en línea; y como
                                            estos dos son hermanos sueltos dentro de un <div> —no van dentro de
@@ -380,16 +463,17 @@
                     </RadzenStack>
                 </RadzenTabsItem>
 
-                @* ── Pestaña 2: el organigrama ────────────────────────────────── *@
+                @* ── Pestaña 2: el organigrama, que ahora TAMBIÉN se edita ────── *@
                 <RadzenTabsItem Text="Organigrama" Icon="account_tree">
                     <RadzenStack Gap="0.75rem">
                         <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
                                      Gap="0.75rem" Wrap="FlexWrap.Wrap">
-                            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.35rem">
-                                <RadzenLabel Text="Columnas:" Component="columnas" />
-                                <RadzenDropDown TValue="int" @bind-Value="_columnas" Name="columnas"
-                                                Data="@ColumnasPosibles" Style="width:5rem" />
-                            </RadzenStack>
+                            @* Ya no hay «Columnas». Aquello repartía las cajas en filas de dos, tres o
+                               cuatro, y las filas eran un reparto del ancho del lienzo y no la jerarquía;
+                               ahora dónde cae cada caja lo decide de quién cuelga, que no es un ajuste de
+                               nadie. «Tamaño» sí sigue, y ahora cambia el tamaño de letra del contenedor:
+                               dentro del diagrama todas las medidas van en «em», así que las cajas, las
+                               sangrías y las líneas crecen juntas y no solo el texto. *@
                             <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.35rem">
                                 <RadzenLabel Text="Tamaño:" Component="escala" />
                                 <RadzenDropDown TValue="int" @bind-Value="_escala" Name="escala"
@@ -400,158 +484,201 @@
                                           Size="ButtonSize.Small" Click="@PlegarTodos" />
                             <RadzenButton Text="Desplegar todos" Icon="expand_more" ButtonStyle="ButtonStyle.Light"
                                           Size="ButtonSize.Small" Click="@(() => _plegados.Clear())" />
-                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
-                                Pulsa una caja para plegarla o desplegarla. Aquí solo se mira: los cambios se hacen
-                                en «Organización».
-                            </RadzenText>
                         </RadzenStack>
 
-                        <RadzenCard Style="padding:.75rem">
-                            @{
-                                var trazado = Trazar(_organigrama);
+                        @* Aquí decía «aquí solo se mira: los cambios se hacen en Organización», y dejó de
+                           ser verdad. Lo que se dice ahora es qué se puede arrastrar y —esto es lo que no
+                           puede faltar— cómo se hace exactamente lo mismo sin arrastrar nada. *@
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                            Arrastra a una persona hasta otra caja para cambiarla de equipo: se pide el motivo y
+                            queda registrado como rotación, igual que el botón de «Organización». Arrastra la
+                            cabecera de un equipo sobre otro para colgarlo de él, o sobre la caja de arriba para
+                            dejarlo como equipo raíz. Sin ratón se hace lo mismo desde «Organización»: los botones
+                            de mover para la gente, y «Cuelga de» —en el editor del equipo, que abre el lápiz de
+                            cada caja— para la jerarquía.
+                        </RadzenText>
+
+                        @* QUÉ SE ESTÁ ARRASTRANDO Y QUÉ VA A PASAR AL SOLTARLO, dicho antes de soltar y no
+                           después. El resalte de la caja dice DÓNDE va a caer; esto dice QUÉ ocurre, que es
+                           lo que el color no puede explicar: por qué esa caja está apagada, o que la persona
+                           se va a quedar sin equipo. El renglón ocupa su sitio aunque esté vacío para que el
+                           diagrama no dé un salto justo cuando hay que apuntar a una caja. *@
+                        <div class="organigrama-aviso" role="status" aria-live="polite">
+                            @if (AvisoDelArrastre() is { } aviso)
+                            {
+                                <RadzenIcon Icon="@aviso.Icono" Style="font-size:1.1rem" />
+                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@aviso.Texto</RadzenText>
                             }
-                            @* El diagrama entero cabe SIEMPRE a lo ancho porque las cajas se envuelven en
-                               filas: lo que crece es el alto, y de eso ya se encarga la página. El
-                               desplazamiento horizontal solo aparece al subir el tamaño por encima del
-                               100 %, que es justo cuando alguien pide letra más grande a cambio de
-                               moverse. *@
-                            <div style="overflow:auto;max-width:100%">
-                                @* TODO EL COLOR VA EN style Y NUNCA EN fill= NI EN stroke=. Los atributos
-                                   de presentación aceptan var() en los navegadores modernos, pero si la
-                                   variable no existe fallan EN SILENCIO y la forma se pinta de negro: un
-                                   dibujo entero en negro sobre fondo grafito y nadie se entera. Con style,
-                                   si la variable falta la forma no se pinta y el error salta a la vista en
-                                   la primera prueba. Es la misma regla de la línea de tiempo del sprint. *@
-                                <svg viewBox="0 0 @N(Lienzo) @N(trazado.Alto)"
-                                     style="@($"width:{_escala}%;height:auto;display:block")"
-                                     role="group" aria-label="@AriaDelDiagrama(_organigrama)">
+                        </div>
 
-                                    @* El nodo de arriba. Sin él las cajas son una cuadrícula; con él,
-                                       cuelgan de algo y el dibujo es un organigrama. *@
-                                    <rect x="0" y="0" width="340" height="@N(AltoRaiz)" rx="3"
-                                          style="fill:var(--rz-card-background-color);stroke:var(--rz-text-secondary-color)"
-                                          stroke-width="1.4" />
-                                    <text x="14" y="24" font-size="15" font-weight="600"
-                                          style="fill:var(--rz-text-color)">Organización</text>
-                                    <text x="14" y="42" font-size="10"
-                                          style="fill:var(--rz-text-secondary-color)">@ResumenDeLaRaiz(_organigrama)</text>
+                        <RadzenCard Style="padding:.75rem">
+                            @* El lienzo recibe el MISMO dragenter que las cajas, solo que después, porque los
+                               eventos suben. De eso se aprovecha EntrarEnElLienzo para saber cuándo el puntero
+                               salió de todas las cajas: sin esto, la última caja resaltada se quedaría
+                               resaltada mientras el puntero pasea por los huecos del diagrama. *@
+                            <div class="organigrama @(_arrastrando is null ? "" : "organigrama--arrastrando")"
+                                 style="@($"font-size:{_escala}%")"
+                                 role="group" aria-label="@AriaDelDiagrama(_organigrama)"
+                                 @ondragenter="@EntrarEnElLienzo">
 
-                                    @* El espinazo y las ramas: una barra por FILA de cajas, no una sola
-                                       para todas. Con una sola barra, la segunda fila colgaría de las
-                                       cajas de la primera y se leería como si fueran subequipos; aquí
-                                       todos los equipos están al mismo nivel. *@
-                                    <line x1="@N(EspinazoX)" y1="@N(AltoRaiz)" x2="@N(EspinazoX)" y2="@N(trazado.EspinazoHasta)"
-                                          style="stroke:var(--rz-border-color)" stroke-width="1.4" />
+                                @foreach (var caja in TrazadoDelOrganigrama.Trazar(_paraDibujar, _plegados))
+                                {
+                                    var c = caja;                                  // el de esta vuelta, para los manejadores
+                                    var equipo = EquipoDeLaCaja(c.Id);             // nulo en las dos cajas que no son equipos
+                                    var gente = GenteDeLaCaja(c.Id);
+                                    int? equipoDeLaCaja = c.Id > 0 ? c.Id : null;  // de dónde sale quien se arrastre de aquí
+                                    var admite = AceptaLaSoltada(c.Id);
 
-                                    @foreach (var rama in trazado.Ramas)
-                                    {
-                                        <line x1="@N(EspinazoX)" y1="@N(rama.Y)" x2="@N(rama.Hasta)" y2="@N(rama.Y)"
-                                              style="stroke:var(--rz-border-color)" stroke-width="1.4" />
-                                        @foreach (var bajada in rama.Bajadas)
+                                    <div class="organigrama-fila">
+                                        @* Las líneas del árbol. Van marcadas como decorativas: lo que dicen
+                                           —de quién cuelga cada equipo— está escrito con letras en la caja y
+                                           en su etiqueta, que es lo que oye quien no ve el dibujo. *@
+                                        @foreach (var guia in c.Guias)
                                         {
-                                            <line x1="@N(bajada)" y1="@N(rama.Y)" x2="@N(bajada)" y2="@N(rama.Y + AltoRama)"
-                                                  style="stroke:var(--rz-border-color)" stroke-width="1.4" />
+                                            <span class="@ClaseDeGuia(guia)" aria-hidden="true"></span>
                                         }
-                                    }
 
-                                    @foreach (var caja in trazado.Cajas)
-                                    {
-                                        var c = caja;
-                                        <g tabindex="0" role="button" style="cursor:pointer"
-                                           aria-label="@AriaDeLaCaja(c)"
-                                           @onclick="@(() => AlternarPliegue(c.Id))"
-                                           @onkeydown="@((KeyboardEventArgs e) => TeclaSobreCaja(e, c.Id))">
-                                            <title>@AriaDeLaCaja(c)</title>
+                                        @* role="group": una caja no es un control —dentro hay varios—,
+                                           pero sin rol el lector de pantalla no anuncia su etiqueta y
+                                           quien navega a ciegas se encontraría con los botones sueltos
+                                           sin saber de qué equipo son. *@
+                                        <div class="@ClasesDeCaja(c, admite)" style="@EstiloDeCaja(c)"
+                                             role="group" aria-label="@AriaDeLaCaja(c)"
+                                             data-soltar="@(admite ? "si" : "no")"
+                                             @ondragenter="@(() => EntrarEnCaja(c.Id))"
+                                             @ondragover:preventDefault="@admite"
+                                             @ondrop:preventDefault="true"
+                                             @ondrop="@(() => SoltarEn(c.Id))">
 
-                                            <rect x="@N(c.X)" y="@N(c.Y)" width="@N(c.Ancho)" height="@N(c.Alto)" rx="3"
-                                                  style="fill:var(--rz-card-background-color);stroke:var(--rz-border-color)"
-                                                  stroke-width="1" />
+                                            @* La cabecera es el asa del equipo: se arrastra ella y no la caja
+                                               entera, para que arrastrar a una persona de dentro no arrastre
+                                               además a su equipo. Las dos cajas que no son equipos —la de
+                                               arriba y la de «sin equipo»— no se arrastran: no hay nada que
+                                               colgar de ningún sitio. *@
+                                            <div class="organigrama-cabecera"
+                                                 draggable="@(equipo is null ? "false" : "true")"
+                                                 data-arrastre="@equipo?.Nombre"
+                                                 @ondragstart="@(() => ArrastrarEquipo(c.Id))"
+                                                 @ondragend="@TerminarArrastre">
 
-                                            @* LA BANDA DE COLOR, y por qué lleva una pista gris debajo.
-                                               El color lo teclea una persona: puede ser un amarillo pálido
-                                               (invisible sobre la tarjeta clara) o un azul casi negro
-                                               (invisible sobre la oscura). La pista en --rz-base-300 se
-                                               ve en los dos temas pase lo que pase, y el color se pinta
-                                               un punto por dentro: si desaparece, sigue quedando el
-                                               marco, así que la caja nunca parece rota — solo pierde el
-                                               color, que es un apoyo y no la información. El NOMBRE del
-                                               equipo va siempre en tinta del tema, nunca sobre el color:
-                                               con texto encima no hay hex que se pueda garantizar. *@
-                                            <rect x="@N(c.X)" y="@N(c.Y)" width="@N(c.Ancho)" height="@N(Banda)"
-                                                  style="fill:var(--rz-base-300)" />
-                                            <rect x="@N(c.X + 1)" y="@N(c.Y + 1)" width="@N(c.Ancho - 2)" height="@N(Banda - 2)"
-                                                  style="@($"fill:{c.Color}")" />
-
-                                            @foreach (var renglon in c.Renglones)
-                                            {
-                                                var y = c.Y + renglon.Y;
-                                                switch (renglon.Tipo)
+                                                @if (equipo is not null)
                                                 {
-                                                    case Trazo.Separador:
-                                                        <line x1="@N(c.X + Pad)" y1="@N(y)" x2="@N(c.X + c.Ancho - Pad)" y2="@N(y)"
-                                                              style="stroke:var(--rz-border-color)" stroke-width="1" />
-                                                        break;
-
-                                                    case Trazo.Titulo:
-                                                        @* Los <text> del SVG van envueltos en un <g> cuando
-                                                           salen de dentro de un bloque de código: ahí Razor
-                                                           toma «text» por su etiqueta de escape y no compila
-                                                           si lleva atributos. El <g> devuelve el contexto a
-                                                           marcado y agrupa, que es para lo que existe. *@
-                                                        <g>
-                                                            <text x="@N(c.X + Pad)" y="@N(y)" font-size="13" font-weight="600"
-                                                                  style="fill:var(--rz-text-color)">@renglon.Texto</text>
-                                                        </g>
-                                                        break;
-
-                                                    case Trazo.Apunte:
-                                                        <g>
-                                                            <text x="@N(c.X + Pad)" y="@N(y)" font-size="9.5"
-                                                                  style="fill:var(--rz-text-secondary-color)">@renglon.Texto</text>
-                                                        </g>
-                                                        break;
-
-                                                    case Trazo.Persona:
-                                                        <g>
-                                                            <text x="@N(c.X + Pad + 8)" y="@N(y)" font-size="11"
-                                                                  style="fill:var(--rz-text-color)">@renglon.Texto</text>
-                                                        </g>
-                                                        break;
-
-                                                    case Trazo.Lider:
-                                                        @* El líder, distinguido con una barra en el acento y
-                                                           el nombre en negrita. Sin pictograma: en un SVG
-                                                           habría que dibujarlo con la fuente de iconos, que
-                                                           es un recorte y no la carga el navegador dentro de
-                                                           un <text> sin ayuda; y un emoji lo dibuja el
-                                                           sistema operativo, cambia de forma en cada equipo y
-                                                           donde no hay fuente sale un cuadro vacío. Además el
-                                                           renglón ya dice «Líder» con todas sus letras. *@
-                                                        <g>
-                                                            <rect x="@N(c.X + Pad)" y="@N(y - 9)" width="3" height="11"
-                                                                  style="fill:var(--rz-primary)" />
-                                                            <text x="@N(c.X + Pad + 8)" y="@N(y)" font-size="11" font-weight="600"
-                                                                  style="fill:var(--rz-text-color)">@renglon.Texto</text>
-                                                        </g>
-                                                        break;
-
-                                                    case Trazo.Funcion:
-                                                        <g>
-                                                            <text x="@N(c.X + Pad + 8)" y="@N(y)" font-size="9"
-                                                                  style="fill:var(--rz-text-secondary-color)">@renglon.Texto</text>
-                                                        </g>
-                                                        break;
+                                                    <RadzenIcon Icon="drag_indicator" class="organigrama-asa"
+                                                                Style="font-size:1.05em"
+                                                                title="Arrastra esta cabecera para colgar el equipo de otro" />
                                                 }
+
+                                                @* Plegar es un BOTÓN de verdad y ya no la caja entera. Antes la
+                                                   caja era el interruptor porque dentro no había nada más;
+                                                   ahora tiene personas que se arrastran y un lápiz que abre el
+                                                   editor, y un clic en cualquiera de ellos plegaría la caja de
+                                                   paso. Además un <button> ya responde a Enter y a espacio sin
+                                                   que haya que escribirlo. *@
+                                                @* «|| c.Plegada» no es de más: «Plegar todos» pliega TODOS los
+                                                   equipos, incluido el que no tiene gente ni nada colgando, y a ese
+                                                   las dos primeras condiciones no le sacaban botón. Se quedaba
+                                                   plegado —con su descripción y sus contadores escondidos— y sin
+                                                   ningún control suyo para volver a abrirlo: había que desplegar la
+                                                   pantalla entera. Una caja no puede quedar en un estado que su
+                                                   propio interruptor no deshaga. *@
+                                                @if (c.TieneRama || gente.Count > 0 || c.Plegada)
+                                                {
+                                                    <button type="button" class="organigrama-plegar"
+                                                            aria-expanded="@(c.Plegada ? "false" : "true")"
+                                                            title="@(c.Plegada ? "Desplegar" : "Plegar") esta caja y lo que le cuelga"
+                                                            @onclick="@(() => AlternarPliegue(c.Id))">
+                                                        <RadzenIcon Icon="@(c.Plegada ? "expand_more" : "expand_less")"
+                                                                    Style="font-size:1.1em" />
+                                                    </button>
+                                                }
+
+                                                <span class="organigrama-nombre">@NombreDeLaCaja(c.Id)</span>
+                                                <span class="organigrama-apunte">@ContadoresDeLaCaja(c, gente.Count)</span>
+
+                                                @if (equipo is not null)
+                                                {
+                                                    @* El editor se abre desde aquí y no solo desde la pestaña de
+                                                       al lado: es el camino con teclado para «cuelga de», y
+                                                       tenerlo en la misma caja que se arrastra es lo que hace
+                                                       que las dos formas sean de verdad la misma función. *@
+                                                    <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Light"
+                                                                  Size="ButtonSize.ExtraSmall"
+                                                                  title="Editar este equipo, incluido de cuál cuelga"
+                                                                  Disabled="@_ocupado" Click="@(() => AbrirEquipo(equipo))" />
+                                                }
+                                            </div>
+
+                                            @if (!c.Plegada)
+                                            {
+                                                <div class="organigrama-cuerpo">
+                                                    @if (c.Id == RaizId)
+                                                    {
+                                                        <p class="organigrama-nota">
+                                                            Todo cuelga de aquí. Un equipo soltado en esta caja deja de
+                                                            colgar de otro y vuelve a ser un equipo raíz.
+                                                        </p>
+                                                    }
+                                                    else if (equipo is not null && !string.IsNullOrWhiteSpace(equipo.Descripcion))
+                                                    {
+                                                        <p class="organigrama-nota">@equipo.Descripcion</p>
+                                                    }
+
+                                                    @* La gente, cada quien en su renglón arrastrable. Vienen del
+                                                       servidor con el líder delante y ya marcado: quién lo es
+                                                       depende de dos datos que pueden discrepar y esa regla no se
+                                                       decide en la pantalla. *@
+                                                    @foreach (var persona in gente)
+                                                    {
+                                                        var p = persona;
+                                                        <div class="@ClasesDePersona(p)" draggable="true"
+                                                             data-arrastre="@p.Nombre"
+                                                             title="Arrastra a @p.Nombre hasta el equipo al que pase"
+                                                             @ondragstart="@(() => ArrastrarPersona(p, equipoDeLaCaja))"
+                                                             @ondragend="@TerminarArrastre">
+                                                            <RadzenIcon Icon="drag_indicator" class="organigrama-asa"
+                                                                        Style="font-size:.95em" />
+                                                            @if (p.EsLider)
+                                                            {
+                                                                <RadzenIcon Icon="workspace_premium" Style="font-size:.95em"
+                                                                            title="Líder del equipo" />
+                                                            }
+                                                            <span class="@(p.EsLider ? "organigrama-lider" : "")">
+                                                                @EtiquetaDePersona(p)
+                                                            </span>
+                                                            @if (!string.IsNullOrWhiteSpace(p.Funcion))
+                                                            {
+                                                                <span class="organigrama-funcion">@p.Funcion</span>
+                                                            }
+                                                        </div>
+                                                    }
+
+                                                    @if (gente.Count == 0 && c.Id != RaizId)
+                                                    {
+                                                        <p class="organigrama-nota">(sin integrantes)</p>
+                                                    }
+
+                                                    @if (equipo is not null && (equipo.Sistemas.Count > 0 || equipo.Proyectos.Count > 0))
+                                                    {
+                                                        <p class="organigrama-nota">
+                                                            @equipo.Sistemas.Count sistema(s) &nbsp;·&nbsp; @equipo.Proyectos.Count proyecto(s)
+                                                        </p>
+                                                    }
+                                                </div>
                                             }
-                                        </g>
-                                    }
-                                </svg>
+                                        </div>
+                                    </div>
+                                }
                             </div>
                         </RadzenCard>
 
+                        @* Aquí decía que el PDF dibuja «este mismo diagrama». Ya no: el papel se reparte
+                           por ramas —una hoja por cada equipo que tiene subequipos— porque una rama
+                           partida por la mitad se lee como dos organigramas distintos, y eso en una
+                           pantalla que se desplaza no pasa. Son los mismos datos y el mismo orden, no el
+                           mismo dibujo, y prometer lo segundo sería prometer algo que el papel no cumple. *@
                         <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
-                            Generado el @_organigrama.GeneradoEl. El PDF de la barra de arriba dibuja este mismo
-                            diagrama con los mismos datos.
+                            Generado el @_organigrama.GeneradoEl. El PDF de la barra de arriba lleva estos mismos
+                            datos y en este mismo orden, repartidos en hojas por rama.
                         </RadzenText>
                     </RadzenStack>
                 </RadzenTabsItem>
@@ -588,8 +715,6 @@
     /// que la petición vaya a rechazar.</summary>
     private const int LargoMaximoDeFuncion = 200;
 
-    private static readonly int[] ColumnasPosibles = [2, 3, 4];
-
     private static readonly OpcionDeEscala[] EscalasPosibles =
     [
         new(70, "70 %"), new(85, "85 %"), new(100, "100 %"),
@@ -608,6 +733,12 @@
     private readonly HashSet<int> _marcadosDelEquipo = [];
     private int? _equipoDestino;
 
+    /// <summary>A qué equipo pasan los marcados de la lista de la derecha. Va aparte de
+    /// <see cref="_equipoDestino"/> porque aquel dice qué equipo se está MIRANDO y este a cuál se
+    /// va: con un solo desplegable, cambiarlo para elegir el destino cambiaría además la lista de
+    /// la que se acaba de marcar a alguien.</summary>
+    private int? _otroEquipo;
+
     // Alta y edición de un equipo.
     private bool _capturandoEquipo;
     private int? _equipoEnEdicion;
@@ -615,10 +746,10 @@
     private string _nombreEquipo = "";
     private string _descripcionEquipo = "";
     private string _colorEquipo = "";
+    private int? _padreEquipo;
 
-    // El diagrama: qué cajas están plegadas, cuántas por fila y a qué tamaño.
+    // El diagrama: qué cajas están plegadas y a qué tamaño se dibuja.
     private readonly HashSet<int> _plegados = [];
-    private int _columnas = 3;
     private int _escala = 100;
 
     private EquipoDelOrganigramaDto? EquipoElegido =>
@@ -634,11 +765,13 @@
             var organigrama = await Api.LeerAsync<OrganigramaDto>(
                 "api/personas/equipos/organigrama", _cancelacion.Token);
             if (organigrama is not null) _organigrama = organigrama;
+            RecordarElDiagrama();
 
             // Lo marcado deja de tener sentido tras recargar: quien estaba en la lista pudo cambiar
             // de sitio, y dejar las casillas puestas invitaría a mover a quien no se quería.
             _marcadosSinEquipo.Clear();
             _marcadosDelEquipo.Clear();
+            _otroEquipo = null;
 
             if (_historial is not null) await CargarHistorial();
         }
@@ -652,27 +785,69 @@
         if (marcado) marcados.Add(id); else marcados.Remove(id);
     }
 
-    private async Task MoverAlEquipo()
+    /// <summary>
+    /// EL ÚNICO CAMINO por el que esta pantalla cambia a alguien de equipo. Lo comparten los dos
+    /// botones de esta pestaña y el arrastre del diagrama, y esa es toda la razón de que exista este
+    /// método en vez de tres llamadas parecidas.
+    ///
+    /// <para>Es lo que hace seguro que el organigrama se edite: el motivo se pide siempre, la petición
+    /// es la misma y el servicio aplica las mismas reglas —suelta el cargo de líder del equipo que se
+    /// deja, deja «sin rol» y sin función en el nuevo, y anota la rotación con los nombres copiados—.
+    /// Si el arrastre armara su propia petición, el día que cambie una de esas reglas cambiaría en un
+    /// sitio y no en el otro, y el historial empezaría a mentir sin que nadie lo note.</para>
+    ///
+    /// <para>Cancelar el cuadro del motivo cancela el movimiento entero: nulo es cancelar y la cadena
+    /// vacía es «acepto sin escribir nada», que son dos respuestas distintas.</para>
+    /// </summary>
+    private async Task MoverPersonasAsync(
+        IReadOnlyList<int> personas, int? equipoId, string titulo, string peticionDelMotivo)
     {
-        if (_equipoDestino is not int equipoId) return;
+        if (personas.Count == 0) return;
 
-        var motivo = await Avisos.PedirTextoAsync(
-            "Motivo de la rotación (opcional, queda en el historial).", "Mover al equipo");
-        if (motivo is null) return;   // null es cancelar; vacío es aceptar sin escribir
-
-        await Enviar("api/personas/equipos/integrantes",
-            new MoverIntegrantesRequest(_marcadosSinEquipo.ToList(), equipoId, motivo));
-    }
-
-    private async Task QuitarDelEquipo()
-    {
-        var motivo = await Avisos.PedirTextoAsync(
-            "Motivo (opcional, queda en el historial). Quedarán sin equipo.", "Quitar del equipo");
+        var motivo = await Avisos.PedirTextoAsync(peticionDelMotivo, titulo);
         if (motivo is null) return;
 
         await Enviar("api/personas/equipos/integrantes",
-            new MoverIntegrantesRequest(_marcadosDelEquipo.ToList(), null, motivo));
+            new MoverIntegrantesRequest([.. personas], equipoId, motivo));
     }
+
+    private Task MoverAlEquipo() =>
+        _equipoDestino is int equipoId
+            ? MoverPersonasAsync([.. _marcadosSinEquipo], equipoId, "Mover al equipo",
+                "Motivo de la rotación (opcional, queda en el historial).")
+            : Task.CompletedTask;
+
+    private Task QuitarDelEquipo() =>
+        MoverPersonasAsync([.. _marcadosDelEquipo], null, "Quitar del equipo",
+            "Motivo (opcional, queda en el historial). Quedarán sin equipo.");
+
+    /// <summary>
+    /// Pasa a los marcados del equipo que se está mirando a OTRO equipo, de una sola vez. Es el
+    /// equivalente con teclado de arrastrarlos en el organigrama, y por eso importa que sea UNA
+    /// llamada: hacerlo en dos pasos —quitar y volver a meter— deja dos rotaciones en el historial y
+    /// a la persona un rato sin equipo, que no es lo que ocurrió.
+    /// </summary>
+    private Task PasarAOtroEquipo() =>
+        _otroEquipo is int destino
+            ? MoverPersonasAsync([.. _marcadosDelEquipo], destino, "Pasar de equipo",
+                "Motivo de la rotación (opcional, queda en el historial).")
+            : Task.CompletedTask;
+
+    /// <summary>
+    /// Se eligió otro equipo en la lista de la derecha. Lo marcado deja de valer —era gente del
+    /// equipo anterior— y el destino también: si se quedara puesto, podría ser el equipo que ahora
+    /// se está mirando, o sea mover a alguien a donde ya está.
+    /// </summary>
+    private void CambiarDeEquipoMirado()
+    {
+        _marcadosDelEquipo.Clear();
+        _otroEquipo = null;
+    }
+
+    /// <summary>Los equipos a los que pueden pasar los marcados: todos menos aquel en el que ya
+    /// están, que es el que la lista de al lado está enseñando.</summary>
+    private IReadOnlyList<EquipoDelOrganigramaDto> OtrosEquipos =>
+        _organigrama is null ? [] : [.. _organigrama.Equipos.Where(e => e.Id != _equipoDestino)];
 
     private Task AsignarRol(int developerId, TeamRole rol) =>
         Enviar("api/personas/equipos/rol", new AsignarRolRequest(developerId, rol));
@@ -700,6 +875,7 @@
         _nombreEquipo      = "";
         _descripcionEquipo = "";
         _colorEquipo       = "";
+        _padreEquipo       = null;
         _capturandoEquipo  = true;
     }
 
@@ -710,8 +886,21 @@
         _nombreEquipo      = equipo.Nombre;
         _descripcionEquipo = equipo.Descripcion ?? "";
         _colorEquipo       = equipo.ColorHex ?? "";
+        _padreEquipo       = equipo.EquipoPadreId;
         _capturandoEquipo  = true;
     }
+
+    /// <summary>
+    /// Los equipos que se pueden elegir como padre. La regla —ni él mismo ni los que cuelgan de él—
+    /// y la sangría por nivel están en <see cref="ArbolDeEquipos"/>, que se prueba aparte; aquí solo
+    /// se le pasa la lista que llegó del servidor.
+    /// </summary>
+    private IReadOnlyList<ArbolDeEquipos.OpcionDePadre> PosiblesPadres =>
+        _organigrama is null ? [] : ArbolDeEquipos.PosiblesPadres(_organigrama.Equipos, _equipoEnEdicion);
+
+    /// <summary>El nombre de un equipo por su identificador, o null si no hay equipo o ya no está.</summary>
+    private string? NombreDeEquipo(int? equipoId) =>
+        equipoId is int id ? _organigrama?.Equipos.FirstOrDefault(e => e.Id == id)?.Nombre : null;
 
     private async Task GuardarEquipo()
     {
@@ -723,15 +912,24 @@
         }
 
         if (await Enviar("api/personas/equipos",
-                new GuardarEquipoRequest(_equipoEnEdicion ?? 0, _nombreEquipo, _descripcionEquipo, _colorEquipo)))
+                new GuardarEquipoRequest(_equipoEnEdicion ?? 0, _nombreEquipo, _descripcionEquipo,
+                                         _colorEquipo, _padreEquipo)))
             _capturandoEquipo = false;
     }
 
     private async Task EliminarEquipo(EquipoDelOrganigramaDto equipo)
     {
+        // Los subequipos SUBEN, no se borran con él: quien borra un equipo intermedio está quitando
+        // un nivel de agrupación, no dando de baja tres equipos con su gente dentro. Se avisa porque
+        // el organigrama va a cambiar de forma en más sitios que la caja que se borra.
+        int subequipos = _organigrama?.Equipos.Count(e => e.EquipoPadreId == equipo.Id) ?? 0;
+        var avisoDeSubequipos = subequipos == 0
+            ? ""
+            : $" Sus {subequipos} subequipo(s) subirán un nivel; no se borran.";
+
         if (!await Avisos.ConfirmarAsync(
                 $"¿Eliminar el equipo «{equipo.Nombre}»? Sus {equipo.Integrantes.Count} integrante(s) " +
-                "quedarán sin equipo; sus fichas no se tocan.",
+                "quedarán sin equipo; sus fichas no se tocan." + avisoDeSubequipos,
                 "Eliminar equipo", "Sí, eliminarlo"))
             return;
 
@@ -789,197 +987,277 @@
 
     // ── El dibujo ────────────────────────────────────────────────────────────
     //
-    // Las medidas son unidades del viewBox, no píxeles: el SVG se estira al ancho que le den y todo
-    // se escala junto. El lienzo es de ancho FIJO y las cajas se envuelven en filas, así que el
-    // diagrama nunca se sale a la derecha — crece hacia abajo, que es la dirección en la que una
-    // página web ya sabe desplazarse.
-
-    /// <summary>Ancho del lienzo. Con 1200 y tres columnas, cada caja se lleva unas 360 unidades, que
-    /// es donde un nombre y su rol caben en un renglón sin partirse.</summary>
-    private const double Lienzo = 1200;
-
-    /// <summary>Margen izquierdo: no es estética, es el sitio por donde baja el espinazo. Sin él, la
-    /// línea vertical pasaría por encima de la primera columna de cajas.</summary>
-    private const double MargenIzq = 60;
-    private const double MargenDer = 20;
-    private const double EspinazoX = 26;
-    private const double Hueco = 18;
-    private const double AltoRaiz = 54;
-    private const double CaidaRaiz = 30;
-    private const double AltoRama = 16;
-    private const double SeparacionFilas = 34;
-    private const double Banda = 6;
-    private const double Pad = 12;
+    // El diagrama es un árbol con sangrías hecho de elementos normales del navegador, no un SVG.
+    // Dónde cae cada caja y qué líneas la unen a su rama lo decide TrazadoDelOrganigrama, que se
+    // prueba aparte; aquí se pinta lo que aquel dijo y se atiende el arrastre.
+    //
+    // El cambio de SVG a marcado normal no es de estilo: en un SVG los elementos no admiten
+    // «draggable», así que un diagrama dibujado ahí solo se puede arrastrar escribiendo el gesto
+    // entero a mano con eventos de puntero — y con eso se pierden el cursor del sistema, la imagen
+    // que arrastra el navegador y el que otras aplicaciones entiendan la soltada.
 
     /// <summary>Identificador de la caja de «sin equipo». Cero porque ningún equipo lo tiene: así el
     /// plegado de esa caja usa el mismo conjunto que el de los demás y no hace falta un segundo.</summary>
     private const int SinEquipoId = 0;
 
-    private enum Trazo { Titulo, Apunte, Persona, Lider, Funcion, Separador }
-
-    private sealed record Renglon(Trazo Tipo, double Y, string Texto);
-
-    private sealed record Colocada(
-        int Id, string Nombre, string Color, int Personas, bool Plegada,
-        double X, double Y, double Ancho, double Alto, IReadOnlyList<Renglon> Renglones);
-
-    private sealed record Rama(double Y, double Hasta, IReadOnlyList<double> Bajadas);
-
-    private sealed record Trazado(
-        IReadOnlyList<Colocada> Cajas, IReadOnlyList<Rama> Ramas, double EspinazoHasta, double Alto);
-
-    /// <summary>Lo que va dentro de una caja antes de saber dónde cae.</summary>
-    private sealed record Caja(
-        int Id, string Nombre, string? Descripcion, string Color,
-        IReadOnlyList<PersonaDelOrganigramaDto> Integrantes, int Sistemas, int Proyectos);
-
     /// <summary>
-    /// Coloca todas las cajas y devuelve, ya resueltas, las líneas del árbol y el alto del lienzo.
+    /// Identificador de la caja de arriba, la de la organización entera. Negativo por lo mismo que el
+    /// cero de «sin equipo»: ningún equipo lo lleva.
     ///
-    /// <para>Se calcula en UN sitio y el marcado solo lo pinta. La alternativa —medir en el código y
-    /// dibujar con otras cuentas en el marcado— es cómo se consigue que un renglón se salga de su
-    /// caja únicamente cuando alguien escribe una descripción larga.</para>
+    /// <para>Está en el árbol como una caja más y no dibujada aparte porque es de donde cuelgan los
+    /// equipos raíz, y porque es <b>donde se suelta un equipo para que deje de colgar de otro</b>: sin
+    /// ella, deshacer un subequipo sería lo único que habría que ir a hacer al editor.</para>
     /// </summary>
-    private Trazado Trazar(OrganigramaDto org)
-    {
-        var cajas = org.Equipos
-            .Select(e => new Caja(e.Id, e.Nombre, e.Descripcion, ColorDeEquipo(e.ColorHex),
-                                  e.Integrantes, e.Sistemas.Count, e.Proyectos.Count))
-            .ToList();
+    private const int RaizId = -1;
 
-        // Quien no tiene equipo entra como una caja MÁS y no como una nota al pie. Un organigrama que
-        // solo dibuja a quien está colocado miente por omisión, y justo esa caja es media pregunta
-        // del que lo abre. Se marca con el gris de bordes porque «Sin equipo» no es un equipo y no
-        // puede llevar color de equipo.
-        if (org.SinEquipo.Count > 0)
-            cajas.Add(new Caja(SinEquipoId, "Sin equipo", "Todavía no están asignados a ninguno.",
-                               "var(--rz-base-400)", org.SinEquipo, 0, 0));
+    /// <summary>Qué se está arrastrando ahora mismo, o nulo si no se arrastra nada.</summary>
+    /// <param name="EquipoActual">Dónde está AHORA lo que se arrastra: el equipo del que sale la
+    /// persona (nulo, ninguno) o el equipo del que cuelga el equipo. No se usa para escribir —de eso
+    /// se encarga el servicio— sino para saber qué soltadas no cambiarían nada.</param>
+    private sealed record Arrastrado(bool EsEquipo, int Id, string Nombre, int? EquipoActual);
 
-        double ancho = (Lienzo - MargenIzq - MargenDer - Hueco * (_columnas - 1)) / _columnas;
+    /// <summary>Lo que se dice mientras se arrastra: un icono y una frase.</summary>
+    private sealed record AvisoDeArrastre(string Icono, string Texto);
 
-        var colocadas = new List<Colocada>(cajas.Count);
-        var ramas = new List<Rama>();
-        double y = AltoRaiz + CaidaRaiz;
-        double ultimaRama = AltoRaiz;
+    private Arrastrado? _arrastrando;
 
-        for (int desde = 0; desde < cajas.Count; desde += _columnas)
-        {
-            var fila = cajas.Skip(desde).Take(_columnas).ToList();
-            var bajadas = new List<double>(fila.Count);
-            double altoDeLaFila = 0;
-
-            for (int col = 0; col < fila.Count; col++)
-            {
-                var caja = fila[col];
-                double x = MargenIzq + col * (ancho + Hueco);
-                bool plegada = _plegados.Contains(caja.Id);
-
-                var (renglones, alto) = Contenido(caja, ancho, plegada);
-                colocadas.Add(new Colocada(
-                    caja.Id, caja.Nombre, caja.Color, caja.Integrantes.Count, plegada,
-                    x, y, ancho, alto, renglones));
-
-                bajadas.Add(x + ancho / 2);
-                altoDeLaFila = Math.Max(altoDeLaFila, alto);
-            }
-
-            ultimaRama = y - AltoRama;
-            ramas.Add(new Rama(ultimaRama, bajadas[^1], bajadas));
-            y += altoDeLaFila + SeparacionFilas;
-        }
-
-        // Sin cajas no hay ramas: el lienzo se queda con el nodo de arriba y nada más.
-        return new Trazado(colocadas, ramas, ultimaRama, Math.Max(y - SeparacionFilas + 10, AltoRaiz + 20));
-    }
+    /// <summary>La caja que tiene el puntero encima durante un arrastre, admita la soltada o no: se
+    /// resalta de una forma o de la otra, y de ahí sale la frase que explica qué va a pasar.</summary>
+    private int? _encima;
 
     /// <summary>
-    /// Los renglones de una caja y su alto, calculados a la vez y con las mismas cuentas.
+    /// Lo pone la caja al recibir el puntero y lo lee el lienzo, que recibe el MISMO evento un
+    /// instante después porque los eventos suben. Es lo que permite distinguir «el puntero entró en
+    /// una caja» de «el puntero entró en el hueco entre dos cajas», que es cuando hay que apagar el
+    /// resalte.
+    /// </summary>
+    private bool _entroEnUnaCaja;
+
+    /// <summary>
+    /// Las cajas del diagrama en orden de dibujo, ya con la de arriba y la de «sin equipo» dentro.
     ///
-    /// <para><b>Ni la descripción vacía ni la función vacía dejan hueco</b>, pero no se resuelven
-    /// igual, y es a propósito. La descripción falta o no falta UNA vez por caja: se imprime «(sin
-    /// descripción)» para que la caja tenga siempre la misma forma y un equipo sin descripción no
-    /// parezca a medio cargar. La función falta tantas veces como personas haya: repetir ahí un
-    /// paréntesis vacío quince veces convertiría el equipo en una lista de excusas, así que
-    /// sencillamente no se dibuja el renglón y el siguiente nombre sube.</para>
+    /// <para>Se arma al cargar y no en cada pintada: durante un arrastre esta pantalla se vuelve a
+    /// pintar cada vez que el puntero cambia de caja, y rehacer la lista en cada una sería trabajo por
+    /// gesto y no por dato.</para>
     /// </summary>
-    private (IReadOnlyList<Renglon> Renglones, double Alto) Contenido(Caja caja, double ancho, bool plegada)
+    private List<CajaPorTrazar> _paraDibujar = [];
+
+    /// <summary>
+    /// Rehace la lista de cajas del diagrama. Los equipos bajan un nivel porque en el dibujo todos
+    /// cuelgan de la caja de arriba, que es la organización; «sin equipo» va al final y también
+    /// colgando de ella, porque quien no tiene equipo sigue estando en la organización.
+    /// </summary>
+    /// <summary>¿Está dibujada la caja de «sin equipo»? Solo lo está cuando hay alguien dentro, así
+    /// que lo que se le diga a quien arrastra tiene que contar con que puede no existir.</summary>
+    private bool HayCajaDeSinEquipo => _organigrama is { SinEquipo.Count: > 0 };
+
+    private void RecordarElDiagrama()
     {
-        double util = ancho - 2 * Pad;
-        var renglones = new List<Renglon>();
-        double y = Banda + 10;
+        _paraDibujar = [new CajaPorTrazar(RaizId, 0)];
+        if (_organigrama is not { } org) return;
 
-        y += 14;
-        renglones.Add(new(Trazo.Titulo, y, Recortar(caja.Nombre, util, 13)));
-
-        y += 14;
-        renglones.Add(new(Trazo.Apunte, y, Contadores(caja, plegada)));
-
-        if (plegada) return (renglones, y + 12);
-
-        foreach (var linea in Partir(
-                     string.IsNullOrWhiteSpace(caja.Descripcion) ? "(sin descripción)" : caja.Descripcion!,
-                     util, 9.5, 3))
-        {
-            y += 12;
-            renglones.Add(new(Trazo.Apunte, y, linea));
-        }
-
-        y += 10;
-        renglones.Add(new(Trazo.Separador, y, ""));
-
-        if (caja.Integrantes.Count == 0)
-        {
-            y += 15;
-            renglones.Add(new(Trazo.Apunte, y, "(sin integrantes)"));
-        }
-
-        foreach (var p in caja.Integrantes)
-        {
-            y += 16;
-            renglones.Add(new(p.EsLider ? Trazo.Lider : Trazo.Persona, y,
-                              Recortar(EtiquetaDePersona(p), util - 8, 11)));
-
-            if (!string.IsNullOrWhiteSpace(p.Funcion))
-            {
-                y += 12;
-                renglones.Add(new(Trazo.Funcion, y, Recortar(p.Funcion!, util - 8, 9)));
-            }
-        }
-
-        if (caja.Sistemas > 0 || caja.Proyectos > 0)
-        {
-            y += 15;
-            renglones.Add(new(Trazo.Apunte, y,
-                $"{caja.Sistemas} sistema(s) · {caja.Proyectos} proyecto(s)"));
-        }
-
-        return (renglones, y + 12);
+        _paraDibujar.AddRange(org.Equipos.Select(e => new CajaPorTrazar(e.Id, e.Nivel + 1)));
+        if (org.SinEquipo.Count > 0) _paraDibujar.Add(new CajaPorTrazar(SinEquipoId, 1));
     }
 
-    private static string Contadores(Caja caja, bool plegada) =>
-        $"{caja.Integrantes.Count} persona(s)" + (plegada ? " · plegado" : "");
+    // ── El arrastre ──────────────────────────────────────────────────────────
+    //
+    // NADA de esto escribe por su cuenta: soltar acaba llamando a MoverPersonasAsync —el mismo método
+    // que los botones de «Organización»— o a ColgarEquipo, que manda la misma petición que el
+    // desplegable «cuelga de» del editor. Lo que hay aquí es el gesto: qué se lleva el puntero, qué
+    // cajas pueden recibirlo y qué se enseña antes de soltar.
 
-    /// <summary>Nombre, nivel y rol en un renglón. El nivel entre paréntesis solo si lo tiene: unos
-    /// paréntesis vacíos detrás de un nombre parecen un error de impresión.</summary>
-    private static string EtiquetaDePersona(PersonaDelOrganigramaDto p) =>
-        string.IsNullOrWhiteSpace(p.Nivel)
-            ? $"{p.Nombre} · {p.RolTexto}"
-            : $"{p.Nombre} ({p.Nivel}) · {p.RolTexto}";
-
-    private void AlternarPliegue(int id)
+    private void ArrastrarEquipo(int cajaId)
     {
-        if (!_plegados.Remove(id)) _plegados.Add(id);
+        if (_ocupado || EquipoDeLaCaja(cajaId) is not { } equipo) return;
+        _arrastrando = new Arrastrado(EsEquipo: true, equipo.Id, equipo.Nombre, equipo.EquipoPadreId);
+    }
+
+    private void ArrastrarPersona(PersonaDelOrganigramaDto persona, int? equipoActual)
+    {
+        if (_ocupado) return;
+        _arrastrando = new Arrastrado(EsEquipo: false, persona.Id, persona.Nombre, equipoActual);
+    }
+
+    /// <summary>Se acabó el gesto, con soltada o sin ella. El navegador lanza dragend siempre.</summary>
+    private void TerminarArrastre()
+    {
+        _arrastrando = null;
+        _encima = null;
+    }
+
+    private void EntrarEnCaja(int cajaId)
+    {
+        _encima = cajaId;
+        _entroEnUnaCaja = true;
     }
 
     /// <summary>
-    /// El teclado hace lo mismo que el ratón. Una caja de un SVG no es un botón, así que sin esto
-    /// plegar y desplegar sería una función solo para quien puede apuntar con un ratón.
+    /// El puntero entró en el lienzo. Si venía de una caja, ella ya se anotó y esto no la borra; si
+    /// entró por un hueco, no hay caja debajo y el resalte se apaga.
     /// </summary>
-    private void TeclaSobreCaja(KeyboardEventArgs e, int id)
+    private void EntrarEnElLienzo()
     {
-        if (e.Key is "Enter" or " ") AlternarPliegue(id);
+        if (!_entroEnUnaCaja) _encima = null;
+        _entroEnUnaCaja = false;
     }
 
+    /// <summary>
+    /// ¿Esta caja puede recibir lo que se está arrastrando? Es la MISMA respuesta que decide tres
+    /// cosas: si el navegador acepta la soltada (sin esto no se puede soltar y el cursor lo dice), cómo
+    /// se pinta la caja mientras se arrastra, y qué se contesta si la soltada llega igualmente.
+    ///
+    /// <para>Lo de siempre: esto no es la barrera. El servidor rechaza el círculo mire lo que mire esta
+    /// pantalla; aquí se trata de que no se pueda ni intentar.</para>
+    /// </summary>
+    private bool AceptaLaSoltada(int cajaId)
+    {
+        if (_ocupado || _organigrama is not { } org || _arrastrando is not { } lo) return false;
+
+        // Un equipo se cuelga de otro equipo o de la caja de arriba —que es dejarlo como raíz—, pero
+        // no de «sin equipo»: aquella no es un equipo, es la gente que no está en ninguno.
+        if (lo.EsEquipo)
+            return cajaId != SinEquipoId
+                && TrazadoDelOrganigrama.SePuedeColgar(org.Equipos, lo.Id, cajaId == RaizId ? null : cajaId);
+
+        // Y a una persona se la suelta en un equipo o en «sin equipo». En la caja de arriba no: la
+        // organización no es un sitio donde se pueda estar.
+        return cajaId != RaizId
+            && TrazadoDelOrganigrama.SePuedeMover(lo.EquipoActual, cajaId == SinEquipoId ? null : cajaId);
+    }
+
+    /// <summary>
+    /// La soltada. Comprueba otra vez lo mismo que ya decidía si la caja la aceptaba —entre el gesto y
+    /// el evento pudo llegar una recarga— y de ahí sale por el camino de siempre: la persona por
+    /// <see cref="MoverPersonasAsync"/> y el equipo por <see cref="ColgarEquipo"/>.
+    /// </summary>
+    private async Task SoltarEn(int cajaId)
+    {
+        bool vale = AceptaLaSoltada(cajaId);
+        var lo = _arrastrando;
+        TerminarArrastre();
+        if (!vale || lo is null) return;
+
+        if (!lo.EsEquipo)
+        {
+            // El motivo se PIDE, no se inventa: es la línea que después explica por qué alguien cambió
+            // de equipo, y un motivo escrito por la pantalla sería una explicación falsa en el
+            // historial. Cancelar el cuadro cancela la soltada, así que hace además de confirmación.
+            int? destino = cajaId == SinEquipoId ? null : cajaId;
+            var donde = destino is null ? "que se quede sin equipo" : $"su paso a «{NombreDeLaCaja(cajaId)}»";
+            await MoverPersonasAsync(
+                [lo.Id], destino,
+                destino is null ? "Quitar del equipo" : "Mover al equipo",
+                $"{lo.Nombre}: motivo de {donde} (opcional, queda en el historial).");
+            return;
+        }
+
+        if (EquipoDeLaCaja(lo.Id) is not { } equipo) return;
+
+        // Al equipo no se le pide motivo —el editor tampoco lo pide y esto es el mismo camino—, pero sí
+        // una confirmación: una soltada sin querer cambiaría la forma del organigrama entero, y aquí no
+        // hay ningún cuadro de por medio que dé ocasión de arrepentirse.
+        int? nuevoPadre = cajaId == RaizId ? null : cajaId;
+        var queLePasa = nuevoPadre is null
+            ? "deje de colgar de ningún equipo y sea un equipo raíz"
+            : $"cuelgue de «{NombreDeLaCaja(cajaId)}»";
+
+        if (await Avisos.ConfirmarAsync($"¿Hacer que «{equipo.Nombre}» {queLePasa}?",
+                                        "Mover el equipo", "Sí, moverlo"))
+            await ColgarEquipo(equipo, nuevoPadre);
+    }
+
+    /// <summary>
+    /// Cuelga un equipo de otro (o lo deja como raíz) por el MISMO sitio que el desplegable «cuelga de»
+    /// del editor: la misma petición a la misma dirección, con sus dos comprobaciones de círculo en el
+    /// servidor y su línea en la bitácora.
+    ///
+    /// <para><b>Se mandan todos los campos del equipo y no solo el padre</b>, y no es de más: esa
+    /// petición guarda lo que trae —está escrito en el propio contrato—, así que mandarla con la
+    /// descripción o el color vacíos los borraría. Los valores salen del organigrama que se está
+    /// mirando, que es lo que hay guardado.</para>
+    /// </summary>
+    private Task ColgarEquipo(EquipoDelOrganigramaDto equipo, int? nuevoPadre) =>
+        Enviar("api/personas/equipos",
+            new GuardarEquipoRequest(equipo.Id, equipo.Nombre, equipo.Descripcion, equipo.ColorHex, nuevoPadre));
+
+    /// <summary>
+    /// Qué se está arrastrando y qué va a pasar al soltarlo. Nulo cuando no se arrastra nada.
+    ///
+    /// <para>La mitad que importa es la del NO: si una caja no admite la soltada hay que decir por qué
+    /// antes de soltar, porque «no pasa nada» es indistinguible de «esto está roto».</para>
+    /// </summary>
+    private AvisoDeArrastre? AvisoDelArrastre()
+    {
+        if (_arrastrando is not { } lo) return null;
+
+        if (_encima is not int cajaId)
+            return new("drag_indicator", lo.EsEquipo
+                ? $"Arrastrando «{lo.Nombre}»: suéltalo sobre el equipo del que deba colgar, o sobre " +
+                  "«Organización» para dejarlo como equipo raíz."
+                // «Sin equipo» solo se nombra cuando esa caja está dibujada, y no lo está mientras
+                // todo el mundo tenga equipo. Mandar a apuntar a una caja que no está en el diagrama
+                // se lee como que falta algo; para dejar a alguien fuera de todos, cuando no hay
+                // dónde soltarlo, está el botón «Quitar del equipo» de la pestaña de al lado.
+                : HayCajaDeSinEquipo
+                    ? $"Arrastrando a {lo.Nombre}: suéltalo sobre un equipo, o sobre «Sin equipo» para " +
+                      "dejarlo fuera de todos."
+                    : $"Arrastrando a {lo.Nombre}: suéltalo sobre el equipo al que pase.");
+
+        var caja = NombreDeLaCaja(cajaId);
+
+        if (AceptaLaSoltada(cajaId))
+            return new("check", lo.EsEquipo
+                ? cajaId == RaizId
+                    ? $"Soltar aquí: «{lo.Nombre}» deja de colgar de ningún equipo."
+                    : $"Soltar aquí: «{lo.Nombre}» pasa a colgar de «{caja}»."
+                : cajaId == SinEquipoId
+                    ? $"Soltar aquí: {lo.Nombre} se queda sin equipo."
+                    : $"Soltar aquí: {lo.Nombre} pasa a «{caja}». Se pedirá el motivo.");
+
+        return new("block", MotivoDelNo(lo, cajaId));
+    }
+
+    /// <summary>Por qué esa caja no admite lo que se está arrastrando, dicho como se le diría a quien
+    /// lo está intentando: qué es lo que no se puede, y no qué comprobación falló.</summary>
+    private string MotivoDelNo(Arrastrado lo, int cajaId)
+    {
+        var caja = NombreDeLaCaja(cajaId);
+
+        if (!lo.EsEquipo)
+            return cajaId == RaizId
+                // Por lo mismo que en el renglón de arriba: «Sin equipo» solo se nombra cuando esa
+                // caja está dibujada, y no lo está mientras todo el mundo tenga equipo. Mandar a
+                // soltar en una caja que no está en el diagrama se lee como que falta algo.
+                ? HayCajaDeSinEquipo
+                    ? $"Aquí no: a {lo.Nombre} hay que soltarla en un equipo, o en «Sin equipo»."
+                    : $"Aquí no: a {lo.Nombre} hay que soltarla en un equipo."
+                : $"Aquí no: {lo.Nombre} ya está en «{caja}».";
+
+        if (cajaId == SinEquipoId) return "Aquí no: «Sin equipo» no es un equipo; ahí no cuelga nada.";
+        if (cajaId == lo.Id) return $"Aquí no: «{lo.Nombre}» no puede colgar de sí mismo.";
+        if (cajaId == RaizId) return $"Aquí no: «{lo.Nombre}» ya es un equipo raíz.";
+        if (cajaId == lo.EquipoActual) return $"Aquí no: «{lo.Nombre}» ya cuelga de «{caja}».";
+
+        return $"Aquí no: «{caja}» está debajo de «{lo.Nombre}», y la jerarquía se cerraría en círculo.";
+    }
+
+    // ── Plegar ───────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Plegar esconde la gente de la caja Y su rama entera, que es lo que hace un árbol. Es también lo
+    /// que hace útil «Plegar todos» cuando hay muchos equipos: deja el mapa de nombres y niveles en una
+    /// pantalla, y desde ahí se despliega solo lo que se busca.
+    /// </summary>
+    private void AlternarPliegue(int cajaId)
+    {
+        if (!_plegados.Remove(cajaId)) _plegados.Add(cajaId);
+    }
+
+    /// <summary>
+    /// Pliega todo menos la caja de arriba: plegarla a ella escondería el diagrama entero, y un botón
+    /// que deja la pantalla en blanco parece que borró algo.
+    /// </summary>
     private void PlegarTodos()
     {
         if (_organigrama is null) return;
@@ -987,13 +1265,89 @@
         if (_organigrama.SinEquipo.Count > 0) _plegados.Add(SinEquipoId);
     }
 
-    // ── Textos y medidas ─────────────────────────────────────────────────────
+    // ── Lo que va en cada caja ───────────────────────────────────────────────
+    //
+    // Tres clases de caja comparten el mismo marco: la de arriba, la de «sin equipo» y las de los
+    // equipos. Estos métodos son los que resuelven en qué se diferencian, para que el marcado no se
+    // llene de condiciones repetidas.
 
-    private static string N(double valor) => valor.ToString("0.##", CultureInfo.InvariantCulture);
+    /// <summary>El equipo de una caja, o nulo si esa caja no es un equipo.</summary>
+    private EquipoDelOrganigramaDto? EquipoDeLaCaja(int cajaId) =>
+        cajaId > 0 ? _organigrama?.Equipos.FirstOrDefault(e => e.Id == cajaId) : null;
+
+    private string NombreDeLaCaja(int cajaId) => cajaId switch
+    {
+        RaizId => "Organización",
+        SinEquipoId => "Sin equipo",
+        _ => EquipoDeLaCaja(cajaId)?.Nombre ?? "Equipo"
+    };
+
+    private IReadOnlyList<PersonaDelOrganigramaDto> GenteDeLaCaja(int cajaId) => cajaId switch
+    {
+        RaizId => [],
+        SinEquipoId => _organigrama?.SinEquipo ?? [],
+        _ => EquipoDeLaCaja(cajaId)?.Integrantes ?? []
+    };
+
+    private string ContadoresDeLaCaja(CajaTrazada caja, int personas)
+    {
+        if (caja.Id == RaizId && _organigrama is { } org) return ResumenDeLaRaiz(org);
+
+        var texto = $"{personas} persona(s)";
+        // Lo que esconde el pliegue se dice con número: una rama que desaparece sin más se lee como
+        // equipos que ya no están, y quien plegó hace tres minutos ya no se acuerda de que fue él.
+        if (caja.Escondidos > 0) texto += $" · esconde {caja.Escondidos} caja(s)";
+        return texto;
+    }
+
+    /// <summary>El color del equipo va en el borde izquierdo, que es donde estaba en las tarjetas de la
+    /// pestaña de al lado. La caja de arriba lleva el acento y la de «sin equipo» el gris de bordes,
+    /// porque ninguna de las dos es un equipo y no puede llevar color de equipo.</summary>
+    private string EstiloDeCaja(CajaTrazada caja)
+    {
+        var color = caja.Id switch
+        {
+            RaizId => "var(--rz-primary)",
+            SinEquipoId => "var(--rz-border-color)",
+            _ => ColorDeEquipo(EquipoDeLaCaja(caja.Id)?.ColorHex)
+        };
+
+        return $"border-left-color:{color}";
+    }
+
+    private string ClasesDeCaja(CajaTrazada caja, bool admite)
+    {
+        var clases = "organigrama-caja";
+        if (_arrastrando is not null) clases += admite ? " organigrama-caja--admite" : " organigrama-caja--veta";
+        if (_encima == caja.Id) clases += " organigrama-caja--encima";
+        return clases;
+    }
+
+    private string ClasesDePersona(PersonaDelOrganigramaDto persona) =>
+        _arrastrando is { EsEquipo: false } lo && lo.Id == persona.Id
+            ? "organigrama-persona organigrama-persona--viaja"
+            : "organigrama-persona";
+
+    private static string ClaseDeGuia(GuiaDelArbol guia) => guia switch
+    {
+        GuiaDelArbol.Linea => "organigrama-guia organigrama-guia--linea",
+        GuiaDelArbol.Codo => "organigrama-guia organigrama-guia--codo",
+        GuiaDelArbol.CodoFinal => "organigrama-guia organigrama-guia--codo organigrama-guia--final",
+        _ => "organigrama-guia"
+    };
+
+    // ── Textos ───────────────────────────────────────────────────────────────
 
     private static string ResumenDeLaRaiz(OrganigramaDto org) =>
         $"{org.Equipos.Count} equipo(s) · {org.TotalPersonas} persona(s)" +
         (org.SinEquipo.Count > 0 ? $" · {org.SinEquipo.Count} sin equipo" : "");
+
+    /// <summary>Nombre, nivel y rol en un renglón. El nivel entre paréntesis solo si lo tiene: unos
+    /// paréntesis vacíos detrás de un nombre parecen un error de impresión.</summary>
+    private static string EtiquetaDePersona(PersonaDelOrganigramaDto p) =>
+        string.IsNullOrWhiteSpace(p.Nivel)
+            ? $"{p.Nombre} · {p.RolTexto}"
+            : $"{p.Nombre} ({p.Nivel}) · {p.RolTexto}";
 
     /// <summary>
     /// Lo que oye quien no ve el dibujo. El diagrama entero no se puede narrar en un atributo, y
@@ -1003,9 +1357,33 @@
     private static string AriaDelDiagrama(OrganigramaDto org) =>
         $"Organigrama: {ResumenDeLaRaiz(org)}. Cada equipo es una caja con su gente.";
 
-    private static string AriaDeLaCaja(Colocada c) =>
-        $"{c.Nombre}, {c.Personas} persona(s). {(c.Plegada ? "Plegado" : "Desplegado")}. " +
-        "Pulsa para plegar o desplegar.";
+    /// <summary>
+    /// Lo que oye quien no ve la caja. De quién cuelga y a qué altura van DENTRO de esta frase y no
+    /// solo dibujados: para quien navega con lector de pantalla, la jerarquía no existe en ningún otro
+    /// sitio del diagrama —las líneas de la izquierda son decoración y así están marcadas— y es la
+    /// mitad de lo que un organigrama cuenta.
+    /// </summary>
+    private string AriaDeLaCaja(CajaTrazada caja)
+    {
+        if (caja.Id == RaizId)
+            return _organigrama is { } org ? $"Organización. {ResumenDeLaRaiz(org)}." : "Organización.";
+
+        var gente = GenteDeLaCaja(caja.Id).Count;
+        if (caja.Id == SinEquipoId) return $"Sin equipo: {gente} persona(s).";
+
+        var equipo = EquipoDeLaCaja(caja.Id);
+        var suPadre = NombreDeEquipo(equipo?.EquipoPadreId);
+
+        // «Esconde N cajas» solo cuando de verdad esconde alguna: plegar un equipo sin subequipos
+        // esconde a su gente y a nadie más, y anunciar «esconde 0 caja(s)» manda a buscar una rama
+        // que no existe. Es la misma regla que sigue el renglón que se ve en la caja.
+        var pliegue = caja.Plegada
+            ? caja.Escondidos > 0 ? $"Plegado, esconde {caja.Escondidos} caja(s)." : "Plegado."
+            : "Desplegado.";
+
+        return $"{NombreDeLaCaja(caja.Id)}, nivel {caja.Nivel}, {gente} persona(s). " +
+               (suPadre is null ? "" : $"Subequipo de {suPadre}. ") + pliegue;
+    }
 
     /// <summary>
     /// El color con el que se pinta un equipo, con la MISMA regla que aplica el generador del PDF:
@@ -1022,51 +1400,6 @@
         !string.IsNullOrWhiteSpace(hex) && hex.Length == 7 && hex[0] == '#' && hex[1..].All(Uri.IsHexDigit)
             ? hex
             : "var(--rz-primary)";
-
-    /// <summary>
-    /// Cuántos caracteres caben, a ojo. No hay forma de medir texto desde C# sin preguntarle al
-    /// navegador, y preguntárselo por cada renglón de cada caja sería un viaje de interoperabilidad
-    /// por nombre. El 0,52 es el ancho medio de la fuente de la aplicación en proporción a su
-    /// tamaño; se queda corto a propósito, porque pasarse corta una letra de más y quedarse corto
-    /// solo deja aire.
-    /// </summary>
-    private static int Caben(double ancho, double tamano) => Math.Max(4, (int)(ancho / (tamano * 0.52)));
-
-    private static string Recortar(string texto, double ancho, double tamano)
-    {
-        int caben = Caben(ancho, tamano);
-        return texto.Length <= caben ? texto : texto[..(caben - 1)].TrimEnd() + "…";
-    }
-
-    /// <summary>
-    /// Parte un texto en renglones por palabras, con un tope. Lo que no cabe se corta y se dice con
-    /// puntos suspensivos: una descripción de tres párrafos no puede empujar hacia abajo a todas las
-    /// cajas de su fila.
-    /// </summary>
-    private static IReadOnlyList<string> Partir(string texto, double ancho, double tamano, int maxLineas)
-    {
-        int caben = Caben(ancho, tamano);
-        var lineas = new List<string>();
-        var actual = "";
-
-        foreach (var palabra in texto.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
-        {
-            // Una palabra más larga que el renglón —una dirección, un nombre de sistema— no se puede
-            // colocar entera: se recorta ella, en vez de desbordar la caja.
-            var trozo = palabra.Length > caben ? palabra[..(caben - 1)] + "…" : palabra;
-
-            if (actual.Length == 0) actual = trozo;
-            else if (actual.Length + 1 + trozo.Length <= caben) actual += " " + trozo;
-            else { lineas.Add(actual); actual = trozo; }
-        }
-        if (actual.Length > 0) lineas.Add(actual);
-
-        if (lineas.Count <= maxLineas) return lineas;
-
-        var recortadas = lineas.Take(maxLineas).ToList();
-        recortadas[^1] = Recortar(recortadas[^1] + " …", ancho, tamano);
-        return recortadas;
-    }
 
     public void Dispose()
     {

@@ -1,5 +1,6 @@
 using AdminWeb.Domain.Documentos;
 using AdminWeb.Domain.Entities;
+using AdminWeb.Domain.Equipos;
 using AdminWeb.Domain.Security;
 using AdminWeb.Infrastructure.Data;
 using AdminWeb.Shared.Dtos;
@@ -332,7 +333,13 @@ public class PersonasQueryService(
     // ── Equipos ──────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Alta o edición de un equipo.
+    /// Alta o edición de un equipo, incluido de qué equipo cuelga.
+    ///
+    /// <para><b>El círculo se impide AQUÍ y no en la pantalla</b>: un equipo no puede ser su propio
+    /// ancestro ni directa ni indirectamente. La pantalla puede no ofrecer los descendientes en su
+    /// desplegable —y no los ofrece—, pero eso es una comodidad; esta dirección se puede llamar a
+    /// mano, y un ciclo no deja un dibujo raro: deja un organigrama que no se puede recorrer, una
+    /// rama que no se puede sumar y una pantalla que no carga.</para>
     /// </summary>
     public async Task<(bool ok, string mensaje)> GuardarEquipoAsync(
         GuardarEquipoRequest peticion, CancellationToken ct = default)
@@ -354,27 +361,99 @@ public class PersonasQueryService(
             : null;
         if (peticion.Id > 0 && equipo == null) return (false, "Ese equipo ya no existe. Actualiza la pantalla.");
 
+        string? nombreDelPadre = null;
+        if (peticion.EquipoPadreId is int padreId)
+        {
+            // El árbol entero, de una consulta, y SOLO cuando hay padre que validar: guardar un
+            // equipo raíz —que es lo que se hace hoy— no paga ninguna lectura de más. Aquí hacen
+            // falta dos respuestas —¿existe ese padre? y ¿colgarlo de él cerraría un círculo?— y las
+            // dos tienen que mirar la MISMA foto. Son unas decenas de filas; ver JerarquiaDeEquipos
+            // para por qué no se hace con SQL recursivo.
+            var arbol = await db.Teams.AsNoTracking()
+                .Select(t => new { t.Id, t.Name, t.EquipoPadreId })
+                .ToListAsync(ct);
+
+            var padre = arbol.FirstOrDefault(t => t.Id == padreId);
+            if (padre == null) return (false, "Ese equipo padre ya no existe. Actualiza la pantalla.");
+            nombreDelPadre = padre.Name;
+
+            // Un equipo NUEVO todavía no tiene nada debajo (su identificador es 0 y no está en el
+            // árbol), así que esta comprobación solo puede saltar editando uno que ya existe.
+            var jerarquia = JerarquiaDeEquipos.De(arbol.Select(t => (t.Id, t.EquipoPadreId)));
+            if (jerarquia.SeriaCiclo(peticion.Id, padreId))
+                return (false, padreId == peticion.Id
+                    ? $"«{nombre}» no puede colgar de sí mismo."
+                    : $"«{nombre}» no puede colgar de «{padre.Name}»: «{padre.Name}» ya está debajo " +
+                      "de él y la jerarquía se cerraría en círculo.");
+        }
+
         bool esNuevo = equipo == null;
+        int? padreAnterior = equipo?.EquipoPadreId;
         if (equipo == null)
         {
             equipo = new Team { CreatedAt = DateTime.UtcNow };
             db.Teams.Add(equipo);
         }
 
-        equipo.Name        = nombre;
-        equipo.Description = Limpiar(peticion.Descripcion);
-        equipo.ColorHex    = Limpiar(peticion.ColorHex);
+        equipo.Name          = nombre;
+        equipo.Description   = Limpiar(peticion.Descripcion);
+        equipo.ColorHex      = Limpiar(peticion.ColorHex);
+        equipo.EquipoPadreId = peticion.EquipoPadreId;
         await db.SaveChangesAsync(ct);
 
-        await audit.RecordAsync(esNuevo ? AuditAction.Create : AuditAction.Update,
-            "Team", equipo.Id.ToString(), equipo.Name, ct);
+        // SEGUNDA VUELTA, con lo que quedó escrito de verdad. La comprobación de arriba mira el árbol
+        // de ANTES de guardar, y dos personas guardando a la vez pasan las dos por ella con cambios
+        // que por separado son válidos y juntos cierran el círculo: «A cuelga de B» y «B cuelga de A»
+        // llegando a la vez. Como cada quien relee DESPUÉS de haber escrito lo suyo, el último en
+        // confirmar ve ya las dos escrituras y deshace la suya; si los dos llegan a verlo, los dos
+        // deshacen y la jerarquía se queda como estaba, que es el peor caso aceptable.
+        //
+        // Un equipo RECIÉN CREADO no necesita esta vuelta: su identificador no existía cuando los
+        // demás leyeron el árbol, así que nadie ha podido colgar nada de él mientras tanto.
+        if (!esNuevo && peticion.EquipoPadreId != null && await CuelgaDeSiMismoAsync(equipo.Id, ct))
+        {
+            equipo.EquipoPadreId = padreAnterior;
+            await db.SaveChangesAsync(ct);
+            return (false, "Otro cambio de la jerarquía entró al mismo tiempo y entre los dos dejaban " +
+                           "equipos colgando en círculo. Este se quedó como estaba: vuelve a intentarlo.");
+        }
 
-        return (true, esNuevo ? $"Equipo «{equipo.Name}» creado." : $"Equipo «{equipo.Name}» actualizado.");
+        await audit.RecordAsync(esNuevo ? AuditAction.Create : AuditAction.Update,
+            "Team", equipo.Id.ToString(),
+            // De quién cuelga va a la bitácora: es la línea que explica por qué el organigrama de
+            // ayer no se parece al de hoy, y sin ella la anotación solo diría que alguien lo editó.
+            nombreDelPadre == null ? equipo.Name : $"{equipo.Name} (subequipo de «{nombreDelPadre}»)", ct);
+
+        var donde = nombreDelPadre == null ? "" : $" Cuelga de «{nombreDelPadre}».";
+        return (true, (esNuevo ? $"Equipo «{equipo.Name}» creado." : $"Equipo «{equipo.Name}» actualizado.") + donde);
+    }
+
+    /// <summary>
+    /// ¿Este equipo acabó colgando de sí mismo? Se pregunta contra lo que hay ESCRITO en la base, no
+    /// contra lo que este servicio creía saber: es la comprobación de después de guardar.
+    /// </summary>
+    private async Task<bool> CuelgaDeSiMismoAsync(int equipoId, CancellationToken ct)
+    {
+        var arbol = await db.Teams.AsNoTracking()
+            .Select(t => new { t.Id, t.EquipoPadreId })
+            .ToListAsync(ct);
+
+        return JerarquiaDeEquipos.De(arbol.Select(t => (t.Id, t.EquipoPadreId))).EsSuPropioAncestro(equipoId);
     }
 
     /// <summary>
     /// Elimina un equipo. Sus integrantes quedan SIN equipo, no se borran: la advertencia del
     /// escritorio decía justo eso y sigue siendo verdad.
+    ///
+    /// <para><b>Y sus subequipos SUBEN</b> a colgar de donde colgaba él —o quedan como raíz, si él lo
+    /// era—, en vez de irse detrás. Borrar un equipo intermedio no es borrar la rama: quien lo borra
+    /// está deshaciendo un nivel de agrupación, no dando de baja a tres equipos con su gente dentro.
+    /// Dejarlos apuntando al que ya no está tampoco es opción: la clave foránea de la base lo
+    /// rechazaría, y donde la base no mira quedarían equipos fuera del organigrama.</para>
+    ///
+    /// <para>Con una sola salvedad, que solo aparece si en la base hay un círculo escrito a mano: el
+    /// subequipo al que ese abuelo le cerraría el círculo se queda como RAÍZ. Ver el porqué donde se
+    /// hace.</para>
     /// </summary>
     public async Task<(bool ok, string mensaje)> EliminarEquipoAsync(int equipoId, CancellationToken ct = default)
     {
@@ -389,6 +468,33 @@ public class PersonasQueryService(
         var integrantes = await db.Developers.Where(d => d.TeamId == equipo.Id).ToListAsync(ct);
         foreach (var d in integrantes) { d.TeamId = null; d.TeamRole = TeamRole.SinRol; d.TeamFunction = null; }
 
+        // Los hijos DIRECTOS y no la rama entera: al colgarlos del abuelo, los nietos siguen colgando
+        // de ellos y se suben solos con su rama puesta.
+        var abuelo = equipo.EquipoPadreId;
+        var subequipos = await db.Teams.Where(t => t.EquipoPadreId == equipo.Id).ToListAsync(ct);
+
+        // El abuelo pasa por la MISMA regla que cualquier otra escritura de esta columna: si colgar de
+        // él cerrara un círculo, el subequipo sube a raíz. Con datos sanos esta comprobación no cambia
+        // nunca nada —el abuelo es un ancestro y un ancestro jamás está debajo de su nieto—, y por eso
+        // el árbol solo se lee cuando hay abuelo y hay subequipos que recolocar.
+        //
+        // Existe por el caso torcido: si en la base hubiera un círculo escrito a mano, el abuelo puede
+        // ser el PROPIO subequipo, y entonces esta línea lo dejaría colgando de sí mismo. Sería un dato
+        // corrupto NUEVO, escrito por una operación normal y sin que nadie se entere —un equipo que se
+        // apunta a sí mismo se dibuja como raíz—, y eso es justo lo que ninguna escritura de aquí
+        // puede permitirse: los ciclos se aguantan al leer, no se propagan al escribir.
+        JerarquiaDeEquipos? jerarquia = null;
+        if (abuelo is not null && subequipos.Count > 0)
+        {
+            var arbol = await db.Teams.AsNoTracking()
+                .Select(t => new { t.Id, t.EquipoPadreId })
+                .ToListAsync(ct);
+            jerarquia = JerarquiaDeEquipos.De(arbol.Select(t => (t.Id, t.EquipoPadreId)));
+        }
+
+        foreach (var s in subequipos)
+            s.EquipoPadreId = jerarquia is not null && !jerarquia.SeriaCiclo(s.Id, abuelo) ? abuelo : null;
+
         // El cargo de líder se suelta antes de borrar: la FK apunta a la ficha y quedaría colgando.
         equipo.LeadDeveloperId = null;
 
@@ -397,28 +503,36 @@ public class PersonasQueryService(
         await db.SaveChangesAsync(ct);
 
         await audit.RecordAsync(AuditAction.Delete, "Team", equipoId.ToString(), nombre, ct);
-        return (true, integrantes.Count == 0
-            ? $"Equipo «{nombre}» eliminado."
-            : $"Equipo «{nombre}» eliminado. {integrantes.Count} integrante(s) quedaron sin equipo.");
+
+        var mensaje = $"Equipo «{nombre}» eliminado.";
+        if (integrantes.Count > 0) mensaje += $" {integrantes.Count} integrante(s) quedaron sin equipo.";
+        // Lo que de verdad pasó y no lo que se pretendía: normalmente coinciden, pero un subequipo al
+        // que el abuelo le habría cerrado un círculo se quedó como raíz aunque hubiera abuelo.
+        if (subequipos.Count > 0)
+            mensaje += subequipos.All(s => s.EquipoPadreId is null)
+                ? $" {subequipos.Count} subequipo(s) quedaron como equipos raíz."
+                : $" {subequipos.Count} subequipo(s) subieron un nivel.";
+        return (true, mensaje);
     }
 
     /// <summary>
     /// Mueve personas de equipo y deja la rotación registrada.
     ///
-    /// Es la traducción del arrastrar y soltar del escritorio, con las mismas tres reglas que aquel
-    /// aplicaba en <c>MoveDeveloper</c> y que no son cosméticas:
+    /// Es la traducción del arrastrar y soltar del escritorio, y las reglas son:
     /// <list type="bullet">
     ///   <item>quien era líder del equipo de origen SUELTA el cargo, porque ya no está ahí;</item>
-    ///   <item>el rol se pone en «sin rol», porque un backend en un equipo no lo es en otro por
-    ///         decreto: lo reasigna quien recibe a la persona;</item>
+    ///   <item><b>el rol viaja con la persona</b> —quien es backend lo sigue siendo—, salvo «Líder»,
+    ///         que se cae a «sin rol»: ese cargo lo da quien recibe, no el gesto de moverla;</item>
+    ///   <item>la función se borra, porque describe una responsabilidad dentro del equipo que se
+    ///         deja y no algo que la persona sepa hacer;</item>
     ///   <item>queda una fila de rotación con los NOMBRES copiados, para que el historial sobreviva a
     ///         que después se borre el equipo.</item>
     /// </list>
     ///
-    /// <para>Y una CUARTA que no estaba porque el dato no existía: <b>la función se borra</b>. «Mantiene
-    /// la pasarela de pagos» describe una responsabilidad dentro del equipo que se deja, no una
-    /// cualidad de la persona; arrastrarla al equipo nuevo pondría en el organigrama una
-    /// responsabilidad que nadie le ha dado y que su nuevo líder no sabría que está publicada.</para>
+    /// <para>Lo del rol cambió: el escritorio lo ponía siempre en «sin rol» y aquí se copió tal cual
+    /// al principio. Con el organigrama arrastrable la gente cambia de equipo muchísimo más a menudo,
+    /// y un rol que hay que volver a poner cada vez acaba sin ponerse. El porqué de cada caso está
+    /// escrito donde ocurre.</para>
     /// </summary>
     public async Task<(bool ok, string mensaje)> MoverIntegrantesAsync(
         MoverIntegrantesRequest peticion, CancellationToken ct = default)
@@ -447,8 +561,25 @@ public class PersonasQueryService(
             var origen = origenId is int id && equipos.TryGetValue(id, out var t) ? t : null;
             if (origen != null && origen.LeadDeveloperId == dev.Id) origen.LeadDeveloperId = null;
 
-            dev.TeamId       = peticion.EquipoId;
-            dev.TeamRole     = TeamRole.SinRol;
+            dev.TeamId = peticion.EquipoId;
+
+            // EL ROL VIAJA CON LA PERSONA, y antes no. Quien es backend lo sigue siendo al cambiar
+            // de equipo: es una cualidad suya, no del sitio donde está. Antes se ponía «sin rol» y
+            // había que reasignarlo a mano; con el arrastre en el organigrama la gente se mueve
+            // muchísimo más a menudo que cuando hacían falta dos listas y un botón, así que ese
+            // trámite pasaba de ocasional a constante — y un rol que hay que volver a poner cada vez
+            // acaba sin ponerse, que es como el organigrama se llena de «Sin rol».
+            //
+            // LÍDER ES LA EXCEPCIÓN, y no es un matiz: «Líder» es uno de los valores de TeamRole,
+            // así que dejarlo viajar metería a la persona en su equipo nuevo como líder. Ahí ya hay
+            // uno, o no lo hay porque nadie lo ha decidido todavía; en los dos casos el cargo lo da
+            // quien recibe, no el gesto de arrastrar. Se cae a «sin rol» igual que antes.
+            if (dev.TeamRole == TeamRole.Lider) dev.TeamRole = TeamRole.SinRol;
+
+            // La FUNCIÓN sí se sigue borrando, y no es incoherente con lo de arriba: «mantiene la
+            // pasarela de pagos» describe una responsabilidad DENTRO del equipo que se deja, no algo
+            // que la persona sepa hacer. Llevársela publicaría en el organigrama nuevo un encargo
+            // que nadie le ha dado y que su nuevo líder no sabría que está ahí.
             dev.TeamFunction = null;
 
             db.TeamRotations.Add(new TeamRotation
@@ -583,6 +714,11 @@ public class PersonasQueryService(
     /// se añade a quien no haya entrado por ningún rol —un segundo «líder» heredado de datos viejos,
     /// por ejemplo—: en una lista faltar es una fila menos, pero en un organigrama es una persona que
     /// oficialmente no está en ninguna parte.</para>
+    ///
+    /// <para><b>Los equipos salen en orden de dibujo</b>: cada padre delante de su rama y los hermanos
+    /// por nombre, con su nivel ya calculado. El orden y la altura son propiedades del ÁRBOL, no del
+    /// equipo, y se resuelven una sola vez aquí para que la pantalla y el PDF no los deduzcan cada uno
+    /// a su manera — que es como el papel acaba contradiciendo a la pantalla que lo imprimió.</para>
     /// </summary>
     public async Task<OrganigramaDto> OrganigramaAsync(CancellationToken ct = default)
     {
@@ -599,7 +735,12 @@ public class PersonasQueryService(
             .Where(p => p.TeamId != null).OrderBy(p => p.Name)
             .Select(p => new { p.TeamId, p.Name, p.Client }).ToListAsync(ct);
 
-        var dibujados = equipos.Select(t =>
+        // El árbol se arma con los equipos ya ordenados por nombre, y ese orden se conserva entre
+        // hermanos: dentro de cada rama, las cajas siguen saliendo alfabéticas como siempre.
+        var jerarquia = JerarquiaDeEquipos.De(equipos);
+        var porId = equipos.ToDictionary(t => t.Id);
+
+        var dibujados = jerarquia.EnOrdenDeDibujo().Select(id => porId[id]).Select(t =>
         {
             var miembros = devs.Where(d => d.TeamId == t.Id).ToList();
             var lider = miembros.FirstOrDefault(m => m.TeamRole == TeamRole.Lider)
@@ -621,6 +762,11 @@ public class PersonasQueryService(
 
             return new EquipoDelOrganigramaDto(
                 t.Id, t.Name, Limpiar(t.Description), Limpiar(t.ColorHex), lider?.FullName,
+                // El padre lo dice el árbol y no la fila: si la columna apuntaba a un equipo que ya
+                // no existe, la jerarquía lo trata como raíz y el DTO tiene que decir lo mismo, o
+                // quien dibuje buscaría una caja que no está en la lista.
+                jerarquia.PadreDe(t.Id),
+                jerarquia.Nivel(t.Id),
                 integrantes,
                 sistemas.Where(s => s.TeamId == t.Id).Select(s => s.Name).ToList(),
                 proyectos.Where(p => p.TeamId == t.Id)
@@ -650,9 +796,15 @@ public class PersonasQueryService(
     {
         var organigrama = await OrganigramaAsync(ct);   // guarda de admin dentro
 
+        // El papel no conoce identificadores, así que el padre viaja por su NOMBRE. Se traduce con la
+        // misma lista que se va a imprimir —no con otra consulta— para que no pueda salir el nombre
+        // de un equipo que en la hoja de al lado no está.
+        var nombrePorId = organigrama.Equipos.ToDictionary(e => e.Id, e => e.Nombre);
+
         return new DatosDeEquipos(
             [.. organigrama.Equipos.Select(e => new EquipoImpreso(
                 e.Nombre, e.Descripcion, e.Lider, e.ColorHex,
+                e.EquipoPadreId is int padre && nombrePorId.TryGetValue(padre, out var suPadre) ? suPadre : null,
                 [.. e.Integrantes.Select(Impreso)],
                 e.Sistemas, e.Proyectos))],
             [.. organigrama.SinEquipo.Select(Impreso)],

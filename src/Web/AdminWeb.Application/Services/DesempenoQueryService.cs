@@ -1,3 +1,4 @@
+using AdminWeb.Domain.Equipos;
 using AdminWeb.Domain.Security;
 using AdminWeb.Infrastructure.Data;
 using AdminWeb.Shared.Dtos.Desempeno;
@@ -62,7 +63,13 @@ public class DesempenoQueryService(AppDbContext db, PerformanceScoringService pu
             Total: t.Total, PuntosIntegrantes: t.MembersSum, PuntosEquipo: t.TeamOwn,
             Miembros: t.MemberCount)).ToList();
 
-        return new DesempenoAdminDto(anio, mes, incluirNivelLead, filasIndividual, filasEquipo);
+        // Los que no compiten se piden aparte y no se deducen de la tabla: en la tabla ya no están,
+        // así que desde aquí no habría forma de distinguir «tiene subequipos» de «no existe».
+        var fuera = (await puntuacion.EquiposQueNoCompitenAsync(ct))
+            .Select(e => new EquipoFueraDelRankingDto(e.TeamId, e.Name, e.PersonasDirectas))
+            .ToList();
+
+        return new DesempenoAdminDto(anio, mes, incluirNivelLead, filasIndividual, filasEquipo, fuera);
     }
 
     /// <summary>
@@ -95,8 +102,25 @@ public class DesempenoQueryService(AppDbContext db, PerformanceScoringService pu
         var filasIndividual = individual.Select((r, i) => new RankingPublicoFilaDto(
             i + 1, Medalla(i), r.FullName, r.Total, EsMio: r.DeveloperId == devId)).ToList();
 
+        // «Mi equipo» en la tabla de equipos es MI RAMA: el mío, el que está encima y los que cuelgan
+        // de él. Quien esté en un subequipo se reconoce también en la fila del padre, que es donde
+        // sale su área entera; los HERMANOS no se marcan, porque son otro equipo. Sin jerarquía
+        // —todos los equipos raíz— esto marca exactamente la misma fila que antes.
+        //
+        // El árbol solo se lee si hay equipo propio: sin él no hay ninguna fila que marcar y la
+        // consulta sería un viaje para nada.
+        JerarquiaDeEquipos? jerarquia = null;
+        if (yo?.TeamId != null)
+        {
+            var arbol = await db.Teams.AsNoTracking()
+                .Select(t => new { t.Id, t.EquipoPadreId })
+                .ToListAsync(ct);
+            jerarquia = JerarquiaDeEquipos.De(arbol.Select(t => (t.Id, t.EquipoPadreId)));
+        }
+
         var filasEquipo = equipos.Select((t, i) => new RankingPublicoFilaDto(
-            i + 1, Medalla(i), t.Name, t.Total, EsMio: yo?.TeamId != null && t.TeamId == yo.TeamId)).ToList();
+            i + 1, Medalla(i), t.Name, t.Total,
+            EsMio: yo?.TeamId is int mio && jerarquia is not null && jerarquia.MismaRaiz(mio, t.TeamId))).ToList();
 
         // Totales del mes. Sin ficha no hay puntos que sumar, y ceros es lo honesto: no hay nada.
         var totales = devId is int dev

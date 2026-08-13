@@ -228,15 +228,19 @@ public sealed class RecorridosDePersonasYAusencias : IFuenteDeRecorridos
                 "todo esto sale el organigrama."),
 
             new Paso("equipos-pestanas", "Dos pestañas",
-                "En «Organización» se cambia todo; el «Organigrama» solo se mira, y es una decisión: " +
-                "con dos formas de mover a alguien, una de las dos acabaría saltándose las reglas de " +
-                "líder, de rol y de rotación. El PDF de la barra de arriba dibuja ese mismo diagrama " +
-                "con los mismos datos."),
+                "«Organización» son listas con botones; el «Organigrama» es lo mismo dibujado como " +
+                "árbol, y también se edita: se arrastra a una persona hasta otra caja, o la cabecera " +
+                "de un equipo sobre otro para colgarlo de él. No son dos formas de guardar sino dos " +
+                "maneras de llegar a la misma: soltar a alguien pide el motivo y registra la rotación " +
+                "igual que el botón. Todo se puede hacer también sin ratón desde «Organización»."),
 
             new Paso("equipos-nuevo", "Crear un equipo",
                 "El color se escribe como «#RRGGBB» y no es solo de pantalla: es el que sale en el " +
                 "organigrama y en el PDF. Si se deja vacío o mal escrito, el equipo se dibuja con el " +
-                "color de la aplicación en los dos sitios."),
+                "color de la aplicación en los dos sitios. En «Cuelga de» se elige de qué equipo es " +
+                "subequipo este; vacío es un equipo raíz. Eso agrupa el organigrama y suma la rama " +
+                "aparte en el ranking, y no cambia lo que nadie puede hacer: eso lo decide el rol de " +
+                "su cuenta, no el equipo."),
 
             new Paso("equipos-sin-equipo", "Quién no tiene equipo",
                 "Esta lista con su contador es la pregunta que el tablero contesta de un vistazo. " +

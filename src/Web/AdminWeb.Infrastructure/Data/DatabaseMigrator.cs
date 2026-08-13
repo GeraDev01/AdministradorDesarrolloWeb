@@ -512,6 +512,23 @@ public static class DatabaseMigrator
         // Nullable y sin DEFAULT a propósito: la función es opcional y «no escrita todavía» tiene que
         // poder distinguirse de «escrita y vacía», que es lo que un DEFAULT '' borraría.
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Developers"" ADD COLUMN ""TeamFunction"" TEXT"); } catch { }
+
+        // De qué equipo cuelga cada equipo: la columna que convierte la lista de equipos en un árbol
+        // y permite los subequipos.
+        //
+        // VERSIÓN DE SQLITE: comillas dobles, ADD COLUMN … INTEGER y el REFERENCES en la misma
+        // sentencia, que es la única forma de ponerle clave foránea a una columna añadida (SQLite no
+        // sabe agregar una restricción después). La gemela de T-SQL está en PatchSqlServer, con su
+        // IF COL_LENGTH y su ALTER TABLE … ADD CONSTRAINT aparte: están traducidas, no copiadas.
+        //
+        // NO HAY NADA QUE RELLENAR, y conviene dejarlo escrito para que nadie tenga que
+        // preguntárselo: cuando una columna nueva cae en NULL sobre una propiedad que el modelo
+        // declara NO anulable, EF no puede materializar la fila y revienta CUALQUIER consulta de esa
+        // tabla —le pasó al sello de sesión de Users y dejó fuera a todo el mundo—. Aquí la
+        // propiedad es «int?»: el NULL es el valor legítimo de «equipo raíz», que es justo lo que
+        // son todos los equipos que ya existían. Rellenarlos con algo sería inventarles un padre.
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""Teams"" ADD COLUMN ""EquipoPadreId"" INTEGER REFERENCES ""Teams""(""Id"")"); } catch { }
+
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""AppSystems"" ADD COLUMN ""TeamId"" INTEGER"); } catch { }
 
         db.Database.ExecuteSqlRaw(@"
@@ -1965,6 +1982,40 @@ CREATE TABLE [SlaCommitments] (
         // EnsureCreated desde el modelo— y de otro en las que ya existían. NULL y sin DEFAULT porque
         // «todavía nadie la ha escrito» es un dato distinto de «escrita y vacía».
         Exec("IF COL_LENGTH('Developers','TeamFunction') IS NULL ALTER TABLE [Developers] ADD [TeamFunction] nvarchar(200) NULL;");
+
+        // De qué equipo cuelga cada equipo: la columna que convierte la lista de equipos en un árbol
+        // y permite los subequipos.
+        //
+        // ESTA ES LA VERSIÓN DE T-SQL. La gemela de SQLite dice
+        // ADD COLUMN "EquipoPadreId" INTEGER REFERENCES "Teams"("Id") y vive al lado de
+        // "TeamFunction" en la otra rama, con la restricción metida en la misma sentencia porque allí
+        // no se puede añadir después. Aquí van en dos: es la MISMA columna traducida, no la misma
+        // sentencia. Pegar aquella aquí abortaría esta y todas las que vienen detrás mientras el
+        // arranque anuncia «Esquema al día», que es exactamente cómo se perdieron 114 parches.
+        //
+        // NULL Y NADA QUE RELLENAR, escrito aquí para que nadie lo dude al leerlo: una columna nueva
+        // que se queda en NULL sobre una propiedad NO anulable del modelo hace que EF no pueda
+        // materializar la fila y tumba cualquier consulta de la tabla —así se dejó fuera a todo el
+        // mundo con el sello de sesión—. La propiedad es «int?» y NULL significa «equipo raíz», que
+        // es lo que son todos los equipos que ya existen. Darles un padre sería inventárselo.
+        Exec("IF COL_LENGTH('Teams','EquipoPadreId') IS NULL ALTER TABLE [Teams] ADD [EquipoPadreId] int NULL;");
+
+        // La clave foránea se comprueba por COLUMNA y no por nombre, igual que los índices: en una
+        // base recién creada la tabla la hace EnsureCreated desde el modelo y EF ya deja ahí su
+        // propia restricción con su nombre (FK_Teams_Teams_EquipoPadreId). Preguntando por
+        // «FK_Team_Padre» se crearía una SEGUNDA clave foránea sobre la misma columna.
+        //
+        // Sin ON DELETE: SQL Server rechaza cascada o SET NULL en una clave que apunta a su propia
+        // tabla. Los subequipos de un equipo que se borra los recoloca el servicio.
+        Exec(@"
+IF COL_LENGTH('Teams','EquipoPadreId') IS NOT NULL
+   AND NOT EXISTS (
+        SELECT 1 FROM sys.foreign_keys fk
+        JOIN sys.foreign_key_columns fkc ON fkc.constraint_object_id = fk.object_id
+        JOIN sys.columns c ON c.object_id = fkc.parent_object_id AND c.column_id = fkc.parent_column_id
+        WHERE fk.parent_object_id = OBJECT_ID(N'[Teams]') AND c.name = 'EquipoPadreId')
+ALTER TABLE [Teams] ADD CONSTRAINT [FK_Team_Padre]
+    FOREIGN KEY ([EquipoPadreId]) REFERENCES [Teams]([Id]);");
 
         // Ajuste manual del saldo de vacaciones. Mismas cuatro columnas y mismos criterios que en la
         // rama SQLite: el saldo se calcula y no se guarda, así que esto es lo único que un humano

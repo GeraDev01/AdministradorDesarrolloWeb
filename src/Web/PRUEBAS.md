@@ -134,6 +134,48 @@ son todas de la forma «recorre los recorridos y no encuentres problemas», y so
 pasan todas. Si el descubrimiento por reflexión dejara de encontrar los guiones, la suite se pondría
 verde anunciando que están perfectos justo el día en que no queda ninguno.
 
+### Lo poco que decide el navegador
+
+Por la misma razón —ver `AdminWeb.Client`— vive aquí
+[EditorDeEquiposTests.cs](tests/AdminWeb.Api.Tests/EditorDeEquiposTests.cs): comprueba que el
+desplegable «cuelga de» del formulario de equipos **no ofrezca ni el propio equipo ni su rama**, que
+es lo que el servidor va a rechazar de todas formas.
+
+Es el patrón a seguir cuando en el cliente aparezca una regla de verdad: **sacarla del `@code` de la
+pantalla a una clase suelta** y probarla desde aquí. Un filtro escrito dentro del marcado solo se
+comprueba abriendo la pantalla y mirándola, y «ni él ni sus nietos» no se ve mirando.
+
+Con el mismo patrón está
+[OrganigramaEnPantallaTests.cs](tests/AdminWeb.Api.Tests/OrganigramaEnPantallaTests.cs), que cubre
+las dos mitades del organigrama que se pueden aislar del navegador:
+
+- **el trazado del árbol** —qué sangría le toca a cada caja y qué líneas la unen a su rama—, con el
+  árbol de varios niveles, el hondo y estrecho, el ancho y plano, el efecto de plegar una rama (que
+  esconde el subárbol **entero** y recalcula las líneas con lo que queda a la vista) y un nivel
+  imposible, de los que solo puede producir un círculo escrito a mano contra la base;
+- **la soltada**: qué cajas pueden recibir lo que se arrastra. Ni sobre sí mismo, ni sobre su propia
+  rama por larga que sea, ni donde ya está.
+
+Lo que **no** alcanza, y conviene no confundirlo con lo que sí: el gesto —que el navegador acepte la
+soltada y que la caja se resalte— vive dentro del componente y solo se ve abriendo la pantalla.
+
+Sí alcanza, en cambio, la condición con la que el organigrama se abrió a la edición, y por eso está
+escrita como prueba en
+[CaminosDeEscrituraDeEquiposTests.cs](tests/AdminWeb.Api.Tests/CaminosDeEscrituraDeEquiposTests.cs).
+Esas cuatro leen el marcado de la pantalla y **cuentan los sitios que escriben**:
+
+- cambiar a alguien de equipo se manda desde **un solo sitio**, y la soltada llega hasta él en vez de
+  armar su propia petición;
+- colgar un equipo lleva el nombre, la descripción y el color dentro, porque esa petición guarda lo
+  que trae y a medias los borraría;
+- y **pasar de un equipo a otro tiene botón**, no solo arrastre.
+
+Es una prueba de cómo está escrito el archivo, que no es lo habitual, y el motivo es que el fallo que
+vigila no se ve al revisar un cambio: un atajo que arme su propia petición «porque desde ahí es más
+directo» compila, funciona el día que se escribe y se lee igual de bien que el que llama al método
+común. Lo que hace es dejar el historial de rotaciones mintiendo el día que una regla cambie en un
+sitio y no en el otro.
+
 ---
 
 ## Por qué las pruebas corren en SQLite
@@ -171,6 +213,7 @@ comprueba que la columna volvió **y que no devolvió ninguna sentencia fallida*
 - [MigracionDelSegundoFactorTests.cs](tests/AdminWeb.Application.Tests/MigracionDelSegundoFactorTests.cs) — tres columnas y dos tablas
 - [ConocimientoMigracionTests.cs](tests/AdminWeb.Application.Tests/ConocimientoMigracionTests.cs), [MigracionDePlazosAHorasTests.cs](tests/AdminWeb.Application.Tests/MigracionDePlazosAHorasTests.cs)
 - [PermisosPorHorasMigracionTests.cs](tests/AdminWeb.Application.Tests/PermisosPorHorasMigracionTests.cs) — dos columnas anulables, con la comprobación de que los permisos de antes se siguen leyendo por el modelo
+- [SubequiposMigracionTests.cs](tests/AdminWeb.Application.Tests/SubequiposMigracionTests.cs) — una columna **con clave foránea**. Ahí `DROP COLUMN` no sirve —SQLite se niega a soltar una columna que está en una FK—, así que la tabla se rehace entera sin ella, que además se parece más a lo que hay de verdad: una tabla creada cuando la columna no se había inventado
 
 La receta completa para añadir una columna está en
 [MODELO-DE-DATOS.md](MODELO-DE-DATOS.md#cómo-se-cambia-el-esquema).
@@ -303,4 +346,5 @@ lo que permite que el llavero mal configurado se niegue a arrancar sin dejar a n
 | Algo de **concurrencia** o `RowVersion` | `humo-docker.ps1` | — |
 | Una **pantalla** (mover o quitar controles) | `dotnet test` de `Api.Tests` | Las marcas `data-recorrido` que el guion espera |
 | Un **texto que escribe el servidor** | — | Que no lleve emoji ni símbolos: `EtiquetasDelServidorSinEmojiTests` |
+| El **maquetado de un PDF** | — | Que el documento se **genere**: las excepciones de maquetado de QuestPDF solo aparecen al generar. Y si el cambio decide cómo se reparten las hojas, cuántas salen — `GeneradorDeDocumentosTests.CuantasHojas` las cuenta sobre los bytes |
 | El **cifrado compartido** con el escritorio | — | Nada: `ProtectorPortableTests` ya lo vigila, y ponerse en rojo es la señal |

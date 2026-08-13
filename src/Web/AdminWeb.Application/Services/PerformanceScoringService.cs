@@ -1,4 +1,5 @@
 using AdminWeb.Domain.Entities;
+using AdminWeb.Domain.Equipos;
 using AdminWeb.Domain.Security;
 using AdminWeb.Infrastructure.Data;
 using AdminWeb.Shared.Enums;
@@ -79,6 +80,23 @@ public class PerformanceScoringService(AppDbContext db, ICurrentUser currentUser
     /// la competencia es entre equipos y cada quien es parte del suyo. Restar los puntos del Lead
     /// castigaría justo a los equipos cuyo Lead más trabaja, y crearía el incentivo de no
     /// registrarle actividad.
+    ///
+    /// <para><b>UN EQUIPO CON SUBEQUIPOS NO COMPITE: no sale en la tabla.</b> Es la regla del dueño
+    /// —«el ranking de equipos es de subequipos, el padre no juega»— y resuelve de raíz el problema
+    /// que tenían las dos alternativas. Si el padre compitiera sumando su rama, ganaría siempre a
+    /// sus propios hijos porque lleva los puntos de ellos dentro; y si compitiera solo con lo suyo,
+    /// un padre que es un paraguas sin gente directa saldría eternamente a cero, que se lee como que
+    /// va perdiendo cuando lo que pasa es que no juega.</para>
+    ///
+    /// <para><b>Consecuencia que hay que conocer:</b> los puntos de quien esté asignado
+    /// DIRECTAMENTE a un equipo padre no cuentan para ningún equipo. En el ranking individual
+    /// cuentan igual que siempre; lo que desaparece es su aportación a la competición entre equipos.
+    /// No se reparten entre los hijos —serían puntos que esos equipos no ganaron— ni se le apuntan
+    /// al padre, que no está. La pantalla lo DICE en vez de dejar que alguien note a fin de mes que
+    /// su equipo ya no sale; ver Desempeño.</para>
+    ///
+    /// <para>Con esto <c>TotalConSubequipos</c> se quedó sin sentido y se fue: existía para enseñarle
+    /// la suma de la rama a un padre que ya no aparece.</para>
     /// </summary>
     public async Task<List<TeamScore>> TeamRankingAsync(int year, int month, CancellationToken ct = default)
     {
@@ -90,15 +108,45 @@ public class PerformanceScoringService(AppDbContext db, ICurrentUser currentUser
         var teamPts = await db.TeamPointEntries.Where(p => p.Year == year && p.Month == month)
             .Select(p => new { p.TeamId, p.Points }).ToListAsync(ct);
 
-        return teams.Select(t =>
-        {
-            var memberIds = devs.Where(d => d.TeamId == t.Id).Select(d => d.Id).ToHashSet();
-            int membersSum = indiv.Where(e => memberIds.Contains(e.DeveloperId)).Sum(e => e.Points);
-            int teamOwn = teamPts.Where(e => e.TeamId == t.Id).Sum(e => e.Points);
-            return new TeamScore(t.Id, t.Name, membersSum, teamOwn, membersSum + teamOwn, memberIds.Count);
-        })
-        .OrderByDescending(r => r.Total).ThenBy(r => r.Name)
-        .ToList();
+        // Se filtra ANTES de puntuar y no después: recorrer los puntos de un equipo que no va a salir
+        // es trabajo tirado, y sobre todo deja un total calculado rondando por ahí que alguien
+        // acabaría enseñando en algún sitio.
+        var jerarquia = JerarquiaDeEquipos.De(teams);
+
+        return teams
+            .Where(t => !jerarquia.TieneSubequipos(t.Id))
+            .Select(t =>
+            {
+                var memberIds = devs.Where(d => d.TeamId == t.Id).Select(d => d.Id).ToHashSet();
+                int membersSum = indiv.Where(e => memberIds.Contains(e.DeveloperId)).Sum(e => e.Points);
+                int teamOwn = teamPts.Where(e => e.TeamId == t.Id).Sum(e => e.Points);
+                return new TeamScore(t.Id, t.Name, membersSum, teamOwn, membersSum + teamOwn, memberIds.Count);
+            })
+            .OrderByDescending(r => r.Total).ThenBy(r => r.Name)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Los equipos que NO compiten por tener subequipos colgando, con cuánta gente tienen asignada
+    /// directamente. Es lo que la pantalla necesita para explicar la ausencia en vez de dejar un
+    /// hueco: un equipo que desaparece de una tabla sin decir por qué se lee como un fallo.
+    ///
+    /// <para>La cuenta de gente directa importa porque es la que avisa del caso que duele: un padre
+    /// con integrantes propios tiene puntos que no cuentan para ningún equipo. Con cero, no hay nada
+    /// que echar en falta.</para>
+    /// </summary>
+    public async Task<List<(int TeamId, string Name, int PersonasDirectas)>> EquiposQueNoCompitenAsync(
+        CancellationToken ct = default)
+    {
+        var teams = await db.Teams.OrderBy(t => t.Name).AsNoTracking().ToListAsync(ct);
+        var jerarquia = JerarquiaDeEquipos.De(teams);
+        var devs = await db.Developers.Where(d => d.IsActive)
+            .Select(d => new { d.TeamId }).ToListAsync(ct);
+
+        return teams
+            .Where(t => jerarquia.TieneSubequipos(t.Id))
+            .Select(t => (t.Id, t.Name, devs.Count(d => d.TeamId == t.Id)))
+            .ToList();
     }
 
     /// <summary>Suma de puntos individuales APROBADOS de los integrantes de un equipo (para el detalle de equipo).</summary>
@@ -379,7 +427,11 @@ public class PerformanceScoringService(AppDbContext db, ICurrentUser currentUser
 
 // EsNivelLead va al FINAL y con default: el record es posicional y hay construcciones que no lo pasan.
 public sealed record DevScore(int DeveloperId, string FullName, int Total, int Positive, int Negative, int Count, List<PointEntry> Entries, bool EsNivelLead = false);
-public sealed record TeamScore(int TeamId, string Name, int MembersSum, int TeamOwn, int Total, int MemberCount);
+// Aquí solo llegan equipos que COMPITEN. Los que tienen subequipos no entran en el ranking, así que
+// no hay ningún campo para «lo que suma mi rama»: ese número existía para enseñárselo a un padre que
+// ya no aparece en la tabla. Ver TeamRankingAsync.
+public sealed record TeamScore(
+    int TeamId, string Name, int MembersSum, int TeamOwn, int Total, int MemberCount);
 // Los minutos van al FINAL y con default: el record es posicional y hay construcciones previas
 // (y pruebas) que solo pasan los cuatro campos de puntos.
 public sealed record DevMonthly(int Approved, int Pending, int Rejected, int RejectedCount,

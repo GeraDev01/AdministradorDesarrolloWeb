@@ -110,8 +110,18 @@ public record DatosDeFicha(
 public record IntegranteImpreso(
     string Nombre, string? Nivel, string Rol, string? Funcion, bool EsLider);
 
+/// <param name="EquipoPadre">El NOMBRE del equipo del que cuelga, o nulo si es un equipo raíz. El
+/// nombre y no el identificador porque este contrato no conoce identificadores —el generador maqueta,
+/// no decide— y porque lo que se imprime en la caja es un nombre; dos equipos no pueden llamarse
+/// igual, así que también sirve para saber de quién cuelga.
+///
+/// <para><b>Con esto el documento arma el árbol</b>, y no solo imprime un renglón: de ahí sale qué
+/// rama se lleva su propia hoja y cuánta sangría le toca a cada caja. Un nombre que no esté en la
+/// lista se trata como si no hubiera padre —el equipo sale como raíz—, porque en un organigrama faltar
+/// no es una caja menos: es un equipo que oficialmente no está en ninguna parte.</para></param>
 public record EquipoImpreso(
     string Nombre, string? Descripcion, string? Lider, string? ColorHex,
+    string? EquipoPadre,
     IReadOnlyList<IntegranteImpreso> Integrantes,
     IReadOnlyList<string> Sistemas, IReadOnlyList<string> Proyectos);
 
@@ -121,6 +131,9 @@ public record EquipoImpreso(
 /// <param name="TotalPersonas">Cuántas personas activas hay en total, con equipo y sin él. Va en el
 /// nodo de arriba del diagrama; se cuenta en el servidor para que el papel no pueda contradecir a la
 /// pantalla por sumar cada uno por su cuenta.</param>
+/// <param name="Equipos">Ya vienen EN ORDEN DE DIBUJO —cada padre delante de su rama— y planos, igual
+/// que los recibe la pantalla. El papel no los reordena: es el servidor quien decide el orden para que
+/// los dos dibujantes lean lo mismo.</param>
 public record DatosDeEquipos(
     IReadOnlyList<EquipoImpreso> Equipos,
     IReadOnlyList<IntegranteImpreso> SinEquipo,

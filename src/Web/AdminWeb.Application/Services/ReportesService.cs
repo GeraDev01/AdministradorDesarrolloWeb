@@ -1,5 +1,6 @@
 using System.Text;
 using AdminWeb.Domain.Entities;
+using AdminWeb.Domain.Equipos;
 using AdminWeb.Domain.Security;
 using AdminWeb.Infrastructure.Data;
 using AdminWeb.Infrastructure.Integraciones;
@@ -349,6 +350,8 @@ public class ReportesService(
                 int atrasados = mios.Count(r => r.CommittedDeliveryDate < hoy);
                 decimal horas = mios.Sum(r => r.EstimateHours ?? 0);
                 int edad = mios.Count == 0 ? 0 : (int)mios.Average(r => (hoy - r.CreatedAt.Date).TotalDays);
+                // El equipo EXACTO de la persona, no su rama: la columna contesta «¿dónde está
+                // esta persona?», y poner ahí el equipo de arriba la colocaría donde no trabaja.
                 string equipo = d.TeamId != null && equipos.TryGetValue(d.TeamId.Value, out var nombre) ? nombre : "—";
                 return new object?[] { d.FullName, equipo, mios.Count, atrasados, horas, edad };
             })
@@ -678,6 +681,23 @@ public class ReportesService(
         return new(["Fecha", "Desarrollador", "De", "A", "Nota"], filas);
     }
 
+    /// <summary>
+    /// Una fila por equipo, con lo SUYO y nada más: sus integrantes, los requerimientos que llevan y
+    /// los puntos asignados al equipo en el período.
+    ///
+    /// <para><b>Con subequipos, las cifras siguen siendo EXACTAS y no de la rama.</b> Es un reporte
+    /// que se exporta y que lleva sus propias cifras grandes —total, promedio, máximo de la columna
+    /// de requerimientos—, y si un equipo padre sumara lo de sus hijos esas cifras contarían dos
+    /// veces a la misma gente: el total de la hoja dejaría de ser el de la empresa. Una fila por
+    /// equipo, sumables entre ellas, es lo único que permite leer la hoja sin instrucciones.</para>
+    ///
+    /// <para>Lo que sí cambia es que la fila DICE de quién cuelga, y que las filas salen en orden de
+    /// dibujo —cada padre delante de su rama—: sin eso, quien lea «Desarrollo web: 1 integrante»
+    /// junto a un «Front: 6» suelto no tiene forma de saber que el segundo está dentro del primero, y
+    /// la cifra exacta se lee como un error. La columna va la ÚLTIMA a propósito: las cuatro de
+    /// siempre conservan su sitio, y con ellas lo conservan la gráfica y las cifras grandes, que
+    /// apuntan a las columnas por su índice.</para>
+    /// </summary>
     private async Task<TablaDeReporte> ResumenPorEquipoAsync(ParametrosDeReporte p, CancellationToken ct)
     {
         var hasta = p.Hasta.AddDays(1);
@@ -687,24 +707,35 @@ public class ReportesService(
         var puntos = await db.TeamPointEntries.AsNoTracking()
             .Where(e => e.Date >= p.Desde && e.Date < hasta).ToListAsync(ct);
 
+        // El árbol se arma con los equipos ya ordenados por nombre, así que dentro de cada rama las
+        // filas siguen saliendo alfabéticas, y sin jerarquía esto es exactamente el orden de antes.
+        var jerarquia = JerarquiaDeEquipos.De(equipos);
+        var porId = equipos.ToDictionary(t => t.Id);
+        var enOrden = jerarquia.EnOrdenDeDibujo().Select(id => porId[id]).ToList();
+
         // Filtrar por personas se traduce a filtrar por SUS equipos: el reporte es por equipo, y
         // enseñar un equipo del que solo se pidió a una persona sería enseñar cifras de los demás.
+        // Los equipos de encima NO se añaden por colgar de ellos: son otros equipos con otra gente, y
+        // meterlos sería colar en la hoja justo las cifras que el filtro quería dejar fuera.
         var soloEstos = p.Devs.Count == 0
             ? null
             : devs.Where(d => p.Devs.Contains(d.Id) && d.TeamId != null).Select(d => d.TeamId!.Value).ToHashSet();
 
-        var filas = equipos
+        var filas = enOrden
             .Where(t => soloEstos == null || soloEstos.Contains(t.Id))
             .Select(t =>
             {
                 var integrantes = devs.Where(d => d.TeamId == t.Id).Select(d => d.Id).ToHashSet();
                 int activos = reqs.Count(r => !Cerrado(r) && r.Assignments.Any(a => integrantes.Contains(a.DeveloperId)));
                 int propios = puntos.Where(e => e.TeamId == t.Id).Sum(e => e.Points);
-                return new object?[] { t.Name, integrantes.Count, activos, propios };
+                // El padre por su NOMBRE y el que dice el árbol, no el de la columna: uno que apunte
+                // a un equipo que ya no está se lee como raíz, igual que en el organigrama.
+                var padre = jerarquia.PadreDe(t.Id) is int padreId ? porId[padreId].Name : "—";
+                return new object?[] { t.Name, integrantes.Count, activos, propios, padre };
             })
             .ToList();
 
-        return new(["Equipo", "Integrantes", "Reqs activos", "Pts propios (período)"], filas);
+        return new(["Equipo", "Integrantes", "Reqs activos", "Pts propios (período)", "Cuelga de"], filas);
     }
 
     // ── Resumen: barras y cifras grandes ─────────────────────────────────────────────────────

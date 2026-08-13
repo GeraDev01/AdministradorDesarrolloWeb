@@ -252,6 +252,12 @@ public class DataCleanupService(AppDbContext db, ICurrentUser currentUser, Audit
                 await c.Db.Projects.Where(p => p.TeamId != null)
                     .ExecuteUpdateAsync(s => s.SetProperty(p => p.TeamId, (int?)null), c.Ct);
 
+                // Los equipos se apuntan entre ellos (subequipos), así que primero se sueltan esas
+                // referencias: un borrado masivo con la clave foránea puesta lo rechaza la base, y en
+                // SQLite el orden en que se van las filas ni siquiera es el mismo cada vez.
+                await c.Db.Teams.Where(t => t.EquipoPadreId != null)
+                    .ExecuteUpdateAsync(s => s.SetProperty(t => t.EquipoPadreId, (int?)null), c.Ct);
+
                 int n = await c.Db.TeamPointEntries.ExecuteDeleteAsync(c.Ct);
                 n += await c.Db.TeamRotations.ExecuteDeleteAsync(c.Ct);
                 n += await c.Db.Teams.ExecuteDeleteAsync(c.Ct);

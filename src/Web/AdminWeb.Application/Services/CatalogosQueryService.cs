@@ -1,3 +1,4 @@
+using AdminWeb.Domain.Equipos;
 using AdminWeb.Domain.Security;
 using AdminWeb.Infrastructure.Data;
 using AdminWeb.Shared.Dtos.Catalogos;
@@ -93,8 +94,15 @@ public class CatalogosQueryService(AppDbContext db, ICurrentUser currentUser)
 
         var equipos = await db.Teams.AsNoTracking()
             .OrderBy(t => t.Name)
-            .Select(t => new { t.Id, t.Name, t.Description, t.ColorHex, t.LeadDeveloperId })
+            .Select(t => new { t.Id, t.Name, t.Description, t.ColorHex, t.LeadDeveloperId, t.EquipoPadreId })
             .ToListAsync(ct);
+
+        // Los equipos van en ORDEN DE DIBUJO —cada padre delante de su rama, los hermanos por
+        // nombre— igual que en el organigrama de personas. Las dos respuestas describen la misma
+        // organización y tienen que ordenarla igual, o quien lea una y otra vería dos estructuras.
+        var jerarquia = JerarquiaDeEquipos.De(equipos.Select(t => (t.Id, t.EquipoPadreId)));
+        var porId = equipos.ToDictionary(t => t.Id);
+        var enOrden = jerarquia.EnOrdenDeDibujo().Select(id => porId[id]).ToList();
 
         var devs = await db.Developers.AsNoTracking()
             .Where(d => d.IsActive)
@@ -103,6 +111,11 @@ public class CatalogosQueryService(AppDbContext db, ICurrentUser currentUser)
             .ToListAsync(ct);
 
         // Los contadores 🖥/📁 del encabezado de cada columna, agregados en la base.
+        //
+        // Cuentan lo del equipo EXACTO y no lo de su rama, también ahora que hay subequipos: un
+        // sistema lo mantiene el equipo al que se le asignó, y sumarle los de sus subequipos pondría
+        // en la caja del padre sistemas por los que hay que preguntarle a otra gente — que es
+        // justamente lo que alguien viene a averiguar a un organigrama.
         var sistemas = await db.AppSystems.AsNoTracking()
             .Where(s => s.TeamId != null)
             .GroupBy(s => s.TeamId!.Value)
@@ -115,8 +128,8 @@ public class CatalogosQueryService(AppDbContext db, ICurrentUser currentUser)
             .Select(g => new { Equipo = g.Key, Cuantos = g.Count() })
             .ToDictionaryAsync(x => x.Equipo, x => x.Cuantos, ct);
 
-        var lista = new List<EquipoDto>(equipos.Count);
-        foreach (var t in equipos)
+        var lista = new List<EquipoDto>(enOrden.Count);
+        foreach (var t in enOrden)
         {
             var miembros = devs.Where(d => d.TeamId == t.Id).ToList();
 
@@ -143,6 +156,8 @@ public class CatalogosQueryService(AppDbContext db, ICurrentUser currentUser)
 
             lista.Add(new EquipoDto(
                 t.Id, t.Name, t.Description, t.ColorHex, lider?.FullName,
+                // Lo que dice el árbol, no la columna: un padre que ya no existe se dibuja como raíz.
+                jerarquia.PadreDe(t.Id),
                 sistemas.GetValueOrDefault(t.Id), proyectos.GetValueOrDefault(t.Id),
                 integrantes));
         }

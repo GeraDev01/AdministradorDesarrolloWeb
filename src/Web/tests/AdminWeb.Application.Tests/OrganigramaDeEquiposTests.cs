@@ -259,8 +259,10 @@ public class OrganigramaDeEquiposTests
     /// el organigrama del equipo nuevo una responsabilidad que nadie le ha dado.
     /// </summary>
     [Fact]
-    public async Task AlCambiarDeEquipo_laFuncionSeBorra()
+    public async Task AlCambiarDeEquipo_laFuncionSeBorra_PERO_EL_ROL_VIAJA()
     {
+        // Las dos mitades van juntas a propósito, porque la pareja es la que explica la regla: lo
+        // que la persona SABE HACER se lo lleva, y lo que se le había ENCARGADO en ese equipo no.
         var (svc, db) = Escenario();
 
         var (ok, _) = await svc.MoverIntegrantesAsync(new MoverIntegrantesRequest([2], 2, "reorganización"));
@@ -269,7 +271,24 @@ public class OrganigramaDeEquiposTests
         var beto = db.Developers.Find(2)!;
         Assert.Equal(2, beto.TeamId);
         Assert.Null(beto.TeamFunction);
-        Assert.Equal(TeamRole.SinRol, beto.TeamRole);
+        Assert.Equal(TeamRole.Backend, beto.TeamRole);
+    }
+
+    [Fact]
+    public async Task AlCambiarDeEquipo_EL_LIDER_NO_LLEGA_DE_LIDER_AL_EQUIPO_NUEVO()
+    {
+        // «Líder» es uno de los valores de TeamRole, así que si el rol viajara sin excepción, mover
+        // a alguien lo metería de líder en el equipo de destino — donde ya hay uno, o donde nadie ha
+        // decidido todavía que lo sea. El cargo lo da quien recibe, no el gesto de moverla.
+        var (svc, db) = Escenario();
+        var ana = db.Developers.Find(1)!;
+        ana.TeamRole = TeamRole.Lider;
+        db.SaveChanges();
+
+        var (ok, _) = await svc.MoverIntegrantesAsync(new MoverIntegrantesRequest([1], 2, "cambio de área"));
+
+        Assert.True(ok);
+        Assert.Equal(TeamRole.SinRol, db.Developers.Find(1)!.TeamRole);
     }
 
     /// <summary>Y si el equipo desaparece, tampoco queda función: no hay equipo dentro del cual tenerla.</summary>

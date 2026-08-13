@@ -179,8 +179,17 @@ public record EnviarComunicadoRequest(string Titulo, string Cuerpo, IReadOnlyLis
 
 // ── Equipos (edición) ────────────────────────────────────────────────────────────
 
-/// <summary>Alta o edición de un equipo. <paramref name="Id"/> en 0 es un equipo nuevo.</summary>
-public record GuardarEquipoRequest(int Id, string Nombre, string? Descripcion, string? ColorHex);
+/// <summary>
+/// Alta o edición de un equipo. <paramref name="Id"/> en 0 es un equipo nuevo.
+/// </summary>
+/// <param name="EquipoPadreId">De qué equipo cuelga este. <b>Nulo es un equipo raíz</b>, que es lo que
+/// son todos hasta que alguien arme subequipos. El servidor rechaza que un equipo acabe colgando de
+/// sí mismo por larga que sea la cadena: la pantalla es una comodidad, la barrera está allá.
+/// <para>La petición guarda lo que trae, igual que con la descripción y el color: mandarla sin este
+/// campo deja el equipo como raíz. No es un parche parcial y quien la arme tiene que traer el padre
+/// que quiere dejar, no solo lo que cambió.</para></param>
+public record GuardarEquipoRequest(
+    int Id, string Nombre, string? Descripcion, string? ColorHex, int? EquipoPadreId);
 
 /// <summary>
 /// Mueve personas a un equipo (o las deja sin equipo, con <paramref name="EquipoId"/> nulo).

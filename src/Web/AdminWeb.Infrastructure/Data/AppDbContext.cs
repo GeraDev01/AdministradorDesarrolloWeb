@@ -238,6 +238,22 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         {
             e.HasMany(t => t.Members).WithOne(d => d.Team).HasForeignKey(d => d.TeamId).IsRequired(false).OnDelete(DeleteBehavior.SetNull);
             e.HasOne(t => t.Lead).WithMany().HasForeignKey(t => t.LeadDeveloperId).IsRequired(false).OnDelete(DeleteBehavior.NoAction);
+
+            // El padre del equipo: la tabla se apunta a sí misma y nulo significa «equipo raíz».
+            //
+            // SIN cascada NI SetNull en la base, y no es una preferencia: SQL Server rechaza una
+            // clave foránea que se referencia a sí misma con acción de borrado —«may cause cycles or
+            // multiple cascade paths»—, así que declararla aquí dejaría el esquema imposible de crear
+            // en el motor de producción y solo se vería allí. Quién sube adónde cuando se borra un
+            // equipo lo decide PersonasQueryService.EliminarEquipoAsync, que además sabe algo que la
+            // base no: los subequipos suben a colgar del abuelo, no se quedan sueltos.
+            //
+            // Sin índice a propósito: la tabla son unas decenas de filas y el árbol se recorre en
+            // memoria (JerarquiaDeEquipos), así que ningún plan lo usaría; y un índice declarado aquí
+            // habría que crearlo también en el migrador para que las bases viejas y las nuevas no
+            // acabaran distintas.
+            e.HasOne(t => t.EquipoPadre).WithMany(t => t.Subequipos)
+                .HasForeignKey(t => t.EquipoPadreId).IsRequired(false).OnDelete(DeleteBehavior.NoAction);
         });
 
         modelBuilder.Entity<Developer>(e =>

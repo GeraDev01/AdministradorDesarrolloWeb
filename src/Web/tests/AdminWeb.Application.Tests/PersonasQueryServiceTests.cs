@@ -310,7 +310,7 @@ public class PersonasQueryServiceTests
         var db = ConDosEquipos();
         var svc = Nuevo(db, UsuarioDePrueba.Como(UserRole.Admin));
 
-        var (ok, mensaje) = await svc.GuardarEquipoAsync(new GuardarEquipoRequest(0, "Alfa", null, null));
+        var (ok, mensaje) = await svc.GuardarEquipoAsync(new GuardarEquipoRequest(0, "Alfa", null, null, null));
 
         Assert.False(ok);
         Assert.Contains("Alfa", mensaje);
@@ -542,7 +542,7 @@ public class PersonasQueryServiceTests
         var svc = Nuevo(db, UsuarioDePrueba.Como(UserRole.Desarrollador));
 
         await Assert.ThrowsAsync<AuthorizationException>(
-            () => svc.GuardarEquipoAsync(new GuardarEquipoRequest(0, "Gamma", null, null)));
+            () => svc.GuardarEquipoAsync(new GuardarEquipoRequest(0, "Gamma", null, null, null)));
         await Assert.ThrowsAsync<AuthorizationException>(
             () => svc.MoverIntegrantesAsync(new MoverIntegrantesRequest([1], 2, null)));
         await Assert.ThrowsAsync<AuthorizationException>(() => svc.DatosDeEquiposAsync());

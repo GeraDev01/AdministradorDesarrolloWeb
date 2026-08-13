@@ -29,6 +29,31 @@ public class GeneradorDeDocumentosTests
         Assert.Equal("%PDF"u8.ToArray(), bytes[..4]);
     }
 
+    /// <summary>
+    /// Cuántas hojas tiene el documento, contando los objetos «/Type /Page» del propio PDF.
+    ///
+    /// <para>Se cuenta sobre los bytes y no se pregunta a QuestPDF porque lo que hay que comprobar es
+    /// lo que sale, no lo que se pidió. Es la única forma de afirmar en una prueba que una rama no
+    /// comparte hoja con otra —que es la decisión de maquetado que sostiene todo el organigrama— sin
+    /// tener que abrir el archivo y mirarlo.</para>
+    ///
+    /// <para>Se descartan los «/Type /Pages», que son el índice de páginas y no una hoja: por eso se
+    /// exige que detrás de «/Page» no venga una «s».</para>
+    /// </summary>
+    private static int CuantasHojas(byte[] pdf)
+    {
+        var texto = System.Text.Encoding.Latin1.GetString(pdf);
+        int hojas = 0, desde = 0;
+
+        while (texto.IndexOf("/Type /Page", desde, StringComparison.Ordinal) is int i and >= 0)
+        {
+            desde = i + "/Type /Page".Length;
+            if (desde >= texto.Length || texto[desde] != 's') hojas++;
+        }
+
+        return hojas;
+    }
+
     private static DatosDeVacaciones Vacaciones(byte[]? firma = null, string observaciones = "") => new(
         Nombre: "Ana Pérez", FechaSolicitud: "6 de Agosto de 2026",
         Departamento: "Desarrollo Web", Puesto: "Desarrolladora", JefeDirecto: "Gerardo Manjarrez",
@@ -117,13 +142,14 @@ public class GeneradorDeDocumentosTests
     {
         var datos = new DatosDeEquipos(
             [
-                new EquipoImpreso("Equipo Web", "Portales y APIs", "Ana Pérez", "#2563eb",
+                new EquipoImpreso("Equipo Web", "Portales y APIs", "Ana Pérez", "#2563eb", null,
                     [
                         new IntegranteImpreso("Ana Pérez", "Senior", "Líder", "Coordina el portal público", true),
                         new IntegranteImpreso("Beto Ruiz", null, "Backend Dev", null, false)
                     ],
                     ["Portal", "API"], ["Migración"]),
-                new EquipoImpreso("Equipo Móvil", null, null, null, [], [], [])
+                // Un SUBEQUIPO, que se imprime igual y además dice de quién cuelga.
+                new EquipoImpreso("Equipo Móvil", null, null, null, "Equipo Web", [], [], [])
             ],
             [new IntegranteImpreso("Carla Díaz", "Junior", "Sin rol", null, false)],
             3,
@@ -138,7 +164,7 @@ public class GeneradorDeDocumentosTests
         // El color lo teclea una persona en una pantalla. Que se equivoque no puede dejar sin
         // documento a todo el mundo; se cae al color de siempre y el papel sale igual.
         var datos = new DatosDeEquipos(
-            [new EquipoImpreso("Equipo", null, null, "azul",
+            [new EquipoImpreso("Equipo", null, null, "azul", null,
                 [new IntegranteImpreso("Ana", null, "QA", null, false)], [], [])],
             [], 1, "06/08/2026 10:00");
 
@@ -171,7 +197,7 @@ public class GeneradorDeDocumentosTests
 
         var datos = new DatosDeEquipos(
             [new EquipoImpreso("Equipo enorme", "Todo el mundo aquí dentro.", "Persona número 1",
-                "#16A34A", mucha, [], [])],
+                "#16A34A", null, mucha, [], [])],
             [], 60, "06/08/2026 10:00");
 
         EsUnPdf(Generador.OrganizacionDeEquipos(datos));
@@ -184,9 +210,257 @@ public class GeneradorDeDocumentosTests
         var equipos = Enumerable.Range(1, 11)
             .Select(i => new EquipoImpreso($"Equipo {i}", i % 2 == 0 ? null : $"Se dedica a lo número {i}",
                 $"Líder {i}", i % 3 == 0 ? null : "#2563EB",
+                // Los pares cuelgan del anterior: en una hoja de varias filas, un padre y su
+                // subequipo acaban en renglones distintos y la caja tiene que decirlo igual.
+                i % 2 == 0 ? $"Equipo {i - 1}" : null,
                 [new IntegranteImpreso($"Líder {i}", null, "Líder", null, true)], [], []))
             .ToList();
 
         EsUnPdf(Generador.OrganizacionDeEquipos(new DatosDeEquipos(equipos, [], 11, "06/08/2026 10:00")));
+    }
+
+    /// <summary>
+    /// <b>Toda fila lleva barra, incluida la que se queda con una sola caja.</b>
+    ///
+    /// <para>Es la cuenta que decide dónde acaba la barra de la que cuelgan las cajas de un renglón, y
+    /// se comprueba aquí porque el fallo que vigila no revienta nada: dibuja una línea que dice algo
+    /// falso. Con cuatro equipos raíz —tres arriba y uno abajo— el de abajo se quedaba sin barra y su
+    /// bajada salía justo del canto de la caja de encima, o sea que el papel decía que un equipo raíz
+    /// colgaba de otro. Ninguna prueba de «que el documento salga» puede verlo, y las que reparten
+    /// equipos en filas usaban 11 —tres, tres, tres y dos—, que nunca deja una caja sola.</para>
+    ///
+    /// <para>Medido en celdas: 0,5 es el centro de la primera, que es por donde baja su caja. Que el
+    /// extremo derecho sea siempre MAYOR que 0,5 es exactamente «la barra tiene ancho».</para>
+    /// </summary>
+    [Theory]
+    [InlineData(1, 1.5f)]   // la caja sola: la barra llega al centro del papel, donde baja el nodo
+    [InlineData(2, 1.5f)]   // dos cajas: del centro de la primera al de la segunda, como siempre
+    [InlineData(3, 2.5f)]   // la fila llena: hasta el centro de la tercera y ni un punto más
+    public void LaBarraDeUnaFila_LlegaHastaLaUltimaBajada_yNuncaTieneAnchoCero(int cuantas, float esperado)
+    {
+        float derecha = GeneradorDeDocumentosQuestPdf.ExtremoDerechoDeLaBarra(cuantas);
+
+        Assert.Equal(esperado, derecha);
+        Assert.True(derecha > 0.5f,
+            $"Con {cuantas} caja(s) la barra sale de ancho cero: la bajada queda suelta y parece " +
+            "salir de la caja que tenga encima.");
+    }
+
+    /// <summary>
+    /// Cuatro equipos raíz: tres en el primer renglón y UNO en el segundo, que es la forma que tiene
+    /// hoy la casa —todos los equipos planos— en cuanto hay cuatro. Aquí solo se exige que salga; que
+    /// la caja sola cuelgue de su barra y no de la de encima lo fija la prueba de arriba.
+    /// </summary>
+    [Fact]
+    public void CuatroEquiposRaiz_DejanUnaCajaSolaEnElSegundoRenglon_ySeGenera()
+    {
+        var equipos = Enumerable.Range(1, 4).Select(i => Equipo($"Equipo {i}", null)).ToList();
+
+        EsUnPdf(Generador.OrganizacionDeEquipos(new DatosDeEquipos(equipos, [], 4, "06/08/2026 10:00")));
+    }
+
+    // ── El organigrama cuando los equipos cuelgan unos de otros ─────────────────
+
+    /// <summary>Un equipo, con su nombre y de quién cuelga, para armar árboles sin repetir la receta.</summary>
+    private static EquipoImpreso Equipo(string nombre, string? padre, string? color = null, int gente = 1) =>
+        new(nombre, $"Se dedica a lo de {nombre}.", gente > 0 ? $"Líder de {nombre}" : null, color, padre,
+            [.. Enumerable.Range(1, gente).Select(i =>
+                new IntegranteImpreso($"{nombre} · persona {i}", "Semisenior", i == 1 ? "Líder" : "Fullstack",
+                    "Atiende incidencias del sistema de facturación", i == 1))],
+            [$"Sistema de {nombre}"], [$"Proyecto de {nombre}"]);
+
+    /// <summary>
+    /// El caso que trae la jerarquía: un árbol de varios niveles se dibuja entero y sin reventar.
+    ///
+    /// <para>Las excepciones de maquetado de QuestPDF solo aparecen al generar, así que sin esta
+    /// prueba el primero en enterarse de que el organigrama ya no sale sería quien aprieta el botón
+    /// delante de su equipo.</para>
+    /// </summary>
+    [Fact]
+    public void UnArbolDeVariosNiveles_SeGenera()
+    {
+        var datos = new DatosDeEquipos(
+            [
+                Equipo("Desarrollo Web", null, "#2563EB", 3),
+                Equipo("Front", "Desarrollo Web", "#16A34A", 2),
+                Equipo("Componentes", "Front", null, 1),
+                Equipo("Accesibilidad", "Componentes", null, 1),
+                Equipo("Back", "Desarrollo Web", null, 3)
+            ],
+            [new IntegranteImpreso("Karla Nieto", "Junior", "Sin rol", null, false)],
+            11, "06/08/2026 10:00");
+
+        EsUnPdf(Generador.OrganizacionDeEquipos(datos));
+    }
+
+    /// <summary>
+    /// <b>Cada rama en su hoja, y los equipos raíz todos en la primera.</b> Es la decisión que sostiene
+    /// el diagrama: un subárbol partido entre dos hojas se lee como dos organigramas distintos, así que
+    /// la hoja se reparte por ramas y no por altura.
+    /// </summary>
+    [Fact]
+    public void CadaRamaConSubequipos_ArrancaEnSuPropiaHoja()
+    {
+        // Dos ramas y un equipo suelto. Todo esto cabría de sobra en una hoja por altura: si el
+        // reparto fuera por altura, saldría un solo papel con las dos ramas mezcladas.
+        var datos = new DatosDeEquipos(
+            [
+                Equipo("Web", null, "#2563EB"),
+                Equipo("Front", "Web"),
+                Equipo("Datos", null, "#16A34A"),
+                Equipo("Reportes", "Datos"),
+                Equipo("Soporte", null)
+            ],
+            [], 5, "06/08/2026 10:00");
+
+        var pdf = Generador.OrganizacionDeEquipos(datos);
+
+        EsUnPdf(pdf);
+        Assert.Equal(3, CuantasHojas(pdf));   // la de la organización y una por cada rama
+    }
+
+    /// <summary>
+    /// <b>Sin jerarquía, el documento sigue siendo el de siempre: una sola hoja.</b>
+    ///
+    /// <para>Es la prueba que guarda a quien ya usa esto. La aplicación está en producción con todos
+    /// los equipos planos, y el reparto por ramas no puede convertir un papel de una hoja en cinco
+    /// mientras nadie cuelgue un equipo de otro.</para>
+    /// </summary>
+    [Fact]
+    public void SinSubequipos_ElDocumentoSigueCabiendoEnUnaHoja()
+    {
+        var datos = new DatosDeEquipos(
+            [Equipo("Web", null, "#2563EB"), Equipo("Datos", null), Equipo("Soporte", null)],
+            [new IntegranteImpreso("Karla Nieto", null, "Sin rol", null, false)],
+            4, "06/08/2026 10:00");
+
+        var pdf = Generador.OrganizacionDeEquipos(datos);
+
+        EsUnPdf(pdf);
+        Assert.Equal(1, CuantasHojas(pdf));
+    }
+
+    /// <summary>Un solo equipo, sin nada colgando y sin nadie fuera: el organigrama más pequeño que existe.</summary>
+    [Fact]
+    public void UnSoloEquipo_SeGenera()
+    {
+        var pdf = Generador.OrganizacionDeEquipos(
+            new DatosDeEquipos([Equipo("Web", null, "#2563EB")], [], 1, "06/08/2026 10:00"));
+
+        EsUnPdf(pdf);
+        Assert.Equal(1, CuantasHojas(pdf));
+    }
+
+    /// <summary>
+    /// Una cadena más honda que los niveles con sangría. A partir del tope la sangría deja de crecer
+    /// —si no, las cajas del fondo acabarían siendo una columna de palabras sueltas—, y lo que no
+    /// puede pasar es que el documento se caiga o que un equipo se quede sin dibujar.
+    /// </summary>
+    [Fact]
+    public void UnaCadenaMuyHonda_NoSeSaleDeLaHoja()
+    {
+        var equipos = Enumerable.Range(1, 15)
+            .Select(i => Equipo($"Nivel {i}", i == 1 ? null : $"Nivel {i - 1}"))
+            .ToList();
+
+        EsUnPdf(Generador.OrganizacionDeEquipos(new DatosDeEquipos(equipos, [], 15, "06/08/2026 10:00")));
+    }
+
+    /// <summary>
+    /// Una rama tan grande que no cabe en una hoja. Sigue saliendo, y sigue siendo la misma rama: las
+    /// hojas que la continúan repiten en la cabecera de quién es, que es lo que impide leerlas como
+    /// otro organigrama.
+    /// </summary>
+    [Fact]
+    public void UnaRamaMasAltaQueLaHoja_SeSigueGenerando()
+    {
+        var equipos = new List<EquipoImpreso> { Equipo("Desarrollo", null, "#2563EB", 5) };
+        equipos.AddRange(Enumerable.Range(1, 12).Select(i => Equipo($"Célula {i}", "Desarrollo", null, 6)));
+
+        var pdf = Generador.OrganizacionDeEquipos(new DatosDeEquipos(equipos, [], 77, "06/08/2026 10:00"));
+
+        EsUnPdf(pdf);
+        Assert.True(CuantasHojas(pdf) > 2, "Una rama de doce equipos de seis personas no cabe en una hoja.");
+    }
+
+    /// <summary>
+    /// UNA CAJA más alta que la hoja, dentro de una rama. Es el caso que vigila la maquetada en capas
+    /// con la que se dibujan las líneas del árbol: la caja manda la altura y las verticales se ajustan
+    /// a ella, y hay maquetados de QuestPDF que se niegan a partirse cuando lo que llevan dentro no
+    /// cabe en una hoja. Aquí tiene que partirse igual que se partía antes.
+    ///
+    /// <para>Existe la gemela para la PRIMERA hoja (UnEquipoMasAltoQueLaHoja_SeSigueGenerando), que
+    /// usa otro maquetado: allí las cajas van en filas y aquí en un árbol con sangría.</para>
+    /// </summary>
+    [Fact]
+    public void UnSubequipoMasAltoQueLaHoja_SeSigueGenerando()
+    {
+        var equipos = new List<EquipoImpreso>
+        {
+            Equipo("Plataforma", null, "#2563EB", 2),
+            Equipo("Célula gigante", "Plataforma", null, 80),
+            Equipo("Célula pequeña", "Plataforma", null, 2)
+        };
+
+        var pdf = Generador.OrganizacionDeEquipos(new DatosDeEquipos(equipos, [], 84, "06/08/2026 10:00"));
+
+        EsUnPdf(pdf);
+        Assert.True(CuantasHojas(pdf) > 2, "Un subequipo de ochenta personas no cabe en una hoja.");
+    }
+
+    /// <summary>
+    /// Un círculo escrito a mano contra la base —la aplicación no deja crearlo— ni cuelga la
+    /// generación ni hace desaparecer equipos del papel.
+    ///
+    /// <para>Un documento que no termina de generarse no es un error que alguien pueda diagnosticar:
+    /// es un botón que se queda girando y un servidor ocupado hasta que lo maten.</para>
+    /// </summary>
+    [Fact]
+    public void UnCirculoEntreEquipos_NoDejaElDocumentoDandoVueltas()
+    {
+        var datos = new DatosDeEquipos(
+            [Equipo("Uno", "Dos"), Equipo("Dos", "Tres"), Equipo("Tres", "Uno")],
+            [], 3, "06/08/2026 10:00");
+
+        EsUnPdf(Generador.OrganizacionDeEquipos(datos));
+    }
+
+    /// <summary>
+    /// Un padre que no está en la lista se dibuja como raíz y no se pierde. Solo puede llegar así si
+    /// alguien borró el equipo padre entre la consulta y la impresión, pero en un organigrama faltar
+    /// no es una caja menos: es un equipo que oficialmente no está en ninguna parte.
+    /// </summary>
+    [Fact]
+    public void UnPadreQueNoEstaEnLaLista_NoDejaAlEquipoFueraDelPapel()
+    {
+        var pdf = Generador.OrganizacionDeEquipos(new DatosDeEquipos(
+            [Equipo("Huérfano", "Un equipo que ya no existe")], [], 1, "06/08/2026 10:00"));
+
+        EsUnPdf(pdf);
+        // Sin rama que llevarse a otra hoja: sale como un equipo raíz más de la primera.
+        Assert.Equal(1, CuantasHojas(pdf));
+    }
+
+    /// <summary>
+    /// Un subequipo sin color hereda el de su rama, y si en toda la rama nadie eligió ninguno se cae
+    /// al gris de siempre. Lo que se comprueba aquí es que ninguno de los dos caminos impide imprimir
+    /// —el color acaba en un <c>Background</c>, y un valor que QuestPDF no entienda revienta al
+    /// generar, no al escribirlo—.
+    /// </summary>
+    [Fact]
+    public void UnaRamaSinColores_SeImprimeIgual()
+    {
+        var datos = new DatosDeEquipos(
+            [
+                Equipo("Con color", null, "#2563EB"),
+                Equipo("Hereda", "Con color"),
+                Equipo("Sin nada", null),
+                Equipo("Tampoco", "Sin nada"),
+                Equipo("Mal escrito", null, "azul"),
+                Equipo("Hereda lo malo", "Mal escrito")
+            ],
+            [], 6, "06/08/2026 10:00");
+
+        EsUnPdf(Generador.OrganizacionDeEquipos(datos));
     }
 }

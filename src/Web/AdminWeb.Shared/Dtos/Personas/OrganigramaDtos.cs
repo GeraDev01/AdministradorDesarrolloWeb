@@ -43,6 +43,11 @@ public record PersonaDelOrganigramaDto(
 /// <param name="ColorHex">El color que alguien tecleó. <b>Puede venir vacío o mal escrito</b> —es una
 /// caja de texto— y quien lo pinte tiene que contar con eso; ni el servidor ni el papel lo corrigen
 /// por su cuenta, porque el dato es de quien lo escribió.</param>
+/// <param name="EquipoPadreId">De qué equipo cuelga. Nulo = equipo raíz.</param>
+/// <param name="Nivel">A qué altura cuelga: 0 los raíz, 1 sus subequipos, y así. Lo calcula el
+/// servidor porque es una propiedad del ÁRBOL —hay que subir hasta la raíz para saberlo— y no del
+/// equipo; con dos dibujantes contándolo cada uno por su cuenta, el papel podría sangrar una caja a
+/// una altura distinta que la pantalla.</param>
 /// <param name="Sistemas">Los sistemas que lleva el equipo, por nombre. Los NOMBRES y no un contador:
 /// en el diagrama caben, y «3 sistemas» no le dice nada a quien lee el organigrama para saber a quién
 /// preguntarle por uno.</param>
@@ -52,6 +57,8 @@ public record EquipoDelOrganigramaDto(
     string? Descripcion,
     string? ColorHex,
     string? Lider,
+    int? EquipoPadreId,
+    int Nivel,
     IReadOnlyList<PersonaDelOrganigramaDto> Integrantes,
     IReadOnlyList<string> Sistemas,
     IReadOnlyList<string> Proyectos);
@@ -59,6 +66,21 @@ public record EquipoDelOrganigramaDto(
 /// <summary>
 /// El organigrama completo.
 /// </summary>
+/// <param name="Equipos">Los equipos, PLANOS y en orden de dibujo: cada padre antes que su rama y los
+/// hermanos por nombre. El árbol se reconstruye siguiendo <see cref="EquipoDelOrganigramaDto.EquipoPadreId"/>.
+///
+/// <para><b>Plano y no anidado, y esto es una decisión.</b> Hay DOS dibujantes y no reparten el sitio
+/// igual: la pantalla dibuja el árbol de corrido en una superficie que se desplaza y se pliega, y el
+/// PDF lo parte en hojas —una por rama— porque el papel no se desplaza pero sí pasa de hoja. Cada uno
+/// recorre la estructura a su modo, así que un DTO anidado obligaría a los dos a rehacerla por su
+/// cuenta —y con su propio orden—, que es donde el papel empieza a contradecir a la pantalla. Plano y
+/// YA ORDENADO, los dos leen lo mismo en el mismo orden; el que necesite el árbol lo arma agrupando
+/// por <see cref="EquipoDelOrganigramaDto.EquipoPadreId"/> sin tocar el orden de los hermanos, que es
+/// lo que hace el PDF para repartir sus hojas.</para>
+///
+/// <para>Y hay una segunda razón, más práctica: anidar obligaría a que el DTO se refiriera a sí
+/// mismo, y un dato mal grabado —un ciclo escrito a mano contra la base— dejaría de ser un dibujo
+/// raro para convertirse en un serializador dando vueltas hasta que se acabe la memoria.</para></param>
 /// <param name="SinEquipo">Quien no está en ningún equipo. Es una caja más del diagrama, no una nota
 /// al pie: un organigrama que solo dibuja a quien tiene equipo miente por omisión.</param>
 /// <param name="TotalPersonas">Todas las personas activas, con equipo y sin él. Se cuenta aquí para

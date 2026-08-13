@@ -42,12 +42,16 @@ public record IntegranteDeEquipoDto(
 /// Un equipo con su gente. <paramref name="Sistemas"/> y <paramref name="Proyectos"/> son los
 /// contadores 🖥/📁 que el escritorio pintaba bajo el nombre de la columna.
 /// </summary>
+/// <param name="EquipoPadreId">De qué equipo cuelga. Nulo = equipo raíz. Va aquí y no solo en el
+/// organigrama de personas porque las dos respuestas describen la MISMA organización: dejar una de
+/// las dos plana sería publicar dos versiones de la estructura y garantizar que un día no coinciden.</param>
 public record EquipoDto(
     int Id,
     string Nombre,
     string? Descripcion,
     string? ColorHex,
     string? Lider,
+    int? EquipoPadreId,
     int Sistemas,
     int Proyectos,
     IReadOnlyList<IntegranteDeEquipoDto> Integrantes);

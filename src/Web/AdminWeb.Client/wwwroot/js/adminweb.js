@@ -46,6 +46,56 @@ window.adminweb = {
         return true;
     })(),
 
+    // ── Las dos costuras del arrastrar y soltar ──────────────────────────────
+    //
+    // El gesto entero está escrito en C# con los eventos de Blazor; esto es lo único que desde allá
+    // no se puede tocar, porque el objeto dataTransfer del evento no viaja de vuelta al navegador.
+    //
+    // La PRIMERA es obligatoria y no es una mejora: Firefox no inicia un arrastre si el manejador de
+    // dragstart no deja algo escrito en dataTransfer. Sin esta línea, arrastrar funciona en Chrome y
+    // en Edge y en Firefox no pasa absolutamente nada — el fallo más caro de diagnosticar, porque no
+    // hay error en ninguna consola. Se escribe un tipo propio y NO texto plano: con texto plano,
+    // soltar sin querer a una persona sobre cualquier caja de escritura de la página pegaría ahí la
+    // etiqueta.
+    //
+    // La SEGUNDA es el cursor. Sin decir nada, el navegador dibuja el de COPIAR —un signo de más—
+    // sobre los destinos que aceptan, y aquí no se copia a nadie: se le cambia de equipo. Se lee del
+    // marcado (data-soltar), que es el mismo dato que decide si la caja acepta la soltada, así que
+    // el cursor no puede contradecir a lo que va a ocurrir.
+    //
+    // Los dos escuchas se registran UNA vez sobre el documento, como el atajo de la búsqueda: uno
+    // por caja arrastrable serían decenas, y habría que quitarlos cada vez que Blazor repinta. Y los
+    // dos miran solo lo de dentro del organigrama: escuchando el documento entero, cualquier
+    // arrastre que traiga un componente de Radzen —reordenar columnas de una rejilla, mover un
+    // cuadro— se llevaría de rebote este tipo de dato y este efecto, que no son suyos.
+    _arrastre: (function () {
+        document.addEventListener('dragstart', function (e) {
+            const origen = e.target && e.target.closest && e.target.closest('.organigrama [draggable="true"]');
+            if (!origen || !e.dataTransfer) return;
+            try {
+                // ESTE setData ES LO QUE HACE QUE FIREFOX ARRANQUE EL ARRASTRE. Sin llamarlo, allí no
+                // pasa nada al arrastrar: no se dispara el gesto, no hay error en consola y en Chrome
+                // funciona perfectamente — o sea, el fallo más caro de diagnosticar que hay aquí.
+                //
+                // AVISO HONESTO: está razonado pero NO ejecutado en Firefox. Se probó el arrastre
+                // entero con un ratón de verdad, pero sobre Chromium, que es lo único instalado y
+                // también lo que usa el equipo hoy (la bitácora dice Edge, y ni un solo Firefox). Si
+                // algún día alguien lo abre ahí y arrastrar no hace nada, éste es el sitio a mirar,
+                // no el C#.
+                e.dataTransfer.setData('application/x-adminweb', origen.getAttribute('data-arrastre') || '1');
+                e.dataTransfer.effectAllowed = 'move';
+            } catch (err) { /* el arrastre sigue; solo se queda sin la pista del tipo */ }
+        });
+
+        document.addEventListener('dragover', function (e) {
+            if (!e.dataTransfer || !e.target || !e.target.closest) return;
+            const destino = e.target.closest('.organigrama [data-soltar]');
+            if (destino && destino.getAttribute('data-soltar') === 'si') e.dataTransfer.dropEffect = 'move';
+        });
+
+        return true;
+    })(),
+
     // ── Tema claro / oscuro ──────────────────────────────────────────────────
     //
     // Quien APLICA el tema al arrancar es el guion de index.html, que corre antes de pintar nada.

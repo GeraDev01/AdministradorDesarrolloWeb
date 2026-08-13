@@ -1,3 +1,4 @@
+using AdminWeb.Domain.Equipos;
 using AdminWeb.Domain.Security;
 using AdminWeb.Infrastructure.Data;
 using AdminWeb.Shared.Dtos.Ausencias;
@@ -71,6 +72,19 @@ public class AusenciasDelEquipoService(AppDbContext db, ICurrentUser usuarioActu
                 .Where(d => d.Id == devId).Select(d => d.TeamId).FirstOrDefaultAsync(ct)
             : null;
 
+        // El árbol de equipos, y SOLO si hay equipo propio con el que comparar. Son unas decenas de
+        // filas, y es la única forma de saber si el de al lado es «de los míos» ahora que un equipo
+        // puede tener subequipos: sin esto, quien esté en el equipo padre no reconocería como suyo a
+        // nadie de las ramas de abajo, que es justo la gente que le descuadra la semana.
+        JerarquiaDeEquipos? jerarquia = null;
+        if (miEquipo != null)
+        {
+            var arbol = await db.Teams.AsNoTracking()
+                .Select(t => new { t.Id, t.EquipoPadreId })
+                .ToListAsync(ct);
+            jerarquia = JerarquiaDeEquipos.De(arbol.Select(t => (t.Id, t.EquipoPadreId)));
+        }
+
         // El solape se pide EN LA BASE y no trayendo todas las vacaciones para filtrarlas aquí: con
         // el histórico de varios años, lo segundo arrastraría por la red cada solicitud que jamás se
         // aprobó para descartarlas en memoria. La proyección deja fuera los BLOB del respaldo y el
@@ -111,7 +125,12 @@ public class AusenciasDelEquipoService(AppDbContext db, ICurrentUser usuarioActu
                 // Sin equipo asignado no hay «mismo equipo» que marcar: dos nulos coincidirían y
                 // saldría todo el mundo señalado como compañero directo, que es peor que no señalar
                 // a nadie porque la marca dejaría de significar nada.
-                MismoEquipo: miEquipo != null && v.TeamId == miEquipo))
+                //
+                // Con subequipos, «mi equipo» es MI RAMA: el mío, los que cuelgan de él y aquellos de
+                // los que cuelga. Los HERMANOS quedan fuera —otro subequipo del mismo padre es otro
+                // equipo—, y entre equipos sin jerarquía esto es exactamente la igualdad de siempre.
+                MismoEquipo: miEquipo is int mio && v.TeamId is int suyo
+                             && jerarquia is not null && jerarquia.MismaRaiz(mio, suyo)))
             .ToList();
 
         return new AusenciasDelEquipoDto(desde, hasta, fuera, Resumen(fuera, desde, hasta));

@@ -43,6 +43,14 @@ tabla propia en vez de guardarse ahí.
 está restringido al administrador. Un equipo tiene miembros (`Developer.TeamId`) y además un líder,
 que es otra clave foránea aparte.
 
+`Team` se apunta **a sí misma** por `EquipoPadreId`: nulo es un equipo raíz y cualquier otro valor lo
+cuelga de otro equipo, que es lo que permite los subequipos. La clave foránea **no lleva acción de
+borrado** —SQL Server no la admite sobre una tabla que se referencia a sí misma— así que los
+subequipos de un equipo que se elimina los recoloca el servicio: suben a colgar del abuelo. El árbol
+no se recorre con SQL recursivo sino en memoria, con
+[JerarquiaDeEquipos](AdminWeb.Domain/Equipos/JerarquiaDeEquipos.cs), que es también donde está la
+regla que impide que un equipo acabe siendo su propio ancestro.
+
 ### 3. Trabajo planificado — 4
 
 `Requirement` · `Sprint` · `Assignment` · `RequirementAttachment`
@@ -310,7 +318,9 @@ Lo que eso significa al añadir una columna:
 5. **Una prueba que quite la columna y compruebe que el migrador la repone.** El patrón está en
    [FuncionDeEquipoMigracionTests.cs](tests/AdminWeb.Application.Tests/FuncionDeEquipoMigracionTests.cs):
    se crea la base con el modelo de hoy, se le hace `DROP COLUMN`, se corre el migrador y se
-   comprueba que volvió — y que no devolvió ninguna sentencia fallida.
+   comprueba que volvió — y que no devolvió ninguna sentencia fallida. Si la columna lleva **clave
+   foránea**, `DROP COLUMN` no sirve: SQLite se niega, y hay que rehacer la tabla sin ella
+   ([SubequiposMigracionTests.cs](tests/AdminWeb.Application.Tests/SubequiposMigracionTests.cs)).
 
 ### Las tres cosas que no se hacen
 

@@ -188,3 +188,212 @@ html, body {
     outline: 2px solid var(--rz-primary-light);
     outline-offset: 2px;
 }
+
+/* ── EL ORGANIGRAMA DE LA PANTALLA DE EQUIPOS ─────────────────────────────────
+
+   Un árbol con sangrías: cada caja se corre una columna por nivel y las líneas de
+   la izquierda dicen de quién cuelga. Qué se dibuja en cada columna lo decide
+   TrazadoDelOrganigrama; aquí solo se pinta lo que aquel dijo.
+
+   Todas las medidas van en `em` y no en `rem` a propósito: el selector de tamaño
+   de la pantalla cambia el `font-size` del contenedor y con eso se escala el
+   diagrama entero —cajas, sangrías y líneas a la vez—. Con `rem` la letra crecería
+   y las cajas se quedarían igual.
+
+   Antes esto era un SVG, y el motivo del cambio no es estético: los elementos de
+   un SVG no admiten `draggable`, así que un diagrama dibujado ahí no se puede
+   arrastrar sin escribir a mano el gesto entero con eventos de puntero. */
+
+.organigrama {
+    /* Lo hondo cabe por sangría y lo ancho crece hacia abajo, así que el
+       desplazamiento horizontal solo aparece con árboles muy profundos o con el
+       tamaño subido — que es justo cuando alguien pide letra grande a cambio de
+       moverse. */
+    overflow-x: auto;
+    padding: .2em 0;
+}
+
+.organigrama-fila {
+    display: flex;
+    align-items: stretch;
+}
+
+/* Una columna de sangría. El hueco entre cajas va DENTRO de la caja (su margen
+   inferior) y no en la fila: si separara las filas, las verticales se cortarían
+   entre una caja y la siguiente. */
+.organigrama-guia {
+    position: relative;
+    flex: 0 0 1.4em;
+}
+
+.organigrama-guia::before,
+.organigrama-guia::after { content: ""; position: absolute; }
+
+/* La vertical: entera cuando la rama sigue debajo; cortada en el codo cuando la
+   caja es la última de su rama. */
+.organigrama-guia--linea::before,
+.organigrama-guia--codo::before {
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    border-left: 1px solid var(--rz-border-color);
+}
+
+/* El codo final lleva las dos clases —la del codo y ésta—, así que aquí se apaga
+   el «bottom» de la regla de arriba a mano: dejar que lo resuelva la regla de
+   sobre-restricción del navegador funciona, pero es de las cosas que el siguiente
+   que lo lea da por rotas. */
+.organigrama-guia--final::before {
+    left: 50%;
+    top: 0;
+    bottom: auto;
+    height: 1.35em;
+    border-left: 1px solid var(--rz-border-color);
+}
+
+/* La horizontal que entra en la caja, a la altura del renglón del nombre. */
+.organigrama-guia--codo::after,
+.organigrama-guia--final::after {
+    left: 50%;
+    right: 0;
+    top: 1.35em;
+    border-top: 1px solid var(--rz-border-color);
+}
+
+.organigrama-caja {
+    flex: 1 1 auto;
+    /* Un mínimo para que el nombre y sus contadores quepan en un renglón por muy
+       hondo que esté, y un máximo para que una caja suelta no se estire a lo ancho
+       de una pantalla grande y deje de leerse como una caja. */
+    min-width: 17em;
+    max-width: 44em;
+    margin-bottom: .4em;
+    border: 1px solid var(--rz-border-color);
+    /* El borde izquierdo lleva el color del equipo, que se pinta en línea porque
+       lo teclea una persona y es un dato, no una decisión de la hoja de estilo. */
+    border-left-width: 4px;
+    border-radius: var(--rz-border-radius);
+    background: var(--rz-card-background-color);
+}
+
+.organigrama-cabecera {
+    display: flex;
+    align-items: center;
+    gap: .4em;
+    padding: .5em .6em;
+    cursor: grab;
+}
+
+/* La caja de arriba y la de «sin equipo» no se arrastran: no son equipos. */
+.organigrama-cabecera[draggable="false"] { cursor: default; }
+
+.organigrama-nombre {
+    font-weight: 600;
+    flex: 1 1 auto;
+}
+
+.organigrama-apunte {
+    color: var(--rz-text-secondary-color);
+    font-size: .82em;
+}
+
+.organigrama-cuerpo {
+    padding: 0 .6em .5em 1.9em;
+}
+
+/* Los renglones sueltos de dentro de una caja: la descripción, «(sin integrantes)»
+   y los contadores de sistemas y proyectos. No van en un RadzenText —que sería lo
+   natural— porque aquel fija el tamaño en rem, y entonces serían lo único del
+   diagrama que no crece al subir el «Tamaño», que es justo lo que ese selector
+   tiene que cambiar. */
+.organigrama-nota {
+    margin: .15em 0 0;
+    color: var(--rz-text-secondary-color);
+    font-size: .82em;
+}
+
+.organigrama-persona {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: .35em;
+    padding: .1em .3em;
+    border-radius: var(--rz-border-radius);
+    cursor: grab;
+}
+
+.organigrama-persona:hover { background: var(--rz-base-200); }
+
+.organigrama-persona--viaja { outline: 1px dashed var(--rz-primary); }
+
+.organigrama-lider { font-weight: 600; }
+
+/* La función baja a su propio renglón —eso es lo que hace el 100 % de ancho dentro
+   de una fila que envuelve— y sangrada bajo el nombre: es una frase por persona y
+   en la misma línea empujaría el rol fuera de la caja en cuanto alguien escriba
+   algo más largo que dos palabras. */
+.organigrama-funcion {
+    flex: 1 1 100%;
+    padding-left: 1.5em;
+    color: var(--rz-text-secondary-color);
+    font-size: .78em;
+}
+
+.organigrama-plegar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 1.6em;
+    height: 1.6em;
+    padding: 0;
+    border: none;
+    border-radius: var(--rz-border-radius);
+    background: transparent;
+    color: var(--rz-text-secondary-color);
+    cursor: pointer;
+}
+
+.organigrama-plegar:hover { background: var(--rz-base-200); }
+
+.organigrama-plegar:focus-visible {
+    outline: 2px solid var(--rz-primary);
+    outline-offset: 1px;
+}
+
+.organigrama-asa { color: var(--rz-text-secondary-color); }
+
+/* ── Lo que se ve MIENTRAS se arrastra ───────────────────────────────────────
+   Que se vea antes de soltar y no después: lo que admite la soltada se marca, lo
+   que no la admite se apaga, y la caja que está debajo del puntero se distingue de
+   las demás en los dos casos —en el acento si va a aceptar, en el rojo de aviso si
+   va a rechazar—. Una soltada que se acepta y luego contesta con un error es la
+   forma más rápida de que nadie vuelva a arrastrar nada. */
+
+.organigrama--arrastrando .organigrama-caja--veta { opacity: .45; }
+
+.organigrama-caja--admite {
+    outline: 1px dashed var(--rz-border-color);
+    outline-offset: 2px;
+}
+
+.organigrama-caja--admite.organigrama-caja--encima {
+    outline: 2px solid var(--rz-primary);
+    background: var(--rz-primary-lighter);
+}
+
+.organigrama--arrastrando .organigrama-caja--veta.organigrama-caja--encima {
+    opacity: 1;
+    outline: 2px dashed var(--rz-danger);
+    outline-offset: 2px;
+}
+
+/* El renglón que dice qué se está arrastrando y qué va a pasar al soltarlo. Ocupa
+   sitio siempre —aunque no haya nada que decir— para que el diagrama no dé un
+   salto al empezar el arrastre justo cuando hay que apuntar a una caja. */
+.organigrama-aviso {
+    min-height: 1.5em;
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+}
