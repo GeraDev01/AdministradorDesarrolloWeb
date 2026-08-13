@@ -686,6 +686,109 @@ public class PersonasQueryService(
             : $"Función de {dev.FullName} guardada.");
     }
 
+    // ── Qué hace, en cada equipo, quien tiene cada rol ───────────────────────────
+
+    /// <summary>Lo que puede medir una descripción de puesto. Más largo que el de una persona porque
+    /// describe un puesto entero y no un matiz, pero no un párrafo: en la caja del organigrama son
+    /// dos renglones.</summary>
+    public const int LargoMaximoDeDescripcionDeRol = 600;
+
+    /// <summary>
+    /// Los NUEVE roles de un equipo con su descripción, la tengan o no.
+    ///
+    /// <para>Salen todos y no solo los escritos, a propósito: una lista que trae únicamente lo que ya
+    /// está redactado no deja ver qué falta por redactar, que es justo para lo que se abre esta
+    /// pantalla. El rótulo del líder ya viene resuelto —«Líder de subequipo» cuando el equipo cuelga
+    /// de otro— para que la cuenta no se haga otra vez en el cliente.</para>
+    /// </summary>
+    public async Task<IReadOnlyList<DescripcionDeRolDto>> DescripcionesDeRolAsync(
+        int equipoId, CancellationToken ct = default)
+    {
+        SoloAdmin();
+
+        var equipo = await db.Teams.AsNoTracking().FirstOrDefaultAsync(t => t.Id == equipoId, ct);
+        if (equipo == null) return [];
+
+        bool esSubequipo = equipo.EquipoPadreId is not null;
+
+        var escritas = await db.DescripcionesDeRolDeEquipo.AsNoTracking()
+            .Where(d => d.TeamId == equipoId)
+            .ToDictionaryAsync(d => d.Rol, d => d.Descripcion, ct);
+
+        return [.. TodosLosRoles.Select(rol => new DescripcionDeRolDto(
+            rol,
+            EtiquetasDeCatalogo.RolDeEquipo(rol, esSubequipo),
+            escritas.GetValueOrDefault(rol)))];
+    }
+
+    /// <summary>
+    /// Los roles que se describen, en el orden en que se enseñan: el líder primero y el resto detrás.
+    ///
+    /// <para><c>OrdenDeRoles</c> no incluye «Líder» —está pensado para agrupar a la gente DEBAJO del
+    /// líder, que ya va aparte—, así que aquí se antepone. Sin eso, el puesto que más se lee sería el
+    /// único que no se podría describir.</para>
+    /// </summary>
+    private static readonly TeamRole[] TodosLosRoles =
+        [TeamRole.Lider, .. EtiquetasDeCatalogo.OrdenDeRoles];
+
+    /// <summary>
+    /// Guarda —o borra— lo que hace en un equipo quien tiene un rol.
+    ///
+    /// <para>Vacío BORRA la fila. Guardar una descripción en blanco y no tener ninguna son lo mismo
+    /// para quien lee, y dos formas de decir «no hay» acaban discrepando: una fila vacía se colaría
+    /// como función heredada y dejaría a media plantilla con un renglón en blanco bajo el nombre.</para>
+    ///
+    /// <para><b>Esto NO toca la ficha de nadie.</b> La función propia de cada persona se queda como
+    /// está y sigue mandando sobre ésta; lo que se guarda aquí es la definición del puesto, y se
+    /// resuelve al leer. Copiarla a las fichas dejaría el organigrama mudo después de una
+    /// reorganización, porque la función propia se borra al cambiar de equipo y el rol no.</para>
+    /// </summary>
+    public async Task<(bool ok, string mensaje)> GuardarDescripcionDeRolAsync(
+        GuardarDescripcionDeRolRequest peticion, CancellationToken ct = default)
+    {
+        SoloAdmin();
+
+        var texto = Limpiar(peticion.Descripcion);
+        if (texto is { Length: > LargoMaximoDeDescripcionDeRol })
+            return (false, $"La descripción no puede pasar de {LargoMaximoDeDescripcionDeRol} caracteres.");
+
+        var equipo = await db.Teams.FirstOrDefaultAsync(t => t.Id == peticion.EquipoId, ct);
+        if (equipo == null) return (false, "Ese equipo ya no está. Actualiza la pantalla.");
+
+        var rotulo = EtiquetasDeCatalogo.RolDeEquipo(peticion.Rol, equipo.EquipoPadreId is not null);
+
+        var fila = await db.DescripcionesDeRolDeEquipo
+            .FirstOrDefaultAsync(d => d.TeamId == peticion.EquipoId && d.Rol == peticion.Rol, ct);
+
+        if (texto is null)
+        {
+            if (fila == null) return (true, $"«{rotulo}» no tenía descripción en {equipo.Name}.");
+
+            db.DescripcionesDeRolDeEquipo.Remove(fila);
+            await db.SaveChangesAsync(ct);
+            await audit.RecordAsync(AuditAction.Update, "Team", equipo.Id.ToString(),
+                $"{equipo.Name}: se borró la descripción de «{rotulo}»", ct);
+
+            return (true, $"«{rotulo}» se queda sin descripción en {equipo.Name}.");
+        }
+
+        if (fila == null)
+            db.DescripcionesDeRolDeEquipo.Add(new DescripcionDeRolDeEquipo
+            {
+                TeamId = peticion.EquipoId,
+                Rol = peticion.Rol,
+                Descripcion = texto
+            });
+        else
+            fila.Descripcion = texto;
+
+        await db.SaveChangesAsync(ct);
+        await audit.RecordAsync(AuditAction.Update, "Team", equipo.Id.ToString(),
+            $"{equipo.Name}: «{rotulo}» → «{texto}»", ct);
+
+        return (true, $"Descripción de «{rotulo}» guardada en {equipo.Name}.");
+    }
+
     /// <summary>El historial reciente de rotaciones, lo más nuevo primero.</summary>
     public async Task<IReadOnlyList<RotacionDto>> RotacionesAsync(CancellationToken ct = default)
     {
@@ -735,6 +838,14 @@ public class PersonasQueryService(
             .Where(p => p.TeamId != null).OrderBy(p => p.Name)
             .Select(p => new { p.TeamId, p.Name, p.Client }).ToListAsync(ct);
 
+        // Qué hace en cada equipo quien tiene cada rol. Se trae TODO de una vez —son un puñado de
+        // filas de texto— y no equipo por equipo dentro del bucle, que serían tantas consultas como
+        // cajas tenga el organigrama.
+        var descripciones = (await db.DescripcionesDeRolDeEquipo.AsNoTracking()
+                .Select(x => new { x.TeamId, x.Rol, x.Descripcion })
+                .ToListAsync(ct))
+            .ToDictionary(x => (x.TeamId, x.Rol), x => x.Descripcion);
+
         // El árbol se arma con los equipos ya ordenados por nombre, y ese orden se conserva entre
         // hermanos: dentro de cada rama, las cajas siguen saliendo alfabéticas como siempre.
         var jerarquia = JerarquiaDeEquipos.De(equipos);
@@ -751,19 +862,27 @@ public class PersonasQueryService(
             // día que alguien recuelgue el equipo arrastrando su caja, que no toca ningún rol.
             bool esSubequipo = jerarquia.PadreDe(t.Id) is not null;
 
+            // Lo que hace en ESTE equipo quien tiene ese rol, si está descrito.
+            string? DelPuesto(TeamRole rol) =>
+                descripciones.GetValueOrDefault((t.Id, rol));
+
             var integrantes = new List<PersonaDelOrganigramaDto>(miembros.Count);
-            if (lider != null) integrantes.Add(Persona(lider, TeamRole.Lider, esLider: true, esSubequipo));
+            if (lider != null)
+                integrantes.Add(Persona(lider, TeamRole.Lider, esLider: true, esSubequipo,
+                    DelPuesto(TeamRole.Lider)));
 
             var resto = miembros.Where(m => lider == null || m.Id != lider.Id).ToList();
             foreach (var rol in EtiquetasDeCatalogo.OrdenDeRoles)
                 integrantes.AddRange(resto.Where(m => m.TeamRole == rol)
-                                          .Select(m => Persona(m, rol, esLider: false, esSubequipo)));
+                                          .Select(m => Persona(m, rol, esLider: false, esSubequipo,
+                                              DelPuesto(rol))));
 
             // El colador: OrdenDeRoles no incluye «Líder», así que un segundo líder marcado en la
             // ficha —que AsignarRolAsync ya no permite, pero que pudo quedar de antes— no entraría
             // por ninguna vuelta del bucle y desaparecería del diagrama sin dejar rastro.
             integrantes.AddRange(resto.Where(m => !EtiquetasDeCatalogo.OrdenDeRoles.Contains(m.TeamRole))
-                                      .Select(m => Persona(m, m.TeamRole, esLider: false, esSubequipo)));
+                                      .Select(m => Persona(m, m.TeamRole, esLider: false, esSubequipo,
+                                          DelPuesto(m.TeamRole))));
 
             return new EquipoDelOrganigramaDto(
                 t.Id, t.Name, Limpiar(t.Description), Limpiar(t.ColorHex), lider?.FullName,
@@ -828,13 +947,20 @@ public class PersonasQueryService(
     /// <param name="esSubequipo">Si el equipo de esta persona cuelga de otro. Falso por omisión, que
     /// es lo que necesita quien no tiene equipo: sin equipo no hay de qué ser subequipo.</param>
     private static PersonaDelOrganigramaDto Persona(
-        Developer d, TeamRole rol, bool esLider, bool esSubequipo = false) =>
+        Developer d, TeamRole rol, bool esLider, bool esSubequipo = false, string? funcionDelRol = null) =>
         new(d.Id, d.FullName, Limpiar(d.Seniority), rol,
             EtiquetasDeCatalogo.RolDeEquipo(rol, esSubequipo), EtiquetasDeCatalogo.ColorDeRol(rol),
-            Limpiar(d.TeamFunction), esLider);
+            Limpiar(d.TeamFunction), esLider, Limpiar(funcionDelRol));
 
+    /// <summary>
+    /// La misma persona, traducida al contrato del papel.
+    ///
+    /// <para>La función propia manda sobre la del puesto, y si no hay propia se imprime la del
+    /// puesto. Es la MISMA regla que usa la pantalla; se aplica aquí porque el contrato de documentos
+    /// lleva un solo renglón de función y el papel no decide nada — maqueta.</para>
+    /// </summary>
     private static IntegranteImpreso Impreso(PersonaDelOrganigramaDto p) =>
-        new(p.Nombre, p.Nivel, p.RolTexto, p.Funcion, p.EsLider);
+        new(p.Nombre, p.Nivel, p.RolTexto, p.Funcion ?? p.FuncionDelRol, p.EsLider);
 
     // ── Usuarios ─────────────────────────────────────────────────────────────────
 

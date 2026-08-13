@@ -1,4 +1,4 @@
-using AdminWeb.Shared.Enums;
+﻿using AdminWeb.Shared.Enums;
 
 namespace AdminWeb.Shared.Dtos.Personas;
 
@@ -25,6 +25,15 @@ namespace AdminWeb.Shared.Dtos.Personas;
 /// <param name="Funcion">Qué hace dentro del equipo, en una frase. Opcional: la mayoría de las fichas
 /// no la tendrán escrita el primer día y el diagrama no puede quedar cojo por eso.</param>
 /// <param name="EsLider">Se dibuja distinto. Lo decide el servidor.</param>
+/// <param name="FuncionDelRol">Lo que hace, EN ESTE EQUIPO, cualquiera con este rol. Es la
+/// descripción guardada del puesto, no de la persona, y va SEPARADA de <c>Funcion</c> a propósito.
+///
+/// <para>Con un solo campo, la caja de texto del editor se rellenaría con la frase del puesto y el
+/// primer guardado la escribiría como función propia: el catálogo copiándose solo a las fichas, una
+/// persona cada vez, y sin que nadie lo pidiera. Con dos, quien pinta sabe cuál está enseñando y el
+/// editor sabe que ahí no hay nada escrito todavía.</para>
+///
+/// <para>Se resuelve al LEER y no se copia nunca. Ver DescripcionDeRolDeEquipo.</para></param>
 public record PersonaDelOrganigramaDto(
     int Id,
     string Nombre,
@@ -33,7 +42,8 @@ public record PersonaDelOrganigramaDto(
     string RolTexto,
     string ColorDeRol,
     string? Funcion,
-    bool EsLider);
+    bool EsLider,
+    string? FuncionDelRol = null);
 
 /// <summary>
 /// Un equipo con su gente, su descripción y su color.
@@ -102,3 +112,25 @@ public record OrganigramaDto(
 /// en cada tecleo o a perder lo escrito al cambiar el rol.
 /// </summary>
 public record GuardarFuncionRequest(int DeveloperId, string? Funcion);
+
+/// <summary>
+/// Qué hace, en un equipo, quien tiene un rol. Es el catálogo que evita teclear la misma frase una
+/// vez por persona.
+/// </summary>
+/// <param name="RolTexto">Ya resuelto por el servidor, con «Líder de subequipo» cuando toca: el
+/// rótulo depende de dónde cuelgue el equipo y esa cuenta no se hace dos veces.</param>
+/// <param name="Descripcion">Nula cuando ese puesto todavía no se ha descrito en este equipo. La
+/// pantalla enseña los nueve roles igual, con hueco o sin él: una lista que solo trae los escritos no
+/// deja ver qué falta por escribir.</param>
+public record DescripcionDeRolDto(TeamRole Rol, string RolTexto, string? Descripcion);
+
+/// <summary>
+/// Guarda —o borra— la descripción de un rol en un equipo.
+///
+/// <para>Ruta propia y no un campo más en <c>GuardarEquipoRequest</c>, y no es preferencia: aquella
+/// petición es de REEMPLAZO TOTAL, así que una pestaña abierta desde antes del despliegue borraría el
+/// campo nuevo en cada guardado del equipo sin que nadie tocara nada.</para>
+/// </summary>
+/// <param name="Descripcion">Vacía o en blanco BORRA la fila. Guardar una descripción vacía y
+/// guardar ninguna son lo mismo para quien lee, y dos formas de decir «no hay» acaban discrepando.</param>
+public record GuardarDescripcionDeRolRequest(int EquipoId, TeamRole Rol, string? Descripcion);

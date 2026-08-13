@@ -1383,6 +1383,23 @@ public static class DatabaseMigrator
                 ""PointEntryId""      INTEGER,
                 ""PointsAwarded""     INTEGER NOT NULL DEFAULT 0
             );");
+        // ── Qué hace, en cada equipo, quien tiene cada rol (SQLite) ──────────────────
+        //
+        // Sustituye a teclear la misma frase una vez por persona. La clave única (TeamId, Rol) la
+        // pone la BASE y no el servicio: dos pestañas guardando a la vez dejarían dos filas para el
+        // mismo puesto, y quien leyera se quedaría con la que devolviera el motor.
+        //
+        // Cae en cascada con el equipo: describe un puesto DENTRO de él y fuera no significa nada.
+        db.Database.ExecuteSqlRaw(@"
+            CREATE TABLE IF NOT EXISTS ""DescripcionesDeRolDeEquipo"" (
+                ""Id""          INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                ""TeamId""      INTEGER NOT NULL,
+                ""Rol""         INTEGER NOT NULL,
+                ""Descripcion"" TEXT    NOT NULL,
+                CONSTRAINT ""FK_DescRol_Team"" FOREIGN KEY (""TeamId"") REFERENCES ""Teams""(""Id"") ON DELETE CASCADE
+            );");
+        try { db.Database.ExecuteSqlRaw(@"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_DescRol_EquipoRol"" ON ""DescripcionesDeRolDeEquipo""(""TeamId"",""Rol"")"); } catch { }
+
         // El estado va de primera columna porque toda consulta empieza por él: la cola es «por
         // revisar», el buscador es «publicado» y la lista propia es «lo mío».
         try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Know_Estado"" ON ""KnowledgeArticles""(""Status"",""UpdatedAtUtc"")"); } catch { }
@@ -2808,6 +2825,27 @@ ALTER TABLE [KnowledgeArticles] ADD [RowVersion] rowversion NOT NULL;");
 
         // El estado va de primera columna porque toda consulta empieza por él: la cola es «por
         // revisar», el buscador es «publicado» y la lista propia es «lo mío».
+        // ── Qué hace, en cada equipo, quien tiene cada rol (SQL Server) ──────────────
+        // La gemela de la de SQLite. Misma clave única y misma cascada: el esquema no puede depender
+        // de dónde corra.
+        Exec(@"
+IF OBJECT_ID(N'[DescripcionesDeRolDeEquipo]', N'U') IS NULL
+CREATE TABLE [DescripcionesDeRolDeEquipo] (
+    [Id]          int IDENTITY(1,1) NOT NULL CONSTRAINT [PK_DescripcionesDeRolDeEquipo] PRIMARY KEY,
+    [TeamId]      int NOT NULL,
+    [Rol]         int NOT NULL,
+    [Descripcion] nvarchar(600) NOT NULL,
+    CONSTRAINT [FK_DescRol_Team] FOREIGN KEY ([TeamId]) REFERENCES [Teams]([Id]) ON DELETE CASCADE
+);");
+
+        // El índice va aparte de la creación y es ÚNICO: ExecIndex no crea únicos, así que se escribe
+        // a mano con la misma guarda de existencia que usa aquél.
+        Exec(@"
+IF OBJECT_ID(N'[DescripcionesDeRolDeEquipo]', N'U') IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_DescRol_EquipoRol'
+                   AND object_id = OBJECT_ID(N'[DescripcionesDeRolDeEquipo]'))
+CREATE UNIQUE INDEX [IX_DescRol_EquipoRol] ON [DescripcionesDeRolDeEquipo]([TeamId],[Rol]);");
+
         ExecIndex("KnowledgeArticles", "IX_Know_Estado", "Status", "[Status],[UpdatedAtUtc]");
         ExecIndex("KnowledgeArticles", "IX_Know_Autor", "AuthorUserId", "[AuthorUserId],[Status]");
         ExecIndex("KnowledgeArticles", "IX_Know_Publicado", "PublishedAtUtc", "[PublishedAtUtc]");

@@ -1,4 +1,4 @@
-using AdminWeb.Domain.Entities;
+﻿using AdminWeb.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace AdminWeb.Infrastructure.Data;
@@ -35,6 +35,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Assignment> Assignments => Set<Assignment>();
     public DbSet<RequirementAttachment> RequirementAttachments => Set<RequirementAttachment>();
     public DbSet<Team> Teams => Set<Team>();
+
+    /// <summary>
+    /// Qué hace, en cada equipo, quien tiene cada rol. Sustituye a teclear la misma frase una vez por
+    /// persona; no se copia a las fichas, se resuelve al leer. Ver DescripcionDeRolDeEquipo.
+    /// </summary>
+    public DbSet<DescripcionDeRolDeEquipo> DescripcionesDeRolDeEquipo => Set<DescripcionDeRolDeEquipo>();
     public DbSet<TeamRotation> TeamRotations => Set<TeamRotation>();
     public DbSet<Project> Projects => Set<Project>();
     public DbSet<Contact> Contacts => Set<Contact>();
@@ -726,6 +732,23 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         // PointEntries ya cae en cascada desde Developers, así que una segunda ruta hasta la misma
         // tabla es de las que SQL Server rechaza al crear las restricciones. Es la misma decisión —y
         // por el mismo motivo— que PoolActivity.PointEntryId.
+        modelBuilder.Entity<DescripcionDeRolDeEquipo>(e =>
+        {
+            e.Property(d => d.Rol).HasConversion<int>();
+            e.Property(d => d.Descripcion).IsRequired().HasMaxLength(600);
+
+            // Una sola descripción por rol dentro de cada equipo, y lo dice la BASE. Sin este índice,
+            // dos pestañas guardando a la vez dejan dos filas para el mismo puesto y quien lea se
+            // queda con la que le devuelva el motor: la función de media plantilla cambiaría de frase
+            // según el día.
+            e.HasIndex(d => new { d.TeamId, d.Rol }).IsUnique();
+
+            // Al borrar el equipo se van con él: describen un puesto DENTRO de ese equipo y fuera no
+            // significan nada.
+            e.HasOne(d => d.Team).WithMany()
+             .HasForeignKey(d => d.TeamId).OnDelete(DeleteBehavior.Cascade);
+        });
+
         modelBuilder.Entity<KnowledgeArticle>(e =>
         {
             e.Property(a => a.Status).HasConversion<int>();

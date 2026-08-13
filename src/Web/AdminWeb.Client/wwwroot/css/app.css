@@ -425,6 +425,12 @@ html, body {
     font-size: .78em;
 }
 
+/* La que viene del PUESTO y no de la persona. En cursiva porque son cosas distintas: ésta vale para
+   todo el que tenga ese rol en este equipo y se cambia en el equipo, no en la ficha. Sin la
+   distinción, tres personas con la misma frase parecen tres fichas rellenadas a mano una por una —que
+   es justo lo que se venía a quitar— y nadie sabría dónde ir a corregirla. */
+.organigrama-funcion--del-rol { font-style: italic; }
+
 .organigrama-plegar {
     display: inline-flex;
     align-items: center;

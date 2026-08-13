@@ -196,6 +196,22 @@ public static class PersonasEndpoints
         })
         .WithSummary("Anota qué hace una persona dentro de su equipo (vacío la borra)");
 
+        // Qué hace en un equipo quien tiene cada rol. Va en RUTA PROPIA y no como un campo más de
+        // «guardar equipo» a propósito: aquella petición es de reemplazo total, así que una pestaña
+        // abierta desde antes del despliegue borraría el campo nuevo en cada guardado.
+        grupo.MapGet("/equipos/{id:int}/descripciones-de-rol", async (
+            int id, PersonasQueryService personas, CancellationToken ct) =>
+            Results.Ok(await personas.DescripcionesDeRolAsync(id, ct)))
+        .WithSummary("Los roles de un equipo con su descripción, la tengan o no");
+
+        grupo.MapPost("/equipos/descripcion-de-rol", async (
+            GuardarDescripcionDeRolRequest cuerpo, PersonasQueryService personas, CancellationToken ct) =>
+        {
+            var (ok, mensaje) = await personas.GuardarDescripcionDeRolAsync(cuerpo, ct);
+            return Resultado(ok, mensaje);
+        })
+        .WithSummary("Describe qué hace en un equipo quien tiene un rol (vacío la borra)");
+
         grupo.MapGet("/equipos/rotaciones", async (
             PersonasQueryService personas, CancellationToken ct) =>
             Results.Ok(await personas.RotacionesAsync(ct)))

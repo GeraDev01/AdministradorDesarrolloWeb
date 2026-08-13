@@ -1,4 +1,4 @@
-@page "/equipos"
+﻿@page "/equipos"
 @attribute [Authorize(Policy = "SoloAdmin")]
 @using AdminWeb.Client.Organigrama
 @using AdminWeb.Shared.Dtos.Personas
@@ -138,6 +138,58 @@
                     <RadzenButton Text="Cancelar" Icon="close" ButtonStyle="ButtonStyle.Light"
                                   Disabled="@_ocupado" Click="@(() => _capturandoEquipo = false)" />
                 </RadzenStack>
+
+                @* ── QUÉ HACE AQUÍ QUIEN TIENE CADA ROL ──────────────────────────────────
+                   Solo al EDITAR un equipo que ya existe: las descripciones cuelgan de su
+                   identificador, y uno que todavía no se ha guardado no tiene ninguno.
+
+                   Se guarda rol por rol y no con el botón de arriba, y no es un descuido: «Guardar»
+                   manda una petición de REEMPLAZO TOTAL del equipo, así que meter aquí campos suyos
+                   haría que una pestaña abierta desde antes del despliegue los borrara sin que nadie
+                   tocara nada. Cada descripción tiene su propia ruta. *@
+                @if (_equipoEnEdicion is int equipoDescrito)
+                {
+                    <RadzenCard Style="padding:.75rem">
+                        <RadzenStack Gap="0.5rem">
+                            <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">
+                                Qué hace en este equipo quien tiene cada rol
+                            </RadzenText>
+                            <RadzenText TextStyle="TextStyle.Caption" TagName="TagName.P" Style="margin:0">
+                                Se escribe UNA vez por equipo y sale bajo cada persona que tenga ese rol,
+                                en el organigrama y en el PDF. No se copia a ninguna ficha: quien tenga
+                                una función propia escrita sigue con la suya, que manda sobre ésta. Y al
+                                mover a alguien a otro equipo hereda la de allí, sin tocar nada.
+                            </RadzenText>
+
+                            @if (_descripcionesDeRol.Count == 0)
+                            {
+                                <RadzenProgressBarCircular ShowValue="false" Mode="ProgressBarMode.Indeterminate" />
+                            }
+                            else
+                            {
+                                @foreach (var d in _descripcionesDeRol)
+                                {
+                                    var rol = d.Rol;
+                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem"
+                                                 AlignItems="AlignItems.Center" Wrap="FlexWrap.Wrap">
+                                        <span style="@($"min-width:10rem;font-weight:600;color:{EtiquetasDeCatalogo.ColorDeRol(rol)}")">
+                                            @d.RolTexto
+                                        </span>
+                                        <RadzenTextBox Value="@(_textoDeRol.GetValueOrDefault(rol) ?? "")"
+                                                       ValueChanged="@(v => _textoDeRol[rol] = v)"
+                                                       MaxLength="600" Style="flex:1 1 24rem"
+                                                       Placeholder="Sin describir" Disabled="@_ocupado" />
+                                        <RadzenButton Icon="save" ButtonStyle="ButtonStyle.Light"
+                                                      Size="ButtonSize.ExtraSmall"
+                                                      title="Guardar la descripción de este rol (vacío la borra)"
+                                                      Disabled="@_ocupado"
+                                                      Click="@(() => GuardarDescripcionDeRol(equipoDescrito, rol))" />
+                                    </RadzenStack>
+                                }
+                            }
+                        </RadzenStack>
+                    </RadzenCard>
+                }
             </RadzenStack>
         </RadzenCard>
     }
@@ -677,9 +729,22 @@
                                 <span class="@(p.EsLider ? "organigrama-lider" : "")">
                                     @EtiquetaDePersona(p)
                                 </span>
+                                @* La función PROPIA manda; si no la hay, se enseña la del puesto. Las
+                                   dos se ven distinto —la heredada en cursiva— porque son cosas
+                                   distintas: una la escribió alguien pensando en esta persona y la
+                                   otra vale para todo el que tenga ese rol aquí. Sin distinguirlas,
+                                   tres «Fullstack» con la misma frase parecen tres fichas rellenadas
+                                   a mano y nadie sabría dónde ir a cambiarlas. *@
                                 @if (!string.IsNullOrWhiteSpace(p.Funcion))
                                 {
                                     <span class="organigrama-funcion">@p.Funcion</span>
+                                }
+                                else if (!string.IsNullOrWhiteSpace(p.FuncionDelRol))
+                                {
+                                    <span class="organigrama-funcion organigrama-funcion--del-rol"
+                                          title="@($"Lo que hace en este equipo quien tiene el rol «{p.RolTexto}». Se edita en el equipo, no en la ficha.")">
+                                        @p.FuncionDelRol
+                                    </span>
                                 }
                             </div>
                         }
@@ -905,9 +970,13 @@
         _colorEquipo       = "";
         _padreEquipo       = null;
         _capturandoEquipo  = true;
+
+        // Un equipo que todavía no existe no tiene identificador del que colgar descripciones.
+        _descripcionesDeRol = [];
+        _textoDeRol.Clear();
     }
 
-    private void AbrirEquipo(EquipoDelOrganigramaDto equipo)
+    private async Task AbrirEquipo(EquipoDelOrganigramaDto equipo)
     {
         _equipoEnEdicion   = equipo.Id;
         _nombreOriginal    = equipo.Nombre;
@@ -916,6 +985,50 @@
         _colorEquipo       = equipo.ColorHex ?? "";
         _padreEquipo       = equipo.EquipoPadreId;
         _capturandoEquipo  = true;
+
+        await CargarDescripcionesDeRol(equipo.Id);
+    }
+
+    // ── Qué hace en este equipo quien tiene cada rol ──────────────────────────────
+
+    /// <summary>Los roles con su descripción, tal como los manda el servidor.</summary>
+    private IReadOnlyList<DescripcionDeRolDto> _descripcionesDeRol = [];
+
+    /// <summary>
+    /// Lo que hay TECLEADO en cada caja, que no es lo mismo que lo guardado.
+    ///
+    /// <para>Va aparte de <see cref="_descripcionesDeRol"/> a propósito: si las cajas escribieran
+    /// directamente sobre la lista del servidor, no habría forma de saber qué se ha cambiado y qué
+    /// no, y al recargar se perdería lo tecleado sin avisar.</para>
+    /// </summary>
+    private readonly Dictionary<TeamRole, string> _textoDeRol = [];
+
+    private async Task CargarDescripcionesDeRol(int equipoId)
+    {
+        _descripcionesDeRol = [];
+        _textoDeRol.Clear();
+
+        var lista = await Api.LeerAsync<List<DescripcionDeRolDto>>(
+            $"api/personas/equipos/{equipoId}/descripciones-de-rol", _cancelacion.Token);
+        if (lista is null) return;
+
+        _descripcionesDeRol = lista;
+        foreach (var d in lista) _textoDeRol[d.Rol] = d.Descripcion ?? "";
+    }
+
+    /// <summary>
+    /// Guarda la descripción de UN rol. Vacío la borra, que es lo que hace el servidor.
+    ///
+    /// <para>Se recarga el organigrama entero después porque esta frase sale bajo CADA persona con ese
+    /// rol: dejar la pantalla como estaba enseñaría el diagrama viejo al lado del texto nuevo.</para>
+    /// </summary>
+    private async Task GuardarDescripcionDeRol(int equipoId, TeamRole rol)
+    {
+        var texto = _textoDeRol.GetValueOrDefault(rol) ?? "";
+
+        if (await Enviar($"api/personas/equipos/descripcion-de-rol",
+                new GuardarDescripcionDeRolRequest(equipoId, rol, texto)))
+            await CargarDescripcionesDeRol(equipoId);
     }
 
     /// <summary>
