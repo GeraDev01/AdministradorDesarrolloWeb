@@ -6,6 +6,7 @@
 @inject ClienteApi Api
 @inject AvisosDeInterfaz Avisos
 @inject Descargas Descargas
+@inject IJSRuntime JS
 
 @*
     Los equipos, en dos pestañas: la de SIEMPRE —donde se crea, se mueve y se asigna con listas y
@@ -560,7 +561,7 @@
     /// puede seguir enterándose de cuándo el puntero salió de todas las cajas.</para>
     /// </summary>
     private RenderFragment<NodoDelOrganigrama> PintarNodo => nodo =>
-        @<li class="organigrama-nodo">
+        @<li class="organigrama-nodo" @key="nodo.Id">
             @{
                 var c = nodo;
                 var equipo = EquipoDeLaCaja(c.Id);             // nulo en las dos cajas que no son equipos
@@ -1087,6 +1088,35 @@
 
         _paraDibujar.AddRange(org.Equipos.Select(e => new CajaPorTrazar(e.Id, e.Nivel + 1)));
         if (org.SinEquipo.Count > 0) _paraDibujar.Add(new CajaPorTrazar(SinEquipoId, 1));
+
+        _porColocar = true;
+    }
+
+    /// <summary>
+    /// El diagrama cambió de forma y hay que volver a mirarlo por su cabeza.
+    ///
+    /// <para>Un organigrama clásico crece a lo ancho y la caja de arriba va CENTRADA sobre todas las
+    /// demás, así que con los equipos raíz de esta casa cae por la mitad de un lienzo de varias
+    /// pantallas. Sin colocar nada, la pestaña se abre por el borde izquierdo del dibujo: los
+    /// primeros equipos y, encima, una franja vacía donde debería estar la cabeza. Se lee como una
+    /// pantalla que no cargó.</para>
+    ///
+    /// <para>Solo al cambiar los datos, y no en cada repintado: si se hiciera siempre, plegar una
+    /// caja o pasar el puntero por encima —que repintan— devolverían el lienzo a su sitio y quien
+    /// estuviera mirando una rama del extremo la perdería de vista a cada gesto.</para>
+    /// </summary>
+    private bool _porColocar;
+
+    protected override async Task OnAfterRenderAsync(bool primeraVez)
+    {
+        if (!_porColocar) return;
+        _porColocar = false;
+
+        // Que el navegador no esté disponible no puede tumbar la pantalla: esto es una comodidad,
+        // y el diagrama se lee igual desplazándolo a mano.
+        try { await JS.InvokeVoidAsync("adminweb.centrarOrganigrama", ".organigrama"); }
+        catch (JSException) { }
+        catch (InvalidOperationException) { }   // todavía sin JavaScript: prerenderizado o descarga
     }
 
     // ── El arrastre ──────────────────────────────────────────────────────────
@@ -1380,9 +1410,11 @@
 
     /// <summary>
     /// Lo que oye quien no ve la caja. De quién cuelga y a qué altura van DENTRO de esta frase y no
-    /// solo dibujados: para quien navega con lector de pantalla, la jerarquía no existe en ningún otro
-    /// sitio del diagrama —las líneas de la izquierda son decoración y así están marcadas— y es la
-    /// mitad de lo que un organigrama cuenta.
+    /// solo dibujados: para quien navega con lector de pantalla, la jerarquía no existe en ningún
+    /// otro sitio del diagrama y es la mitad de lo que un organigrama cuenta. Las líneas que unen las
+    /// cajas no las pinta el marcado —son pseudo-elementos de la hoja de estilo—, así que un lector
+    /// de pantalla no las ve ni tiene por qué: no hay nada que ocultarle, pero tampoco nada de donde
+    /// deducir quién cuelga de quién. Solo queda esta frase.
     /// </summary>
     private string AriaDeLaCaja(NodoDelOrganigrama caja)
     {

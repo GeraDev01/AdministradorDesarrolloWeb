@@ -160,8 +160,9 @@ public class OrganigramaEnPantallaTests
         Assert.Equal(0, Caja(arbol, 2).Escondidos);
 
         // La caja se pliega IGUAL aunque no tenga subequipos: lo que esconde entonces es a su gente,
-        // que es el motivo por el que se pliega la mayoría de las veces. Atarlo a que tuviera rama
-        // dejaba a esas cajas con un interruptor que no hacía nada.
+        // que es el motivo por el que se pliega la mayoría de las veces. Atarlo a tener rama las
+        // dejaría con un interruptor que no hace nada, y esta prueba está para que no vuelva a
+        // atarse: al reescribir el trazado como árbol se ató, y esto fue lo que lo cazó.
         Assert.True(Caja(arbol, 2).Plegada);
         Assert.False(Caja(arbol, 2).TieneRama);
     }

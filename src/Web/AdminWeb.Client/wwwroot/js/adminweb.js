@@ -740,5 +740,37 @@ window.adminweb = {
             lector.onerror = function () { rechazar(lector.error); };
             lector.readAsDataURL(archivo);
         });
+    },
+
+    // ── El organigrama, puesto donde se empieza a leer ───────────────────────
+    //
+    // Un organigrama clásico crece A LO ANCHO, y la caja de arriba va centrada sobre todas las
+    // demás. Con los veinte equipos raíz de esta casa el lienzo mide varias pantallas y esa caja
+    // cae por la mitad: al abrir la pestaña, el desplazamiento empieza en cero y lo que se ve es
+    // el borde izquierdo del dibujo —los primeros equipos y, encima de ellos, una BANDA VACÍA
+    // donde debería estar la cabeza—. Parece que la pantalla no cargó.
+    //
+    // Esto lo coloca mirando a la caja de arriba, que es por donde se lee un organigrama. No lo
+    // puede hacer la hoja de estilo: el desplazamiento de un elemento no es una propiedad de CSS.
+    //
+    // Se llama después de pintar, y se aguanta que no haya nada que centrar: la pestaña puede
+    // estar cerrada, o los datos todavía en camino.
+    centrarOrganigrama: function (selector) {
+        const lienzo = document.querySelector(selector || '.organigrama');
+        if (!lienzo) return;
+
+        const sobra = lienzo.scrollWidth - lienzo.clientWidth;
+        if (sobra <= 0) return;   // cabe entero: no hay nada que colocar
+
+        // La caja de arriba es la primera del recorrido, que es como la manda el servidor.
+        const cabeza = lienzo.querySelector('.organigrama-caja');
+        if (!cabeza) return;
+
+        const centroDeLaCabeza = cabeza.offsetLeft + cabeza.offsetWidth / 2;
+        const destino = centroDeLaCabeza - lienzo.clientWidth / 2;
+
+        // «instant» y no suave: esto ocurre al abrir la pestaña, y una animación de tres mil
+        // píxeles al entrar se lee como un fallo, no como una ayuda.
+        lienzo.scrollTo({ left: Math.max(0, Math.min(destino, sobra)), behavior: 'instant' });
     }
 };

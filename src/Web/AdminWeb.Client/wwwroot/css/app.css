@@ -217,12 +217,24 @@ html, body {
        tamaño y el plegado. */
     overflow-x: auto;
     padding: .4em 0 .2em;
-    /* Centra el diagrama cuando cabe: la fila de arriba es un elemento EN LÍNEA
-       —para que su ancho lo marque el contenido y no el lienzo—, y un elemento en
-       línea se alinea con `text-align`. Las cajas lo devuelven a la izquierda,
-       porque dentro de una caja se lee texto y no se mira un dibujo. */
-    text-align: center;
+
+    /* Centrado SEGURO, y la palabra es literal: `safe` es lo que hace que cuando el
+       diagrama no cabe deje de centrarse y se pegue a la izquierda.
+
+       Centrar a secas rompía justo el caso de esta casa. Con veinte equipos raíz el
+       lienzo mide varias pantallas, y un contenido centrado que no cabe se sale por
+       LOS DOS lados; el desplazamiento empieza en cero y no llega a números
+       negativos, así que la mitad izquierda —con la caja de arriba dentro— quedaba
+       en un sitio al que no se podía llegar. Se abría la pestaña y arriba había una
+       banda en blanco. Con `safe`, en cuanto habría desbordamiento se alinea al
+       principio y todo el dibujo es alcanzable. */
+    display: flex;
+    justify-content: safe center;
 }
+
+/* Que no se encoja: es un elemento flexible, y por omisión cedería ancho antes que
+   provocar el desplazamiento que aquí se quiere. */
+.organigrama > .organigrama-nivel--raiz { flex: none; }
 
 /* Una fila de hermanos. `inline-flex` y no `flex` para que el ancho del lienzo lo
    marque el contenido y no el contenedor: con `flex`, un árbol más ancho que la
@@ -322,37 +334,53 @@ html, body {
 
 .organigrama-cabecera {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: .4em;
+    gap: .2em .4em;
     padding: .5em .6em;
     cursor: grab;
 }
 
-/* SIN envolver, y con los controles a tamaño fijo. Envolviendo, en cuanto el
-   nombre y los contadores llenaban el renglón, el lápiz se caía él solo a una
-   segunda línea vacía y la caja crecía por debajo. Lo que cede es el TEXTO —el
-   nombre y los contadores se parten en más renglones—, que es lo que se puede
-   leer igual partido; un botón partido no existe. */
-.organigrama-cabecera > *:not(.organigrama-nombre) { flex: 0 0 auto; }
+/* Los controles, a su tamaño y sin encogerse: lo que cede es el TEXTO, que se lee
+   igual partido en dos renglones; un botón partido no existe. */
+.organigrama-cabecera > *:not(.organigrama-nombre):not(.organigrama-apunte) {
+    flex: 0 0 auto;
+}
 
 /* La caja de arriba y la de «sin equipo» no se arrastran: no son equipos. */
 .organigrama-cabecera[draggable="false"] { cursor: default; }
 
 /* `min-width:0` para que el nombre pueda encogerse: un elemento flexible no baja
    por debajo de su contenido mientras valga `auto`, y entonces un nombre de equipo
-   largo empuja al lápiz fuera de una caja que ya no se estira. `anywhere` es el
-   último recurso, para la palabra sola que no cabe ni en un renglón entero. */
+   largo empuja al lápiz fuera de una caja que ya no se estira.
+
+   `break-word` y NO `anywhere`, y la diferencia se vio en pantalla: `anywhere`
+   cuenta además para el ancho mínimo del elemento, así que el reparto flexible le
+   daba al nombre el ancho de una letra y «Organización» salía partida en
+   «Organizació / n» con media caja vacía al lado. `break-word` conserva el ancho
+   mínimo de la palabra entera y solo la parte cuando de verdad no cabe. */
 .organigrama-nombre {
     font-weight: 600;
     flex: 1 1 auto;
     min-width: 0;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
 }
 
+/* LOS CONTADORES BAJAN A SU PROPIO RENGLÓN, y no es una preferencia: en una caja
+   de 19 em no caben en uno solo el asa, el botón de plegar, el nombre, «2
+   equipo(s) · 4 persona(s)» y el lápiz. Compartiendo renglón, el reparto flexible
+   estrujaba al nombre hasta partirlo a mitad de palabra —«Organizació / n»— con
+   media caja vacía al lado. El nombre es lo que hay que leer entero.
+
+   `order` los manda detrás del lápiz para que el que se lleve el renglón nuevo sea
+   este apunte y no el botón: los elementos envuelven en el orden visual, así que
+   sin esto el lápiz bajaría con ellos. Y sin `text-align: right`, que en un renglón
+   propio dejaría los contadores contra el borde derecho, lejos de todo lo demás. */
 .organigrama-apunte {
+    order: 9;
+    flex: 1 0 100%;
     color: var(--rz-text-secondary-color);
     font-size: .82em;
-    text-align: right;
 }
 
 .organigrama-cuerpo {

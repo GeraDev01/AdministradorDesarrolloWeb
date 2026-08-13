@@ -1,4 +1,5 @@
 @page "/"
+@attribute [Authorize]
 @layout Layout.LayoutVacio
 @inject EstadoSesion Sesion
 @inject NavigationManager Navegacion
@@ -20,13 +21,30 @@
     escrita a mano en ninguna lista (ver RecorridosCoberturaTests).
 
     `replace: true` para que el botón de atrás del navegador no devuelva aquí y rebote otra vez.
+
+    EL `[Authorize]` NO SOBRA POR SER ESTO UN DESVÍO — es lo único que hace que se llegue al acceso.
+    Sin él, quien abría la aplicación sin sesión se encontraba LA PANTALLA EN BLANCO, y para siempre:
+    aquí no hay marcado, así que sin sesión no se pintaba nada, y como la pantalla no estaba
+    protegida, el `NotAuthorized` de App.razor —el único sitio donde se manda a nadie al acceso— ni
+    siquiera la miraba. No se veía ningún error: el WebAssembly arrancaba entero, se pintaba y se
+    quedaba en una página vacía. Estuvo así en producción.
+
+    Aquí decía que «el propio arranque ya lleva al acceso», y no era cierto: no hay tal arranque. Las
+    demás pantallas se salvaban por otro camino —todas piden datos a la API y el 401 las empuja al
+    acceso desde ManejadorDeRespuestas—, pero ésta no llama a nada, así que nada la empujaba.
+
+    Con el atributo puesto, el nulo de abajo ya no puede darse: el proveedor de estado de
+    autenticación saca los claims de esta misma sesión (ver ProveedorEstadoAutenticacion), así que si
+    el `[Authorize]` deja pasar, `Usuario` está puesto. Se queda escrito de todas formas porque no
+    pintar nada es mejor que reventar si algún día esos dos caminos dejan de ser el mismo.
+
+    Lo comprueba PuertaDeLasPantallasTests, y con una prueba dedicada a esta ruta: meter «/» en su
+    lista de exentas sería documentar el fallo en vez de arreglarlo.
 *@
 
 @code {
     protected override void OnInitialized()
     {
-        // Sin sesión no se decide nada: el propio arranque ya lleva al acceso, y adelantarse aquí
-        // solo añadiría una carrera entre dos redirecciones.
         if (Sesion.Usuario is not { } usuario) return;
 
         Navegacion.NavigateTo(

@@ -107,24 +107,23 @@ public static class TrazadoDelOrganigrama
             for (int j = i + 1; j < total && niveles[j] > niveles[i]; j++) escondidos[i]++;
         }
 
-        // El anidamiento, en una sola pasada. `abiertos[n]` es la lista de hijos de la caja que hoy
-        // ocupa la altura n; al llegar una caja de altura n se cierra todo lo que hubiera de n para
-        // abajo y se cuelga de la de n-1.
+        // El anidamiento, en una sola pasada y AL REVÉS. Hacia atrás porque un nodo necesita a sus
+        // hijos ya armados para nacer: los records son inmutables y la rama va dentro, así que al
+        // llegar a una caja todo lo que le cuelga tiene que haber pasado ya.
+        //
+        // `porNivel[n]` son los nodos de altura n que todavía no tienen padre, en orden inverso.
+        // Cuando aparece una caja de altura n-1, los de n son suyos y de nadie más: hacia atrás, el
+        // primero que asoma a esa altura es su padre.
         var raices = new List<NodoDelOrganigrama>();
-        var abiertos = new List<List<NodoDelOrganigrama>>();
-
-        // Se recorre AL REVÉS porque un nodo necesita a sus hijos ya armados para nacer: los records
-        // son inmutables y las ramas van dentro. Hacia atrás, cuando se llega a una caja, todo lo que
-        // cuelga de ella ya pasó.
         var porNivel = new Dictionary<int, List<NodoDelOrganigrama>>();
 
         for (int i = total - 1; i >= 0; i--)
         {
             int nivel = niveles[i];
 
-            // Plegada es plegada, tenga rama o no: una caja sin subequipos pero con gente dentro se
-            // pliega para esconder a su gente, y es de las que más se pliegan. Atarlo a que tuviera
-            // rama dejaba a esas cajas con el interruptor pulsado y sin efecto ninguno.
+            // Plegada es plegada, TENGA RAMA O NO: una caja sin subequipos pero con gente dentro se
+            // pliega para esconder a su gente, y es de las que más se pliegan. Atarlo a tener rama
+            // las dejaría con el interruptor pulsado y sin efecto ninguno.
             bool plegada = plegados.Contains(cajas[i].Id);
 
             // Los hijos que se hayan ido acumulando para la altura de debajo son los suyos: nadie más
