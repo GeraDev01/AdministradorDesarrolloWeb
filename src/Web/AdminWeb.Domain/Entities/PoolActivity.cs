@@ -1,4 +1,4 @@
-using AdminWeb.Shared.Enums;
+﻿using AdminWeb.Shared.Enums;
 
 namespace AdminWeb.Domain.Entities;
 
@@ -255,6 +255,27 @@ public class PoolActivity
     /// tiempo. Sin FK por lo mismo que el campo anterior.
     /// </summary>
     public int? LinkedDevActivityId { get; set; }
+
+    /// <summary>
+    /// A qué SUBEQUIPO se publica, o nulo para toda la casa.
+    ///
+    /// <para><b>Nulo es lo de siempre y es el valor por omisión</b>, y no es un detalle: la columna
+    /// nace en nulo en todas las filas que ya existen, así que el día del despliegue el pool sigue
+    /// viéndose entero. Escrito al revés —«solo la ve mi equipo» por omisión— el pool entero
+    /// desaparecería de la pantalla de todo el mundo a la mañana siguiente.</para>
+    ///
+    /// <para><b>Quién la ve, cuando está puesta: el equipo señalado Y TODO LO QUE CUELGA DE ÉL.</b>
+    /// Se lee como «publico al nivel al que quiero que se vea»: apuntando a «Desarrollo Web» la ve el
+    /// área entera, y apuntando a «Soporte» solo Soporte y lo que cuelgue de Soporte. En un equipo sin
+    /// subequipos eso es exactamente «solo mi equipo», que es lo que se pidió, y además no deja fuera
+    /// al jefe de área de lo que se publica para sus ramas.</para>
+    ///
+    /// <para>Sin clave foránea, como el resto de enlaces sueltos de esta entidad: si el equipo
+    /// desaparece, la actividad se queda apuntando a un identificador que ya no está y la jerarquía la
+    /// trata como no visible para nadie salvo administración, que es quien puede repartirla otra vez.
+    /// Borrarla con el equipo sería tirar trabajo pendiente.</para>
+    /// </summary>
+    public int? EquipoId { get; set; }
 
     /// <summary>
     /// Sello de concurrencia optimista. Es nuevo de la web: en el escritorio una actividad la tocaba

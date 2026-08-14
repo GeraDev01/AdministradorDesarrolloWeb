@@ -1,4 +1,4 @@
-using AdminWeb.Domain.Entities;
+﻿using AdminWeb.Domain.Entities;
 using AdminWeb.Domain.Security;
 using AdminWeb.Infrastructure.Data;
 using AdminWeb.Shared.Dtos.Pool;
@@ -70,8 +70,15 @@ public class PoolQueryService(AppDbContext db, ICurrentUser currentUser, PoolAct
         var actividades = await pool.TodasAsync(estado, tipo, ct);
         var pendientes = await pool.PendientesDeVerificarAsync(ct);
 
+        // El NOMBRE del equipo al que está publicada cada una. Se resuelve aquí, de una vez, para que
+        // la pantalla no tenga que cruzar identificadores contra otra lista suya: son dos consultas
+        // distintas y podrían llegar desfasadas.
+        var nombreDeEquipo = await db.Teams.AsNoTracking()
+            .ToDictionaryAsync(t => t.Id, t => t.Name, ct);
+
         return new PoolDelLiderDto(
-            actividades.Select(AVistaDelLider).ToList(),
+            actividades.Select(a => AVistaDelLider(
+                a, a.EquipoId is int e ? nombreDeEquipo.GetValueOrDefault(e) : null)).ToList(),
             pendientes.Select(AVistaPorVerificar).ToList());
     }
 
@@ -200,7 +207,7 @@ public class PoolQueryService(AppDbContext db, ICurrentUser currentUser, PoolAct
         a.Status == PoolActivityStatus.Devuelta ? a.ReviewComment : null,
         a.ExternalUrl);
 
-    private static ActividadDelPoolDto AVistaDelLider(PoolActivity a) => new(
+    private static ActividadDelPoolDto AVistaDelLider(PoolActivity a, string? equipo = null) => new(
         a.Id, a.Title, a.Description,
         a.WorkType, PoolSeed.Etiqueta(a.WorkType),
         a.Complexity, PoolSeed.Etiqueta(a.Complexity),
@@ -219,7 +226,8 @@ public class PoolQueryService(AppDbContext db, ICurrentUser currentUser, PoolAct
         // El máximo alcanzable, para que se vea de un vistazo cuánto está realmente en juego. Suma
         // TODOS los extra, cumplidos o no: mientras nadie los haya evaluado, todos siguen en juego.
         a.Points + a.ExtraCriteria.Sum(c => c.Points),
-        a.ExtraCriteria.Count);
+        a.ExtraCriteria.Count,
+        a.EquipoId, equipo);
 
     private static EntregaPorVerificarDto AVistaPorVerificar(PoolActivity a) => new(
         a.Id, a.Title,

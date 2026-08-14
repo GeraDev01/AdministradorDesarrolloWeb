@@ -360,6 +360,7 @@ public static class PoolEndpoints
         HorasLimite = c.Horas,
         HorasEstimadas = c.HorasEstimadas,
         ExternalUrl = c.Enlace,
-        DevOpsWorkItemId = c.WorkItem
+        DevOpsWorkItemId = c.WorkItem,
+        EquipoId = c.EquipoId
     };
 }

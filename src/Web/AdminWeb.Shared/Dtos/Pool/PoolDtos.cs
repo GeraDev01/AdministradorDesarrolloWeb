@@ -1,4 +1,4 @@
-using AdminWeb.Shared.Enums;
+﻿using AdminWeb.Shared.Enums;
 
 namespace AdminWeb.Shared.Dtos.Pool;
 
@@ -153,7 +153,12 @@ public record ActividadDelPoolDto(
     decimal? Horas,
     decimal? HorasEstimadas,
     int PuntosMaximos,
-    int CuantosCriteriosExtra);
+    int CuantosCriteriosExtra,
+    // A qué equipo se publicó, o nulo para toda la casa. Solo lo necesita la pantalla del líder, que
+    // es la única que edita: el desarrollador no ve nada segmentado que no sea suyo, así que decirle
+    // de qué equipo es sería contarle de una segmentación que no le afecta.
+    int? EquipoId = null,
+    string? EquipoTexto = null);
 
 /// <summary>
 /// Una entrega esperando verificación.
@@ -287,7 +292,11 @@ public record PublicarActividadRequest(
     decimal? Horas = null,
     decimal? HorasEstimadas = null,
     IReadOnlyList<int>? CriteriosExtra = null,
-    int? WorkItem = null);
+    int? WorkItem = null,
+    // A QUÉ SUBEQUIPO se publica; nulo es para toda la casa, que es lo de siempre. Va AL FINAL y con
+    // valor por omisión porque esto es un record posicional: metido en medio, cualquier llamador que
+    // no se recompile pasaría sus argumentos corridos de sitio y sin que el compilador lo viera.
+    int? EquipoId = null);
 
 /// <summary>
 /// Tomar una actividad del pool. Lleva un solo dato y solo hace falta para los BUGS.

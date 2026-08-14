@@ -1,4 +1,6 @@
+﻿using System.Linq.Expressions;
 using AdminWeb.Domain.Entities;
+using AdminWeb.Domain.Equipos;
 using AdminWeb.Domain.Security;
 using AdminWeb.Infrastructure.Data;
 using AdminWeb.Shared.Enums;
@@ -76,9 +78,68 @@ public class PoolActivityService(
     /// </summary>
     public const decimal MinHorasEstimadas = 0.25m;
 
+    // ── Quién ve qué ─────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// LOS EQUIPOS CUYAS ACTIVIDADES PUEDE VER quien tiene la sesión, o <c>null</c> si las ve todas.
+    ///
+    /// <para>Esta es LA regla de visibilidad del pool y vive en un solo sitio a propósito: la usan la
+    /// lista de lo disponible y el UPDATE que gana el reclamo. Escrita dos veces, una de las dos
+    /// acabaría diciendo otra cosa — y la que importa es la del UPDATE, porque la otra solo decide
+    /// qué se dibuja.</para>
+    ///
+    /// <para><b>Devuelve nulo para administración</b>, que ve el pool entero: es quien publica, quien
+    /// rescata lo atascado y quien reparte. Segmentarle la lista dejaría actividades sin nadie que
+    /// pudiera sacarlas de donde estén, y además nadie puede segmentar algo que después no vería.</para>
+    ///
+    /// <para><b>Y lo que devuelve es el SUBÁRBOL hacia arriba</b>: los equipos desde cuya altura se ve
+    /// lo mío. Si estoy en «Soporte», que cuelga de «Desarrollo Web», veo lo publicado a Soporte y lo
+    /// publicado a Desarrollo Web — se publica al nivel al que se quiere que se vea. En un equipo sin
+    /// subequipos eso es exactamente «solo mi equipo», que es lo pedido.</para>
+    ///
+    /// <para><b>Quien no tiene equipo se queda solo con lo no segmentado.</b> Es el estado en que
+    /// queda alguien cuando se borra su equipo, y también el de una cuenta sin ficha. Lo contrario
+    /// convertiría quedarse sin equipo en un privilegio.</para>
+    /// </summary>
+    private async Task<HashSet<int>?> EquiposQueVeoAsync(CancellationToken ct)
+    {
+        if (currentUser.Role == UserRole.Admin) return null;
+
+        if (currentUser.DeveloperId is not int devId) return [];
+
+        var miEquipo = await db.Developers.AsNoTracking()
+            .Where(d => d.Id == devId).Select(d => d.TeamId).FirstOrDefaultAsync(ct);
+        if (miEquipo is not int equipoId) return [];
+
+        // Hacia ARRIBA: mi equipo y todos sus antepasados. Lo publicado a un antepasado alcanza a
+        // toda su rama, y yo estoy dentro.
+        var equipos = await db.Teams.AsNoTracking()
+            .Select(t => new { t.Id, t.EquipoPadreId }).ToListAsync(ct);
+        var jerarquia = JerarquiaDeEquipos.De(equipos.Select(t => (t.Id, t.EquipoPadreId)));
+
+        return [equipoId, .. jerarquia.Ancestros(equipoId)];
+    }
+
+    /// <summary>
+    /// El filtro de visibilidad como PREDICADO, para meterlo tal cual en un <c>Where</c>.
+    ///
+    /// <para>Nulo en <paramref name="equiposQueVeo"/> es «lo ve todo». Lo no segmentado lo ve
+    /// cualquiera: es el pool de siempre y es lo que hay en todas las filas que ya existían.</para>
+    /// </summary>
+    private static Expression<Func<PoolActivity, bool>> Visibles(HashSet<int>? equiposQueVeo) =>
+        equiposQueVeo is null
+            ? _ => true
+            : a => a.EquipoId == null || equiposQueVeo.Contains(a.EquipoId.Value);
+
     // ── Consultas ────────────────────────────────────────────────────────────────
 
-    /// <summary>Lo que hay libre en el pool ahora mismo, de lo más valioso a lo menos.</summary>
+    /// <summary>
+    /// Lo que hay libre en el pool ahora mismo, de lo más valioso a lo menos.
+    ///
+    /// <para>Ya filtrado por lo que puede ver quien mira: lo no segmentado y lo publicado a su equipo
+    /// o a alguno de sus antepasados. El filtro va en el SERVIDOR y no en la pantalla, que es lo
+    /// único que esconde algo de verdad.</para>
+    /// </summary>
     public async Task<List<PoolActivity>> DisponiblesAsync(
         PoolWorkType? tipo = null, PoolComplexity? complejidad = null, CancellationToken ct = default)
     {
@@ -88,7 +149,8 @@ public class PoolActivityService(
         // más ANTES de tomar la actividad. Sin el Include llegarían vacíos y en silencio.
         var q = db.PoolActivities.AsNoTracking()
             .Include(a => a.ExtraCriteria)
-            .Where(a => a.Status == PoolActivityStatus.Disponible);
+            .Where(a => a.Status == PoolActivityStatus.Disponible)
+            .Where(Visibles(await EquiposQueVeoAsync(ct)));
         if (tipo is PoolWorkType t) q = q.Where(a => a.WorkType == t);
         if (complejidad is PoolComplexity c) q = q.Where(a => a.Complexity == c);
 
@@ -210,6 +272,7 @@ public class PoolActivityService(
             Status              = PoolActivityStatus.Disponible,
             ExternalUrl         = enlace,
             DevOpsWorkItemId    = workItem,
+            EquipoId            = borrador.EquipoId,
             CreatedByUserId     = currentUser.UserId,
             CreatedAt           = DateTime.UtcNow
         };
@@ -510,6 +573,17 @@ public class PoolActivityService(
         if (actividad.Status != PoolActivityStatus.Disponible)
             return (false, "Alguien más la tomó primero. Actualiza la lista.");
 
+        // ── LA SEGMENTACIÓN, COMPROBADA AQUÍ Y OTRA VEZ EN EL UPDATE ─────────────
+        //
+        // Esta primera comprobación es solo para poder dar un mensaje que se entienda. La que de
+        // verdad manda es la del UPDATE de abajo: a esta dirección se la puede llamar a mano con
+        // cualquier identificador, y un filtro que solo viviera en la consulta de la lista escondería
+        // la actividad de la pantalla sin impedir que se tomara. Eso no es segmentar, es decorar.
+        var equiposQueVeo = await EquiposQueVeoAsync(ct);
+        if (equiposQueVeo is not null
+            && actividad.EquipoId is int suEquipo && !equiposQueVeo.Contains(suEquipo))
+            return (false, "Esa actividad está publicada para otro equipo.");
+
         int tope = await TopeDeTomadasAsync(ct);
         int tomadas = await db.PoolActivities.AsNoTracking()
             .CountAsync(a => a.ClaimedByDeveloperId == developerId
@@ -561,8 +635,12 @@ public class PoolActivityService(
         // traducir sobre un parámetro.
         DateTime? selloDeLaEstimacion = estimacion is null ? null : ahora;
 
+        // La visibilidad entra en el MISMO Where que el estado y SIN sustituirlo: las dos condiciones
+        // tienen que cumplirse para ganar el reclamo. Puesta aparte —o solo en la consulta de la
+        // lista— «tomar» seguiría aceptando cualquier identificador.
         int ganadas = await db.PoolActivities
             .Where(a => a.Id == id && a.Status == PoolActivityStatus.Disponible)
+            .Where(Visibles(equiposQueVeo))
             .ExecuteUpdateAsync(s => s
                 .SetProperty(a => a.Status, PoolActivityStatus.Tomada)
                 .SetProperty(a => a.ClaimedByDeveloperId, developerId)
@@ -578,7 +656,21 @@ public class PoolActivityService(
                 // borraría al tomarla, y quien la tomó se quedaría sin nada contra qué comparar.
                 .SetProperty(a => a.HorasEstimadas, a => estimacion ?? a.HorasEstimadas)
                 .SetProperty(a => a.HorasEstimadasEnUtc, a => selloDeLaEstimacion ?? a.HorasEstimadasEnUtc), ct);
-        if (ganadas == 0) return (false, "Alguien más la tomó primero. Actualiza la lista.");
+        // Cero filas cambiadas puede ser DOS cosas distintas y hay que distinguirlas, o el mensaje
+        // miente en una de ellas: que alguien se adelantara, o que la actividad se segmentara a otro
+        // equipo entre que se dibujó la lista y se pulsó el botón. Se relee el estado para saber cuál.
+        if (ganadas == 0)
+        {
+            var ahoraEsta = await db.PoolActivities.AsNoTracking()
+                .Where(a => a.Id == id).Select(a => new { a.Status, a.EquipoId }).FirstOrDefaultAsync(ct);
+
+            if (ahoraEsta == null) return (false, "Esa actividad ya no existe. Actualiza la lista.");
+            if (equiposQueVeo is not null && ahoraEsta.EquipoId is int ahoraDe
+                && !equiposQueVeo.Contains(ahoraDe))
+                return (false, "Esa actividad acaba de publicarse para otro equipo.");
+
+            return (false, "Alguien más la tomó primero. Actualiza la lista.");
+        }
 
         // El reclamo ya es firme; a partir de aquí se trabaja sobre la entidad rastreada. Se lee de
         // la base y no de la copia AsNoTracking de arriba porque el UPDATE condicional se ejecutó

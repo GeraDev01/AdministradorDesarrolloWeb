@@ -1,6 +1,7 @@
-@page "/pool"
+﻿@page "/pool"
 @attribute [Authorize(Policy = "SoloAdmin")]
 @using AdminWeb.Shared.Dtos.Pool
+@using AdminWeb.Shared.Dtos.Personas
 @implements IDisposable
 @inject ClienteApi Api
 @inject AvisosDeInterfaz Avisos
@@ -132,7 +133,24 @@
                                         <RadzenDropDown TValue="PoolPriority" @bind-Value="_prioridad" Name="prioridadNueva"
                                                         Data="@Prioridades" TextProperty="Texto" ValueProperty="Valor"
                                                         Style="min-width:10rem" />
+
+                                        @* PARA QUIÉN. Vacío es el pool de siempre: lo ve toda la casa.
+                                           Elegir un equipo lo publica A SU RAMA —ese equipo y todo lo
+                                           que cuelgue de él—, que es lo que deja publicar al nivel al
+                                           que se quiere que se vea: al área entera o solo a un
+                                           subequipo. Administración lo sigue viendo todo. *@
+                                        <RadzenLabel Text="Para:" Component="equipoNueva" />
+                                        <RadzenDropDown TValue="int?" @bind-Value="_equipoDestino" Name="equipoNueva"
+                                                        Data="@_equiposParaPublicar" TextProperty="Etiqueta" ValueProperty="Id"
+                                                        AllowClear="true" Placeholder="Toda la casa"
+                                                        Style="min-width:14rem" />
                                     </RadzenStack>
+
+                                    <RadzenText TextStyle="TextStyle.Caption" TagName="TagName.P" Style="margin:0">
+                                        Sin equipo, la actividad la ve y la toma cualquiera, como hasta ahora.
+                                        Con equipo, solo quienes estén en él o en algo que cuelgue de él
+                                        —administración la sigue viendo—.
+                                    </RadzenText>
 
                                     @*
                                         UN SOLO campo de horas, y lo que pide cambia con el tipo:
@@ -948,6 +966,15 @@
     private PoolComplexity? _complejidadCapturada = PoolComplexity.Media;
     private PoolPriority _prioridad = PoolPriority.Media;
 
+    /// <summary>A qué equipo se publica. Nulo es toda la casa, que es lo de siempre.</summary>
+    private int? _equipoDestino;
+
+    /// <summary>
+    /// Los equipos entre los que elegir, con su sangría por nivel: la misma lista y el mismo formato
+    /// que el «cuelga de» del editor de equipos, para que un subequipo se reconozca de un vistazo.
+    /// </summary>
+    private IReadOnlyList<ArbolDeEquipos.OpcionDePadre> _equiposParaPublicar = [];
+
     /// <summary>
     /// El tipo que se está capturando. Respaldo de <see cref="TipoCapturado"/>: se le asigna DIRECTO
     /// al cargar el formulario, que es cuando no hay que limpiar nada porque no se está cambiando
@@ -1084,6 +1111,15 @@
         _criteriosDisponibles = await Api.LeerAsync<List<CriterioDisponibleDto>>(
             "api/pool/criterios-disponibles", _cancelacion.Token) ?? [];
 
+        // Los equipos, para poder publicar a uno. Se leen del organigrama —la misma consulta que
+        // dibuja el diagrama— y no de un catálogo aparte: así la jerarquía que se ve al elegir es la
+        // que de verdad decide quién va a ver la actividad.
+        var organizacion = await Api.LeerAsync<OrganigramaDto>(
+            "api/personas/equipos/organigrama", _cancelacion.Token);
+        _equiposParaPublicar = organizacion is null
+            ? []
+            : ArbolDeEquipos.PosiblesPadres(organizacion.Equipos, equipoEnEdicion: null);
+
         await CargarPool();
     }
 
@@ -1190,6 +1226,7 @@
         _tipoCapturado = PoolWorkType.Bug;
         _complejidadCapturada = PoolComplexity.Media;
         _prioridad = PoolPriority.Media;
+        _equipoDestino = null;
         _horas = null;
         _plazoPropio = null;
         _criteriosElegidos.Clear();
@@ -1213,6 +1250,7 @@
         _tipoCapturado = actividad.Tipo;
         _complejidadCapturada = actividad.Complejidad;
         _prioridad = actividad.Prioridad;
+        _equipoDestino = actividad.EquipoId;
 
         // El campo de horas se rellena con lo que ese tipo captura, que no es lo mismo en los dos
         // casos: en un bug, el PLAZO que puso el líder; en lo demás, el ESFUERZO que estimó. Poner
@@ -1370,7 +1408,8 @@
             // work item, el número lo saca de ahí el servidor. Aquí no se extrae nada: esa regla —y
             // qué pasa cuando la dirección dice una cosa y la casilla otra— vive allá, es la que se
             // prueba, y una segunda copia acabaría prometiendo un ticket y guardando otro.
-            WorkItem: _workItem);
+            WorkItem: _workItem,
+            EquipoId: _equipoDestino);
 
         var ruta = _editandoId is int id ? $"api/pool/{id}/editar" : "api/pool/publicar";
         if (await Enviar(ruta, cuerpo)) _capturando = false;

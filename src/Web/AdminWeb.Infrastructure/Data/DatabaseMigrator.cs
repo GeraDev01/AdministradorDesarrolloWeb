@@ -1104,6 +1104,12 @@ public static class DatabaseMigrator
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivities"" ADD COLUMN ""DevOpsUltimoError"" TEXT"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Pool_DevOps"" ON ""PoolActivities""(""DevOpsWorkItemId"")"); } catch { }
 
+        // A qué subequipo se publica una actividad, o NULO para toda la casa. Nace en nulo en todo lo
+        // que ya existe, que es lo que hace que el pool siga viéndose entero el día del despliegue.
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivities"" ADD COLUMN ""EquipoId"" INTEGER"); } catch { }
+        // El estado va de primera columna porque toda consulta del pool empieza filtrando por él.
+        try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Pool_Equipo"" ON ""PoolActivities""(""Status"",""EquipoId"")"); } catch { }
+
         db.Database.ExecuteSqlRaw(@"
             CREATE TABLE IF NOT EXISTS ""PoolPointsMatrix"" (
                 ""Id""              INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -2471,6 +2477,10 @@ CREATE TABLE [PoolActivities] (
         Exec("IF COL_LENGTH('PoolActivities','DevOpsEmpujadoEnUtc') IS NULL ALTER TABLE [PoolActivities] ADD [DevOpsEmpujadoEnUtc] datetime2 NULL;");
         Exec("IF COL_LENGTH('PoolActivities','DevOpsUltimoError') IS NULL ALTER TABLE [PoolActivities] ADD [DevOpsUltimoError] nvarchar(1000) NULL;");
         ExecIndex("PoolActivities", "IX_Pool_DevOps", "DevOpsWorkItemId", "[DevOpsWorkItemId]");
+
+        // La gemela de la de SQLite: a qué subequipo se publica, nulo para toda la casa.
+        Exec("IF COL_LENGTH('PoolActivities','EquipoId') IS NULL ALTER TABLE [PoolActivities] ADD [EquipoId] int NULL;");
+        ExecIndex("PoolActivities", "IX_Pool_Equipo", "EquipoId", "[Status],[EquipoId]");
 
         Exec(@"
 IF OBJECT_ID(N'[PoolPointsMatrix]', N'U') IS NULL
