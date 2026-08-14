@@ -60,10 +60,15 @@ public class DespliegueQueryService(
     {
         AuthorizationGuard.RequireAdminOrOperaciones(quien);
 
+        // El nombre del equipo responsable viaja resuelto desde la misma consulta. Mandar solo el
+        // identificador obligaría a la pantalla a cruzarlo contra otra lista suya, y esa lista la
+        // trae otra petición: dos consultas distintas pueden llegar desfasadas y enseñar el equipo
+        // que ya no es.
         return await db.AppSystems.AsNoTracking()
             .OrderBy(s => s.Name)
             .Select(s => new SistemaDto(
-                s.Id, s.Name, s.Description, s.DefaultBlobFolder, s.IsActive, s.Releases.Count))
+                s.Id, s.Name, s.Description, s.DefaultBlobFolder, s.IsActive, s.Releases.Count,
+                s.TeamId, s.Team != null ? s.Team.Name : null))
             .ToListAsync(ct);
     }
 

@@ -1,4 +1,4 @@
-using AdminWeb.Shared.Enums;
+﻿using AdminWeb.Shared.Enums;
 
 namespace AdminWeb.Shared.Dtos.Despliegues;
 
@@ -21,7 +21,12 @@ public record SistemaDto(
     string? Descripcion,
     string? CarpetaPorOmision,
     bool Activo,
-    int Versiones);
+    int Versiones,
+    // QUIÉN LO LLEVA. Sale del propio sistema, con el nombre ya resuelto para que la pantalla no
+    // tenga que cruzar identificadores contra otra lista suya: son dos consultas y podrían llegar
+    // desfasadas. Nulo es «sin equipo asignado», que hoy es la mayoría.
+    int? EquipoId = null,
+    string? Equipo = null);
 
 /// <summary>
 /// Una versión publicable de un sistema.
@@ -247,7 +252,21 @@ public record ExpedienteDeDespliegueDto(
 
 // ── Catálogo ─────────────────────────────────────────────────────────────────────
 
-public record GuardarSistemaRequest(string Nombre, string? Descripcion, string? CarpetaPorOmision);
+/// <summary>
+/// El alta y la edición de un sistema.
+/// </summary>
+/// <param name="EquipoId">Qué equipo se encarga de él, o nulo para dejarlo sin asignar.
+///
+/// <para><b>Esto no se podía escribir desde la aplicación.</b> La columna existía y el organigrama la
+/// leía —de ahí el «2 sistema(s)» de cada caja—, pero ni el alta ni la edición la tocaban: lo que hay
+/// en producción lo escribió el ejecutable de escritorio, que ya no se usa. O sea que el dato estaba
+/// a la vista y se iba quedando viejo sin que nadie pudiera corregirlo.</para>
+///
+/// <para>Un sistema lo lleva UN equipo. No hay ni un dato ni una petición que pida lo contrario, y
+/// una tabla intermedia cambiaría a la vez el organigrama, el catálogo, la limpieza de datos y el
+/// PDF. Asignar es quitárselo a quien lo tuviera: la pantalla lo dice antes de hacerlo.</para></param>
+public record GuardarSistemaRequest(
+    string Nombre, string? Descripcion, string? CarpetaPorOmision, int? EquipoId = null);
 
 /// <summary>Registra como versión un paquete que ya está en la carpeta de despliegue del servidor.</summary>
 public record CrearVersionRequest(int SistemaId, string Version, string? Changelog, string Paquete);

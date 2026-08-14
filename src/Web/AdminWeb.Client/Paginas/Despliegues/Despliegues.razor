@@ -1,8 +1,9 @@
-@page "/despliegues"
+﻿@page "/despliegues"
 @attribute [Authorize(Policy = "AdminUOperaciones")]
 @using AdminWeb.Shared.Dtos.Despliegues
 @* El listado del almacén: es de donde salen los paquetes de la compilación automática. *@
 @using AdminWeb.Shared.Dtos.Programados
+@using AdminWeb.Shared.Dtos.Personas
 @implements IAsyncDisposable
 @inject ClienteApi Api
 @inject AvisosDeInterfaz Avisos
@@ -355,6 +356,67 @@
                             }
                         </RadzenStack>
 
+                        @* LA FICHA DEL SISTEMA, en un formulario y ya no en una cadena de cuadros de
+                           texto sueltos. Aquello preguntaba el nombre y despues la descripcion con la
+                           caja EN BLANCO, asi que cambiarle el nombre a un sistema le BORRABA la
+                           descripcion, y la bitacora lo registraba como una edicion normal. Un
+                           formulario ensena lo que hay antes de tocarlo, que es lo minimo para poder
+                           editar sin destruir. *@
+                        @if (_capturandoSistema)
+                        {
+                            <RadzenCard>
+                                <RadzenStack Gap="0.75rem">
+                                    <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">
+                                        @(_sistemaEnEdicion is null ? "Nuevo sistema" : $"Editar «{_nombreOriginalSistema}»")
+                                    </RadzenText>
+
+                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem"
+                                                 Wrap="FlexWrap.Wrap" AlignItems="AlignItems.Center">
+                                        <RadzenStack Gap="0.25rem">
+                                            <RadzenLabel Text="Nombre" Component="nombreSistema" />
+                                            <RadzenTextBox @bind-Value="_nombreSistema" Name="nombreSistema"
+                                                           MaxLength="150" Style="width:18rem" Disabled="@_ocupado" />
+                                        </RadzenStack>
+
+                                        @* QUIEN LO LLEVA. Un sistema lo lleva UN equipo: asignarlo es
+                                           quitarselo a quien lo tuviera, y por eso se avisa antes. *@
+                                        <RadzenStack Gap="0.25rem">
+                                            <RadzenLabel Text="Equipo encargado" Component="equipoSistema" />
+                                            <RadzenDropDown TValue="int?" @bind-Value="_equipoSistema" Name="equipoSistema"
+                                                            Data="@_equiposDelCatalogo" TextProperty="Etiqueta" ValueProperty="Id"
+                                                            AllowClear="true" Placeholder="Sin asignar"
+                                                            Style="width:18rem" Disabled="@_ocupado" />
+                                        </RadzenStack>
+
+                                        <RadzenStack Gap="0.25rem">
+                                            <RadzenLabel Text="Carpeta del almacen" Component="carpetaSistema" />
+                                            <RadzenTextBox @bind-Value="_carpetaSistema" Name="carpetaSistema"
+                                                           MaxLength="200" Style="width:14rem" Disabled="@_ocupado"
+                                                           Placeholder="Opcional" />
+                                        </RadzenStack>
+                                    </RadzenStack>
+
+                                    <RadzenTextArea @bind-Value="_descripcionSistema" Rows="2" Style="width:100%"
+                                                    Disabled="@_ocupado"
+                                                    Placeholder="Descripcion (opcional): que es este sistema" />
+
+                                    @if (_avisoDeRobo is { Length: > 0 })
+                                    {
+                                        <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+                                            @_avisoDeRobo
+                                        </RadzenAlert>
+                                    }
+
+                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                                        <RadzenButton Text="Guardar" Icon="save" Disabled="@_ocupado"
+                                                      Click="@GuardarSistema" />
+                                        <RadzenButton Text="Cancelar" Icon="close" ButtonStyle="ButtonStyle.Light"
+                                                      Disabled="@_ocupado" Click="@(() => _capturandoSistema = false)" />
+                                    </RadzenStack>
+                                </RadzenStack>
+                            </RadzenCard>
+                        }
+
                         <RadzenDataGrid TItem="SistemaDto" Data="@_sistemas" AllowSorting="true" AllowPaging="true"
                                         PageSize="8" RowRender="@ApagarSistemasInactivos"
                                         SelectionMode="DataGridSelectionMode.Single"
@@ -364,6 +426,22 @@
                                 <RadzenDataGridColumn TItem="SistemaDto" Property="Nombre" Title="Sistema" />
                                 <RadzenDataGridColumn TItem="SistemaDto" Property="Descripcion" Title="Descripción">
                                     <Template Context="s">@(s.Descripcion ?? "—")</Template>
+                                </RadzenDataGridColumn>
+                                @* QUIÉN LO LLEVA. Es la columna que hacía falta para que el dato deje de
+                                   envejecer solo: se leía en el organigrama —«2 sistema(s)» por caja—
+                                   y no había dónde escribirlo ni dónde verlo aquí. *@
+                                <RadzenDataGridColumn TItem="SistemaDto" Property="Equipo" Title="Equipo encargado"
+                                                      Width="180px">
+                                    <Template Context="s">
+                                        @if (s.Equipo is { Length: > 0 })
+                                        {
+                                            @s.Equipo
+                                        }
+                                        else
+                                        {
+                                            <span class="rz-color-secondary">Sin asignar</span>
+                                        }
+                                    </Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="SistemaDto" Property="Versiones" Title="Versiones"
                                                       Width="110px" TextAlign="TextAlign.Right" />
@@ -814,6 +892,18 @@
             if (_opciones is null) return;
 
             _sistemas = await Api.LeerAsync<List<SistemaDto>>("api/despliegues/sistemas", _cancelacion.Token) ?? [];
+
+            // Los equipos, para poder decir quién lleva cada sistema. Solo administración: la lista
+            // sale del organigrama, que Operaciones no puede leer, y para ella el desplegable no
+            // existe porque tampoco puede administrar el catálogo.
+            if (_opciones.PuedeAdministrarCatalogo)
+            {
+                var organizacion = await Api.LeerAsync<OrganigramaDto>(
+                    "api/personas/equipos/organigrama", _cancelacion.Token);
+                _equiposDelCatalogo = organizacion is null
+                    ? []
+                    : ArbolDeEquipos.PosiblesPadres(organizacion.Equipos, equipoEnEdicion: null);
+            }
             _versiones = await Api.LeerAsync<List<VersionDto>>("api/despliegues/versiones", _cancelacion.Token) ?? [];
             _servidores = await Api.LeerAsync<List<ServidorDto>>("api/despliegues/servidores", _cancelacion.Token) ?? [];
             _historial = await Api.LeerAsync<List<DespliegueDelHistorialDto>>("api/despliegues/historial", _cancelacion.Token) ?? [];
@@ -1009,23 +1099,69 @@
 
     // ── Catálogo ─────────────────────────────────────────────────────────────
 
-    private async Task NuevoSistema()
-    {
-        var nombre = await Avisos.PedirTextoAsync("¿Cómo se llama el sistema?", "Nuevo sistema");
-        if (string.IsNullOrWhiteSpace(nombre)) return;
+    // ── La ficha del sistema ─────────────────────────────────────────────────────
 
-        var descripcion = await Avisos.PedirTextoAsync("Descripción (opcional):", "Nuevo sistema");
-        await Enviar("api/despliegues/sistemas/nuevo", new GuardarSistemaRequest(nombre, descripcion, null));
+    private bool _capturandoSistema;
+    private int? _sistemaEnEdicion;
+    private string _nombreOriginalSistema = "";
+    private string _nombreSistema = "";
+    private string _descripcionSistema = "";
+    private string _carpetaSistema = "";
+    private int? _equipoSistema;
+
+    /// <summary>Los equipos, con su sangría por nivel: la misma lista y el mismo formato que el resto
+    /// de la aplicación, para que un subequipo se reconozca de un vistazo.</summary>
+    private IReadOnlyList<ArbolDeEquipos.OpcionDePadre> _equiposDelCatalogo = [];
+
+    /// <summary>Lo que se le va a quitar a otro equipo al guardar, si es que se le quita algo.</summary>
+    private string _avisoDeRobo = "";
+
+    private void NuevoSistema()
+    {
+        _sistemaEnEdicion = null;
+        _nombreOriginalSistema = "";
+        _nombreSistema = "";
+        _descripcionSistema = "";
+        _carpetaSistema = "";
+        _equipoSistema = null;
+        _avisoDeRobo = "";
+        _capturandoSistema = true;
     }
 
-    private async Task EditarSistema(SistemaDto sistema)
+    private void EditarSistema(SistemaDto sistema)
     {
-        var nombre = await Avisos.PedirTextoAsync($"Nombre (actual: «{sistema.Nombre}»):", "Editar sistema");
-        if (string.IsNullOrWhiteSpace(nombre)) return;
+        _sistemaEnEdicion = sistema.Id;
+        _nombreOriginalSistema = sistema.Nombre;
+        _nombreSistema = sistema.Nombre;
+        // PRECARGADO, que es todo el arreglo: antes esta caja salía en blanco y guardar la borraba.
+        _descripcionSistema = sistema.Descripcion ?? "";
+        _carpetaSistema = sistema.CarpetaPorOmision ?? "";
+        _equipoSistema = sistema.EquipoId;
+        _avisoDeRobo = sistema.Equipo is { Length: > 0 }
+            ? $"Hoy lo lleva «{sistema.Equipo}». Cambiar el equipo se lo quita a aquél: un sistema lo lleva uno solo."
+            : "";
+        _capturandoSistema = true;
+    }
 
-        var descripcion = await Avisos.PedirTextoAsync("Descripción (opcional):", "Editar sistema");
-        await Enviar($"api/despliegues/sistemas/{sistema.Id}/editar",
-            new GuardarSistemaRequest(nombre, descripcion, sistema.CarpetaPorOmision));
+    private async Task GuardarSistema()
+    {
+        if (string.IsNullOrWhiteSpace(_nombreSistema))
+        {
+            Avisos.Aviso("El sistema necesita un nombre.");
+            return;
+        }
+
+        var cuerpo = new GuardarSistemaRequest(
+            _nombreSistema.Trim(),
+            string.IsNullOrWhiteSpace(_descripcionSistema) ? null : _descripcionSistema.Trim(),
+            string.IsNullOrWhiteSpace(_carpetaSistema) ? null : _carpetaSistema.Trim(),
+            _equipoSistema);
+
+        var ruta = _sistemaEnEdicion is int id
+            ? $"api/despliegues/sistemas/{id}/editar"
+            : "api/despliegues/sistemas/nuevo";
+
+        if (await Enviar(ruta, cuerpo)) _capturandoSistema = false;
     }
 
     private async Task AlternarSistema(SistemaDto sistema)

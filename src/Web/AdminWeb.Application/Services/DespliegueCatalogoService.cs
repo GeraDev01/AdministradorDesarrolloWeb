@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using AdminWeb.Domain.Entities;
 using AdminWeb.Domain.Security;
 using AdminWeb.Infrastructure.Data;
@@ -57,6 +57,7 @@ public class DespliegueCatalogoService(
             Name = nombre,
             Description = Limpiar(datos.Descripcion),
             DefaultBlobFolder = Limpiar(datos.CarpetaPorOmision),
+            TeamId = datos.EquipoId,
             IsActive = true,
             CreatedAt = DateTime.UtcNow
         };
@@ -80,15 +81,16 @@ public class DespliegueCatalogoService(
         if (await db.AppSystems.AnyAsync(s => s.Name == nombre && s.Id != sistemaId, ct))
             return (false, $"Ya existe otro sistema llamado «{nombre}».");
 
-        var previo = new { sistema.Name, sistema.Description, sistema.DefaultBlobFolder };
+        var previo = new { sistema.Name, sistema.Description, sistema.DefaultBlobFolder, sistema.TeamId };
         sistema.Name = nombre;
         sistema.Description = Limpiar(datos.Descripcion);
         sistema.DefaultBlobFolder = Limpiar(datos.CarpetaPorOmision);
+        sistema.TeamId = datos.EquipoId;
         await db.SaveChangesAsync(ct);
 
         await bitacora.RecordDetailedAsync(AuditAction.Update, "AppSystem", sistema.Id.ToString(),
             $"Sistema editado: {sistema.Name}", AuditOutcome.Exito, previo,
-            new { sistema.Name, sistema.Description, sistema.DefaultBlobFolder }, ct: ct);
+            new { sistema.Name, sistema.Description, sistema.DefaultBlobFolder, sistema.TeamId }, ct: ct);
 
         return (true, "Sistema actualizado.");
     }
