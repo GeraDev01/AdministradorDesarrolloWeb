@@ -2040,6 +2040,33 @@ IF COL_LENGTH('Teams','EquipoPadreId') IS NOT NULL
 ALTER TABLE [Teams] ADD CONSTRAINT [FK_Team_Padre]
     FOREIGN KEY ([EquipoPadreId]) REFERENCES [Teams]([Id]);");
 
+        // ── DOS GEMELAS QUE FALTABAN ─────────────────────────────────────────────
+        //
+        // Las dos existían solo en la rama de SQLite. La base de producción SÍ las tiene —las escribió
+        // el escritorio antes de la mudanza, y por eso el organigrama cuenta sistemas y proyectos—, así
+        // que esto no arregla nada que esté roto hoy: cierra el agujero para cualquier base nueva o
+        // restaurada, donde la mitad del organigrama fallaría al leer una columna que no está.
+        //
+        // Y ahora pesa más que antes: «TeamId» dejó de ser un dato que solo se leía. Desde que la
+        // pantalla de despliegues puede decir qué equipo se encarga de cada sistema, esta columna se
+        // ESCRIBE, y sin ella el guardado fallaría con la excepción que Exec se traga en silencio.
+        Exec("IF COL_LENGTH('AppSystems','TeamId') IS NULL ALTER TABLE [AppSystems] ADD [TeamId] int NULL;");
+
+        // La tabla de proyectos, traducida de la rama SQLite. ON DELETE SET NULL igual que allá: al
+        // borrar un equipo sus proyectos se quedan sin dueño, no se van con él.
+        Exec(@"
+IF OBJECT_ID(N'[Projects]', N'U') IS NULL
+CREATE TABLE [Projects] (
+    [Id]          int IDENTITY(1,1) NOT NULL CONSTRAINT [PK_Projects] PRIMARY KEY,
+    [Name]        nvarchar(200) NOT NULL,
+    [Client]      nvarchar(200) NULL,
+    [Description] nvarchar(max) NULL,
+    [Status]      int NOT NULL DEFAULT 0,
+    [TeamId]      int NULL,
+    [CreatedAt]   datetime2 NOT NULL,
+    CONSTRAINT [FK_Project_Team] FOREIGN KEY ([TeamId]) REFERENCES [Teams]([Id]) ON DELETE SET NULL
+);");
+
         // Ajuste manual del saldo de vacaciones. Mismas cuatro columnas y mismos criterios que en la
         // rama SQLite: el saldo se calcula y no se guarda, así que esto es lo único que un humano
         // escribe. DEFAULT 0 y el resto NULL para que el histórico quede como «nunca ajustado».

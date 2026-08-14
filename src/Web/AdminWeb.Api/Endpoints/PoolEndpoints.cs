@@ -138,9 +138,15 @@ public static class PoolEndpoints
         .RequireAuthorization(PoliticaDelLider)
         .WithSummary("El catálogo de criterios que se pueden pedir como extra en una actividad");
 
+        // La política va DECLARADA y no heredada de la de respaldo. Sin ella, esta dirección caía en
+        // aquella —la que atrapa lo que a nadie se le asignó— y la leía cualquier sesión: Operaciones
+        // incluida, enumerando números. Es la única del grupo que se había quedado sin declararla, y
+        // es la misma que su vecina de arriba y que el checklist, que es lo que lee un desarrollador
+        // de su propia actividad.
         grupo.MapGet("/{id:int}/criterios", async (
             int id, PoolQueryService consultas, CancellationToken ct) =>
             Results.Ok(await consultas.CriteriosExtraDeAsync(id, ct)))
+        .RequireAuthorization(PoliticaDelPool)
         .WithSummary("Los criterios extra de una actividad y en qué quedó cada uno");
 
         // La ruta cuelga del criterio y no de la actividad porque el identificador del criterio ya
