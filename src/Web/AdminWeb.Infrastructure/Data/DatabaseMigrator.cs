@@ -2521,7 +2521,28 @@ CREATE TABLE [PoolActivities] (
 
         // La gemela de la de SQLite: a qué subequipo se publica, nulo para toda la casa.
         Exec("IF COL_LENGTH('PoolActivities','EquipoId') IS NULL ALTER TABLE [PoolActivities] ADD [EquipoId] int NULL;");
-        ExecIndex("PoolActivities", "IX_Pool_Equipo", "EquipoId", "[Status],[EquipoId]");
+
+        // ESTE ÍNDICE SE COMPRUEBA POR NOMBRE, y es el único de la tabla que lo hace. ExecIndex
+        // pregunta «¿hay ya un índice que EMPIECE por esta columna?», y aquí esa pregunta no sirve
+        // de ninguna de las dos formas: declarando «EquipoId» no encuentra el suyo —que empieza por
+        // Status— y lo intenta crear en CADA arranque, fallando con «ya existe» y dejando el aviso
+        // de esquema incompleto encendido para siempre; y declarando «Status» se toparía con
+        // IX_Pool_Status, que ya empieza por ahí, y entonces este índice no se crearía nunca.
+        //
+        // Por nombre es preciso y aquí es seguro, que es lo que no lo es en general: el motivo de la
+        // casa para no preguntar por nombre es que en una base recién creada EF hace sus índices
+        // desde el modelo y con SUS nombres, así que preguntar por el nuestro crearía un duplicado.
+        // Éste no está en el modelo —no hay HasIndex para él—, así que EF nunca lo va a crear con
+        // otro nombre y no hay duplicado posible.
+        //
+        // El orden (Status, EquipoId) y no al revés porque toda consulta del pool empieza filtrando
+        // por estado, y «Disponible» es un puñado de filas dentro de la tabla entera.
+        Exec(@"
+IF OBJECT_ID(N'[PoolActivities]', N'U') IS NOT NULL
+   AND COL_LENGTH('PoolActivities','EquipoId') IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Pool_Equipo'
+                   AND object_id = OBJECT_ID(N'[PoolActivities]'))
+CREATE INDEX [IX_Pool_Equipo] ON [PoolActivities]([Status],[EquipoId]);");
 
         Exec(@"
 IF OBJECT_ID(N'[PoolPointsMatrix]', N'U') IS NULL
