@@ -1,4 +1,4 @@
-using AdminWeb.Application.Services;
+﻿using AdminWeb.Application.Services;
 using AdminWeb.Domain.Documentos;
 using AdminWeb.Domain.Entities;
 using AdminWeb.Domain.Security;
@@ -116,7 +116,7 @@ public class SalidasDelBloqueoDeFirmaDeVacacionesTests
             db, quien, new SettingsService(db, quien, auditoria),
             new SignatureService(db, quien, auditoria),
             generador ?? new GeneradorEspia(), new PlantillaDeVacacionesOpenXml(), auditoria,
-            Fabrica.Vacaciones(db, quien), new NotificationService(db));
+            Fabrica.Vacaciones(db, quien), Fabrica.Saldo(db, quien), new NotificationService(db));
     }
 
     /// <summary>La firma compartida del jefe, creada como la crea su gestor.</summary>

@@ -37,6 +37,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Team> Teams => Set<Team>();
 
     /// <summary>
+    /// Los días que no se trabajan: los del artículo 74 de la LFT, sembrados desde la regla, más los
+    /// que ponga la casa. No consumen vacaciones. Ver DiaFestivo.
+    /// </summary>
+    public DbSet<DiaFestivo> DiasFestivos => Set<DiaFestivo>();
+
+    /// <summary>
     /// Qué hace, en cada equipo, quien tiene cada rol. Sustituye a teclear la misma frase una vez por
     /// persona; no se copia a las fichas, se resuelve al leer. Ver DescripcionDeRolDeEquipo.
     /// </summary>
@@ -732,6 +738,16 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         // PointEntries ya cae en cascada desde Developers, así que una segunda ruta hasta la misma
         // tabla es de las que SQL Server rechaza al crear las restricciones. Es la misma decisión —y
         // por el mismo motivo— que PoolActivity.PointEntryId.
+        modelBuilder.Entity<DiaFestivo>(e =>
+        {
+            e.Property(d => d.Motivo).IsRequired().HasMaxLength(200);
+
+            // Una fila por fecha, y lo dice la BASE. Sin esto, resembrar dos veces —o dos arranques a
+            // la vez— dejarían el mismo festivo repetido, y un día repetido se descontaría dos veces
+            // de las vacaciones de quien lo pida.
+            e.HasIndex(d => d.Fecha).IsUnique();
+        });
+
         modelBuilder.Entity<DescripcionDeRolDeEquipo>(e =>
         {
             e.Property(d => d.Rol).HasConversion<int>();

@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Security.Cryptography;
 using AdminWeb.Domain.Documentos;
 using AdminWeb.Domain.Entities;
@@ -40,6 +40,7 @@ public class DocumentoDeVacacionesService(
     IPlantillaDeVacacionesEnWord plantillaWord,
     AuditService auditoria,
     VacationRequestService solicitudes,
+    SaldoDeVacacionesService saldo,
     NotificationService? avisos = null)
 {
     /// <summary>
@@ -787,8 +788,7 @@ public class DocumentoDeVacacionesService(
             {
                 v.DeveloperId,
                 v.StartDate, v.EndDate, v.Status, v.Comment, v.ReviewComment,
-                v.Developer.FullName, v.Developer.HireDate, v.Developer.Seniority,
-                v.Developer.VacationDaysLeft
+                v.Developer.FullName, v.Developer.HireDate, v.Developer.Seniority
             })
             .FirstOrDefaultAsync(ct);
 
@@ -827,7 +827,11 @@ public class DocumentoDeVacacionesService(
         var datos = Campos(
             nombre: solicitud.FullName,
             fechaDeIngreso: solicitud.HireDate,
-            diasPendientes: solicitud.VacationDaysLeft,
+            // EL SALDO CALCULADO, no el número guardado en la ficha. Aquí se imprimía
+            // Developer.VacationDaysLeft, que no es un saldo: es la cuota anual que alguien tecleó
+            // una vez y que nadie actualiza —ni al aprobar vacaciones ni al cumplir años—. O sea que
+            // el papel que la persona FIRMA llevaba bajo «Días pendientes» un número muerto.
+            diasPendientes: (await saldo.CalcularAsync(solicitud.DeveloperId, ct: ct)).Disponible,
             inicio: solicitud.StartDate,
             fin: solicitud.EndDate,
             estado: solicitud.Status,

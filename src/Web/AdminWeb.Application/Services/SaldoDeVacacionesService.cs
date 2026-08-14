@@ -1,4 +1,4 @@
-using AdminWeb.Domain.Security;
+﻿using AdminWeb.Domain.Security;
 using AdminWeb.Infrastructure.Data;
 using AdminWeb.Shared.Dtos.Ausencias;
 using AdminWeb.Shared.Enums;
@@ -150,8 +150,42 @@ public class SaldoDeVacacionesService(
     AppDbContext db,
     ICurrentUser usuarioActual,
     AuditService auditoria,
-    SettingsService ajustes)
+    SettingsService ajustes,
+    CalendarioLaboralService calendario)
 {
+    /// <summary>
+    /// EL CORTE: el día a partir del cual manda el sistema. Los periodos que CIERRAN antes no generan
+    /// nada.
+    ///
+    /// <para><b>Por qué existe.</b> No hay histórico capturado de las vacaciones tomadas antes de que
+    /// esta aplicación llevara la cuenta. Sin corte, el cálculo genera los días de todos los años
+    /// anteriores y no encuentra ninguno gozado, así que promete días que casi con seguridad ya se
+    /// disfrutaron — y los promete en un número que alguien va a reclamar. Lo que se le deba a cada
+    /// quien por aquellos años entra por el ajuste manual, que lleva nota y autor.</para>
+    ///
+    /// <para><b>Es una decisión de la casa y no una regla de la ley</b>, y por eso es un ajuste y no
+    /// una constante: se declaró el 1 de enero de 2026, y cambiarlo mueve el saldo de toda la
+    /// plantilla, así que tiene que poder hacerse a la vista y sin recompilar. Mismo motivo que
+    /// <see cref="ClaveCaducidadMeses"/>.</para>
+    /// </summary>
+    public const string ClaveCorte = "vacaciones.corte";
+
+    /// <summary>La fecha declarada por el dueño: del 1 de enero de 2026 en adelante manda el sistema.</summary>
+    public static readonly DateTime CortePorOmision = new(2026, 1, 1);
+
+    /// <summary>
+    /// El corte que rige hoy. Un valor mal escrito cae al de omisión en vez de tumbar el cálculo: sin
+    /// saldo no se pueden pedir vacaciones, y eso es peor que un corte en la fecha de siempre.
+    /// </summary>
+    public async Task<DateTime> CorteAsync(CancellationToken ct = default)
+    {
+        var texto = await ajustes.ObtenerAsync(ClaveCorte, ct);
+        return DateTime.TryParse(texto, System.Globalization.CultureInfo.InvariantCulture,
+                                 System.Globalization.DateTimeStyles.None, out var fecha)
+            ? fecha.Date
+            : CortePorOmision;
+    }
+
     /// <summary>
     /// Meses que se arrastran los días no gozados antes de caducar.
     ///
@@ -263,15 +297,24 @@ public class SaldoDeVacacionesService(
         //  · Los PERMISOS (LeaveRequests) no tocan este saldo: una incapacidad o una cita médica no
         //    son vacaciones, y descontarlas de aquí le cobraría a la persona días que la ley no
         //    permite cobrarle.
+        // Los festivos se leen UNA vez para todas las solicitudes. Preguntando por cada rango serían
+        // tantas consultas como vacaciones tenga la persona.
+        var festivos = await calendario.TodosLosFestivosAsync(ct);
+
         var gozados = solicitudes
             .Where(v => v.Status == VacationStatus.Aprobada)
-            .Select(v => (Fecha: v.StartDate.Date, Dias: Dias(v.StartDate, v.EndDate)))
+            .Select(v => (Fecha: v.StartDate.Date,
+                          Dias: CalendarioLaboralService.ContarLaborables(v.StartDate, v.EndDate, festivos)))
             .OrderBy(g => g.Fecha)
             .ToList();
 
+        // LO PENDIENTE YA NO RESTA del disponible. Decisión del dueño: el número enseña lo que hay
+        // hasta que el líder responde. Se sigue CONTANDO y viajando en el DTO —la pantalla lo dice,
+        // para que nadie crea que su solicitud se perdió— pero la resta salió de la fórmula, que vive
+        // en SaldoAcumuladoDto.Disponible.
         int comprometidos = solicitudes
             .Where(v => v.Status == VacationStatus.Pendiente)
-            .Sum(v => Dias(v.StartDate, v.EndDate));
+            .Sum(v => CalendarioLaboralService.ContarLaborables(v.StartDate, v.EndDate, festivos));
 
         if (ficha.HireDate is not DateTime ingreso)
             // Sin fecha de ingreso no hay antigüedad, y por tanto no hay nada generado. Se responde
@@ -291,7 +334,7 @@ public class SaldoDeVacacionesService(
                 Periodos: []);
 
         int anios = TablaDeVacacionesLft.AniosCumplidos(ingreso, corte);
-        var periodos = Repartir(ingreso, anios, ventana, gozados, corte);
+        var periodos = Repartir(ingreso, anios, ventana, gozados, corte, await CorteAsync(ct));
 
         int generados = periodos.Sum(p => p.Dias);
         int tomados = gozados.Sum(g => g.Dias);
@@ -342,9 +385,12 @@ public class SaldoDeVacacionesService(
     /// que la identidad <c>vigentes = generados − tomados − caducados</c> lo deja en el saldo como
     /// números rojos. Ahí es donde el líder tiene que ajustar.</para>
     /// </summary>
+    /// <param name="corte">El «hoy» del cálculo: hasta cuándo se mira.</param>
+    /// <param name="desdeCuandoManda">El corte de arranque: los periodos que cierran antes no generan
+    /// nada, porque de aquellos años no hay histórico y lo que se deba entra por el ajuste manual.</param>
     private static List<PeriodoDeVacacionesDto> Repartir(
         DateTime ingreso, int aniosCumplidos, int ventanaMeses,
-        List<(DateTime Fecha, int Dias)> gozados, DateTime corte)
+        List<(DateTime Fecha, int Dias)> gozados, DateTime corte, DateTime desdeCuandoManda)
     {
         // Solo los periodos CERRADOS: los días se generan al cumplir el año de servicio, no durante.
         // El primer año, por tanto, no aparece hasta el primer aniversario, y por eso vale cero.
@@ -357,7 +403,13 @@ public class SaldoDeVacacionesService(
         {
             cierres[i] = TablaDeVacacionesLft.Aniversario(ingreso, i + 1);
             caduca[i] = cierres[i].AddMonths(ventanaMeses);
-            dias[i] = TablaDeVacacionesLft.DiasDelPeriodo(i + 1);
+
+            // EL CORTE. Un periodo que cerró antes de la fecha declarada no genera nada: lo de
+            // aquellos años se cerró a mano con el ajuste, porque no hay histórico capturado de lo
+            // que se gozó y el sistema no puede saberlo. Se deja el periodo en la lista con cero
+            // días en vez de quitarlo, para que quien mire el desglose vea que existió y por qué no
+            // suma — una lista que empieza en el año cuatro se lee como si faltaran filas.
+            dias[i] = cierres[i] < desdeCuandoManda ? 0 : TablaDeVacacionesLft.DiasDelPeriodo(i + 1);
         }
 
         foreach (var (fecha, cuantos) in gozados)
@@ -521,8 +573,10 @@ public class SaldoDeVacacionesService(
         return meses >= 1 && meses <= CaducidadMesesMaxima ? meses : CaducidadMesesPorOmision;
     }
 
-    /// <summary>Días que cubre un rango, contando el primero y el último.</summary>
-    private static int Dias(DateTime inicio, DateTime fin) => (fin.Date - inicio.Date).Days + 1;
+    // Aquí vivía Dias(), que contaba días NATURALES: (fin - inicio) + 1. Se fue porque el artículo 76
+    // concede días LABORABLES, así que aquello descontaba sábados, domingos y festivos y le cobraba
+    // doce días a unas vacaciones de lunes a viernes de la semana siguiente. La cuenta buena está en
+    // CalendarioLaboralService, que además sabe de la tabla de festivos.
 
     /// <summary>La respuesta para una cuenta sin ficha de desarrollador: no hay saldo del que hablar.</summary>
     private static SaldoAcumuladoDto SinFicha() => new(

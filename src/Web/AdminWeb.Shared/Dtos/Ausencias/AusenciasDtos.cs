@@ -1,4 +1,4 @@
-using AdminWeb.Shared.Enums;
+﻿using AdminWeb.Shared.Enums;
 
 namespace AdminWeb.Shared.Dtos.Ausencias;
 
@@ -142,8 +142,17 @@ public record SaldoAcumuladoDto(
     /// <summary>
     /// Los días que hoy se pueden pedir. Puede salir NEGATIVO —se gozó de más, o el líder restó con
     /// un ajuste— y se enseña tal cual: un cero de mentira esconde justo lo que hay que corregir.
+    ///
+    /// <para><b>Lo COMPROMETIDO ya no resta.</b> Antes se descontaba lo pedido y aún sin responder, y
+    /// se quitó por decisión del dueño: el número enseña lo que hay hasta que el líder contesta.
+    /// <c>DiasComprometidos</c> sigue viajando y la pantalla lo dice aparte, para que nadie crea que
+    /// su solicitud se perdió — pero no toca este total.</para>
+    ///
+    /// <para>De paso se va un defecto que tenía: lo pendiente restaba aquí y NO se apuntaba contra
+    /// ningún periodo, así que tampoco frenaba la caducidad; mientras el líder no respondiera, esos
+    /// días podían acabar restados dos veces, una como comprometidos y otra como caducados.</para>
     /// </summary>
-    public int Disponible => DiasVigentes - DiasComprometidos + AjusteManual;
+    public int Disponible => DiasVigentes + AjusteManual;
 }
 
 /// <summary>

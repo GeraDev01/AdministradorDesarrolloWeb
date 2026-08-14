@@ -1,4 +1,4 @@
-@page "/desarrolladores"
+﻿@page "/desarrolladores"
 @attribute [Authorize(Policy = "SoloAdmin")]
 @using AdminWeb.Client.Componentes
 @using AdminWeb.Shared.Dtos
@@ -132,17 +132,18 @@
                         <RadzenDatePicker @bind-Value="_ingreso" Name="ingresoDev" DateFormat="dd/MM/yyyy"
                                           AllowClear="true" Style="width:11rem" />
                     </RadzenStack>
-                    <RadzenStack Gap="0.25rem">
-                        <RadzenLabel Text="Días de vacaciones" Component="vacDev" />
-                        <RadzenNumeric @bind-Value="_diasVacaciones" Name="vacDev" Min="0" Max="365"
-                                       Style="width:8rem" />
-                    </RadzenStack>
+                    @* El campo «Días de vacaciones» se retiró. Convivía con el AJUSTE del saldo
+                       —el de la nota obligatoria, que sí mueve el número— sin que nada distinguiera
+                       cuál de los dos servía para algo, y el que parecía servir no hacía nada. Quien
+                       quiera corregirle el saldo a alguien lo hace desde «Saldo vacaciones», donde
+                       queda con nota y autor. *@
                     @* Solo SUGIERE: rellena el campo de al lado y el líder puede ajustarlo. Está
                        apagado sin fecha de ingreso porque sin ella no hay antigüedad que calcular. *@
                     @* Sin icono: «balance» es del menú «Estimación y capacidad» y aquí leería otra
                        cosa; el vocabulario no tiene un concepto para «calcular lo que marca la ley». *@
-                    <RadzenButton Text="Calcular (LFT)" ButtonStyle="ButtonStyle.Light"
-                                  Disabled="@(_ocupado || _ingreso is null)" Click="@CalcularLft" />
+                    @* Y con él se va «Calcular (LFT)», que era lo que escribía ese número. Pulsarlo
+                       en todas las fichas «para ponerlas al día» reproducía el fallo entero con
+                       aspecto de arreglo: volvía a escribir la cuota anual donde se leía saldo. *@
                     <RadzenStack Gap="0.25rem">
                         <RadzenLabel Text="N.° de serie del equipo" Component="serieDev" />
                         <RadzenTextBox @bind-Value="_serie" Name="serieDev" MaxLength="80"
@@ -374,10 +375,15 @@
                                   Visible="@Ver("N.° Serie")">
                 <Template Context="d">@(string.IsNullOrWhiteSpace(d.SerieEquipo) ? "—" : d.SerieEquipo)</Template>
             </RadzenDataGridColumn>
-            <RadzenDataGridColumn TItem="DesarrolladorDto" Property="DiasVacaciones" Title="Vacaciones" Width="110px"
-                                  Visible="@Ver("Vacaciones")">
-                <Template Context="d">@d.DiasVacaciones días</Template>
-            </RadzenDataGridColumn>
+            @* Aquí había una columna «Vacaciones» que enseñaba Developer.VacationDaysLeft, y era la
+               fuente del fallo que reportó el dueño: la pantalla de la persona decía 34 días y esta
+               rejilla decía 18. No era un descuadre — son cosas distintas. Aquel número no es un
+               saldo: es la CUOTA ANUAL que da la ley por antigüedad, tecleada una vez y que nadie
+               actualiza, ni al aprobar vacaciones ni al cumplir años. Bajo el rótulo «Vacaciones» se
+               leía como si fueran los días que le quedan a alguien.
+
+               El saldo de verdad está a un clic, en el botón «Saldo vacaciones» de esta misma
+               pantalla, y se calcula. *@
             <RadzenDataGridColumn TItem="DesarrolladorDto" Property="Asignados" Title="Asignados" Width="100px"
                                   Visible="@Ver("Asignados")" />
             <RadzenDataGridColumn TItem="DesarrolladorDto" Property="TieneAcceso" Title="Acceso" Width="100px"

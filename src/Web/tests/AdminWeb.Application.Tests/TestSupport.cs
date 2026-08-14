@@ -1,4 +1,4 @@
-using AdminWeb.Application.Services;
+﻿using AdminWeb.Application.Services;
 using AdminWeb.Domain.Security;
 using AdminWeb.Infrastructure.Data;
 using AdminWeb.Infrastructure.Documentos;
@@ -161,6 +161,18 @@ internal static class Fabrica
         return new VacationRequestService(db, usuario, auditoria, new SignatureService(db, usuario, auditoria));
     }
 
+    /// <summary>
+    /// El saldo de vacaciones, con su calendario laboral. Los dos van juntos siempre: el saldo cuenta
+    /// días LABORABLES, así que sin calendario no sabría cuáles descontar.
+    /// </summary>
+    public static SaldoDeVacacionesService Saldo(AppDbContext db, ICurrentUser usuario)
+    {
+        var auditoria = new AuditService(db, usuario, new OrigenDePrueba());
+        return new SaldoDeVacacionesService(
+            db, usuario, auditoria, new SettingsService(db, usuario, auditoria),
+            new CalendarioLaboralService(db));
+    }
+
     /// <summary>El lado del líder: resolver, emitir el documento y firmarlo.</summary>
     public static DocumentoDeVacacionesService DocumentoDeVacaciones(AppDbContext db, ICurrentUser usuario)
     {
@@ -169,6 +181,6 @@ internal static class Fabrica
             db, usuario, new SettingsService(db, usuario, auditoria),
             new SignatureService(db, usuario, auditoria),
             new GeneradorDeDocumentosQuestPdf(), new PlantillaDeVacacionesOpenXml(), auditoria,
-            Vacaciones(db, usuario));
+            Vacaciones(db, usuario), Saldo(db, usuario));
     }
 }

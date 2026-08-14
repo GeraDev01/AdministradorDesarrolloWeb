@@ -1,4 +1,4 @@
-using System.Data;
+﻿using System.Data;
 using AdminWeb.Application.Demo;
 using AdminWeb.Application.Manual;
 using AdminWeb.Application.Services;
@@ -126,6 +126,7 @@ public static class PreparacionDeLaBase
 
             await SembrarCatalogosAsync(db, log, ct);
             await SembrarManualAsync(db, log, ct);
+            await SembrarFestivosAsync(alcance.ServiceProvider, log, ct);
             await SembrarDemostracionAsync(alcance.ServiceProvider, db, log, ct);
         }
         finally
@@ -332,6 +333,41 @@ public static class PreparacionDeLaBase
     /// demostración la aplicación funciona perfectamente —solo se abre vacía—, y negarse a arrancar
     /// por un dato de conveniencia sería desproporcionado. Queda en el registro.</para>
     /// </summary>
+    /// <summary>
+    /// Repone los días de descanso obligatorio del artículo 74 que falten, del año en curso en
+    /// adelante.
+    ///
+    /// <para>Corre en CADA arranque y solo añade lo que no está: no borra, no reescribe y no toca los
+    /// días que haya puesto la casa. Así el calendario se mantiene solo y nadie tiene que acordarse de
+    /// resembrarlo en enero — que es exactamente el olvido que dejaría de contar los festivos y le
+    /// descontaría esos días a quien pida vacaciones.</para>
+    ///
+    /// <para>Un fallo aquí NO tumba el arranque: sin festivos el saldo sale algo más bajo, que es
+    /// malo, pero dejar a todo el equipo fuera de la aplicación es peor.</para>
+    /// </summary>
+    private static async Task SembrarFestivosAsync(
+        IServiceProvider servicios, ILogger log, CancellationToken ct)
+    {
+        try
+        {
+            var calendario = servicios.GetRequiredService<CalendarioLaboralService>();
+            int puestos = await calendario.SembrarLosDeLeyAsync(DateTime.Today.Year, ct);
+
+            if (puestos > 0)
+                log.LogInformation(
+                    "Calendario laboral: se sembraron {Cuantos} día(s) de descanso obligatorio "
+                    + "(art. 74 LFT) para los próximos {Anios} años.",
+                    puestos, CalendarioLaboralService.AniosQueSeSiembran);
+        }
+        catch (Exception ex)
+        {
+            log.LogError(ex,
+                "No se pudieron sembrar los días festivos. La aplicación arranca igual, pero mientras "
+                + "la tabla esté incompleta las vacaciones descontarán esos días como si se "
+                + "trabajaran. Revísalo.");
+        }
+    }
+
     private static async Task SembrarDemostracionAsync(
         IServiceProvider servicios, AppDbContext db, ILogger log, CancellationToken ct)
     {

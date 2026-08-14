@@ -1,4 +1,4 @@
-using AdminWeb.Application.Services;
+﻿using AdminWeb.Application.Services;
 using AdminWeb.Domain.Calculo;
 using AdminWeb.Domain.Entities;
 using AdminWeb.Domain.Security;
@@ -29,18 +29,37 @@ public class SaldoDeVacacionesTests
 
     private static readonly DateTime CincoAnios = new(2026, 1, 5);
 
+    /// <summary>
+    /// El escenario de casi todas las pruebas de este archivo, con DOS cosas apartadas a propósito.
+    ///
+    /// <para><b>El CORTE se echa muy atrás.</b> En producción rige el 1 de enero de 2026 —de ahí en
+    /// adelante manda el sistema— y eso pondría a cero los periodos de estos escenarios, que ingresan
+    /// en 2021 para poder tener cinco años cumplidos. Con el corte puesto, las pruebas de acumulación
+    /// y caducidad dejarían de probar nada: todo daría cero y seguirían verdes. El corte tiene sus
+    /// propias pruebas, abajo.</para>
+    ///
+    /// <para><b>Y NO se siembran festivos.</b> Estas pruebas cuentan días laborables y las fechas
+    /// están escritas a mano; un festivo dentro de un rango cambiaría el número esperado sin que se
+    /// vea por qué. Lo que los festivos hacen tiene sus propias pruebas, también abajo.</para>
+    /// </summary>
     private static (AppDbContext db, SaldoDeVacacionesService svc, ICurrentUser usuario) Nuevo(
         DateTime? ingreso = null, UserRole rol = UserRole.Admin, int? devId = AnaId)
     {
         var db = TestDb.New();
         db.Developers.Add(new Developer { Id = AnaId, FullName = "Ana", IsActive = true, HireDate = ingreso, VacationDaysLeft = 15 });
         db.Developers.Add(new Developer { Id = BetoId, FullName = "Beto", IsActive = true, HireDate = ingreso });
+        db.AppSettings.Add(new AppSetting
+        {
+            Key = SaldoDeVacacionesService.ClaveCorte,
+            Value = "2000-01-01"
+        });
         db.SaveChanges();
 
         var usuario = UsuarioDePrueba.Como(rol, devId);
         var auditoria = new AuditService(db, usuario, new OrigenDePrueba());
         var svc = new SaldoDeVacacionesService(
-            db, usuario, auditoria, new SettingsService(db, usuario, auditoria));
+            db, usuario, auditoria, new SettingsService(db, usuario, auditoria),
+            new CalendarioLaboralService(db));
         return (db, svc, usuario);
     }
 
@@ -249,11 +268,16 @@ public class SaldoDeVacacionesTests
         var db = TestDb.New();
         db.Developers.Add(new Developer { Id = AnaId, FullName = "Ana", IsActive = true, HireDate = new DateTime(2024, 1, 10) });
         db.Developers.Add(new Developer { Id = BetoId, FullName = "Beto", IsActive = true, HireDate = new DateTime(2024, 12, 20) });
+        // El corte se echa atrás por lo mismo que en «Nuevo»: lo que aquí se prueba es que el periodo
+        // sea el aniversario de cada quien y no el año calendario, y con el corte de producción los
+        // dos darían cero y la prueba pasaría sin comprobar nada.
+        db.AppSettings.Add(new AppSetting { Key = SaldoDeVacacionesService.ClaveCorte, Value = "2000-01-01" });
         db.SaveChanges();
 
         var usuario = UsuarioDePrueba.Como(UserRole.Admin);
         var auditoria = new AuditService(db, usuario, new OrigenDePrueba());
-        var svc = new SaldoDeVacacionesService(db, usuario, auditoria, new SettingsService(db, usuario, auditoria));
+        var svc = new SaldoDeVacacionesService(db, usuario, auditoria,
+            new SettingsService(db, usuario, auditoria), new CalendarioLaboralService(db));
 
         var hoy = new DateTime(2026, 6, 1);
         var ana = await svc.CalcularAsync(AnaId, hoy);
@@ -270,31 +294,40 @@ public class SaldoDeVacacionesTests
     [Fact]
     public async Task LoAprobadoSeDescuentaDeLosDiasMasVIEJOSPrimero()
     {
-        // Diez días tomados en febrero de 2025. Ese día, los periodos 1 y 2 ya habían caducado, así
-        // que el más viejo que seguía vivo era el tercero: de ahí salen. Cargarlos contra el periodo
-        // más reciente dejaría los viejos quietos hasta caducar y la persona perdería días teniendo
-        // saldo de sobra.
+        // Vacaciones del sábado 1 al lunes 10 de febrero de 2025: diez días de calendario y SEIS
+        // laborables, que son los que se descuentan. Ese día los periodos 1 y 2 ya habían caducado,
+        // así que el más viejo que seguía vivo era el tercero: de ahí salen. Cargarlos contra el
+        // periodo más reciente dejaría los viejos quietos hasta caducar y la persona perdería días
+        // teniendo saldo de sobra.
         var (db, svc, _) = Nuevo(Ingreso);
         Vacacion(db, new DateTime(2025, 2, 1), 10, VacationStatus.Aprobada);
 
         var saldo = await svc.CalcularAsync(AnaId, CincoAnios);
 
-        Assert.Equal(10, saldo.Periodos[2].Usados);
-        Assert.Equal(6, saldo.Periodos[2].Restantes);
+        Assert.Equal(6, saldo.Periodos[2].Usados);
+        Assert.Equal(10, saldo.Periodos[2].Restantes);
         Assert.Equal(0, saldo.Periodos[3].Usados);
 
-        Assert.Equal(10, saldo.DiasTomados);
-        Assert.Equal(32, saldo.DiasCaducados);    // 12 + 14 + los 6 que sobraron del tercero
+        Assert.Equal(6, saldo.DiasTomados);
+        Assert.Equal(36, saldo.DiasCaducados);    // 12 + 14 + los 10 que sobraron del tercero
         Assert.Equal(38, saldo.DiasVigentes);
     }
 
     [Fact]
-    public async Task LasPENDIENTESNoSeHanGozadoPeroApartanElDisponible()
+    public async Task LasPENDIENTES_SE_CUENTAN_PERO_YA_NO_RESTAN()
     {
-        // Si no restaran, alguien podría pedir tres veces los mismos días y las tres solicitudes
-        // parecerían caber; el líder aprobaría la primera creyendo que quedan días y las otras dos ya
-        // estarían de más. Van en su propio renglón para que se entienda por qué bajó el disponible
-        // sin que nadie haya aprobado nada.
+        // CAMBIO DE COMPORTAMIENTO, decidido por el dueño: lo pedido y aún sin responder ya NO baja el
+        // disponible. Antes sí, con este argumento: si no restaran, alguien podría pedir tres veces
+        // los mismos días y las tres solicitudes parecerían caber. Se aceptó a cambio de que el número
+        // enseñe lo que hay de verdad hasta que el líder conteste.
+        //
+        // Se siguen CONTANDO y viajan en su propio renglón, para que quien mire entienda que tiene una
+        // solicitud en cola y no crea que se perdió.
+        //
+        // Y de paso se fue un defecto: lo pendiente restaba del disponible sin apuntarse contra ningún
+        // periodo, así que tampoco frenaba la caducidad — esos días podían acabar restados dos veces.
+        //
+        // Del domingo 1 al jueves 5 de febrero de 2026 hay cuatro días laborables.
         var (db, svc, _) = Nuevo(Ingreso);
         Vacacion(db, new DateTime(2026, 2, 1), 5, VacationStatus.Pendiente);
 
@@ -302,8 +335,8 @@ public class SaldoDeVacacionesTests
 
         Assert.Equal(0, saldo.DiasTomados);
         Assert.Equal(38, saldo.DiasVigentes);
-        Assert.Equal(5, saldo.DiasComprometidos);
-        Assert.Equal(33, saldo.Disponible);
+        Assert.Equal(4, saldo.DiasComprometidos);   // se cuentan
+        Assert.Equal(38, saldo.Disponible);         // pero no restan
     }
 
     [Fact]
@@ -346,18 +379,22 @@ public class SaldoDeVacacionesTests
     [Fact]
     public async Task GozarDiasQueTodaviaNoSeHanGeneradoDejaElSaldoEnRojo()
     {
-        // Primer año, sin proporcional: los cinco días que se tomó no salían de ningún periodo. El
-        // saldo se enseña en negativo en vez de recortarse a cero, que es justo lo que el líder tiene
-        // que ver para corregirlo con un ajuste.
+        // Primer año, sin proporcional: los días que se tomó no salían de ningún periodo. El saldo se
+        // enseña en negativo en vez de recortarse a cero, que es justo lo que el líder tiene que ver
+        // para corregirlo con un ajuste.
+        //
+        // El rango va del domingo 1 al jueves 5 de marzo: cinco días de calendario y CUATRO
+        // laborables. Se descuentan cuatro porque el artículo 76 concede días laborables y el domingo
+        // no se trabajaba de todas formas.
         var (db, svc, _) = Nuevo(new DateTime(2026, 1, 5));
         Vacacion(db, new DateTime(2026, 3, 1), 5, VacationStatus.Aprobada);
 
         var saldo = await svc.CalcularAsync(AnaId, new DateTime(2026, 8, 11));
 
         Assert.Equal(0, saldo.DiasGenerados);
-        Assert.Equal(5, saldo.DiasTomados);
-        Assert.Equal(-5, saldo.DiasVigentes);
-        Assert.Equal(-5, saldo.Disponible);
+        Assert.Equal(4, saldo.DiasTomados);
+        Assert.Equal(-4, saldo.DiasVigentes);
+        Assert.Equal(-4, saldo.Disponible);
     }
 
     // ── Qué pasa al cancelar ────────────────────────────────────────────────────

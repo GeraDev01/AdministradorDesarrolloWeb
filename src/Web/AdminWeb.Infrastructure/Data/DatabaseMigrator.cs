@@ -1389,6 +1389,20 @@ public static class DatabaseMigrator
                 ""PointEntryId""      INTEGER,
                 ""PointsAwarded""     INTEGER NOT NULL DEFAULT 0
             );");
+        // ── Los días que no se trabajan (SQLite) ─────────────────────────────────────
+        //
+        // Los del artículo 74 se siembran desde la regla al arrancar; los que ponga la casa se
+        // escriben a mano. Índice ÚNICO por fecha: un festivo repetido se descontaría dos veces de
+        // las vacaciones de quien lo pida.
+        db.Database.ExecuteSqlRaw(@"
+            CREATE TABLE IF NOT EXISTS ""DiasFestivos"" (
+                ""Id""      INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                ""Fecha""   TEXT    NOT NULL,
+                ""Motivo""  TEXT    NOT NULL,
+                ""EsDeLey"" INTEGER NOT NULL DEFAULT 1
+            );");
+        try { db.Database.ExecuteSqlRaw(@"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_Festivo_Fecha"" ON ""DiasFestivos""(""Fecha"")"); } catch { }
+
         // ── Qué hace, en cada equipo, quien tiene cada rol (SQLite) ──────────────────
         //
         // Sustituye a teclear la misma frase una vez por persona. La clave única (TeamId, Rol) la
@@ -2862,6 +2876,23 @@ ALTER TABLE [KnowledgeArticles] ADD [RowVersion] rowversion NOT NULL;");
 
         // El estado va de primera columna porque toda consulta empieza por él: la cola es «por
         // revisar», el buscador es «publicado» y la lista propia es «lo mío».
+        // ── Los días que no se trabajan (SQL Server) ─────────────────────────────────
+        // La gemela de la de SQLite. Misma clave única por fecha.
+        Exec(@"
+IF OBJECT_ID(N'[DiasFestivos]', N'U') IS NULL
+CREATE TABLE [DiasFestivos] (
+    [Id]      int IDENTITY(1,1) NOT NULL CONSTRAINT [PK_DiasFestivos] PRIMARY KEY,
+    [Fecha]   datetime2 NOT NULL,
+    [Motivo]  nvarchar(200) NOT NULL,
+    [EsDeLey] bit NOT NULL DEFAULT 1
+);");
+
+        Exec(@"
+IF OBJECT_ID(N'[DiasFestivos]', N'U') IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Festivo_Fecha'
+                   AND object_id = OBJECT_ID(N'[DiasFestivos]'))
+CREATE UNIQUE INDEX [IX_Festivo_Fecha] ON [DiasFestivos]([Fecha]);");
+
         // ── Qué hace, en cada equipo, quien tiene cada rol (SQL Server) ──────────────
         // La gemela de la de SQLite. Misma clave única y misma cascada: el esquema no puede depender
         // de dónde corra.

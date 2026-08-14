@@ -214,13 +214,18 @@ public class CatalogosQueryService(AppDbContext db, ICurrentUser currentUser)
         var filas = await DesarrolladoresAsync(texto, soloActivos, ct);
 
         return HojaDeCalculo.Escribir(
+            // Sin columna «Vacaciones»: lo que había ahí era Developer.VacationDaysLeft, que no es
+            // un saldo sino la cuota anual tecleada una vez, y que nadie actualiza. Fuera de la
+            // aplicación es peor todavía, porque en una hoja de cálculo ya no hay ningún panel de
+            // saldo al lado que lo corrija. El saldo de verdad se consulta en la pantalla de la
+            // persona o en el panel del líder.
             ["ID", "Nombre", "Correo", "Teléfono", "Seniority", "Equipo", "Rol", "F. Ingreso",
-             "Dirección", "N.° Serie equipo", "Vacaciones", "Asignados", "Acceso", "Activo", "Notas"],
+             "Dirección", "N.° Serie equipo", "Asignados", "Acceso", "Activo", "Notas"],
             [.. filas.Select(d => new object?[]
             {
                 d.Id, d.Nombre, d.Correo, d.Telefono, d.Seniority, d.Equipo ?? "Sin equipo",
                 d.RolEquipoTexto, d.FechaIngreso?.ToString("dd/MM/yyyy"), d.Direccion, d.SerieEquipo,
-                d.DiasVacaciones, d.Asignados, d.TieneAcceso ? "Sí" : "No", d.Activo ? "Sí" : "No",
+                d.Asignados, d.TieneAcceso ? "Sí" : "No", d.Activo ? "Sí" : "No",
                 d.Notas
             })],
             "Desarrolladores");

@@ -1,4 +1,4 @@
-using AdminWeb.Api.Arranque;
+﻿using AdminWeb.Api.Arranque;
 using AdminWeb.Api.Auth;
 using AdminWeb.Api.Endpoints;
 using AdminWeb.Api.Filtros;
@@ -215,6 +215,7 @@ builder.Services.AddScoped<DocumentoDeVacacionesService>();
 
 // El saldo de vacaciones. Scoped como el resto: lee la ficha, las solicitudes y la configuración de
 // caducidad por petición, y no guarda nada entre llamadas — el saldo se calcula cada vez a propósito.
+builder.Services.AddScoped<CalendarioLaboralService>();
 builder.Services.AddScoped<SaldoDeVacacionesService>();
 
 // Consultas propias de la web: agrupan en una sola respuesta lo que una pantalla necesita, para no

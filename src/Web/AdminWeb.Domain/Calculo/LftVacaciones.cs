@@ -1,12 +1,15 @@
-namespace AdminWeb.Domain.Calculo;
+﻿namespace AdminWeb.Domain.Calculo;
 
 /// <summary>
 /// Días de vacaciones que marca la Ley Federal del Trabajo de México tras la reforma
-/// "Vacaciones Dignas" (DOF 27-dic-2022, vigente desde el 1-ene-2023), artículos 76 y 77.
+/// "Vacaciones Dignas" (DOF 27-dic-2022, vigente desde el 1-ene-2023), artículo 76.
 ///
 /// Art. 76: al cumplir el 1.er año son 12 días y aumentan 2 por año hasta llegar a 20 al 5.º año;
 /// a partir del 6.º año el periodo sube 2 días por cada 5 años de servicio (6-10→22, 11-15→24, …).
-/// Art. 77: quien aún no cumple un año tiene derecho proporcional a los días trabajados.
+/// Art. 79 §2: quien aún no cumple un año NO tiene días que disfrutar. Lo que le corresponde es la
+/// REMUNERACIÓN proporcional a los días trabajados, y solo al terminar la relación de trabajo: es
+/// finiquito, no saldo. Aquí decía «art. 77», que es el de trabajadores discontinuos y de temporada
+/// y no viene al caso.
 ///
 /// El número NO es acumulativo: es el periodo anual que corresponde a esa antigüedad.
 /// Cálculo puro (sin dependencias) para poder probarlo con precisión.
@@ -47,7 +50,8 @@ public static class LftVacaciones
 
     /// <summary>
     /// Días que le corresponden al trabajador a la fecha de corte. Si aún no cumple un año,
-    /// devuelve la parte proporcional de los 12 días del primer año según los días trabajados (Art. 77).
+    /// devuelve la parte proporcional de los 12 días del primer año según los días trabajados
+    /// (Art. 79 §2: es la remuneración del finiquito, no días que se puedan pedir).
     /// </summary>
     public static int DiasCorrespondientes(DateTime ingreso, DateTime corte)
     {
