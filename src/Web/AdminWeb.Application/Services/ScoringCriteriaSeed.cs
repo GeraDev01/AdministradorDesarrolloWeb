@@ -24,7 +24,26 @@ public static class ScoringCriteriaSeed
     /// <summary>Nombre, descripción y puntos actuales, más los anteriores para poder migrar.</summary>
     public sealed record Criterio(
         string Nombre, string Descripcion, int Puntos,
-        string NombreAnterior, string DescripcionAnterior);
+        string NombreAnterior, string DescripcionAnterior)
+    {
+        /// <summary>
+        /// Un criterio NUEVO, que nace con este nombre y nunca tuvo otro.
+        ///
+        /// <para>Existe para no tener que escribir el nombre dos veces al añadir uno: repetirlo a
+        /// mano se lee como si viniera de un renombrado que se quedó a medias, y quien lo mire dentro
+        /// de un año no sabría si es eso o un descuido. Así queda dicho en el propio constructor.</para>
+        /// </summary>
+        public Criterio(string nombre, string descripcion, int puntos)
+            : this(nombre, descripcion, puntos, nombre, descripcion) { }
+
+        /// <summary>
+        /// Este criterio se llamaba de otra forma en la versión anterior del catálogo, así que hay
+        /// una fila que renombrar en las bases que ya existen. Falso en los nuevos, que no tienen
+        /// nada que migrar.
+        /// </summary>
+        public bool VieneDeOtroNombre =>
+            !string.Equals(NombreAnterior, Nombre, StringComparison.Ordinal);
+    }
 
     /// <summary>
     /// Criterios individuales. Los puntos NO cambian respecto a la versión anterior: tocarlos
@@ -171,6 +190,15 @@ public static class ScoringCriteriaSeed
         new("Dejaste evidencias completas",
             "Adjuntaste al ticket capturas, pasos y resultados: quien lo lea después entiende qué pasó.", +5,
             "Evidencias completas", "Adjuntó evidencias claras (capturas, pasos, resultados) al ticket."),
+        // NUEVO —de ahí el constructor de tres argumentos: nunca se llamó de otra forma—, y no es
+        // un duplicado del de arriba: aquél premia que la evidencia EXISTA, éste que el ticket quede
+        // explicado —qué se hizo, cómo se probó y con qué se respalda— en un comentario que alguien
+        // de fuera pueda leer y entender sin preguntar. Es el criterio que se pide como extra en las
+        // actividades del pool, y se puede cumplir sin salir de ellas: el panel del vínculo con
+        // DevOps publica el comentario con sus capturas en el work item.
+        new("Comentaste correctamente el ticket con evidencias",
+            "Dejaste en el ticket un comentario que se entiende solo —qué hiciste, cómo lo probaste— " +
+            "y con las capturas que lo respaldan.", +5),
         new("Mantuviste el ticket al día",
             "Fuiste actualizando el ticket con comentarios y con el estado real, sin que te lo pidieran.", +4,
             "Buen seguimiento del ticket", "Mantuvo el ticket actualizado con comentarios y estado real."),
@@ -319,6 +347,26 @@ public static class ScoringCriteriaSeed
     ];
 
     /// <summary>
+    /// Todos los nombres que este sembrado conoce, los de ahora y los de antes.
+    ///
+    /// <para>Sirve para distinguir <b>lo que trajo la aplicación</b> de <b>lo que creó el líder a
+    /// mano</b>, que es una distinción que hace falta en un sitio concreto: la lista de criterios que
+    /// el pool ofrece como extra. Allí se recorta la opinión del catálogo —de 42 opciones positivas,
+    /// muchas repetidas entre sí y muchas que no hablan de UNA actividad, a una decena que sí— y ese
+    /// recorte solo puede aplicarse a lo que vino sembrado. Un criterio que el líder inventó no está
+    /// en esta lista, así que ninguna decisión tomada aquí lo esconde de la suya.</para>
+    ///
+    /// <para>Incluye los nombres ANTERIORES porque una base que todavía no pasó por
+    /// <see cref="MigrarNomenclaturaAsync"/> —o donde el renombrado se saltó una fila por haber ya
+    /// una homónima— sigue teniendo criterios con el nombre viejo, y son igual de sembrados.</para>
+    /// </summary>
+    public static readonly IReadOnlySet<string> NombresSembrados =
+        Individuales.Select(c => c.Nombre)
+            .Concat(Individuales.Select(c => c.NombreAnterior))
+            .Concat(DeEquipo.Select(e => e.Nombre))
+            .ToHashSet(StringComparer.Ordinal);
+
+    /// <summary>
     /// Renombra los criterios que vienen de la versión anterior del catálogo. Va ANTES de
     /// <see cref="SembrarAsync"/>: si corriera después, el sembrado ya habría insertado la versión
     /// nueva y la base acabaría con el criterio duplicado, uno con cada nombre.
@@ -336,7 +384,7 @@ public static class ScoringCriteriaSeed
 
         foreach (var nuevo in Individuales)
         {
-            if (nuevo.NombreAnterior == nuevo.Nombre) continue;
+            if (!nuevo.VieneDeOtroNombre) continue;
             if (!porNombre.TryGetValue(nuevo.NombreAnterior, out var fila)) continue;
 
             // Ya existe una fila con el nombre nuevo (alguien la creó a mano, o una migración a

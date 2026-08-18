@@ -231,7 +231,7 @@
                                         @ValorSegunLaMatriz()
                                     </RadzenText>
 
-                                    @if (_criteriosDisponibles.Count > 0)
+                                    @if (_criteriosDisponibles.Count + _criteriosFueraDelCatalogo.Count > 0)
                                     {
                                         <RadzenFieldset Text="Criterios extra a evaluar (opcional)" AllowCollapse="true"
                                                         Collapsed="@(_criteriosElegidos.Count == 0)">
@@ -239,7 +239,8 @@
                                                 <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                                                     Se anuncian ahora y se evalúan al verificar la entrega:
                                                     <b>solo suman los que se cumplan</b>. Quien mire el pool los verá
-                                                    antes de tomar la actividad.
+                                                    antes de tomar la actividad. La lista es corta a propósito: solo
+                                                    criterios que se pueden mirar sobre ESTA actividad y contestar sí o no.
                                                 </RadzenText>
 
                                                 @foreach (var c in _criteriosDisponibles)
@@ -257,6 +258,37 @@
                                                                         Style="opacity:.7">@c.Descripcion</RadzenText>
                                                         }
                                                     </RadzenStack>
+                                                }
+
+                                                @*
+                                                    LO QUE ESTA ACTIVIDAD YA LLEVA Y HOY NO SE OFRECERÍA.
+
+                                                    Aparece porque esconderlo sería hacer decidir a ciegas: el líder
+                                                    no podría ni verlo ni quitarlo, y el «Máximo alcanzable» de
+                                                    abajo enseñaría un número MENOR del que la actividad promete.
+                                                    Los puntos son los CONGELADOS de la actividad, que son los que
+                                                    se van a cobrar, no los que diga hoy el catálogo.
+                                                *@
+                                                @if (_criteriosFueraDelCatalogo.Count > 0)
+                                                {
+                                                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                                                                Style="opacity:.7">
+                                                        Esta actividad ya llevaba estos, que hoy no se ofrecerían.
+                                                        Siguen contando mientras estén marcados; desmárcalos para
+                                                        quitarlos.
+                                                    </RadzenText>
+
+                                                    @foreach (var c in _criteriosFueraDelCatalogo)
+                                                    {
+                                                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem"
+                                                                     AlignItems="AlignItems.Center">
+                                                            <RadzenCheckBox TValue="bool" Name="@($"crit{c.Id}")"
+                                                                            Value="@_criteriosElegidos.Contains(c.Id)"
+                                                                            Change="@((bool v) => AlternarCriterio(c.Id, v))" />
+                                                            <RadzenLabel Component="@($"crit{c.Id}")"
+                                                                         Text="@($"+{c.Puntos} · {c.Nombre}")" />
+                                                        </RadzenStack>
+                                                    }
                                                 }
 
                                                 @if (_criteriosElegidos.Count > 0)
@@ -1055,6 +1087,27 @@
 
     /// <summary>El catálogo de criterios que se pueden pedir como extra. Se carga una vez.</summary>
     private List<CriterioDisponibleDto> _criteriosDisponibles = [];
+
+    /// <summary>
+    /// Criterios que ESTA actividad ya lleva y que el catálogo del pool ya no ofrece.
+    ///
+    /// <para>Existen porque la lista de criterios extra se recortó: lo publicado ANTES puede llevar
+    /// criterios que hoy no se ofrecerían. Sin esto quedaban invisibles en el formulario —el líder no
+    /// podía verlos ni quitarlos— y sus puntos se caían del «Máximo alcanzable», que enseñaba un
+    /// número MENOR del que la actividad de verdad promete. Guardar no los perdía —el servidor los
+    /// resuelve contra el catálogo entero, no contra la lista recortada— pero el líder decidía a
+    /// ciegas.</para>
+    ///
+    /// <para>Es el mismo criterio que ya aplica la autocalificación, que también añade a su lista los
+    /// criterios que una entrada suya ya usa aunque hayan dejado de estar disponibles: quitarlos de
+    /// la vista haría que corregir algo lo guardara con otra cosa sin avisar.</para>
+    ///
+    /// <para>Va en una lista APARTE y no mezclado en <see cref="_criteriosDisponibles"/>: aquélla es
+    /// el catálogo y se trae una sola vez para toda la pantalla; inyectarle los de una actividad
+    /// concreta los dejaría ofrecidos en el formulario de publicar la siguiente.</para>
+    /// </summary>
+    private List<CriterioDisponibleDto> _criteriosFueraDelCatalogo = [];
+
     private readonly HashSet<int> _criteriosElegidos = [];
 
     /// <summary>Los criterios de la entrega abierta, para evaluarlos al verificar.</summary>
@@ -1230,6 +1283,7 @@
         _horas = null;
         _plazoPropio = null;
         _criteriosElegidos.Clear();
+        _criteriosFueraDelCatalogo = [];
         _capturando = true;
 
         // La tarjeta del vínculo se cierra: habla de OTRA actividad, y dejarla abierta al lado de un
@@ -1274,12 +1328,26 @@
         // Los criterios ya elegidos se traen de la actividad y no del formulario anterior: editar
         // tiene que partir de lo que está publicado, no de lo que se capturó la última vez.
         _criteriosElegidos.Clear();
+        _criteriosFueraDelCatalogo = [];
         if (actividad.CuantosCriteriosExtra > 0)
         {
             var actuales = await Api.LeerAsync<List<CriterioExtraDto>>(
                 $"api/pool/{actividad.Id}/criterios", _cancelacion.Token) ?? [];
+
             foreach (var c in actuales.Where(c => c.CriterioId is not null))
                 _criteriosElegidos.Add(c.CriterioId!.Value);
+
+            // Los que la actividad lleva y el catálogo del pool ya no ofrece se añaden a mano, con el
+            // nombre y los puntos CONGELADOS que guarda la propia actividad —que son los que se van a
+            // cobrar, no los del catálogo de hoy—. Sin esto el líder editaba a ciegas: no los veía,
+            // no podía quitarlos y el total que leía era menor que el prometido.
+            _criteriosFueraDelCatalogo =
+            [
+                .. actuales
+                    .Where(c => c.CriterioId is not null
+                             && !_criteriosDisponibles.Any(d => d.Id == c.CriterioId!.Value))
+                    .Select(c => new CriterioDisponibleDto(c.CriterioId!.Value, c.Nombre, null, c.Puntos))
+            ];
         }
 
         // El work item se pide aparte porque la lista del pool no lo trae. Y hay que pedirlo aunque
@@ -1301,8 +1369,15 @@
 
     private int ValorDeLaMatriz() => CeldaElegida()?.Puntos ?? 0;
 
+    /// <summary>
+    /// Los puntos de lo marcado. Suma las DOS listas —el catálogo y lo que esta actividad lleva de
+    /// antes—, porque el «Máximo alcanzable» tiene que ser el que la actividad promete de verdad: el
+    /// que quien la tome va a ver en el pool y el que se va a abonar si se cumple todo.
+    /// </summary>
     private int PuntosExtraElegidos() =>
-        _criteriosDisponibles.Where(c => _criteriosElegidos.Contains(c.Id)).Sum(c => c.Puntos);
+        _criteriosDisponibles.Concat(_criteriosFueraDelCatalogo)
+            .Where(c => _criteriosElegidos.Contains(c.Id))
+            .Sum(c => c.Puntos);
 
     private int MaximoAlcanzable() => ValorDeLaMatriz() + PuntosExtraElegidos();
 

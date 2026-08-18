@@ -117,6 +117,56 @@ public static class PoolSeed
         (PoolWorkType.Requerimiento, "Entregado y aceptado por quien lo pidió", false),
     ];
 
+    /// <summary>
+    /// Los criterios del catálogo que el pool ofrece como EXTRA al publicar una actividad.
+    ///
+    /// <para><b>Por qué existe esta lista.</b> Antes se ofrecía el catálogo entero de positivos: 42
+    /// opciones en un desplegable, y la mitad no se podían evaluar sobre una actividad concreta. Unas
+    /// porque hablan de un periodo y no de un trabajo («Llegaste al daily», «Terminaste una
+    /// capacitación», «No dejaste nada arrastrando»); otras porque hablan de la persona y no de lo
+    /// entregado (todo el bloque de Junior/Mid/Senior); otras porque se pisan entre sí hasta el punto
+    /// de que elegir una u otra era indistinto («Tu entrega no necesitó correcciones», «Pasaste QA a
+    /// la primera», «QA no te encontró ni un bug», «Cumpliste todo lo que se pidió»); y otras porque
+    /// las mide ya el propio pool y cobrarlas aparte sería pagar dos veces lo mismo —«Entregaste a
+    /// tiempo» lo dice el plazo del reclamo, y «Corregiste un bug reportado» ES la actividad, que ya
+    /// vale lo que dice la matriz—.</para>
+    ///
+    /// <para>Lo que queda son los extras que de verdad son extras: <b>trabajo adicional que el líder
+    /// puede pedir en voz alta al publicar, que quien la toma ve antes de decidir, y que al verificar
+    /// se puede mirar y decir sí o no</b>. Contradictorios no hay ninguno: «Propusiste una mejora por
+    /// tu cuenta» quedó fuera precisamente porque pedirla como criterio la deja de ser «por tu
+    /// cuenta».</para>
+    ///
+    /// <para><b>No es una lista cerrada del sistema.</b> Solo recorta lo que vino SEMBRADO: los
+    /// criterios que el líder cree a mano se siguen ofreciendo todos, porque de ésos la aplicación no
+    /// tiene ninguna opinión que imponer. Ver <c>PoolQueryService.CriteriosExtraDisponiblesAsync</c>.
+    /// Y no toca el catálogo: los que salen de aquí siguen enteros para autocalificarse y para que el
+    /// líder los otorgue a mano, que es donde sí tienen sentido.</para>
+    /// </summary>
+    public static readonly IReadOnlySet<string> CriteriosExtraOfrecidos = new HashSet<string>(StringComparer.Ordinal)
+    {
+        // El que da nombre a esta remesa: se pide como extra y se cumple sin salir del pool, porque
+        // el panel del vínculo publica el comentario con sus capturas en el work item.
+        "Comentaste correctamente el ticket con evidencias",
+
+        // Trabajo adicional sobre la entrega
+        "Agregaste pruebas automatizadas",
+        "Dejaste la documentación al día",
+        "Limpiaste código heredado",
+        "Automatizaste algo repetitivo",
+        "Cuidaste la seguridad",
+
+        // Cómo se deja lo entregado para quien viene detrás
+        "Abriste un PR pequeño y claro",
+        "Le facilitaste el trabajo a QA",
+    };
+
+    // «Reprodujiste y documentaste un bug» NO está, y es el caso que mejor explica el criterio de
+    // esta lista: el checklist de todo Bug ya EXIGE «Reproduje el error y anoté cómo» para poder
+    // entregarlo. Ofrecerlo además como extra sería pagar aparte por algo que de todas formas hay
+    // que hacer, que es exactamente lo que la matriz existe para evitar. Sigue en el catálogo para
+    // otorgarlo a mano o autocalificarse fuera del pool, donde sí es trabajo que nadie obligó.
+
     /// <summary>Siembra lo que falte. Devuelve cuántas filas se agregaron, para la bitácora del arranque.</summary>
     public static async Task<int> SembrarAsync(AppDbContext db, CancellationToken ct = default)
     {

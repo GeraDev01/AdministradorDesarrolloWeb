@@ -258,18 +258,46 @@ public class PoolQueryService(AppDbContext db, ICurrentUser currentUser, PoolAct
     ///
     /// <para>Los de 0 puntos también quedan fuera: un criterio extra que no suma nada no es un
     /// extra, es una casilla que hace perder el tiempo a quien revisa.</para>
+    ///
+    /// <para><b>Y de los sembrados, solo los que se pueden evaluar sobre UNA actividad.</b> El
+    /// catálogo trae 42 positivos y la lista salía con los 42: un desplegable donde había que elegir
+    /// entre cuatro maneras de decir «salió bien a la primera», criterios que hablan de un periodo
+    /// («Llegaste al daily») y el bloque entero de Junior/Mid/Senior, que habla de la persona y no de
+    /// lo entregado. El recorte lo decide <see cref="PoolSeed.CriteriosExtraOfrecidos"/>, que explica
+    /// qué se fue y por qué.</para>
+    ///
+    /// <para><b>El recorte alcanza SOLO a lo sembrado</b>, y ahí está la mitad importante: un
+    /// criterio que el líder creó a mano se ofrece siempre. La aplicación tiene opinión sobre su
+    /// propio catálogo —lo escribió— y ninguna sobre lo que alguien añadió para su equipo; una lista
+    /// blanca a secas habría hecho desaparecer en silencio criterios que el líder creó justamente
+    /// para pedirlos aquí.</para>
     /// </summary>
     public async Task<IReadOnlyList<CriterioDisponibleDto>> CriteriosExtraDisponiblesAsync(
         CancellationToken ct = default)
     {
         AuthorizationGuard.RequireAdmin(currentUser);
 
-        return await db.ScoringCriteria.AsNoTracking()
+        // El filtro por nombre se resuelve en MEMORIA y no en la consulta: son dos conjuntos de
+        // cadenas de C# y traducirlos a SQL sería un IN con noventa literales. La lista de partida
+        // ya viene acotada a los individuales positivos, que son unas decenas de filas.
+        var candidatos = await db.ScoringCriteria.AsNoTracking()
             .Where(c => c.IsActive && c.Scope == CriterionScope.Individual && c.DefaultPoints > 0)
             .OrderByDescending(c => c.DefaultPoints).ThenBy(c => c.Name)
             .Select(c => new CriterioDisponibleDto(c.Id, c.Name, c.Description, c.DefaultPoints))
             .ToListAsync(ct);
+
+        return candidatos.Where(SeOfreceEnElPool).ToList();
     }
+
+    /// <summary>
+    /// Si un criterio del catálogo tiene sentido como extra de una actividad del pool.
+    ///
+    /// <para>Lo sembrado pasa solo si está en la lista corta; lo que no vino sembrado pasa siempre,
+    /// porque lo creó una persona y sabrá para qué.</para>
+    /// </summary>
+    private static bool SeOfreceEnElPool(CriterioDisponibleDto criterio) =>
+        PoolSeed.CriteriosExtraOfrecidos.Contains(criterio.Nombre)
+        || !ScoringCriteriaSeed.NombresSembrados.Contains(criterio.Nombre);
 
     /// <summary>
     /// Los criterios extra de una actividad y en qué quedó cada uno.

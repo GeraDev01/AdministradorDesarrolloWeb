@@ -472,4 +472,78 @@ public class PoolCriteriosExtraTests : IDisposable
         Assert.DoesNotContain(catalogo, c => c.Nombre == "No vale nada");
         Assert.DoesNotContain(catalogo, c => c.Nombre == "Retirado");
     }
+
+    /// <summary>
+    /// <b>El recorte de la lista.</b> Del catálogo SEMBRADO solo se ofrecen los criterios que se
+    /// pueden evaluar sobre UNA actividad. Los 42 positivos que salían antes incluían cosas que
+    /// hablan de un periodo («Llegaste al daily»), del nivel de la persona («Lideraste técnicamente
+    /// (Senior)») y cuatro maneras distintas de decir lo mismo, y elegir entre ellas era indistinto.
+    /// </summary>
+    [Fact]
+    public async Task El_catalogo_para_elegir_deja_fuera_los_criterios_que_no_son_de_una_actividad()
+    {
+        var db = await BaseConPoolAsync();
+        await ScoringCriteriaSeed.SembrarAsync(db);
+
+        var catalogo = await Consultas(db, Admin()).CriteriosExtraDisponiblesAsync();
+        var nombres = catalogo.Select(c => c.Nombre).ToList();
+
+        // Lo que se queda: trabajo adicional sobre la entrega, que el líder pide en voz alta y se
+        // puede mirar al verificar.
+        Assert.Contains("Agregaste pruebas automatizadas", nombres);
+        Assert.Contains("Dejaste la documentación al día", nombres);
+        Assert.Contains("Comentaste correctamente el ticket con evidencias", nombres);
+
+        // Lo que se va: un periodo, no una entrega.
+        Assert.DoesNotContain("Llegaste al daily", nombres);
+        Assert.DoesNotContain("Terminaste una capacitación", nombres);
+        // La persona, no lo entregado.
+        Assert.DoesNotContain("Lideraste técnicamente (Senior)", nombres);
+        // Cuatro formas de decir «salió bien a la primera», que además ya mide la verificación del
+        // propio pool: aceptar o devolver es exactamente esa respuesta.
+        Assert.DoesNotContain("Pasaste QA a la primera", nombres);
+        Assert.DoesNotContain("Tu entrega no necesitó correcciones", nombres);
+        // Y lo que ya paga la matriz o exige el checklist: el bug corregido ES la actividad, y
+        // reproducirlo y anotar cómo es un punto obligatorio del checklist de todo Bug.
+        Assert.DoesNotContain("Corregiste un bug reportado", nombres);
+        Assert.DoesNotContain("Reprodujiste y documentaste un bug", nombres);
+
+        // El recorte tiene que ser de verdad un recorte, no una lista testimonial ni el catálogo
+        // entero con dos ausencias.
+        Assert.InRange(catalogo.Count, 5, 15);
+    }
+
+    /// <summary>
+    /// <b>Y solo alcanza a lo sembrado.</b> Un criterio que el líder creó a mano se ofrece siempre:
+    /// la aplicación tiene opinión sobre su propio catálogo —lo escribió— y ninguna sobre lo que
+    /// alguien añadió para su equipo. Una lista blanca a secas habría hecho desaparecer en silencio
+    /// justo los criterios que se crearon para pedirlos aquí.
+    /// </summary>
+    [Fact]
+    public async Task El_catalogo_para_elegir_conserva_lo_que_creo_el_lider_a_mano()
+    {
+        var db = await BaseConPoolAsync();
+        await ScoringCriteriaSeed.SembrarAsync(db);
+        NuevoCriterio(db, "Dejaste el tablero de Grafana con el panel nuevo", 7);
+
+        var catalogo = await Consultas(db, Admin()).CriteriosExtraDisponiblesAsync();
+
+        Assert.Contains(catalogo, c => c.Nombre == "Dejaste el tablero de Grafana con el panel nuevo");
+    }
+
+    /// <summary>
+    /// Toda la lista corta tiene que existir DE VERDAD en el catálogo. Un nombre mal escrito aquí no
+    /// rompería nada visible: simplemente ese criterio no se ofrecería nunca, y nadie sabría por qué.
+    /// </summary>
+    [Fact]
+    public async Task Los_criterios_que_el_pool_ofrece_existen_todos_en_el_catalogo()
+    {
+        var db = await BaseConPoolAsync();
+        await ScoringCriteriaSeed.SembrarAsync(db);
+
+        var sembrados = db.ScoringCriteria.AsNoTracking().Select(c => c.Name).ToHashSet(StringComparer.Ordinal);
+
+        foreach (var nombre in PoolSeed.CriteriosExtraOfrecidos)
+            Assert.Contains(nombre, sembrados);
+    }
 }

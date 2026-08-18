@@ -349,6 +349,7 @@ internal static class CatalogoDelManual
             - **Plazo**: cuántas horas tienes desde que la tomas. Ojo, son horas de reloj y no días hábiles: 40 horas es pasado mañana.
             - **Prioridad**: baja, media, alta o crítica. Ordena la lista y **no cambia los puntos**; si los cambiara, publicar «crítica» sería la manera de regalar puntos.
             - **Checklist**: lo que hay que poder afirmar para entregarla. Algunos puntos exigen evidencia —el enlace al pull request, por ejemplo— y sin ella no se entrega.
+            - **Criterios extra** («además se evalúa»): trabajo adicional que el líder pide en voz alta y que **suma puntos encima de la base**, pero solo si lo da por cumplido al verificar. Son pocos y concretos —pruebas automatizadas, documentación, comentar el ticket con evidencias—: la idea es que se puedan mirar y contestar sí o no, no que haya que interpretarlos.
 
             Todo eso se ve **antes** de tomarla. Léelo antes de decidir.
 

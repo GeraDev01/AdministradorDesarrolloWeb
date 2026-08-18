@@ -17,11 +17,17 @@ namespace AdminWeb.Application.Tests;
 /// </summary>
 public class ScoringCriteriaSeedTests
 {
-    /// <summary>Siembra una base como estaba ANTES del cambio de nomenclatura.</summary>
+    /// <summary>
+    /// Siembra una base como estaba ANTES del cambio de nomenclatura.
+    ///
+    /// Los criterios NUEVOS —los que nunca tuvieron otro nombre— quedan fuera, que es lo que de
+    /// verdad había en aquella base: sembrarlos aquí con su nombre de hoy fingiría que la migración
+    /// tiene algo que hacer con ellos y escondería si el sembrado posterior los da de alta.
+    /// </summary>
     private static AppDbContext BaseHeredada()
     {
         var db = TestDb.New();
-        foreach (var c in ScoringCriteriaSeed.Individuales)
+        foreach (var c in Renombrados)
             db.ScoringCriteria.Add(new ScoringCriterion
             {
                 Name = c.NombreAnterior, Description = c.DescripcionAnterior, DefaultPoints = c.Puntos,
@@ -39,6 +45,11 @@ public class ScoringCriteriaSeedTests
 
     private static int TotalEsperado =>
         ScoringCriteriaSeed.Individuales.Length + ScoringCriteriaSeed.DeEquipo.Length;
+
+    /// <summary>Los que traen nombre de la versión anterior, o sea los que la migración tiene que
+    /// tocar. Los nuevos no tienen fila vieja que renombrar y por eso no cuentan en nada de esto.</summary>
+    private static ScoringCriteriaSeed.Criterio[] Renombrados =>
+        [.. ScoringCriteriaSeed.Individuales.Where(c => c.VieneDeOtroNombre)];
 
     // ── Integridad del catálogo ──────────────────────────────────────────────
 
@@ -78,7 +89,7 @@ public class ScoringCriteriaSeedTests
 
         await ScoringCriteriaSeed.MigrarNomenclaturaAsync(db);
 
-        foreach (var c in ScoringCriteriaSeed.Individuales)
+        foreach (var c in Renombrados)
             Assert.Equal(antes[c.NombreAnterior], db.ScoringCriteria.AsNoTracking().Single(x => x.Name == c.Nombre).DefaultPoints);
     }
 
@@ -88,11 +99,11 @@ public class ScoringCriteriaSeedTests
     public async Task Migrar_RenombraYReescribeLaDescripcion()
     {
         using var db = BaseHeredada();
-        var muestra = ScoringCriteriaSeed.Individuales[0];
+        var muestra = Renombrados[0];
 
         int cambiados = await ScoringCriteriaSeed.MigrarNomenclaturaAsync(db);
 
-        Assert.Equal(ScoringCriteriaSeed.Individuales.Length, cambiados);
+        Assert.Equal(Renombrados.Length, cambiados);
         var g = db.ScoringCriteria.AsNoTracking().Single(c => c.Name == muestra.Nombre);
         Assert.Equal(muestra.Descripcion, g.Description);
         Assert.Empty(db.ScoringCriteria.AsNoTracking().Where(c => c.Name == muestra.NombreAnterior));
@@ -106,7 +117,7 @@ public class ScoringCriteriaSeedTests
     public async Task Migrar_RespetaLaDescripcionQueEscribioElAdministrador()
     {
         using var db = BaseHeredada();
-        var muestra = ScoringCriteriaSeed.Individuales[0];
+        var muestra = Renombrados[0];
 
         var fila = db.ScoringCriteria.Single(c => c.Name == muestra.NombreAnterior);
         fila.Description = "Ojo: aquí contamos también las entregas parciales.";
@@ -135,7 +146,7 @@ public class ScoringCriteriaSeedTests
         Assert.Equal(nombres.Count, nombres.Distinct(StringComparer.Ordinal).Count());
 
         // Y ni rastro de la nomenclatura vieja.
-        foreach (var c in ScoringCriteriaSeed.Individuales)
+        foreach (var c in Renombrados)
             Assert.DoesNotContain(c.NombreAnterior, nombres);
     }
 
@@ -178,7 +189,7 @@ public class ScoringCriteriaSeedTests
         var dev = new Developer { FullName = "Ana", IsActive = true };
         db.Developers.Add(dev); db.SaveChanges();
 
-        var muestra = ScoringCriteriaSeed.Individuales[0];
+        var muestra = Renombrados[0];
         int criterioId = db.ScoringCriteria.Single(c => c.Name == muestra.NombreAnterior).Id;
         db.PointEntries.Add(new PointEntry
         {
@@ -202,7 +213,7 @@ public class ScoringCriteriaSeedTests
     public async Task Migrar_NoRenombraSiElNombreNuevoYaEstaOcupado()
     {
         using var db = BaseHeredada();
-        var muestra = ScoringCriteriaSeed.Individuales[0];
+        var muestra = Renombrados[0];
         db.ScoringCriteria.Add(new ScoringCriterion
         {
             Name = muestra.Nombre, Description = "Lo creé yo antes de la actualización.",

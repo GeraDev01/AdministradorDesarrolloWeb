@@ -1077,7 +1077,8 @@ private static void SembrarPoolYDesempeno(AppDbContext db, DatosBase b)
     // Entregada, pero con los criterios extra todavía SIN EVALUAR (IsMet en null): es el caso que
     // bloquea la aceptación hasta que el líder diga sí o no a cada uno.
     porVerificar.ExtraCriteria.Add(CriterioExtraDeDemo(Crit("Agregaste pruebas automatizadas")));
-    porVerificar.ExtraCriteria.Add(CriterioExtraDeDemo(Crit("Dejaste evidencias completas")));
+    porVerificar.ExtraCriteria.Add(
+        CriterioExtraDeDemo(Crit("Comentaste correctamente el ticket con evidencias")));
 
     // ── Devuelta para corregir ───────────────────────────────────────────────
 
@@ -1124,8 +1125,8 @@ private static void SembrarPoolYDesempeno(AppDbContext db, DatosBase b)
     // escrito. Que «no cumplido» se distinga de «sin evaluar» es justo lo que necesita quien va a
     // corregir: le dice qué mirar antes de volver a entregar.
     devuelta.ExtraCriteria.Add(CriterioExtraDeDemo(
-        Crit("Dejaste evidencias completas"), true, devolucionCaro,
-        "Vinieron el video de la reproducción y las consultas de comprobación."));
+        Crit("Comentaste correctamente el ticket con evidencias"), true, devolucionCaro,
+        "En el work item quedaron el video de la reproducción y las consultas de comprobación."));
     devuelta.ExtraCriteria.Add(CriterioExtraDeDemo(
         Crit("Agregaste pruebas automatizadas"), false, devolucionCaro,
         "La prueba cubre solo el camino del portal; falta la de la app móvil."));

@@ -401,7 +401,9 @@ public sealed class RecorridosDelTrabajoYElDesempeno : IFuenteDeRecorridos
                 "Son los puntos que se anunciaron de más al publicar la actividad y que solo suman " +
                 "si se cumplieron. Hay que contestarlos todos, sí o no, antes de poder aceptar: se " +
                 "avisa aquí y no al fallar el botón porque, una vez aceptada la entrega, esta " +
-                "evaluación ya no se cambia."),
+                "evaluación ya no se cambia. La lista que se ofrece al publicar es corta a " +
+                "propósito: solo criterios que se pueden mirar sobre ESTA actividad y contestar " +
+                "sin interpretar."),
 
             new Paso("pool-configuracion", "Cuánto vale cada cosa",
                 "Arriba, la matriz: los puntos y las horas de cada combinación de tipo y " +
