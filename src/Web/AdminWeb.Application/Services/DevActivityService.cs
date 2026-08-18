@@ -1,6 +1,7 @@
 using AdminWeb.Domain.Entities;
 using AdminWeb.Domain.Security;
 using AdminWeb.Infrastructure.Data;
+using AdminWeb.Shared.Dtos.Autocalificacion;
 using AdminWeb.Shared.Enums;
 using Microsoft.EntityFrameworkCore;
 
@@ -93,6 +94,185 @@ public class DevActivityService(AppDbContext db, ICurrentUser currentUser, Audit
     /// El tramo en curso cuenta, igual que en <see cref="WorkSessionService.GetTotalSecondsByActivityAsync"/>:
     /// una actividad con el cronómetro corriendo no puede salir con menos tiempo del que lleva.
     /// </summary>
+
+    // ── Calificación del líder ───────────────────────────────────────────────────
+
+    /// <summary>
+    /// El líder califica una actividad libre y sus puntos cuentan.
+    ///
+    /// <para><b>Por qué hacía falta.</b> Una actividad libre acumulaba tiempo medido y evidencia
+    /// adjunta, y ahí moría: no pasaba por nadie y no daba puntos por ninguna ruta. Todo el trabajo
+    /// que no cabe en el pool ni viene de un ticket —una investigación, un apagafuegos, ayudar a otro
+    /// equipo— quedaba fuera del desempeño por no tener dónde contarlo.</para>
+    ///
+    /// <para><b>Copia el molde del artículo de conocimiento</b>, que es el precedente exacto: algo que
+    /// da de alta el desarrollador y que el líder puede convertir en puntos al aprobarlo, eligiendo el
+    /// criterio y pudiendo cambiar la cantidad. Aprobar y puntuar son UNA operación, la entrada nace
+    /// <c>Aprobado</c> —el juicio ya lo hizo quien podía hacerlo, mandarla a su propia cola de
+    /// aprobación sería pedirle que se apruebe a sí mismo— y se paga UNA vez.</para>
+    ///
+    /// <para><b>Lo que la separa de la vieja autocalificación libre</b>, que es lo que el pool vino a
+    /// sustituir por ser «dos juicios subjetivos sobre trabajo ya hecho»: aquí los puntos salen de un
+    /// CRITERIO DEL CATÁLOGO, que es lo que los hace comparables entre personas; el tiempo es MEDIDO
+    /// por el cronómetro y no declarado; y la evidencia está adjunta desde antes de que nadie
+    /// calificara. Sigue siendo un juicio, pero sobre algo que se puede mirar.</para>
+    ///
+    /// <para><b>Las actividades del POOL no se califican por aquí</b>, y es la guarda que evita pagar
+    /// dos veces el mismo trabajo: al tomar una actividad del pool se crea una actividad libre
+    /// enlazada como percha del cronómetro, y ésa ya cobra —con los puntos congelados de la matriz—
+    /// cuando el líder acepta la entrega.</para>
+    /// </summary>
+    /// <param name="puntos">
+    /// Lo que vale. Se propone el valor del criterio y el líder puede cambiarlo, igual que al publicar
+    /// un artículo: el criterio dice de qué se está premiando, no cuánto vale este caso concreto.
+    /// </param>
+    public async Task<(bool ok, string mensaje)> CalificarAsync(
+        int activityId, int criterionId, int puntos, string? comentario, CancellationToken ct = default)
+    {
+        AuthorizationGuard.RequireAdmin(currentUser);
+
+        var actividad = await db.DevActivities.AsNoTracking()
+            .FirstOrDefaultAsync(a => a.Id == activityId, ct);
+        if (actividad == null) return (false, "Esa actividad ya no existe. Actualiza la lista.");
+
+        if (actividad.PointEntryId != null)
+            return (false, "Esa actividad ya se calificó; sus puntos ya se abonaron.");
+
+        // Solo lo CERRADO. Calificar algo que sigue abierto es puntuar trabajo a medias, y además el
+        // tiempo medido —que es la mitad de lo que se está mirando— todavía puede crecer.
+        if (actividad.Status != DevActivityStatus.Cerrada)
+            return (false, "Solo se califican actividades cerradas: mientras siga abierta, ni el " +
+                           "trabajo ni el tiempo dedicado están completos.");
+
+        // La percha del cronómetro de una actividad del pool NO se califica aquí: ese trabajo cobra
+        // por el pool, con los puntos que la matriz congeló antes de que nadie lo tomara.
+        bool esDelPool = await db.PoolActivities.AsNoTracking()
+            .AnyAsync(p => p.LinkedDevActivityId == activityId, ct);
+        if (esDelPool)
+            return (false, "Esa actividad es el cronómetro de una actividad del pool: sus puntos se " +
+                           "abonan al aceptar la entrega, no por aquí.");
+
+        var criterio = await db.ScoringCriteria.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Id == criterionId, ct);
+        if (criterio == null) return (false, "Ese criterio ya no existe. Actualiza la lista.");
+        if (!criterio.IsActive) return (false, $"«{criterio.Name}» está retirado del catálogo.");
+        if (criterio.Scope == CriterionScope.Equipo)
+            return (false, $"«{criterio.Name}» es un criterio de equipo y esto lo cobra una sola " +
+                           "persona. Elige uno individual.");
+
+        if (puntos == 0)
+            return (false, "Una calificación de 0 puntos no cambia nada. Si no quieres puntuarla, " +
+                           "déjala sin calificar.");
+
+        // El tiempo que cuenta es el MEDIDO, no uno declarado: es lo que separa esto de la
+        // autocalificación libre, donde los minutos los escribía quien los cobraba.
+        var segundos = await SegundosPorActividadAsync([activityId], ct);
+        int minutos = segundos.GetValueOrDefault(activityId) / 60;
+
+        var ahora = DateTime.Now;          // local: el período se imputa al mes del calendario de la gente
+        var revisadoUtc = DateTime.UtcNow;
+
+        var entrada = new PointEntry
+        {
+            DeveloperId      = actividad.DeveloperId,
+            CriterionId      = criterio.Id,
+            Points           = puntos,
+            Year             = ahora.Year,
+            Month            = ahora.Month,
+            Comment          = string.IsNullOrWhiteSpace(comentario)
+                                   ? $"Actividad: {actividad.Title}"
+                                   : $"Actividad: {actividad.Title} — {comentario.Trim()}",
+            MinutesSpent     = minutos > 0 ? minutos : null,
+            AssignedByUserId = currentUser.UserId,
+            ReviewedByUserId = currentUser.UserId,
+            ReviewedAt       = revisadoUtc,
+            ApprovalStatus   = PointApprovalStatus.Aprobado,
+            Date             = revisadoUtc
+        };
+
+        using var tx = await db.Database.BeginTransactionAsync(ct);
+
+        db.PointEntries.Add(entrada);
+        await db.SaveChangesAsync(ct);
+
+        // El UPDATE condicional ES la guarda contra el doble abono, igual que en el pool: si otra
+        // sesión la calificó entre la lectura de arriba y este punto, afecta 0 filas y la entrada
+        // recién insertada se va con la transacción.
+        int ganadas = await db.DevActivities
+            .Where(a => a.Id == activityId && a.PointEntryId == null)
+            .ExecuteUpdateAsync(s => s.SetProperty(a => a.PointEntryId, entrada.Id), ct);
+
+        if (ganadas == 0)
+        {
+            await tx.RollbackAsync(ct);
+            return (false, "Alguien la calificó primero. Actualiza la lista.");
+        }
+
+        await tx.CommitAsync(ct);
+
+        await audit.RecordAsync(AuditAction.Update, "DevActivity", activityId.ToString(),
+            $"Calificada: +{puntos} pts bajo «{criterio.Name}»", ct);
+
+        return (true, $"Calificada: +{puntos} punto(s) bajo «{criterio.Name}». " +
+                      "Ya cuentan en el desempeño del mes.");
+    }
+
+    /// <summary>
+    /// Con qué criterios puede calificar el líder una actividad libre.
+    ///
+    /// <para>Los INDIVIDUALES y activos, y también los NEGATIVOS: una actividad libre puede ser
+    /// exactamente el sitio donde consta algo que salió mal. Es la diferencia con la lista del pool,
+    /// que solo ofrece positivos porque allí un «extra» que resta no significa nada.</para>
+    ///
+    /// <para>Se excluyen los del propio pool —los que empiezan por «Pool: »— porque valen 0 puntos y
+    /// existen para que las actividades del pool cuelguen de algo; ofrecerlos aquí sería ofrecer una
+    /// calificación que no puntúa.</para>
+    /// </summary>
+    public async Task<List<CriterioDto>> CriteriosParaCalificarAsync(CancellationToken ct = default)
+    {
+        AuthorizationGuard.RequireAdmin(currentUser);
+
+        return await db.ScoringCriteria.AsNoTracking()
+            .Where(c => c.IsActive && c.Scope == CriterionScope.Individual && c.DefaultPoints != 0
+                        && !c.Name.StartsWith(PoolSeed.PrefijoCriterio))
+            .OrderByDescending(c => c.DefaultPoints).ThenBy(c => c.Name)
+            .Select(c => new CriterioDto(c.Id, c.Name, c.Description, c.DefaultPoints, true))
+            .ToListAsync(ct);
+    }
+
+    /// <summary>
+    /// Para cada actividad: si ya está calificada —y con cuántos puntos— y si es el cronómetro de una
+    /// actividad del pool.
+    ///
+    /// <para>Las DOS cosas en una sola consulta por tabla, y no una por fila: la rejilla del líder
+    /// enseña el equipo entero y preguntar por cada actividad sería otro viaje por renglón. Y viajan
+    /// resueltas a la pantalla para que no ofrezca un botón que el servidor va a rechazar.</para>
+    /// </summary>
+    public async Task<Dictionary<int, (int? Puntos, bool EsDelPool)>> CalificacionDeAsync(
+        IReadOnlyCollection<int> activityIds, CancellationToken ct = default)
+    {
+        if (activityIds.Count == 0) return [];
+
+        var conEntrada = await db.DevActivities.AsNoTracking()
+            .Where(a => activityIds.Contains(a.Id) && a.PointEntryId != null)
+            .Join(db.PointEntries.AsNoTracking(), a => a.PointEntryId, p => p.Id,
+                  (a, p) => new { a.Id, p.Points })
+            .ToListAsync(ct);
+
+        var delPool = (await db.PoolActivities.AsNoTracking()
+                .Where(p => p.LinkedDevActivityId != null
+                            && activityIds.Contains(p.LinkedDevActivityId!.Value))
+                .Select(p => p.LinkedDevActivityId!.Value)
+                .ToListAsync(ct))
+            .ToHashSet();
+
+        var puntos = conEntrada.ToDictionary(x => x.Id, x => x.Points);
+
+        return activityIds.ToDictionary(
+            id => id,
+            id => (puntos.TryGetValue(id, out var p) ? (int?)p : null, delPool.Contains(id)));
+    }
+
     private async Task<Dictionary<int, int>> SegundosPorActividadAsync(
         IReadOnlyCollection<int> activityIds, CancellationToken ct)
     {

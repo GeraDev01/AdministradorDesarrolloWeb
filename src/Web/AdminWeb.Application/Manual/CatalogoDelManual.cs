@@ -409,6 +409,7 @@ internal static class CatalogoDelManual
             Hay tres caminos, y conviene distinguirlos.
 
             - **Del pool.** Tomas una actividad, la entregas, el líder la verifica y los puntos se abonan solos con el valor que traía congelado. Es el camino más objetivo, porque el valor estaba fijado antes de empezar.
+            - **De una actividad libre que el líder califica.** Las actividades libres —las que abres para cronometrar algo que no viene del pool ni de un ticket— ya no se quedan solo en tiempo: cuando cierras una, el líder puede calificarla eligiendo un criterio del catálogo y los puntos se abonan. Lo que mira para decidir es lo que tú dejaste: el **tiempo medido** por el cronómetro y las **evidencias** que adjuntaste. Las que arrastra el pool no se califican por aquí, porque ese trabajo ya cobra al aceptarse la entrega.
             - **De la autocalificación.** Registras algo que hiciste eligiendo un criterio del catálogo, y queda **pendiente de aprobación**. El líder lo aprueba, lo ajusta o lo rechaza. Registrarlo no es ganarlo.
             - **Del líder, directamente.** Puede otorgar puntos por algo que vio, y también anotar puntos negativos cuando corresponde. Todo lleva su criterio y su comentario.
 

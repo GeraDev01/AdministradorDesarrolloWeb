@@ -32,5 +32,19 @@ public class DevActivity
     /// </summary>
     public byte[]? RowVersion { get; set; }
 
+    /// <summary>
+    /// Entrada de puntos que generó al calificarla el líder. Nulo = todavía no se ha calificado.
+    ///
+    /// <para><b>Es la guarda contra pagar dos veces</b>, además de la traza de dónde salieron esos
+    /// puntos. Es el mismo mecanismo que ya usan la actividad del pool y el artículo de conocimiento:
+    /// una vez que hay entrada, no se vuelve a calificar.</para>
+    ///
+    /// <para><b>Sin clave ajena</b>, igual que sus dos hermanas: con ella habría dos rutas de borrado
+    /// en cascada desde <c>Developers</c> —por <c>PointEntries</c> y por <c>DevActivities</c>— y SQL
+    /// Server rechaza crear esas restricciones. El precio asumido: si la limpieza de datos purga las
+    /// entradas de puntos, este número queda colgando; es solo una traza.</para>
+    /// </summary>
+    public int? PointEntryId { get; set; }
+
     public Developer Developer { get; set; } = null!;
 }

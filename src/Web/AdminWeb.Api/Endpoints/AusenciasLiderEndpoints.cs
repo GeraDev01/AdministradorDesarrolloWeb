@@ -388,6 +388,8 @@ public static class AusenciasLiderEndpoints
             foreach (var a in filas)
                 segundos[a.Id] = await cronometro.GetTotalSecondsByActivityAsync(a.Id, ct);
 
+            var calificacion = await actividades.CalificacionDeAsync([.. filas.Select(a => a.Id)], ct);
+
             var lista = filas
                 .Select(a => new ActividadDelEquipoDto(
                     a.Id,
@@ -400,7 +402,10 @@ public static class AusenciasLiderEndpoints
                     a.ClosedAt,
                     segundos.GetValueOrDefault(a.Id),
                     WorkSessionService.Format(segundos.GetValueOrDefault(a.Id)),
-                    evidencias.GetValueOrDefault(a.Id)))
+                    evidencias.GetValueOrDefault(a.Id),
+                    calificacion.GetValueOrDefault(a.Id).Puntos is not null,
+                    calificacion.GetValueOrDefault(a.Id).Puntos,
+                    calificacion.GetValueOrDefault(a.Id).EsDelPool))
                 .ToList();
 
             return Results.Ok(new ActividadesDelEquipoDto(
@@ -409,9 +414,28 @@ public static class AusenciasLiderEndpoints
                 Opciones<DevActivityStatus>(DevActivityService.Etiqueta),
                 lista.Count,
                 lista.Count(a => a.Estado == DevActivityStatus.Abierta),
-                WorkSessionService.Format(segundos.Values.Sum())));
+                WorkSessionService.Format(segundos.Values.Sum()),
+                await actividades.CriteriosParaCalificarAsync(ct),
+                // Lo que espera una decisión: cerrado, sin calificar y que no cobre ya por el pool.
+                lista.Count(a => a.Estado == DevActivityStatus.Cerrada && !a.Calificada && !a.EsDelPool)));
         })
         .WithSummary("Las actividades libres del equipo con su tiempo y sus indicadores");
+
+        // CALIFICAR. Es lo que convierte esta pantalla de solo lectura en algo que decide: hasta
+        // ahora una actividad libre acumulaba tiempo y evidencia y no daba puntos por ninguna ruta,
+        // así que todo el trabajo que no cabe en el pool ni viene de un ticket quedaba fuera del
+        // desempeño por no tener dónde contarlo.
+        grupo.MapPost("/actividades/{id:int}/calificar", async (
+            int id, CalificarActividadRequest cuerpo, DevActivityService actividades,
+            CancellationToken ct) =>
+        {
+            var (ok, mensaje) = await actividades.CalificarAsync(
+                id, cuerpo.CriterioId, cuerpo.Puntos, cuerpo.Comentario, ct);
+
+            return ok ? Results.Ok(new ResultadoDto(true, mensaje))
+                      : Results.BadRequest(new ResultadoDto(false, mensaje));
+        })
+        .WithSummary("Califica una actividad libre cerrada y abona sus puntos");
 
         // Mismos dos filtros que el listado: se baja LO QUE EL FILTRO ESTÁ ENSEÑANDO.
         grupo.MapGet("/actividades/excel", async (

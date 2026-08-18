@@ -4,6 +4,7 @@
 @implements IDisposable
 @inject ClienteApi Api
 @inject Descargas Descargas
+@inject AvisosDeInterfaz Avisos
 
 @*
     Las actividades libres del equipo: el trabajo que los desarrolladores registran fuera de sus
@@ -213,7 +214,25 @@
                         @(string.IsNullOrWhiteSpace(a.Descripcion) ? "(sin descripción)" : a.Descripcion)
                     </Template>
                 </RadzenDataGridColumn>
-                <RadzenDataGridColumn TItem="ActividadDelEquipoDto" Title="" Width="120px" Sortable="false">
+                @* LOS PUNTOS. En su propia columna y no dentro del botón: una actividad calificada
+                   tiene que poder verse de un vistazo en la rejilla, sin abrir nada, y el número es
+                   además lo que distingue «ya la miré y no valía» de «todavía no la he mirado». *@
+                <RadzenDataGridColumn TItem="ActividadDelEquipoDto" Title="Puntos" Property="Puntos" Width="90px">
+                    <Template Context="a">
+                        @if (a.Puntos is int p)
+                        {
+                            <RadzenBadge Text="@(p > 0 ? $"+{p}" : p.ToString())"
+                                         BadgeStyle="@(p > 0 ? BadgeStyle.Success : BadgeStyle.Danger)" />
+                        }
+                        else if (a.EsDelPool)
+                        {
+                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0" Style="opacity:.7">
+                                del pool
+                            </RadzenText>
+                        }
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="ActividadDelEquipoDto" Title="" Width="210px" Sortable="false">
                     <Template Context="a">
                         @* «visibility» y no «search»: la lupa es para buscar texto; esto abre la
                            ficha de una actividad en solo lectura. *@
@@ -221,10 +240,70 @@
                                       Text="Detalle" Icon="visibility" ButtonStyle="ButtonStyle.Light"
                                       Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                       Click="@(() => VerDetalle(a))" />
+
+                        @* Solo lo CERRADO, solo una vez, y nunca lo que ya cobra por el pool. Las tres
+                           condiciones las vuelve a comprobar el servidor: esto es comodidad, no
+                           seguridad. Que el botón no aparezca es lo que evita el intento inútil. *@
+                        @if (a.Estado == DevActivityStatus.Cerrada && !a.Calificada && !a.EsDelPool)
+                        {
+                            <RadzenButton Text="Calificar" Size="ButtonSize.ExtraSmall"
+                                          Disabled="@_ocupado" Click="@(() => AbrirCalificacion(a))" />
+                        }
                     </Template>
                 </RadzenDataGridColumn>
             </Columns>
         </RadzenDataGrid>
+
+        @*
+            CALIFICAR, debajo de la rejilla y no en una ventana modal, por lo mismo que en el pool:
+            en el navegador una modal encima de otra pantalla se pierde con demasiada facilidad, y
+            aquí hace falta además poder mirar el tiempo y la evidencia mientras se decide cuánto
+            vale.
+        *@
+        @if (_calificando is { } cal)
+        {
+            <RadzenCard Variant="Variant.Outlined">
+                <RadzenStack Gap="0.6rem">
+                    <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">
+                        Calificar «@cal.Titulo» — @cal.Desarrollador
+                    </RadzenText>
+                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                        Tiempo medido: <b>@cal.Tiempo</b>@(cal.Evidencias > 0 ? $" · {cal.Evidencias} evidencia(s)" : "").
+                        Los puntos se abonan en el acto y cuentan en el desempeño de este mes.
+                    </RadzenText>
+
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap"
+                                 AlignItems="AlignItems.Center">
+                        <RadzenLabel Text="Criterio:" Component="criterio" />
+                        <RadzenDropDown TValue="int?" @bind-Value="_criterioId" Name="criterio"
+                                        Data="@(d.Criterios ?? [])" TextProperty="Nombre" ValueProperty="Id"
+                                        AllowFiltering="true" Placeholder="Elige bajo qué criterio"
+                                        Disabled="@_ocupado" Change="@(_ => ProponerPuntos(d))"
+                                        Style="min-width:24rem" />
+
+                        <RadzenLabel Text="Puntos:" Component="puntos" />
+                        <RadzenNumeric TValue="int" @bind-Value="_puntos" Name="puntos"
+                                       Disabled="@_ocupado" Style="width:7rem" />
+                    </RadzenStack>
+
+                    <RadzenTextArea @bind-Value="_comentario" Rows="2" Style="width:100%"
+                                    Disabled="@_ocupado"
+                                    Placeholder="Por qué (opcional; se ve en el detalle de sus puntos)" />
+
+                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap"
+                                 AlignItems="AlignItems.Center">
+                        <RadzenButton Text="Calificar" Icon="check" Disabled="@(_ocupado || _criterioId is null)"
+                                      Click="@Calificar" />
+                        <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                                      Disabled="@_ocupado" Click="@(() => _calificando = null)" />
+                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                            El criterio dice de qué se premia; los puntos, cuánto vale este caso. Se
+                            propone el valor del criterio y puedes cambiarlo.
+                        </RadzenText>
+                    </RadzenStack>
+                </RadzenStack>
+            </RadzenCard>
+        }
     }
 </RadzenStack>
 
@@ -241,6 +320,12 @@
     // muchos datos para una pantalla en la que casi siempre se mira una sola actividad.
     private ActividadDelEquipoDto? _abierta;
     private DetalleDeActividadDto? _detalle;
+
+    // La actividad que se está calificando, y lo que se le va a poner.
+    private ActividadDelEquipoDto? _calificando;
+    private int? _criterioId;
+    private int _puntos;
+    private string _comentario = "";
 
     protected override Task OnInitializedAsync() => Cargar();
 
@@ -283,6 +368,47 @@
         {
             _ocupado = false;
         }
+    }
+
+    private void AbrirCalificacion(ActividadDelEquipoDto a)
+    {
+        _calificando = a;
+        _criterioId = null;
+        _puntos = 0;
+        _comentario = "";
+    }
+
+    /// <summary>
+    /// Al elegir criterio se propone su valor. PROPONE, no impone: el criterio dice de qué se está
+    /// premiando y los puntos cuánto vale este caso concreto, que es el mismo reparto que al publicar
+    /// un artículo de conocimiento. Si no se propusiera nada, el campo se quedaría en cero y habría
+    /// que teclear el número que el catálogo ya sabe.
+    /// </summary>
+    private void ProponerPuntos(ActividadesDelEquipoDto d)
+    {
+        var criterio = (d.Criterios ?? []).FirstOrDefault(c => c.Id == _criterioId);
+        if (criterio is not null) _puntos = criterio.Puntos;
+    }
+
+    private async Task Calificar()
+    {
+        if (_calificando is not { } a || _criterioId is not int criterio) return;
+
+        _ocupado = true;
+        try
+        {
+            var (ok, r) = await Api.EnviarAsync<CalificarActividadRequest, ResultadoDto>(
+                $"api/ausencias-lider/actividades/{a.Id}/calificar",
+                new CalificarActividadRequest(criterio, _puntos, _comentario), _cancelacion.Token);
+
+            if (!ok || r is null) return;
+
+            Avisos.Exito(r.Mensaje);
+            _calificando = null;
+        }
+        finally { _ocupado = false; }
+
+        await Cargar();
     }
 
     private Task VerEvidencia(EvidenciaDeActividadDto e) =>

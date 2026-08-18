@@ -1106,6 +1106,10 @@ public static class DatabaseMigrator
         // work item y a qué estado se movió. Nacen en nulo en todo lo que ya existe, que es lo
         // correcto: de las actividades tomadas antes de que esto existiera no se sabe si su ticket se
         // asignó a mano, y suponer que sí las dejaría sin mandar nada nunca.
+        // La entrada de puntos con la que se calificó una actividad libre. Nula en todo lo que ya
+        // existe, que es lo correcto: nada de lo anterior se ha calificado nunca.
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DevActivities"" ADD COLUMN ""PointEntryId"" INTEGER"); } catch { }
+
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivities"" ADD COLUMN ""DevOpsAsignadoADeveloperId"" INTEGER"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivities"" ADD COLUMN ""DevOpsEstadoEnviado"" TEXT"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Pool_DevOps"" ON ""PoolActivities""(""DevOpsWorkItemId"")"); } catch { }
@@ -2525,6 +2529,9 @@ CREATE TABLE [PoolActivities] (
         Exec("IF COL_LENGTH('PoolActivities','DevOpsUltimoError') IS NULL ALTER TABLE [PoolActivities] ADD [DevOpsUltimoError] nvarchar(1000) NULL;");
         // Las gemelas de las de SQLite: a nombre de quién quedó el work item al tomar la actividad y a
         // qué estado se movió. nvarchar(100) es el mismo tope que declara AppDbContext.
+        // La gemela de la de SQLite: con qué entrada de puntos se calificó una actividad libre.
+        Exec("IF COL_LENGTH('DevActivities','PointEntryId') IS NULL ALTER TABLE [DevActivities] ADD [PointEntryId] int NULL;");
+
         Exec("IF COL_LENGTH('PoolActivities','DevOpsAsignadoADeveloperId') IS NULL ALTER TABLE [PoolActivities] ADD [DevOpsAsignadoADeveloperId] int NULL;");
         Exec("IF COL_LENGTH('PoolActivities','DevOpsEstadoEnviado') IS NULL ALTER TABLE [PoolActivities] ADD [DevOpsEstadoEnviado] nvarchar(100) NULL;");
         ExecIndex("PoolActivities", "IX_Pool_DevOps", "DevOpsWorkItemId", "[DevOpsWorkItemId]");

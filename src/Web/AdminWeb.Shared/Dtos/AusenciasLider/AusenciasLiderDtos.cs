@@ -1,3 +1,4 @@
+using AdminWeb.Shared.Dtos.Autocalificacion;
 using AdminWeb.Shared.Enums;
 
 namespace AdminWeb.Shared.Dtos.AusenciasLider;
@@ -310,7 +311,13 @@ public record ActividadesDelEquipoDto(
     IReadOnlyList<OpcionDeFiltroDto<DevActivityStatus>> Estados,
     int Total,
     int Abiertas,
-    string TiempoTotal);
+    string TiempoTotal,
+    // Los criterios con los que se puede calificar viajan CON la lista y no en una petición aparte:
+    // el catálogo cambia poco y pedirlo por separado sería un segundo viaje para pintar la misma
+    // pantalla. Va al final y con valor por omisión, que es la regla de esta casa para los records
+    // posicionales. Y las que faltan por calificar, para poder decirlo arriba sin recontar.
+    IReadOnlyList<CriterioDto>? Criterios = null,
+    int SinCalificar = 0);
 
 /// <summary>
 /// Una actividad libre en la lista del líder. <b>Solo el NÚMERO de evidencias</b>, sin un byte: la
@@ -328,7 +335,32 @@ public record ActividadDelEquipoDto(
     DateTime? CerradaUtc,
     int Segundos,
     string Tiempo,
-    int Evidencias);
+    int Evidencias,
+    // ── Calificación ─────────────────────────────────────────────────────
+    // Los tres van AL FINAL y con valor por omisión porque esto es un record posicional: metidos en
+    // medio, cualquier llamador que no se recompile pasaría sus argumentos corridos de sitio y sin
+    // que el compilador lo viera.
+    /// <summary>Ya se calificó y sus puntos están abonados. Lo que está calificado no se vuelve a
+    /// calificar: es la misma guarda que en el pool y en los artículos.</summary>
+    bool Calificada = false,
+    /// <summary>Cuántos puntos se le dieron. Nulo si todavía no se ha calificado.</summary>
+    int? Puntos = null,
+    /// <summary>
+    /// Es el cronómetro de una actividad del pool, así que NO se califica por aquí: ese trabajo cobra
+    /// al aceptarse la entrega, con los puntos que la matriz congeló antes de que nadie lo tomara.
+    /// Viaja resuelto para que la pantalla no ofrezca un botón que el servidor va a rechazar.
+    /// </summary>
+    bool EsDelPool = false);
+
+/// <summary>
+/// El líder califica una actividad libre: bajo qué criterio y por cuántos puntos.
+///
+/// <para><b>Los puntos viajan</b>, a diferencia de la autocalificación, donde los pone el criterio y
+/// el desarrollador no los elige. Aquí quien los escribe es el líder, que es el que puede: el
+/// criterio dice de QUÉ se está premiando, no cuánto vale este caso concreto. Es el mismo reparto
+/// que al publicar un artículo de conocimiento.</para>
+/// </summary>
+public record CalificarActividadRequest(int CriterioId, int Puntos, string? Comentario);
 
 /// <summary>
 /// La ficha de una actividad ajena: sus sesiones de cronómetro y su evidencia. <b>Solo lectura</b> —
