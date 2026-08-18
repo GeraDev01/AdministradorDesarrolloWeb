@@ -34,9 +34,20 @@ public record LigarConDevOpsRequest(int? WorkItem, string? Enlace);
 /// <param name="SincronizadoAqui">Falso cuando no hay fila en <c>DevOpsTickets</c> para ese número.
 /// No impide nada: se puede empujar y comentar igual, porque esas rutas van contra DevOps por número.
 /// Solo significa que aquí no se sabe cómo se llama.</param>
+/// <param name="AsignadoEnDevOps">A nombre de quién está el work item, según lo último que se sabe
+/// aquí. Nulo cuando no está asignado o cuando el ticket no se ha sincronizado.</param>
+/// <param name="QuienLaTiene">Cómo se llama quien tiene tomada la actividad, para poder decir a
+/// nombre de quién TENDRÍA que estar. Nulo si nadie la ha tomado.</param>
 /// <param name="EsfuerzoPendiente">El pool tiene un esfuerzo que DevOps todavía no. Deriva de
 /// comparar las horas con la marca de agua, no de una bandera que alguien tuviera que acordarse de
 /// bajar.</param>
+/// <param name="AsignacionPendiente">El work item no está a nombre de quien tomó la actividad.
+/// Soltar el reclamo NO deja esto pendiente: al devolver una actividad al pool no se desasigna el
+/// ticket, porque vaciar allá un campo que quizá puso otra persona sería destruir información
+/// ajena.</param>
+/// <param name="EstadoPendiente">El work item todavía no se ha movido a «en progreso» para este
+/// reclamo. Es de UNA VEZ al tomarla: un ticket que el equipo ya movió a «Resolved» no está
+/// pendiente de nada, y arrastrarlo de vuelta sería pisar una decisión de alguien.</param>
 /// <param name="UltimoError">Por qué falló el último intento. Nulo si el último terminó bien.</param>
 public record VinculoDevOpsDto(
     int PoolActivityId,
@@ -46,6 +57,8 @@ public record VinculoDevOpsDto(
     bool SincronizadoAqui,
     string? TituloDelTicket,
     string? EstadoDelTicket,
+    string? AsignadoEnDevOps,
+    string? QuienLaTiene,
     decimal? HorasEstimadas,
     decimal? EsfuerzoEnviado,
     PoolPriority Prioridad,
@@ -53,11 +66,14 @@ public record VinculoDevOpsDto(
     int? PrioridadEnviada,
     bool EsfuerzoPendiente,
     bool PrioridadPendiente,
+    bool AsignacionPendiente,
+    bool EstadoPendiente,
     DateTime? UltimoIntentoUtc,
     string? UltimoError)
 {
     /// <summary>Hay algo que el pool dice y DevOps todavía no.</summary>
-    public bool Pendiente => EsfuerzoPendiente || PrioridadPendiente;
+    public bool Pendiente =>
+        EsfuerzoPendiente || PrioridadPendiente || AsignacionPendiente || EstadoPendiente;
 }
 
 /// <summary>
@@ -91,12 +107,12 @@ public record HiloDeDevOpsDto(
     bool PuedoComentar,
     string? PorQueNoPuedoComentar);
 
-/// <summary>
-/// Un comentario que se publica en el work item ligado, firmado con el token de quien lo escribe.
-///
-/// <para>Sin adjuntos, a diferencia del comentario de la pantalla de tickets. Aquí lo que se comenta
-/// es el avance de una actividad del pool, y la evidencia de esa actividad ya tiene su sitio: los
-/// enlaces del checklist, que además son los que el líder mira para verificarla. Dos sitios para lo
-/// mismo garantizarían que la mitad de las pruebas estuviera en el que nadie abre.</para>
-/// </summary>
-public record ComentarEnDevOpsRequest(string? Texto);
+// El comentario NO tiene aquí su contrato, y no es un olvido: viaja como MULTIPART —«texto» más
+// «imagenes»— igual que el de la pantalla de tickets, porque lleva capturas. Un registro de C# no
+// puede describir eso, y dejarlo escrito aquí como si fuera JSON sería documentar una forma que ya
+// no existe. La ruta que lo recibe explica por qué es multipart siempre, lleve o no evidencias.
+//
+// Que se admitan evidencias es un cambio de criterio deliberado: antes se argumentaba que la prueba
+// de una actividad ya tenía su sitio en los enlaces del checklist. Pero el checklist se mira AQUÍ y
+// el ticket se mira ALLÁ —quien lee el work item en DevOps no entra a esta aplicación—, así que un
+// enlace del checklist no es evidencia para él. Ver PoolDevOpsService.ComentarAsync.

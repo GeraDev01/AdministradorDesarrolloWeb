@@ -354,7 +354,8 @@ public sealed class RecorridosDelTrabajoYElDesempeno : IFuenteDeRecorridos
                 "hay. Si es un bug, ahí se te pide en cuántas horas crees resolverlo y el botón no " +
                 "deja seguir sin ese número; se pregunta en ese momento porque es el único en que " +
                 "la estimación es honesta. Si alguien más la toma mientras decides, el panel se " +
-                "cierra solo.")),
+                "cierra solo. Y si la actividad viene de un ticket de Azure DevOps, tomarla lo " +
+                "pone a tu nombre y en «en progreso» allá, sin que tengas que abrir DevOps.")),
 
         // ── El pool, del lado del líder ──────────────────────────────────────
         new Recorrido("/pool", "El pool del líder",
@@ -374,10 +375,11 @@ public sealed class RecorridosDelTrabajoYElDesempeno : IFuenteDeRecorridos
 
             new Paso("pool-pendiente-devops", "Lo que DevOps no tiene",
                 "Estas actividades están ligadas a un work item al que no le llegó algo que el " +
-                "pool sí dice: el esfuerzo, la prioridad. El aviso del momento lo vio una persona " +
-                "y cerró la pestaña, así que sin esta lista el ticket se quedaría mal sin que " +
-                "nadie lo supiera. El botón con el número abre la tarjeta del vínculo, que trae el " +
-                "detalle y el reintento."),
+                "pool sí dice: el esfuerzo, la prioridad, a nombre de quién tiene que estar o que " +
+                "pase a «en progreso». El aviso del momento lo vio una persona y cerró la " +
+                "pestaña, así que sin esta lista el ticket se quedaría mal sin que nadie lo " +
+                "supiera. El botón con el número abre la tarjeta del vínculo, que trae el detalle " +
+                "y el reintento."),
 
             new Paso("pool-tabla", "El pool completo",
                 "Mientras una actividad siga libre se puede editar y retirar. En cuanto tiene " +

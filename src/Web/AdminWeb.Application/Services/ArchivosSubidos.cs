@@ -16,6 +16,17 @@ public static class ArchivosSubidos
     public const long MaxBytes = 15 * 1024 * 1024;
 
     /// <summary>
+    /// Cuántas capturas caben en un comentario a un work item. Cada una es una subida aparte a Azure
+    /// DevOps, y por eso hay tope.
+    ///
+    /// <para>Vive aquí, en un solo sitio, porque son TRES los caminos que acaban publicando por ahí
+    /// —la pantalla de tickets, el avance de un SLA y el panel del pool— y tres números que se fueran
+    /// separando harían que la misma persona pudiera adjuntar más desde una pantalla que desde otra
+    /// sin que nada lo explicara.</para>
+    /// </summary>
+    public const int MaxEvidenciasPorComentario = 5;
+
+    /// <summary>
     /// Extensiones que no se aceptan nunca. Vienen del escritorio, donde un adjunto acababa
     /// abriéndose con el programa asociado; aquí el peligro es distinto pero el criterio sigue
     /// valiendo: nada de lo que se guarda como evidencia necesita ser ejecutable.

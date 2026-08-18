@@ -74,6 +74,18 @@ public class SettingsService(AppDbContext db, ICurrentUser currentUser, AuditSer
 
         /// <summary>Cuántas actividades del pool puede tener tomadas alguien a la vez.</summary>
         public const string PoolMaxTomadas = "pool.max-tomadas";
+
+        /// <summary>
+        /// A qué estado se mueve el work item cuando alguien toma la actividad del pool ligada a él.
+        ///
+        /// <para>Se configura porque el nombre depende de la PLANTILLA DE PROCESO de cada proyecto
+        /// —«Active» en Agile y CMMI, «Doing» en Basic, «In Progress» en algunos Scrum
+        /// personalizados—, y escribir uno a fuego dejaría la función muerta en cuanto la
+        /// organización cambiara de plantilla. Vacía no es un problema: el servicio lo DEDUCE de los
+        /// estados que ya traen los tickets sincronizados, y solo si tampoco los hay cae en
+        /// «Active».</para>
+        /// </summary>
+        public const string PoolDevOpsEstadoEnProgreso = "pool.devops.estado-en-progreso";
     }
 
     /// <summary>

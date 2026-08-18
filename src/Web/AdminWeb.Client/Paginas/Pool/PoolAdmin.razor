@@ -547,7 +547,7 @@
                                                    color sale de la variable del tema, como el resto de
                                                    esta pantalla. *@
                                                 <span style="color:var(--rz-warning);display:inline-flex"
-                                                      title="El esfuerzo o la prioridad de esta actividad no llegaron a Azure DevOps. Ábrelo para ver qué falta y reintentar.">
+                                                      title="Algo de esta actividad no llegó a Azure DevOps: el esfuerzo, la prioridad, a nombre de quién tiene que estar el work item o que pase a «en progreso». Ábrelo para ver qué falta y reintentar.">
                                                     <RadzenIcon Icon="warning" />
                                                 </span>
                                             }
@@ -1128,7 +1128,8 @@
     private int? _devopsId;
 
     /// <summary>
-    /// Las actividades cuyo esfuerzo o prioridad no están en DevOps. Se traen JUNTAS y de una sola
+    /// Las actividades a las que les falta algo por llegar a DevOps —el esfuerzo, la prioridad, el
+    /// asignado o el paso a «en progreso»—. Se traen JUNTAS y de una sola
     /// consulta: pedir el vínculo de cada fila para poder pintar un aviso serían quince peticiones
     /// por cada vez que se abre la pantalla, y el aviso es justo lo que no puede depender de que
     /// alguien vaya fila por fila a buscarlo.
@@ -1745,17 +1746,33 @@
               "Ábrelas para ver qué falta y reintentarlo:";
 
     /// <summary>
-    /// Qué falta, en las dos palabras que caben en un renglón de la lista. El detalle —los números de
-    /// un lado y del otro, el motivo y la hora del último intento— vive en la tarjeta del vínculo y no
-    /// se repite aquí: dos textos que explican lo mismo acaban diciendo cosas distintas.
+    /// Qué falta, en las pocas palabras que caben en un renglón de la lista. El detalle —los números
+    /// de un lado y del otro, el motivo y la hora del último intento— vive en la tarjeta del vínculo
+    /// y no se repite aquí: dos textos que explican lo mismo acaban diciendo cosas distintas.
+    ///
+    /// <para><b>Se ARMA de las cuatro banderas, no se decide con un switch de dos.</b> Antes eran dos
+    /// —esfuerzo y prioridad— y la rama por omisión decía «falta la prioridad»; con la asignación y
+    /// el estado en juego, esa rama afirmaba algo FALSO justo en el renglón que existe para que nada
+    /// falle en silencio: el líder leía «falta la prioridad» sobre una actividad cuya prioridad sí
+    /// había llegado, y nunca se enteraba de que el work item estaba sin dueño y en «New». Armándolo
+    /// no hay rama por omisión que pueda mentir: lo que no está levantado, no se nombra.</para>
     /// </summary>
-    private static string QueFaltaEnCorto(VinculoDevOpsDto v) =>
-        (v.EsfuerzoPendiente, v.PrioridadPendiente) switch
-        {
-            (true, true)  => "falta el esfuerzo y la prioridad",
-            (true, false) => "falta el esfuerzo",
-            _             => "falta la prioridad"
-        };
+    private static string QueFaltaEnCorto(VinculoDevOpsDto v)
+    {
+        var partes = new List<string>(4);
+        if (v.EsfuerzoPendiente)   partes.Add("el esfuerzo");
+        if (v.PrioridadPendiente)  partes.Add("la prioridad");
+        if (v.AsignacionPendiente) partes.Add("el asignado");
+        if (v.EstadoPendiente)     partes.Add("el paso a «en progreso»");
+
+        // Sin ninguna levantada esta fila no debería estar en la lista —PendientesAsync la filtra por
+        // eso mismo—, así que el texto no inventa un motivo: dice que hay que abrirla.
+        if (partes.Count == 0) return "ábrela para ver qué falta";
+
+        return partes.Count == 1
+            ? $"falta {partes[0]}"
+            : $"falta {string.Join(", ", partes.Take(partes.Count - 1))} y {partes[^1]}";
+    }
 
     /// <summary>
     /// El título de la actividad cuya tarjeta de DevOps está abierta.

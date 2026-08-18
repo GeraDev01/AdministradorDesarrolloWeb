@@ -169,6 +169,29 @@ public class PoolActivity
     /// <summary>La prioridad de DevOps (1..4) que DevOps confirmó. Misma idea que la anterior.</summary>
     public int? DevOpsPrioridadEnviada { get; set; }
 
+    /// <summary>
+    /// El desarrollador que DevOps confirmó como ASIGNADO del work item. Marca de agua de la
+    /// asignación automática que va colgada de tomar la actividad.
+    ///
+    /// <para>Se guarda el identificador de AQUÍ y no el correo que contestó DevOps, y es lo que
+    /// permite que «pendiente» se derive sin salir de esta clase: basta compararlo con
+    /// <see cref="ClaimedByDeveloperId"/>. Con el correo habría que resolver la ficha para saber si
+    /// el asignado de allá es quien tiene la actividad, y esa resolución no cabe en una entidad.</para>
+    /// </summary>
+    public int? DevOpsAsignadoADeveloperId { get; set; }
+
+    /// <summary>
+    /// El estado al que DevOps confirmó haber movido el work item para EL RECLAMO ACTUAL. Nulo
+    /// mientras no se haya movido.
+    ///
+    /// <para><b>Se limpia al soltar el reclamo</b>, para que el siguiente que tome la actividad
+    /// vuelva a poner su ticket en curso. Y <b>no se vuelve a forzar</b> una vez puesto: mover a «en
+    /// progreso» es una transición de UNA VEZ al tomarla, no un estado deseado que haya que
+    /// reconciliar. Si el equipo mueve el work item a «Resolved» a mitad del trabajo, arrastrarlo de
+    /// vuelta sería pisar una decisión que alguien tomó mirando el ticket.</para>
+    /// </summary>
+    public string? DevOpsEstadoEnviado { get; set; }
+
     /// <summary>Cuándo se intentó por última vez. Sirve para saber si «pendiente» es de hace un
     /// minuto o de hace tres días, que es lo que decide si hay que ir a mirar.</summary>
     public DateTime? DevOpsEmpujadoEnUtc { get; set; }
@@ -298,6 +321,27 @@ public class PoolActivity
     /// <summary>Está en manos de alguien (tomada o devuelta para corregir).</summary>
     public bool EnCurso => Status is PoolActivityStatus.Tomada or PoolActivityStatus.Devuelta;
 
+    /// <summary>
+    /// La actividad todavía manda sobre su work item: no se ha cerrado ni se retiró.
+    ///
+    /// <para>Es lo que decide hasta cuándo tiene sentido seguir corrigiendo lo que hay en DevOps.
+    /// Una actividad ACEPTADA ya cumplió: si su asignación nunca llegó, insistir meses después sería
+    /// tocar un ticket que probablemente ya está cerrado, y tenerla eternamente en la lista de
+    /// pendientes del líder convertiría esa lista en ruido que nadie mira. El motivo del fallo se
+    /// conserva igual en <see cref="DevOpsUltimoError"/>.</para>
+    /// </summary>
+    public bool SigueEnJuego => EstadoSigueEnJuego(Status);
+
+    /// <summary>
+    /// La misma regla sobre un estado suelto, para quien tiene el estado pero no la fila entera —una
+    /// proyección, por ejemplo—. Escrita una sola vez: dos listas de estados en la misma aplicación
+    /// se separarían el día que alguien añadiera uno, y la que se olvidara diría que una actividad
+    /// cerrada todavía manda sobre su work item.
+    /// </summary>
+    public static bool EstadoSigueEnJuego(PoolActivityStatus estado) =>
+        estado is PoolActivityStatus.Disponible or PoolActivityStatus.Tomada
+               or PoolActivityStatus.EnRevision or PoolActivityStatus.Devuelta;
+
     /// <summary>Pasó su fecha límite y sigue sin entregarse.</summary>
     public bool Vencida => EnCurso && ClaimDeadlineAt is DateTime f && f < DateTime.UtcNow;
 
@@ -323,6 +367,28 @@ public class PoolActivity
         LigadaADevOps && DevOpsPrioridadEnviada != PrioridadDelPoolEnDevOps.ADevOps(Priority);
 
     /// <summary>
+    /// El work item no está a nombre de quien tiene tomada la actividad.
+    ///
+    /// <para>Sin reclamo NO hay nada pendiente, y eso es deliberado: al devolver una actividad al
+    /// pool no se DESASIGNA el work item. Vaciar allá un campo que quizá puso otra persona sería
+    /// destruir información ajena para reflejar que aquí dejó de haberla —el mismo criterio que ya
+    /// gobierna el esfuerzo—. Cuando otro la tome, su identificador dejará de coincidir con esta
+    /// marca y la asignación se volverá a mandar sola.</para>
+    /// </summary>
+    public bool AsignacionPendienteDeEnviar =>
+        LigadaADevOps && SigueEnJuego
+        && ClaimedByDeveloperId is int quien && DevOpsAsignadoADeveloperId != quien;
+
+    /// <summary>
+    /// El work item todavía no se ha movido a «en progreso» para este reclamo.
+    ///
+    /// <para>Es lo ÚNICO que se comprueba —que se haya movido alguna vez desde que se tomó—, y no
+    /// que allá siga en ese estado. Un ticket que el equipo movió a «Resolved» mientras se trabajaba
+    /// no está pendiente de nada: está adelantado.</para>
+    /// </summary>
+    public bool EstadoPendienteDeEnviar => LigadaADevOps && EnCurso && DevOpsEstadoEnviado is null;
+
+    /// <summary>
     /// Hay algo que el pool dice y DevOps todavía no.
     ///
     /// <para><b>Se DERIVA y no se guarda como una marca.</b> Una columna «pendiente» sería un tercer
@@ -331,7 +397,9 @@ public class PoolActivity
     /// Derivándola de lo que se envió contra lo que dice la actividad, no hay nada que olvidar y una
     /// edición posterior la vuelve a levantar sola.</para>
     /// </summary>
-    public bool PendienteDeEnviarADevOps => EsfuerzoPendienteDeEnviar || PrioridadPendienteDeEnviar;
+    public bool PendienteDeEnviarADevOps =>
+        EsfuerzoPendienteDeEnviar || PrioridadPendienteDeEnviar
+        || AsignacionPendienteDeEnviar || EstadoPendienteDeEnviar;
 }
 
 /// <summary>

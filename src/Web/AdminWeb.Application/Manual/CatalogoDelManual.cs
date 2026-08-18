@@ -362,6 +362,16 @@ internal static class CatalogoDelManual
             - **Aceptada**: verificada. **Aquí, y solo aquí, se abonan los puntos.** Es un estado final.
             - **Retirada**: el líder la quitó del pool antes de que nadie la tomara.
 
+            # Si la actividad viene de un ticket de Azure DevOps
+
+            Cuando el líder liga la actividad con un work item, el pool y DevOps dejan de ser dos sitios que hay que mantener a mano:
+
+            - **Al tomarla, el ticket se pone a tu nombre y pasa a «en progreso»** en Azure DevOps, sin que tengas que ir allá. Es el paso que todo el mundo se salta: alguien empieza a trabajar un bug y el ticket se queda tres días sin dueño y en «New».
+            - **La estimación y la prioridad** que dice el pool también se escriben allá.
+            - **Puedes comentar en el ticket desde aquí, con capturas.** Se publica **con tu propio token**, así que en el historial del work item queda a tu nombre; si todavía no lo has capturado, la propia tarjeta te lleva a hacerlo. Esa es la forma de cumplir el criterio de «comentaste correctamente el ticket con evidencias»: el checklist se mira en esta aplicación, pero el ticket lo lee gente que no entra aquí.
+
+            Si algo de eso **no llega** —DevOps no contesta, tu ficha no tiene correo, el proyecto llama de otra forma al estado «en progreso»— no se pierde ni se calla: la actividad queda guardada igual, la tarjeta dice qué falta y por qué, y hay un botón para reintentarlo sin volver a capturar nada.
+
             # Cuándo se cobran los puntos
 
             Al aceptarla, ni un momento antes. Tomar una actividad no paga nada, y entregarla tampoco. Los puntos se abonan una sola vez y aparecen en tu desempeño como una entrada ya aprobada: no vuelven a pasar por ninguna cola, porque la verificación del líder ya fue la revisión.

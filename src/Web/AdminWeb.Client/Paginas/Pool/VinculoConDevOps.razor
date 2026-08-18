@@ -21,13 +21,16 @@
     2. SI ALGO NO LLEGÓ. Un pool que dice 8 h y un DevOps en blanco es tolerable un rato; que nadie
        pueda saberlo, no. El servidor no guarda una bandera de «pendiente» sino lo ÚLTIMO que DevOps
        confirmó, así que aquí se puede enseñar la diferencia exacta —qué dice el pool contra qué
-       aceptó DevOps— y no un «falló» a secas. Con su motivo, su hora y un botón para reintentar sin
-       recapturar nada.
+       aceptó DevOps— y no un «falló» a secas. Eso incluye lo que va colgado de TOMAR la actividad:
+       que el work item quede a nombre de quien la tomó y se mueva a «en progreso». Con su motivo, su
+       hora y un botón para reintentar sin recapturar nada.
 
     3. QUIÉN FIRMA LOS COMENTARIOS. Un comentario va con el token PERSONAL de quien lo escribe, para
        que el historial del ticket diga quién dijo qué; con el de la instalación aparecería a nombre
        de una cuenta compartida. Quien todavía no lo ha capturado —el primer día, todo el mundo— no
        se encuentra un «no autorizado» rojo, sino la explicación y el botón que lleva a capturarlo.
+       Y con capturas: la evidencia tiene que quedar donde la va a leer quien mira el TICKET, que no
+       entra a esta aplicación.
 
     Los comentarios NO se traen al abrir la tarjeta: esa lectura sale a la red hacia Azure DevOps, y
     colgarla de seleccionar una fila haría un viaje a otro servidor por cada clic en la rejilla. El
@@ -247,10 +250,16 @@ else if (_vinculo is { } v)
                         <RadzenTextArea @bind-Value="_comentario" Rows="3" MaxLength="@MaxComentario"
                                         Style="width:100%" Disabled="@_ocupado"
                                         Placeholder="Escribe un comentario para el ticket…" />
+                        @* Las capturas van AQUÍ y no solo en el checklist, y es la diferencia que hace
+                           que sirvan: el checklist se mira en esta aplicación y el ticket se mira en
+                           DevOps. Quien lea el work item —el cliente, QA, quien lo reabra dentro de
+                           medio año— no entra aquí, así que un enlace del checklist no es evidencia
+                           para él. Es el mismo componente y el mismo tope que la pantalla de tickets. *@
+                        <PegarImagen @bind-Imagenes="_evidencias" Maximo="@MaxEvidencias" />
                         <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap"
                                      AlignItems="AlignItems.Center">
                             <RadzenButton Text="Publicar en DevOps" Icon="send" Size="ButtonSize.ExtraSmall"
-                                          Disabled="@(_ocupado || string.IsNullOrWhiteSpace(_comentario))"
+                                          Disabled="@(_ocupado || !HayAlgoQuePublicar)"
                                           Click="@Comentar" />
                             <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                                 Se publica con TU token, así que en el historial del ticket queda a tu
@@ -314,6 +323,11 @@ else if (_vinculo is { } v)
     /// cuadro de captura y nada más: quien decide sigue siendo el servidor.</summary>
     private const int MaxComentario = 4000;
 
+    /// <summary>Cuántas capturas caben, copiado de <c>ArchivosSubidos.MaxEvidenciasPorComentario</c>.
+    /// Igual que el anterior: evita subir cinco imágenes para que las rechacen, no sustituye a la
+    /// comprobación del servidor.</summary>
+    private const int MaxEvidencias = 5;
+
     private VinculoDevOpsDto? _vinculo;
     private HiloDeDevOpsDto? _hilo;
     private EstadoDevOpsDto? _estado;
@@ -321,6 +335,7 @@ else if (_vinculo is { } v)
     private string _motivo = "";
     private string _motivoDelHilo = "";
     private string _comentario = "";
+    private List<ImagenAdjunta> _evidencias = [];
     private bool _ocupado;
     private bool _cambiando;
 
@@ -376,6 +391,7 @@ else if (_vinculo is { } v)
         _hilo = null;
         _motivoDelHilo = "";
         _comentario = "";
+        _evidencias = [];
         _cambiando = false;
         _numero = null;
         _direccion = null;
@@ -402,6 +418,7 @@ else if (_vinculo is { } v)
             _hilo = null;
             _motivoDelHilo = "";
             _comentario = "";
+            _evidencias = [];
         }
     }
 
@@ -444,19 +461,48 @@ else if (_vinculo is { } v)
     private async Task Reintentar() =>
         await Enviar<object?>($"api/pool/{ActividadId}/devops/reintentar", null);
 
+    /// <summary>
+    /// Hay algo que publicar: texto, capturas o las dos cosas.
+    ///
+    /// <para>Con una captura basta, y es deliberado: pegar la pantalla del error ya corregido ES el
+    /// comentario, y obligar a escribir «adjunto evidencia» al lado no añade nada. Es la misma regla
+    /// que aplica el servidor, dicha aquí para no ofrecer un botón que va a rechazarse.</para>
+    /// </summary>
+    private bool HayAlgoQuePublicar =>
+        !string.IsNullOrWhiteSpace(_comentario) || _evidencias.Count > 0;
+
     private async Task Comentar()
     {
-        // Comentar NO toca el vínculo —ni lo que DevOps tiene del pool ni lo que falta por mandarle—,
-        // así que ni se relee ni se avisa a la pantalla de al lado: sería pedirle que recargara su
-        // lista de pendientes por algo que no puede haberla cambiado.
-        if (await Enviar($"api/pool/{ActividadId}/devops/comentar",
-                new ComentarEnDevOpsRequest(_comentario), tocaElVinculo: false))
+        // Multipart aunque no lleve capturas, igual que la pantalla de tickets: una sola forma de
+        // mandar la operación, y el testigo antifalsificación lo pone ClienteApi sin que esta tarjeta
+        // tenga que acordarse.
+        var formulario = new MultipartFormDataContent
         {
+            { new StringContent(_comentario ?? ""), "texto" }
+        };
+        foreach (var imagen in _evidencias)
+            formulario.Add(new ByteArrayContent(imagen.Contenido), "imagenes", imagen.Nombre);
+
+        _ocupado = true;
+        try
+        {
+            // Comentar NO toca el vínculo —ni lo que DevOps tiene del pool ni lo que falta por
+            // mandarle—, así que ni se relee ni se avisa a la pantalla de al lado: sería pedirle que
+            // recargara su lista de pendientes por algo que no puede haberla cambiado.
+            var (ok, r) = await Api.SubirAsync<ResultadoDto>(
+                $"api/pool/{ActividadId}/devops/comentar", formulario, Cancelacion);
+
+            if (!ok || r is null) return;
+
+            Avisos.Exito(r.Mensaje);
             _comentario = "";
-            // El hilo se vuelve a traer para que el comentario recién publicado se vea donde va a
-            // leerlo el resto: en el ticket. Sin esto habría que fiarse de que se publicó.
-            await CargarHilo();
+            _evidencias = [];
         }
+        finally { _ocupado = false; }
+
+        // El hilo se vuelve a traer para que el comentario recién publicado se vea donde va a leerlo
+        // el resto: en el ticket. Sin esto habría que fiarse de que se publicó.
+        await CargarHilo();
     }
 
     /// <summary>
@@ -509,7 +555,7 @@ else if (_vinculo is { } v)
     /// </summary>
     private static string QueFalta(VinculoDevOpsDto v)
     {
-        var frases = new List<string>(2);
+        var frases = new List<string>(4);
 
         if (v.EsfuerzoPendiente)
             frases.Add($"El esfuerzo que dice el pool ({HorasDelPool.Esfuerzo(v.HorasEstimadas)}) no está " +
@@ -525,6 +571,28 @@ else if (_vinculo is { } v)
                            ? $"lo último que aceptó allá fue la {enviada}."
                            : "allá sigue la que tuviera el ticket."));
 
+        // Se nombra a quien la tiene, y no «no se pudo asignar»: esta tarjeta la lee también el
+        // líder, sobre actividades de otros, y sin el nombre habría que abrir la actividad para
+        // saber a quién se le iba a poner el ticket.
+        //
+        // Y NO SE AFIRMA lo que hay allá cuando el ticket no está sincronizado aquí. «Sigue sin
+        // asignar» saldría de una fila que no existe, no de DevOps, y es el caso corriente —casi
+        // nadie sincroniza antes de publicar una actividad—: se leería como un hecho sobre el work
+        // item y llevaría al líder a reasignar a mano un ticket que a lo mejor ya tiene dueño. Las
+        // otras tres frases de este método no afirman nada que no sepan; ésta tampoco debe.
+        if (v.AsignacionPendiente)
+            frases.Add($"El work item no está a nombre de {v.QuienLaTiene ?? "quien tiene la actividad"}: " +
+                       (!v.SincronizadoAqui
+                           ? "ese ticket no se ha sincronizado aquí, así que no se sabe a nombre de " +
+                             "quién está allá."
+                           : v.AsignadoEnDevOps is { Length: > 0 } asignado
+                               ? $"en Azure DevOps sigue asignado a {asignado}."
+                               : "en Azure DevOps sigue sin asignar."));
+
+        if (v.EstadoPendiente)
+            frases.Add("El work item no se ha movido a «en progreso»" +
+                       (v.EstadoDelTicket is { Length: > 0 } estado ? $": allá sigue en «{estado}»." : "."));
+
         return string.Join(" ", frases);
     }
 
@@ -535,17 +603,34 @@ else if (_vinculo is { } v)
             ? $"Último intento: {cuando.ToLocalTime():dd/MM/yyyy HH:mm}. Reintentar manda solo lo que falta."
             : "Todavía no se ha intentado mandarlo.";
 
-    /// <summary>El estado tranquilo, que también hay que poder ver: sin esta línea, «no hay aviso»
-    /// se confunde con «esta pantalla no comprueba nada».</summary>
+    /// <summary>
+    /// El estado tranquilo, que también hay que poder ver: sin esta línea, «no hay aviso» se
+    /// confunde con «esta pantalla no comprueba nada».
+    ///
+    /// <para><b>El asignado va en frase APARTE y sin decir que lo puso el pool.</b> El esfuerzo y la
+    /// prioridad se leen de sus MARCAS DE AGUA —lo que DevOps confirmó haber recibido de aquí—, así
+    /// que de ésos sí se puede afirmar que son los que dice el pool. El asignado no: sale de la fila
+    /// del ticket, o sea de lo que había allá la última vez que se miró, y hay dos maneras normales
+    /// de que sea OTRA persona sin que nada esté pendiente —una actividad ya ACEPTADA cuya asignación
+    /// nunca llegó (aceptar apaga el pendiente) y un ticket que alguien reasignó en DevOps después—.
+    /// Enumerarlo junto a los otros dos y rematar con «que dice el pool» convertía ese nombre ajeno
+    /// en una afirmación falsa, y encima tranquilizadora.</para>
+    /// </summary>
     private static string AlDia(VinculoDevOpsDto v)
     {
-        var partes = new List<string>(2);
-        if (v.EsfuerzoEnviado is decimal h) partes.Add($"el esfuerzo ({HorasDelPool.Escribir(h)})");
-        if (v.PrioridadEnviada is int p) partes.Add($"la prioridad ({p})");
+        var delPool = new List<string>(2);
+        if (v.EsfuerzoEnviado is decimal h) delPool.Add($"el esfuerzo ({HorasDelPool.Escribir(h)})");
+        if (v.PrioridadEnviada is int p) delPool.Add($"la prioridad ({p})");
 
-        return partes.Count == 0
+        var frase = delPool.Count == 0
             ? "Azure DevOps está al día con lo que dice el pool: no hay nada que mandarle."
-            : $"Azure DevOps tiene {string.Join(" y ", partes)} que dice el pool.";
+            : $"Azure DevOps tiene {string.Join(" y ", delPool)} que dice el pool.";
+
+        // Solo se nombra cuando la actividad está en manos de alguien: en una libre, «a nombre de
+        // Fulano» sería hablar del dueño anterior.
+        return v.QuienLaTiene is { Length: > 0 } && v.AsignadoEnDevOps is { Length: > 0 } quien
+            ? $"{frase} El work item está a nombre de {quien}."
+            : frase;
     }
 
     /// <summary>

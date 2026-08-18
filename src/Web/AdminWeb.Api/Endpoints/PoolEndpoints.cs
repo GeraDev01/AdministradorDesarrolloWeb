@@ -285,7 +285,8 @@ public static class PoolEndpoints
         grupo.MapGet("/devops/pendientes", async (PoolDevOpsService devops, CancellationToken ct) =>
             Results.Ok(await devops.PendientesAsync(ct)))
         .RequireAuthorization(PoliticaDelLider)
-        .WithSummary("Las actividades cuyo esfuerzo o prioridad no llegaron a DevOps");
+        .WithSummary("Las actividades a las que les falta algo por llegar a DevOps: esfuerzo, " +
+                     "prioridad, asignado o el paso a «en progreso»");
 
         grupo.MapPost("/{id:int}/devops/reintentar", async (
             int id, PoolDevOpsService devops, CancellationToken ct) =>
@@ -305,18 +306,31 @@ public static class PoolEndpoints
         .RequireAuthorization(PoliticaDelPool)
         .WithSummary("El hilo del work item ligado, y si puedo escribir en él");
 
+        // Multipart SIEMPRE, lleve o no evidencias, exactamente igual que su gemela de la pantalla
+        // de tickets. Podría ir en JSON cuando no las lleva, pero entonces la misma operación tendría
+        // dos formas y habría que acertar con cuál mandar.
+        //
+        // Declarar IFormCollection es además lo que marca el endpoint como formulario y hace
+        // obligatorio el testigo antifalsificación, que es justo lo que multipart necesita: una
+        // escritura en JSON no se puede provocar desde otro sitio, pero un formulario alojado en
+        // cualquier página sí llegaría aquí con la cookie de sesión puesta. Lo adjunta
+        // ClienteApi.SubirAsync.
         grupo.MapPost("/{id:int}/devops/comentar", async (
-            int id, ComentarEnDevOpsRequest? cuerpo, PoolDevOpsService devops, CancellationToken ct) =>
+            int id, IFormCollection formulario, PoolDevOpsService devops, CancellationToken ct) =>
         {
+            var (evidencias, error) = await DevOpsEndpoints.LeerEvidenciasAsync(formulario.Files, ct);
+            if (error != null) return Resultado(false, error);
+
             // El texto vacío y la falta de token personal llegan los dos hasta el servicio a
             // propósito: es él quien explica que un comentario va firmado por quien lo escribe y
             // dónde se captura el token, y ese texto es el que la persona necesita leer. Hoy nadie
             // lo tiene capturado, así que ese mensaje es el caso corriente y no la excepción.
-            var (ok, mensaje) = await devops.ComentarAsync(id, cuerpo?.Texto, ct);
+            var (ok, mensaje) = await devops.ComentarAsync(id, formulario["texto"], evidencias, ct);
             return Resultado(ok, mensaje);
         })
         .RequireAuthorization(PoliticaDelPool)
-        .WithSummary("Publica un comentario en el work item ligado, con el token de quien comenta");
+        .WithSummary("Publica un comentario —con capturas, si las hay— en el work item ligado, " +
+                     "con el token de quien comenta");
     }
 
     /// <summary>

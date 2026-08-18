@@ -1102,6 +1102,12 @@ public static class DatabaseMigrator
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivities"" ADD COLUMN ""DevOpsPrioridadEnviada"" INTEGER"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivities"" ADD COLUMN ""DevOpsEmpujadoEnUtc"" TEXT"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivities"" ADD COLUMN ""DevOpsUltimoError"" TEXT"); } catch { }
+        // Las dos marcas de agua de lo que se manda AL TOMAR la actividad: a nombre de quién quedó el
+        // work item y a qué estado se movió. Nacen en nulo en todo lo que ya existe, que es lo
+        // correcto: de las actividades tomadas antes de que esto existiera no se sabe si su ticket se
+        // asignó a mano, y suponer que sí las dejaría sin mandar nada nunca.
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivities"" ADD COLUMN ""DevOpsAsignadoADeveloperId"" INTEGER"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivities"" ADD COLUMN ""DevOpsEstadoEnviado"" TEXT"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Pool_DevOps"" ON ""PoolActivities""(""DevOpsWorkItemId"")"); } catch { }
 
         // A qué subequipo se publica una actividad, o NULO para toda la casa. Nace en nulo en todo lo
@@ -2517,6 +2523,10 @@ CREATE TABLE [PoolActivities] (
         Exec("IF COL_LENGTH('PoolActivities','DevOpsPrioridadEnviada') IS NULL ALTER TABLE [PoolActivities] ADD [DevOpsPrioridadEnviada] int NULL;");
         Exec("IF COL_LENGTH('PoolActivities','DevOpsEmpujadoEnUtc') IS NULL ALTER TABLE [PoolActivities] ADD [DevOpsEmpujadoEnUtc] datetime2 NULL;");
         Exec("IF COL_LENGTH('PoolActivities','DevOpsUltimoError') IS NULL ALTER TABLE [PoolActivities] ADD [DevOpsUltimoError] nvarchar(1000) NULL;");
+        // Las gemelas de las de SQLite: a nombre de quién quedó el work item al tomar la actividad y a
+        // qué estado se movió. nvarchar(100) es el mismo tope que declara AppDbContext.
+        Exec("IF COL_LENGTH('PoolActivities','DevOpsAsignadoADeveloperId') IS NULL ALTER TABLE [PoolActivities] ADD [DevOpsAsignadoADeveloperId] int NULL;");
+        Exec("IF COL_LENGTH('PoolActivities','DevOpsEstadoEnviado') IS NULL ALTER TABLE [PoolActivities] ADD [DevOpsEstadoEnviado] nvarchar(100) NULL;");
         ExecIndex("PoolActivities", "IX_Pool_DevOps", "DevOpsWorkItemId", "[DevOpsWorkItemId]");
 
         // La gemela de la de SQLite: a qué subequipo se publica, nulo para toda la casa.

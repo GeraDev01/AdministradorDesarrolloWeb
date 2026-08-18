@@ -623,14 +623,21 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             // parecerse y toda actividad ligada saldría eternamente «pendiente de enviar».
             e.Property(p => p.DevOpsEsfuerzoEnviado).HasPrecision(6, 2);
             e.Property(p => p.DevOpsUltimoError).HasMaxLength(1000);
+            // El nombre del estado lo pone la plantilla de proceso de DevOps («Active», «Doing»,
+            // «In Progress»…). 100 sobra para cualquiera de ellos y es el mismo tope con el que el
+            // migrador crea la columna.
+            e.Property(p => p.DevOpsEstadoEnviado).HasMaxLength(100);
             e.Ignore(p => p.EnCurso);
+            e.Ignore(p => p.SigueEnJuego);
             e.Ignore(p => p.Vencida);
             // Derivadas del vínculo con DevOps: se calculan de las columnas de al lado y no son
             // columnas. Sin estos Ignore, EF intentaría materializarlas y EnsureCreated crearía
-            // cuatro columnas que el migrador no parchea — el desfase silencioso de siempre.
+            // columnas que el migrador no parchea — el desfase silencioso de siempre.
             e.Ignore(p => p.LigadaADevOps);
             e.Ignore(p => p.EsfuerzoPendienteDeEnviar);
             e.Ignore(p => p.PrioridadPendienteDeEnviar);
+            e.Ignore(p => p.AsignacionPendienteDeEnviar);
+            e.Ignore(p => p.EstadoPendienteDeEnviar);
             e.Ignore(p => p.PendienteDeEnviarADevOps);
             e.HasOne(p => p.ClaimedBy).WithMany()
                 .HasForeignKey(p => p.ClaimedByDeveloperId).OnDelete(DeleteBehavior.Restrict);

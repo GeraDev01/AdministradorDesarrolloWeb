@@ -57,9 +57,35 @@ public class PoolDevOpsTests : IDisposable
 
         public Exception? FalloDeComentario { get; set; }
 
+        /// <summary>Si se pone, reasignar lanza. Con un <see cref="ErrorDeAzureDevOps"/> equivale a
+        /// que DevOps rechace el correo o no conteste.</summary>
+        public Exception? FalloDeAsignacion { get; set; }
+
+        /// <summary>Si se pone, mover de columna lanza. Es el caso de la transición inválida, que
+        /// depende de la plantilla de proceso del proyecto.</summary>
+        public Exception? FalloDeEstado { get; set; }
+
+        /// <summary>
+        /// A quién dice DevOps que quedó asignado, si no es a quien se le pidió. Sirve para el caso
+        /// en que el correo de la ficha no es el de la cuenta de allá: DevOps contesta 200 con OTRA
+        /// identidad, y eso NO puede contar como asignado.
+        /// </summary>
+        public (string nombre, string correo)? ResuelveLaAsignacionComo { get; set; }
+
+        /// <summary>
+        /// Con qué NOMBRE aparece cada cuenta en DevOps. Sin entrada, se contesta con el propio
+        /// correo: allá el nombre para mostrar lo pone el directorio y desde aquí no se puede
+        /// adivinar, así que fingir que coincide con el de la ficha probaría algo que no ocurre.
+        /// Lo declaran las pruebas a las que ese nombre les importa.
+        /// </summary>
+        public Dictionary<string, string> NombreEnDevOps { get; } = new(StringComparer.OrdinalIgnoreCase);
+
         public List<double> EsfuerzosEscritos { get; } = [];
         public List<int> PrioridadesEscritas { get; } = [];
         public List<string> ComentariosPublicados { get; } = [];
+        public List<string?> AsignacionesEscritas { get; } = [];
+        public List<string> EstadosEscritos { get; } = [];
+        public List<string> AdjuntosSubidos { get; } = [];
         public List<CredencialesDevOps> Llamadas { get; } = [];
         public List<ComentarioDevOps> Comentarios { get; set; } = [];
 
@@ -102,6 +128,43 @@ public class PoolDevOpsTests : IDisposable
             return Task.FromResult<IReadOnlyList<ComentarioDevOps>>(Comentarios);
         }
 
+        /// <summary>La dirección la devuelve DevOps y es lo que se embebe en el comentario, así que
+        /// aquí se inventa una reconocible: es lo que permite comprobar que la captura acabó DENTRO
+        /// del HTML publicado y no subida y olvidada.</summary>
+        public Task<string> SubirAdjuntoAsync(
+            CredencialesDevOps credenciales, byte[] contenido, string nombre, CancellationToken ct = default)
+        {
+            Llamadas.Add(credenciales);
+            AdjuntosSubidos.Add(nombre);
+            return Task.FromResult($"https://dev.azure.com/_apis/wit/attachments/{AdjuntosSubidos.Count}");
+        }
+
+        public Task<(string nombre, string correo)> ReasignarAsync(
+            CredencialesDevOps credenciales, int numero, string? correoOVacio, CancellationToken ct = default)
+        {
+            Llamadas.Add(credenciales);
+            if (FalloDeAsignacion != null) throw FalloDeAsignacion;
+
+            AsignacionesEscritas.Add(correoOVacio);
+
+            // Por omisión DevOps acepta el correo tal cual y contesta con él. Empatar identidades
+            // se hace por correo cuando los dos lados lo traen, que es el caso normal, así que el
+            // nombre solo decide cómo se LEE el resultado.
+            var correo = correoOVacio ?? "";
+            return Task.FromResult(
+                ResuelveLaAsignacionComo ?? (NombreEnDevOps.GetValueOrDefault(correo, correo), correo));
+        }
+
+        public Task<string> CambiarEstadoAsync(
+            CredencialesDevOps credenciales, int numero, string nuevoEstado, CancellationToken ct = default)
+        {
+            Llamadas.Add(credenciales);
+            if (FalloDeEstado != null) throw FalloDeEstado;
+
+            EstadosEscritos.Add(nuevoEstado);
+            return Task.FromResult(nuevoEstado);
+        }
+
         // El resto no lo usa el pool: lanza en vez de contestar algo inventado, para que una prueba
         // que acabe aquí se entere en el momento en lugar de pasar en verde sin haber probado nada.
         private static T No<T>() => throw new InvalidOperationException(
@@ -109,9 +172,6 @@ public class PoolDevOpsTests : IDisposable
 
         public Task<IReadOnlyList<int>> ConsultarIdsAsync(CredencialesDevOps c, string? w, CancellationToken ct = default) => No<Task<IReadOnlyList<int>>>();
         public Task<IReadOnlyList<WorkItemDevOps>> ObtenerWorkItemsAsync(CredencialesDevOps c, IReadOnlyCollection<int> i, CancellationToken ct = default) => No<Task<IReadOnlyList<WorkItemDevOps>>>();
-        public Task<string> SubirAdjuntoAsync(CredencialesDevOps c, byte[] b, string n, CancellationToken ct = default) => No<Task<string>>();
-        public Task<(string nombre, string correo)> ReasignarAsync(CredencialesDevOps c, int n, string? correo, CancellationToken ct = default) => No<Task<(string, string)>>();
-        public Task<string> CambiarEstadoAsync(CredencialesDevOps c, int n, string e, CancellationToken ct = default) => No<Task<string>>();
         public Task<bool> SumarTrabajoCompletadoAsync(CredencialesDevOps c, int n, double h, bool r, CancellationToken ct = default) => No<Task<bool>>();
         public Task<IReadOnlyList<BugHijoDevOps>> ObtenerBugsHijosAsync(CredencialesDevOps c, int n, CancellationToken ct = default) => No<Task<IReadOnlyList<BugHijoDevOps>>>();
         public Task<IReadOnlyList<CambioDeAsignacionDevOps>> ObtenerHistorialDeAsignacionAsync(CredencialesDevOps c, int n, CancellationToken ct = default) => No<Task<IReadOnlyList<CambioDeAsignacionDevOps>>>();
@@ -176,9 +236,16 @@ public class PoolDevOpsTests : IDisposable
     private static UsuarioDePrueba Dev(int developerId, int userId = 1) =>
         UsuarioDePrueba.Como(UserRole.Desarrollador, developerId, userId);
 
-    private static int NuevoDesarrollador(AppDbContext db, string nombre = "Quien la toma")
+    /// <summary>
+    /// Una ficha de desarrollador. CON CORREO por omisión, porque es lo que hace falta para poner el
+    /// work item a su nombre: sin él, tomar una actividad ligada deja la asignación pendiente y
+    /// media suite estaría probando ese camino sin querer. El caso de la ficha sin correo se monta a
+    /// propósito pasando <c>correo: null</c>, y tiene su prueba.
+    /// </summary>
+    private static int NuevoDesarrollador(
+        AppDbContext db, string nombre = "Quien la toma", string? correo = "quien.toma@soltum.com.mx")
     {
-        var d = new Developer { FullName = nombre, IsActive = true };
+        var d = new Developer { FullName = nombre, Email = correo, IsActive = true };
         db.Developers.Add(d);
         db.SaveChanges();
         return d.Id;
@@ -393,6 +460,481 @@ public class PoolDevOpsTests : IDisposable
 
         Assert.Equal([4.5d], cliente.EsfuerzosEscritos);
         Assert.Equal(4.5m, (await LeerAsync(db, actividad.Id))!.DevOpsEsfuerzoEnviado);
+    }
+
+    // ── 4b. Tomarla la pone a tu nombre y en curso EN DEVOPS ─────────────────────
+
+    /// <summary>
+    /// <b>Lo que se pidió.</b> Tomar una actividad ligada deja el work item a nombre de quien la
+    /// tomó y movido a «en progreso», sin que nadie tenga que ir a DevOps a hacerlo. Las dos cosas
+    /// quedan además con su marca de agua, que es lo que impide volver a mandarlas en cada guardado.
+    /// </summary>
+    [Fact]
+    public async Task Tomar_asignaElWorkItemYLoMueveAEnProgreso()
+    {
+        using var db = await BaseListaAsync();
+        var cliente = new DevOpsDeMentira { NombreEnDevOps = { ["ana.perez@soltum.com.mx"] = "Ana Pérez" } };
+        int devId = NuevoDesarrollador(db, "Ana Pérez", "ana.perez@soltum.com.mx");
+
+        var (ok, mensaje, actividad) = await Pool(db, Admin(), cliente).CrearAsync(Borrador(workItem: 4321));
+        Assert.True(ok, mensaje);
+
+        // Publicar no asigna nada: no hay a quién. Es lo que separa las dos mitades del empuje.
+        Assert.Empty(cliente.AsignacionesEscritas);
+        Assert.Empty(cliente.EstadosEscritos);
+
+        var (tomada, texto) = await Pool(db, Dev(devId), cliente).TomarAsync(actividad!.Id, devId);
+        Assert.True(tomada, texto);
+
+        Assert.Equal(["ana.perez@soltum.com.mx"], cliente.AsignacionesEscritas);
+        Assert.Equal([PoolDevOpsService.EstadoEnProgresoPorOmision], cliente.EstadosEscritos);
+
+        var fila = await LeerAsync(db, actividad.Id);
+        Assert.Equal(devId, fila!.DevOpsAsignadoADeveloperId);
+        Assert.Equal(PoolDevOpsService.EstadoEnProgresoPorOmision, fila.DevOpsEstadoEnviado);
+        Assert.False(fila.PendienteDeEnviarADevOps);
+
+        // Y el mensaje lo cuenta: quien la toma tiene que saber que su ticket ya está a su nombre,
+        // o irá a comprobarlo a mano —que es el paso que esto vino a quitar—.
+        Assert.Contains("asignado a Ana Pérez", texto);
+        Assert.Contains("movido a", texto);
+    }
+
+    /// <summary>
+    /// Una actividad SIN ligar no manda nada al tomarla, y no es una obviedad: la mayoría del pool no
+    /// viene de un ticket, así que este es el camino de todos los días. Un empuje que saliera a la
+    /// red igualmente haría que tomar cualquier tarea costara un viaje a otro servidor.
+    /// </summary>
+    [Fact]
+    public async Task Tomar_sinTicketLigado_noHablaConDevOps()
+    {
+        using var db = await BaseListaAsync();
+        var cliente = new DevOpsDeMentira();
+        int devId = NuevoDesarrollador(db);
+
+        var (_, _, actividad) = await Pool(db, Admin(), cliente).CrearAsync(Borrador());
+        var (tomada, texto) = await Pool(db, Dev(devId), cliente).TomarAsync(actividad!.Id, devId);
+
+        Assert.True(tomada, texto);
+        Assert.Empty(cliente.Llamadas);
+    }
+
+    /// <summary>
+    /// El work item se asigna PRIMERO y se mueve DESPUÉS. Es el orden en que se hace a mano y el que
+    /// deja mejor el historial: al revés, hay un instante con un ticket «en progreso» sin dueño, que
+    /// es justo lo que este automatismo existe para evitar.
+    /// </summary>
+    [Fact]
+    public async Task Tomar_asignaAntesDeMover()
+    {
+        using var db = await BaseListaAsync();
+        var cliente = new DevOpsDeMentira();
+        int devId = NuevoDesarrollador(db);
+
+        var (_, _, actividad) = await Pool(db, Admin(), cliente).CrearAsync(Borrador(workItem: 4321));
+        await Pool(db, Dev(devId), cliente).TomarAsync(actividad!.Id, devId);
+
+        // Las dos ocurrieron, y la de asignar dejó su rastro antes: se comprueba por el orden en que
+        // el cliente registró las llamadas, que es lo único que sabe de tiempo.
+        Assert.Single(cliente.AsignacionesEscritas);
+        Assert.Single(cliente.EstadosEscritos);
+        Assert.True(cliente.Llamadas.Count >= 2);
+    }
+
+    /// <summary>
+    /// Sin correo en la ficha no se puede asignar, y eso NO puede tumbar el reclamo: la actividad es
+    /// suya igual. Lo que sí pasa es que se dice con nombre y apellidos, se guarda el motivo y queda
+    /// pendiente —porque el arreglo está aquí, no en DevOps—.
+    /// </summary>
+    [Fact]
+    public async Task Tomar_sinCorreoEnLaFicha_laActividadEsSuyaIgual_yQuedaConstancia()
+    {
+        using var db = await BaseListaAsync();
+        var cliente = new DevOpsDeMentira();
+        int devId = NuevoDesarrollador(db, "Sin Correo", correo: null);
+
+        var (_, _, actividad) = await Pool(db, Admin(), cliente).CrearAsync(Borrador(workItem: 4321));
+        var (tomada, texto) = await Pool(db, Dev(devId), cliente).TomarAsync(actividad!.Id, devId);
+
+        Assert.True(tomada, texto);
+        Assert.Empty(cliente.AsignacionesEscritas);
+        Assert.Contains("Sin Correo", texto);
+        Assert.Contains("ficha", texto);
+
+        var fila = await LeerAsync(db, actividad.Id);
+        Assert.Equal(PoolActivityStatus.Tomada, fila!.Status);       // el reclamo se ganó igual
+        Assert.Null(fila.DevOpsAsignadoADeveloperId);
+        Assert.True(fila.AsignacionPendienteDeEnviar);
+        Assert.Contains("Sin Correo", fila.DevOpsUltimoError);
+
+        // Mover de columna SÍ se intenta: que falte un correo aquí no dice nada sobre si DevOps
+        // contesta, y dejar el ticket parado en «New» por eso sería castigar dos veces el mismo dato.
+        Assert.Single(cliente.EstadosEscritos);
+    }
+
+    /// <summary>
+    /// DevOps contesta 200 pero resolvió el correo a OTRA persona —la ficha tiene un correo que allá
+    /// no es su cuenta—. Eso no cuenta como asignado: dar la marca por buena dejaría el ticket a
+    /// nombre equivocado y sin que nada volviera a intentarlo nunca.
+    /// </summary>
+    [Fact]
+    public async Task Tomar_siDevOpsLoResuelveAOtraPersona_noCuentaComoAsignado()
+    {
+        using var db = await BaseListaAsync();
+        var cliente = new DevOpsDeMentira
+        {
+            ResuelveLaAsignacionComo = ("Otro Cualquiera", "otro.cualquiera@soltum.com.mx")
+        };
+        int devId = NuevoDesarrollador(db, "Ana Pérez", "ana.perez@soltum.com.mx");
+
+        var (_, _, actividad) = await Pool(db, Admin(), cliente).CrearAsync(Borrador(workItem: 4321));
+        var (tomada, texto) = await Pool(db, Dev(devId), cliente).TomarAsync(actividad!.Id, devId);
+
+        Assert.True(tomada, texto);
+
+        var fila = await LeerAsync(db, actividad.Id);
+        Assert.Null(fila!.DevOpsAsignadoADeveloperId);
+        Assert.True(fila.AsignacionPendienteDeEnviar);
+        Assert.Contains("Otro Cualquiera", fila.DevOpsUltimoError);
+    }
+
+    /// <summary>
+    /// DevOps contesta sin correo —hay respuestas donde «System.AssignedTo» llega como texto suelto—
+    /// y con un nombre que no es exactamente el de la ficha. Eso NO es un desacuerdo: la petición se
+    /// aceptó con el correo que se mandó, y comparar nombres para decidirlo marcaría la asignación
+    /// como fallida para siempre, reintentándola en cada guardado sin que nada estuviera mal.
+    /// </summary>
+    [Fact]
+    public async Task Tomar_siDevOpsNoDevuelveCorreo_seCreeLaAsignacion()
+    {
+        using var db = await BaseListaAsync();
+        var cliente = new DevOpsDeMentira { ResuelveLaAsignacionComo = ("Jesus Canul", "") };
+        int devId = NuevoDesarrollador(db, "Jesus Abraham Canul", "jesus.canul@soltum.com.mx");
+
+        var (_, _, actividad) = await Pool(db, Admin(), cliente).CrearAsync(Borrador(workItem: 4321));
+        var (tomada, texto) = await Pool(db, Dev(devId), cliente).TomarAsync(actividad!.Id, devId);
+
+        Assert.True(tomada, texto);
+
+        var fila = await LeerAsync(db, actividad.Id);
+        Assert.Equal(devId, fila!.DevOpsAsignadoADeveloperId);
+        Assert.False(fila.AsignacionPendienteDeEnviar);
+        Assert.Null(fila.DevOpsUltimoError);
+    }
+
+    /// <summary>
+    /// Una actividad ya ACEPTADA deja de estar pendiente aunque su asignación nunca llegara. El
+    /// trabajo terminó: insistir meses después tocaría un ticket probablemente cerrado, y tenerla
+    /// para siempre en la lista del líder convertiría esa lista en ruido que nadie mira. El motivo
+    /// del fallo sigue guardado.
+    /// </summary>
+    [Fact]
+    public async Task Aceptada_yaNoQuedaPendienteDeAsignar()
+    {
+        using var db = await BaseListaAsync();
+        var cliente = new DevOpsDeMentira { FalloDeAsignacion = new ErrorDeAzureDevOps("no contesta") };
+        int devId = NuevoDesarrollador(db);
+
+        var (_, _, actividad) = await Pool(db, Admin(), cliente).CrearAsync(Borrador(workItem: 4321));
+        await Pool(db, Dev(devId), cliente).TomarAsync(actividad!.Id, devId);
+
+        Assert.True((await LeerAsync(db, actividad.Id))!.AsignacionPendienteDeEnviar);
+
+        // Se entrega y se acepta. El checklist de una Tarea exige evidencia en un punto, así que se
+        // marca todo desde el servicio, que es como lo hace la pantalla.
+        var checklist = await db.PoolActivityChecklistItems.AsNoTracking()
+            .Where(c => c.PoolActivityId == actividad.Id).ToListAsync();
+        foreach (var punto in checklist)
+            await Pool(db, Dev(devId), cliente).MarcarItemAsync(
+                punto.Id, devId, true, punto.RequiereEvidencia ? "https://dev.azure.com/pr/1" : null);
+
+        var (entregada, porQue) = await Pool(db, Dev(devId), cliente).EntregarAsync(actividad.Id, devId);
+        Assert.True(entregada, porQue);
+
+        var (aceptada, motivo) = await Pool(db, Admin(), cliente).AceptarAsync(actividad.Id);
+        Assert.True(aceptada, motivo);
+
+        var fila = await LeerAsync(db, actividad.Id);
+        Assert.False(fila!.AsignacionPendienteDeEnviar);
+        Assert.False(fila.PendienteDeEnviarADevOps);
+        Assert.False(string.IsNullOrWhiteSpace(fila.DevOpsUltimoError));   // el porqué no se borra
+
+        Assert.Empty((await Puente(db, Admin(), cliente).PendientesAsync()).Pendientes);
+    }
+
+    /// <summary>
+    /// La transición que rechaza DevOps —porque en ese proyecto el estado se llama de otra forma— se
+    /// cuenta con el mensaje de allá Y con dónde se arregla. El mensaje de DevOps suele enumerar los
+    /// estados válidos, así que es lo que hace falta para capturar el bueno sin ir a adivinarlo.
+    /// </summary>
+    [Fact]
+    public async Task Tomar_siDevOpsRechazaLaTransicion_seDiceQueEstadoSeIntentoYDondeSeCambia()
+    {
+        using var db = await BaseListaAsync();
+        var cliente = new DevOpsDeMentira
+        {
+            FalloDeEstado = new ErrorDeAzureDevOps(
+                "TF401320: la transición de New a Active no está permitida. Válidos: New, Doing, Done.")
+        };
+        int devId = NuevoDesarrollador(db);
+
+        var (_, _, actividad) = await Pool(db, Admin(), cliente).CrearAsync(Borrador(workItem: 4321));
+        var (tomada, texto) = await Pool(db, Dev(devId), cliente).TomarAsync(actividad!.Id, devId);
+
+        Assert.True(tomada, texto);
+
+        var fila = await LeerAsync(db, actividad.Id);
+        Assert.Null(fila!.DevOpsEstadoEnviado);
+        Assert.True(fila.EstadoPendienteDeEnviar);
+        Assert.Contains("Doing", fila.DevOpsUltimoError);                                   // lo que contestó DevOps
+        Assert.Contains(SettingsService.Claves.PoolDevOpsEstadoEnProgreso, fila.DevOpsUltimoError);
+
+        // La asignación sí entró: un rechazo de la transición no dice nada sobre el otro campo.
+        Assert.Equal(devId, fila.DevOpsAsignadoADeveloperId);
+        Assert.False(fila.AsignacionPendienteDeEnviar);
+    }
+
+    /// <summary>
+    /// El estado en el que se pone el ticket se puede CONFIGURAR, porque su nombre depende de la
+    /// plantilla de proceso del proyecto y no de nosotros.
+    /// </summary>
+    [Fact]
+    public async Task Estado_elConfiguradoManda()
+    {
+        using var db = await BaseListaAsync();
+        db.AppSettings.Add(new AppSetting
+        {
+            Key = SettingsService.Claves.PoolDevOpsEstadoEnProgreso, Value = "Doing"
+        });
+        await db.SaveChangesAsync();
+
+        var cliente = new DevOpsDeMentira();
+        int devId = NuevoDesarrollador(db);
+
+        var (_, _, actividad) = await Pool(db, Admin(), cliente).CrearAsync(Borrador(workItem: 4321));
+        await Pool(db, Dev(devId), cliente).TomarAsync(actividad!.Id, devId);
+
+        Assert.Equal(["Doing"], cliente.EstadosEscritos);
+    }
+
+    /// <summary>
+    /// Sin configurar, el estado se DEDUCE de los que usan de verdad los tickets ya sincronizados.
+    /// Es lo que evita que la función nazca muerta en un proyecto que no use la plantilla Agile: nadie
+    /// configura lo que no sabe que existe.
+    /// </summary>
+    [Fact]
+    public async Task Estado_sinConfigurar_seDeduceDeLosTicketsSincronizados()
+    {
+        using var db = await BaseListaAsync();
+        db.DevOpsTickets.Add(new DevOpsTicket { ExternalId = 1, Title = "a", State = "Doing" });
+        db.DevOpsTickets.Add(new DevOpsTicket { ExternalId = 2, Title = "b", State = "Doing" });
+        db.DevOpsTickets.Add(new DevOpsTicket { ExternalId = 3, Title = "c", State = "New" });
+        db.DevOpsTickets.Add(new DevOpsTicket { ExternalId = 4, Title = "d", State = "Closed" });
+        await db.SaveChangesAsync();
+
+        var cliente = new DevOpsDeMentira();
+        int devId = NuevoDesarrollador(db);
+
+        var (_, _, actividad) = await Pool(db, Admin(), cliente).CrearAsync(Borrador(workItem: 4321));
+        await Pool(db, Dev(devId), cliente).TomarAsync(actividad!.Id, devId);
+
+        // «New» y «Closed» no significan «en desarrollo», así que no compiten por frecuencia.
+        Assert.Equal(["Doing"], cliente.EstadosEscritos);
+    }
+
+    /// <summary>
+    /// Devolver la actividad al pool NO desasigna el work item —vaciar allá un campo que quizá puso
+    /// otra persona sería destruir información ajena— pero sí deja el estado por volver a mandar: si
+    /// otro la toma, su ticket tiene que volver a ponerse en curso, y a SU nombre.
+    /// </summary>
+    [Fact]
+    public async Task Devolver_noDesasigna_yElSiguienteQueLaTomaSeLaLlevaASuNombre()
+    {
+        using var db = await BaseListaAsync();
+        var cliente = new DevOpsDeMentira();
+        int primero = NuevoDesarrollador(db, "Ana Pérez", "ana.perez@soltum.com.mx");
+        int segundo = NuevoDesarrollador(db, "Beto Ruiz", "beto.ruiz@soltum.com.mx");
+
+        var (_, _, actividad) = await Pool(db, Admin(), cliente).CrearAsync(Borrador(workItem: 4321));
+        await Pool(db, Dev(primero), cliente).TomarAsync(actividad!.Id, primero);
+        await Pool(db, Dev(primero), cliente).DevolverAsync(actividad.Id, primero, "no me da la vida");
+
+        var libre = await LeerAsync(db, actividad.Id);
+        Assert.Equal(primero, libre!.DevOpsAsignadoADeveloperId);   // allá sigue a nombre de Ana
+        Assert.False(libre.AsignacionPendienteDeEnviar);            // y sin dueño aquí, nada que mandar
+        Assert.Null(libre.DevOpsEstadoEnviado);
+
+        var (tomada, texto) = await Pool(db, Dev(segundo), cliente).TomarAsync(actividad.Id, segundo);
+        Assert.True(tomada, texto);
+
+        Assert.Equal(["ana.perez@soltum.com.mx", "beto.ruiz@soltum.com.mx"], cliente.AsignacionesEscritas);
+        Assert.Equal(segundo, (await LeerAsync(db, actividad.Id))!.DevOpsAsignadoADeveloperId);
+    }
+
+    /// <summary>
+    /// Lo que ya está en DevOps no se vuelve a mandar en cada guardado. Con la asignación y el estado
+    /// puestos, editar o reintentar no tiene que producir una sola llamada más: son marcas de agua,
+    /// no una orden que se repita.
+    /// </summary>
+    [Fact]
+    public async Task Tomar_loQueYaLlego_noSeVuelveAMandar()
+    {
+        using var db = await BaseListaAsync();
+        var cliente = new DevOpsDeMentira();
+        int devId = NuevoDesarrollador(db);
+
+        var (_, _, actividad) = await Pool(db, Admin(), cliente).CrearAsync(Borrador(workItem: 4321));
+        await Pool(db, Dev(devId), cliente).TomarAsync(actividad!.Id, devId);
+
+        int llamadas = cliente.Llamadas.Count;
+
+        var (ok, mensaje) = await Puente(db, Dev(devId), cliente).ReintentarAsync(actividad.Id);
+        Assert.True(ok, mensaje);
+        Assert.Equal(llamadas, cliente.Llamadas.Count);
+    }
+
+    /// <summary>
+    /// El ticket local se refleja con lo que DevOps aceptó, para que la rejilla no siga enseñando al
+    /// asignado y la columna anteriores hasta la próxima sincronización. Es el mismo criterio que ya
+    /// aplica la prioridad.
+    /// </summary>
+    [Fact]
+    public async Task Tomar_reflejaElTicketLocal()
+    {
+        using var db = await BaseListaAsync();
+        db.DevOpsTickets.Add(new DevOpsTicket
+        {
+            ExternalId = 4321, Title = "Corregir el cálculo", State = "New", AssignedTo = ""
+        });
+        await db.SaveChangesAsync();
+
+        var cliente = new DevOpsDeMentira { NombreEnDevOps = { ["ana.perez@soltum.com.mx"] = "Ana Pérez" } };
+        int devId = NuevoDesarrollador(db, "Ana Pérez", "ana.perez@soltum.com.mx");
+
+        var (_, _, actividad) = await Pool(db, Admin(), cliente).CrearAsync(Borrador(workItem: 4321));
+        await Pool(db, Dev(devId), cliente).TomarAsync(actividad!.Id, devId);
+
+        var ticket = await db.DevOpsTickets.AsNoTracking().SingleAsync(t => t.ExternalId == 4321);
+        Assert.Equal("Ana Pérez", ticket.AssignedTo);
+        Assert.Equal("ana.perez@soltum.com.mx", ticket.AssignedToUniqueName);
+        Assert.Equal(PoolDevOpsService.EstadoEnProgresoPorOmision, ticket.State);
+    }
+
+    // ── 4c. El vínculo que cambia bajo los pies ──────────────────────────────────
+
+    /// <summary>
+    /// <b>REGRESIÓN.</b> Cuando DevOps contesta sin correo, el reflejo local NO borra
+    /// <c>AssignedToUniqueName</c>: guarda el que se mandó.
+    ///
+    /// <para>Esa columna es la llave con la que toda la aplicación decide de quién es un ticket
+    /// —qué sale en «Mis tickets DevOps», qué puede operar un desarrollador, a quién se le liga el
+    /// requerimiento—. Escribir el nulo de una respuesta que simplemente no traía el campo borraría
+    /// un dato bueno de la sincronización y degradaría ese ticket a empatarse solo por nombre.</para>
+    /// </summary>
+    [Fact]
+    public async Task ReflejoLocal_siDevOpsNoDevuelveCorreo_conservaLaIdentidadQueSeMando()
+    {
+        using var db = await BaseListaAsync();
+        db.DevOpsTickets.Add(new DevOpsTicket
+        {
+            ExternalId = 4321, Title = "Corregir el cálculo", State = "New",
+            AssignedTo = "Alguien Anterior", AssignedToUniqueName = "alguien.anterior@soltum.com.mx"
+        });
+        await db.SaveChangesAsync();
+
+        // DevOps acepta pero contesta sin uniqueName, que es el caso que se da con «System.AssignedTo»
+        // devuelto como texto suelto.
+        var cliente = new DevOpsDeMentira { ResuelveLaAsignacionComo = ("Ana Pérez", "") };
+        int devId = NuevoDesarrollador(db, "Ana Pérez", "ana.perez@soltum.com.mx");
+
+        var (_, _, actividad) = await Pool(db, Admin(), cliente).CrearAsync(Borrador(workItem: 4321));
+        var (tomada, texto) = await Pool(db, Dev(devId), cliente).TomarAsync(actividad!.Id, devId);
+        Assert.True(tomada, texto);
+
+        var ticket = await db.DevOpsTickets.AsNoTracking().SingleAsync(t => t.ExternalId == 4321);
+        Assert.Equal("Ana Pérez", ticket.AssignedTo);
+        Assert.Equal("ana.perez@soltum.com.mx", ticket.AssignedToUniqueName);
+    }
+
+    /// <summary>
+    /// <b>REGRESIÓN.</b> Repuntar la actividad a OTRO work item desde «Editar» tiene que olvidar
+    /// TAMBIÉN a nombre de quién quedó el anterior.
+    ///
+    /// <para>Es el único camino por el que una marca de asignación puede llegar viva a un ticket
+    /// nuevo: soltar el reclamo la conserva a propósito —sin dueño no hay nada pendiente—, así que
+    /// una actividad devuelta al pool llega a la edición con ella puesta. Sin este olvido, cuando la
+    /// MISMA persona vuelva a tomarla, «pendiente» compara su identificador contra el que confirmó
+    /// el ticket ANTERIOR, sale que no falta nada, y el work item nuevo se queda «en progreso» y sin
+    /// dueño. Y en silencio: la actividad ni siquiera aparece en la lista de pendientes del líder.</para>
+    /// </summary>
+    [Fact]
+    public async Task CambiarDeTicketAlEditar_olvidaTambienAQuienSeLeAsignoElAnterior()
+    {
+        using var db = await BaseListaAsync();
+        var cliente = new DevOpsDeMentira();
+        int devId = NuevoDesarrollador(db, "Ana Pérez", "ana.perez@soltum.com.mx");
+
+        var (_, _, actividad) = await Pool(db, Admin(), cliente).CrearAsync(Borrador(workItem: 100));
+        await Pool(db, Dev(devId), cliente).TomarAsync(actividad!.Id, devId);
+        Assert.Equal(devId, (await LeerAsync(db, actividad.Id))!.DevOpsAsignadoADeveloperId);
+
+        // Se devuelve al pool: la marca de la asignación SOBREVIVE (allá sigue a su nombre), la del
+        // estado no. Es la asimetría que hace alcanzable el fallo.
+        await Pool(db, Dev(devId), cliente).DevolverAsync(actividad.Id, devId, "no me da la vida");
+        var libre = await LeerAsync(db, actividad.Id);
+        Assert.Equal(devId, libre!.DevOpsAsignadoADeveloperId);
+        Assert.Null(libre.DevOpsEstadoEnviado);
+
+        // El líder la repunta a otro ticket: el bueno era el #999.
+        var cambio = Borrador(workItem: 999);
+        var (editada, porQue) = await Pool(db, Admin(), cliente).EditarAsync(actividad.Id, cambio);
+        Assert.True(editada, porQue);
+
+        var reapuntada = await LeerAsync(db, actividad.Id);
+        Assert.Equal(999, reapuntada!.DevOpsWorkItemId);
+        Assert.Null(reapuntada.DevOpsAsignadoADeveloperId);
+        Assert.Null(reapuntada.DevOpsEstadoEnviado);
+
+        // Y al volver a tomarla la MISMA persona, el ticket nuevo sí se pone a su nombre.
+        cliente.AsignacionesEscritas.Clear();
+        var (tomada, texto) = await Pool(db, Dev(devId), cliente).TomarAsync(actividad.Id, devId);
+        Assert.True(tomada, texto);
+
+        Assert.Equal(["ana.perez@soltum.com.mx"], cliente.AsignacionesEscritas);
+        var alFinal = await LeerAsync(db, actividad.Id);
+        Assert.Equal(devId, alFinal!.DevOpsAsignadoADeveloperId);
+        Assert.False(alFinal.PendienteDeEnviarADevOps);
+    }
+
+    /// <summary>
+    /// <b>REGRESIÓN.</b> Una cuenta de desarrollador SIN FICHA no puede reintentar el empuje de una
+    /// actividad que no es suya.
+    ///
+    /// <para>El estado se da de verdad: la clave ajena de <c>Users</c> hacia <c>Developers</c> está
+    /// declarada <c>OnDelete(SetNull)</c>, así que borrar una ficha deja la sesión viva con
+    /// <c>DeveloperId</c> nulo. Comparando los dos nullables a mano, esa cuenta pasaba la guarda
+    /// sobre cualquier actividad LIBRE —donde <c>ClaimedByDeveloperId</c> también es nulo—, porque
+    /// nulo distinto de nulo es falso. Y reintentar escribe en un work item ajeno con el token de la
+    /// INSTALACIÓN, así que no es una puerta cualquiera.</para>
+    /// </summary>
+    [Fact]
+    public async Task Reintentar_sinFichaDeDesarrollador_noPasaPorUnaActividadLibre()
+    {
+        using var db = await BaseListaAsync();
+        var cliente = new DevOpsDeMentira { AceptaEsfuerzo = false };   // deja algo pendiente
+
+        var (_, _, actividad) = await Pool(db, Admin(), cliente).CrearAsync(Borrador(workItem: 4321));
+        Assert.True((await LeerAsync(db, actividad!.Id))!.PendienteDeEnviarADevOps);
+
+        // Rol Desarrollador y NINGUNA ficha: exactamente lo que queda tras borrar un Developer.
+        var sinFicha = UsuarioDePrueba.Como(UserRole.Desarrollador, developerId: null, userId: 77);
+
+        int llamadas = cliente.Llamadas.Count;
+        var (ok, mensaje) = await Puente(db, sinFicha, cliente).ReintentarAsync(actividad.Id);
+
+        Assert.False(ok);
+        Assert.Contains("no es tuya", mensaje);
+        Assert.Equal(llamadas, cliente.Llamadas.Count);   // no salió nada hacia DevOps
     }
 
     // ── 5. DevOps caído: lo local se guarda igual, y se dice ─────────────────────
@@ -822,6 +1364,152 @@ public class PoolDevOpsTests : IDisposable
         Assert.Contains("Lígala primero", mensaje);
     }
 
+    // ── 10b. Comentar CON EVIDENCIAS ─────────────────────────────────────────────
+
+    /// <summary>Un PNG mínimo: lo que decide si algo es imagen son sus BYTES, no su extensión.</summary>
+    private static byte[] Png() => [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0, 1, 2, 3];
+
+    /// <summary>
+    /// <b>La razón de que las evidencias se puedan adjuntar desde el pool:</b> la captura tiene que
+    /// acabar DENTRO del comentario del work item, que es lo único que ve quien lee el ticket en
+    /// DevOps. Subirla y no embeberla la dejaría en un adjunto que nadie encuentra.
+    /// </summary>
+    [Fact]
+    public async Task Comentar_conEvidencias_lasSubeYLasEmbebeEnElComentario()
+    {
+        using var db = await BaseListaAsync();
+        var cliente = new DevOpsDeMentira();
+        var admin = Admin();
+
+        var (_, _, actividad) = await Pool(db, admin, cliente).CrearAsync(Borrador(workItem: 4321));
+        await ConTokenPropioAsync(db, admin, "pat-de-la-jefa");
+
+        var (ok, mensaje) = await Puente(db, admin, cliente).ComentarAsync(
+            actividad!.Id, "Corregido y probado.", [("antes.png", Png()), ("despues.png", Png())]);
+
+        Assert.True(ok, mensaje);
+        Assert.Equal(["antes.png", "despues.png"], cliente.AdjuntosSubidos);
+
+        var publicado = Assert.Single(cliente.ComentariosPublicados);
+        Assert.Contains("Corregido y probado.", publicado);
+        Assert.Contains("antes.png", publicado);
+        Assert.Contains("<img src=\"https://dev.azure.com/_apis/wit/attachments/1\"", publicado);
+        Assert.Contains("<img src=\"https://dev.azure.com/_apis/wit/attachments/2\"", publicado);
+
+        // Se firman con el token de quien comenta, igual que el texto: la subida deja rastro en el
+        // historial del work item y tiene que llevar su nombre.
+        Assert.Equal("pat-de-la-jefa", cliente.UltimoToken);
+    }
+
+    /// <summary>
+    /// Con captura, el texto deja de ser obligatorio: pegar la pantalla del error ya corregido ES el
+    /// comentario, y obligar a escribir «adjunto evidencia» al lado no añade nada.
+    /// </summary>
+    [Fact]
+    public async Task Comentar_soloConEvidencia_sePublica()
+    {
+        using var db = await BaseListaAsync();
+        var cliente = new DevOpsDeMentira();
+        var admin = Admin();
+
+        var (_, _, actividad) = await Pool(db, admin, cliente).CrearAsync(Borrador(workItem: 4321));
+        await ConTokenPropioAsync(db, admin, "pat-de-la-jefa");
+
+        var (ok, mensaje) = await Puente(db, admin, cliente)
+            .ComentarAsync(actividad!.Id, "", [("prueba.png", Png())]);
+
+        Assert.True(ok, mensaje);
+        Assert.Single(cliente.ComentariosPublicados);
+    }
+
+    /// <summary>Sin texto y sin capturas no hay nada que publicar, y se dice de las dos formas.</summary>
+    [Fact]
+    public async Task Comentar_vacioYSinEvidencias_seNiega()
+    {
+        using var db = await BaseListaAsync();
+        var cliente = new DevOpsDeMentira();
+        var admin = Admin();
+
+        var (_, _, actividad) = await Pool(db, admin, cliente).CrearAsync(Borrador(workItem: 4321));
+        await ConTokenPropioAsync(db, admin, "pat-de-la-jefa");
+
+        var (ok, mensaje) = await Puente(db, admin, cliente).ComentarAsync(actividad!.Id, "   ");
+
+        Assert.False(ok);
+        Assert.Contains("evidencia", mensaje);
+        Assert.Empty(cliente.ComentariosPublicados);
+    }
+
+    /// <summary>
+    /// Lo que no es una imagen se rechaza <b>por sus bytes</b> y ANTES de subir nada. A esta ruta se
+    /// la puede llamar sin pasar por el navegador, y lo que se suba acaba servido desde el dominio de
+    /// Azure DevOps: creerle a la extensión sería dejar que quien sube elija qué se publica allá.
+    /// </summary>
+    [Fact]
+    public async Task Comentar_conAlgoQueNoEsImagen_seRechazaSinSubirNada()
+    {
+        using var db = await BaseListaAsync();
+        var cliente = new DevOpsDeMentira();
+        var admin = Admin();
+
+        var (_, _, actividad) = await Pool(db, admin, cliente).CrearAsync(Borrador(workItem: 4321));
+        await ConTokenPropioAsync(db, admin, "pat-de-la-jefa");
+
+        var (ok, _) = await Puente(db, admin, cliente).ComentarAsync(
+            actividad!.Id, "Aquí va la prueba.", [("parece.png", "esto es texto plano"u8.ToArray())]);
+
+        Assert.False(ok);
+        Assert.Empty(cliente.AdjuntosSubidos);
+        Assert.Empty(cliente.ComentariosPublicados);
+    }
+
+    /// <summary>
+    /// El lote se valida ENTERO antes de subir la primera. Al revés, un lote con la última mala
+    /// dejaría las anteriores ya subidas a DevOps sin comentario que las enseñe: adjuntos huérfanos
+    /// que nadie va a encontrar para borrarlos.
+    /// </summary>
+    [Fact]
+    public async Task Comentar_siUnaEvidenciaNoVale_noSeSubeNinguna()
+    {
+        using var db = await BaseListaAsync();
+        var cliente = new DevOpsDeMentira();
+        var admin = Admin();
+
+        var (_, _, actividad) = await Pool(db, admin, cliente).CrearAsync(Borrador(workItem: 4321));
+        await ConTokenPropioAsync(db, admin, "pat-de-la-jefa");
+
+        var (ok, _) = await Puente(db, admin, cliente).ComentarAsync(
+            actividad!.Id, "Van dos.",
+            [("buena.png", Png()), ("mala.png", "no soy una imagen"u8.ToArray())]);
+
+        Assert.False(ok);
+        Assert.Empty(cliente.AdjuntosSubidos);
+    }
+
+    /// <summary>Más capturas de las que caben se rechaza sin salir a la red.</summary>
+    [Fact]
+    public async Task Comentar_conDemasiadasEvidencias_seRechaza()
+    {
+        using var db = await BaseListaAsync();
+        var cliente = new DevOpsDeMentira();
+        var admin = Admin();
+
+        var (_, _, actividad) = await Pool(db, admin, cliente).CrearAsync(Borrador(workItem: 4321));
+        await ConTokenPropioAsync(db, admin, "pat-de-la-jefa");
+
+        var demasiadas = Enumerable
+            .Range(1, PoolDevOpsService.MaxEvidencias + 1)
+            .Select(i => ($"captura{i}.png", Png()))
+            .ToList();
+
+        var (ok, mensaje) = await Puente(db, admin, cliente)
+            .ComentarAsync(actividad!.Id, "Todas de golpe.", demasiadas);
+
+        Assert.False(ok);
+        Assert.Contains(PoolDevOpsService.MaxEvidencias.ToString(), mensaje);
+        Assert.Empty(cliente.AdjuntosSubidos);
+    }
+
     // ── 11. Un ticket sin sincronizar se puede ligar igual ───────────────────────
 
     /// <summary>
@@ -895,6 +1583,7 @@ public class PoolDevOpsTests : IDisposable
         string[] nuevas =
         [
             "DevOpsWorkItemId", "DevOpsEsfuerzoEnviado", "DevOpsPrioridadEnviada",
+            "DevOpsAsignadoADeveloperId", "DevOpsEstadoEnviado",
             "DevOpsEmpujadoEnUtc", "DevOpsUltimoError"
         ];
 

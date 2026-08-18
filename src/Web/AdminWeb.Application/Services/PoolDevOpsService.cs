@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using System.Text.RegularExpressions;
 using AdminWeb.Domain.Entities;
 using AdminWeb.Domain.Security;
@@ -13,7 +14,15 @@ namespace AdminWeb.Application.Services;
 
 /// <summary>
 /// El puente entre una actividad del pool y su work item de Azure DevOps: ligarlos, empujar hacia
-/// allá el esfuerzo y la prioridad, y comentar en el ticket desde aquí.
+/// allá el esfuerzo, la prioridad, a nombre de quién queda y en qué columna está, y comentar en el
+/// ticket desde aquí —con evidencias, si las hay—.
+///
+/// <para><b>Tomar una actividad la pone a tu nombre y en curso EN DEVOPS.</b> Es lo que evita el
+/// paso que todo el mundo se salta: alguien toma un bug del pool, se pone a trabajarlo, y en DevOps
+/// el ticket sigue sin dueño y en «New» durante tres días. La asignación y el cambio de columna van
+/// por el mismo camino que el esfuerzo y la prioridad —marca de agua, pendiente derivado, reintento
+/// sin recapturar— y no pueden hacer fallar el reclamo: la actividad ya es tuya cuando esto
+/// empieza.</para>
 ///
 /// <para><b>La regla que gobierna esta clase entera: lo local primero, y pase lo que pase.</b> Azure
 /// DevOps está al otro lado de la red y puede tardar, rechazar o no estar. Publicar una actividad,
@@ -29,7 +38,8 @@ namespace AdminWeb.Application.Services;
 /// DevOps siga en blanco es aceptable durante un rato; que nadie pueda saberlo, no.</para>
 ///
 /// <para><b>Lo pendiente se DERIVA, no se marca.</b> Cada actividad guarda lo ÚLTIMO que DevOps
-/// confirmó (<c>DevOpsEsfuerzoEnviado</c>, <c>DevOpsPrioridadEnviada</c>) y «pendiente» es
+/// confirmó (<c>DevOpsEsfuerzoEnviado</c>, <c>DevOpsPrioridadEnviada</c>,
+/// <c>DevOpsAsignadoADeveloperId</c>, <c>DevOpsEstadoEnviado</c>) y «pendiente» es
 /// simplemente que eso no coincida con lo que dice la actividad hoy. Así una edición posterior
 /// vuelve a levantar la bandera sola, sin que ningún camino de código tenga que acordarse de nada, y
 /// un reintento manda solo lo que de verdad falta. Es lo que hace representable el EMPUJE PARCIAL,
@@ -76,10 +86,13 @@ public partial class PoolDevOpsService(
     /// <summary>Tope de un comentario. Da para explicar un avance, no para pegar un volcado.</summary>
     public const int MaxComentario = 4000;
 
-    /// <summary>Los estados en los que una actividad todavía manda sobre su work item.</summary>
-    private static bool SigueEnJuego(PoolActivityStatus estado) =>
-        estado is PoolActivityStatus.Disponible or PoolActivityStatus.Tomada
-               or PoolActivityStatus.EnRevision or PoolActivityStatus.Devuelta;
+    /// <summary>
+    /// Cuántas capturas caben en un comentario. Es el MISMO tope que el de la pantalla de tickets, y
+    /// tiene que serlo: son la misma operación contra el mismo work item, y dos límites distintos
+    /// harían que la misma persona pudiera adjuntar más desde una pantalla que desde la otra sin que
+    /// nada lo explicara. Por eso se toma de un solo sitio.
+    /// </summary>
+    public const int MaxEvidencias = ArchivosSubidos.MaxEvidenciasPorComentario;
 
     // ── Resolver el vínculo ──────────────────────────────────────────────────────
 
@@ -199,9 +212,11 @@ public partial class PoolDevOpsService(
             // La marca de agua se BORRA al cambiar de ticket: lo que se envió, se envió al work item
             // ANTERIOR. Conservarla haría que la actividad se creyera al día en un ticket al que
             // nunca se le mandó nada.
-            actividad.DevOpsEsfuerzoEnviado  = null;
-            actividad.DevOpsPrioridadEnviada = null;
-            actividad.DevOpsUltimoError      = null;
+            actividad.DevOpsEsfuerzoEnviado       = null;
+            actividad.DevOpsPrioridadEnviada      = null;
+            actividad.DevOpsAsignadoADeveloperId  = null;
+            actividad.DevOpsEstadoEnviado         = null;
+            actividad.DevOpsUltimoError           = null;
         }
 
         // El enlace se rellena solo cuando está vacío. Pisar el que capturó el líder sería quitarle
@@ -252,7 +267,7 @@ public partial class PoolDevOpsService(
             .Select(a => new { a.Id, a.Title, a.Status })
             .ToListAsync(ct);
 
-        var viva = otras.FirstOrDefault(o => SigueEnJuego(o.Status));
+        var viva = otras.FirstOrDefault(o => PoolActivity.EstadoSigueEnJuego(o.Status));
 
         return viva is null
             ? (true, "")
@@ -265,11 +280,13 @@ public partial class PoolDevOpsService(
     /// vínculo: sin ticket no hay nada contra qué comparar.</summary>
     private static void OlvidarVinculo(PoolActivity actividad)
     {
-        actividad.DevOpsWorkItemId       = null;
-        actividad.DevOpsEsfuerzoEnviado  = null;
-        actividad.DevOpsPrioridadEnviada = null;
-        actividad.DevOpsEmpujadoEnUtc    = null;
-        actividad.DevOpsUltimoError      = null;
+        actividad.DevOpsWorkItemId            = null;
+        actividad.DevOpsEsfuerzoEnviado       = null;
+        actividad.DevOpsPrioridadEnviada      = null;
+        actividad.DevOpsAsignadoADeveloperId  = null;
+        actividad.DevOpsEstadoEnviado         = null;
+        actividad.DevOpsEmpujadoEnUtc         = null;
+        actividad.DevOpsUltimoError           = null;
     }
 
     // ── El empuje ────────────────────────────────────────────────────────────────
@@ -316,7 +333,7 @@ public partial class PoolDevOpsService(
             // de dentro, así que sin esto el único rastro de un empuje reventado sería el mensaje que
             // alguien leyó una vez: la actividad seguiría saliendo como pendiente —eso lo da la marca
             // de agua— pero sin decir de qué murió, que es justo lo que hace falta para arreglarlo.
-            await AnotarResultadoAsync(poolActivityId, null, null, motivo);
+            await AnotarResultadoAsync(poolActivityId, null, null, null, null, motivo);
 
             return (false, $"No se pudo actualizar Azure DevOps: {motivo} " +
                            "La actividad quedó guardada aquí y pendiente de enviar.");
@@ -326,27 +343,28 @@ public partial class PoolDevOpsService(
     private async Task<(bool todoLlego, string aviso)> IntentarEmpujeAsync(
         int poolActivityId, CancellationToken ct)
     {
+        // La FILA ENTERA y no una proyección: qué falta por mandar lo dicen las propiedades derivadas
+        // de la entidad, y son las mismas que decide lo que ve el líder en su lista de pendientes.
+        // Con una proyección habría que recalcular aquí las cuatro condiciones, y el día que una de
+        // ellas cambiara en la entidad este servicio seguiría mandando —o dejando de mandar— con la
+        // regla vieja, en silencio. La fila es pequeña y se lee una vez por empuje.
         var actividad = await db.PoolActivities.AsNoTracking()
-            .Where(a => a.Id == poolActivityId)
-            .Select(a => new
-            {
-                a.DevOpsWorkItemId, a.HorasEstimadas, a.Priority,
-                a.DevOpsEsfuerzoEnviado, a.DevOpsPrioridadEnviada
-            })
-            .FirstOrDefaultAsync(ct);
+            .FirstOrDefaultAsync(a => a.Id == poolActivityId, ct);
 
         if (actividad?.DevOpsWorkItemId is not int numero || numero <= 0) return (true, "");
 
         int prioridadDestino = PrioridadDelPoolEnDevOps.ADevOps(actividad.Priority);
-        bool faltaEsfuerzo   = actividad.HorasEstimadas is decimal h && actividad.DevOpsEsfuerzoEnviado != h;
-        bool faltaPrioridad  = actividad.DevOpsPrioridadEnviada != prioridadDestino;
+        bool faltaEsfuerzo   = actividad.EsfuerzoPendienteDeEnviar;
+        bool faltaPrioridad  = actividad.PrioridadPendienteDeEnviar;
+        bool faltaAsignacion = actividad.AsignacionPendienteDeEnviar;
+        bool faltaEstado     = actividad.EstadoPendienteDeEnviar;
 
-        if (!faltaEsfuerzo && !faltaPrioridad) return (true, "");
+        if (!actividad.PendienteDeEnviarADevOps) return (true, "");
 
         var (credenciales, problema) = await CredencialesAsync(exigirPropio: false, ct);
         if (credenciales is null)
         {
-            await AnotarResultadoAsync(poolActivityId, null, null, problema);
+            await AnotarResultadoAsync(poolActivityId, null, null, null, null, problema);
             return (false, $"El ticket #{numero} de Azure DevOps NO se actualizó: {problema} " +
                            "La actividad quedó guardada aquí y pendiente de enviar.");
         }
@@ -360,6 +378,9 @@ public partial class PoolDevOpsService(
 
         decimal? esfuerzoLlego = null;
         int? prioridadLlego = null;
+        int? asignacionLlego = null;
+        string? nombreAsignado = null;
+        string? estadoLlego = null;
         var problemas = new List<string>();
         bool devopsMudo = false;
 
@@ -411,6 +432,7 @@ public partial class PoolDevOpsService(
                 {
                     problemas.Add($"Azure DevOps no contestó en {Paciencia.TotalSeconds:0} segundos " +
                                   "al cambiar la prioridad.");
+                    devopsMudo = true;
                 }
 
                 // La prioridad entró: se refleja aquí con el mismo código que la pantalla de tickets.
@@ -427,37 +449,247 @@ public partial class PoolDevOpsService(
             }
         }
 
-        string? error = problemas.Count == 0 ? null : string.Join(" ", problemas);
-        await AnotarResultadoAsync(poolActivityId, esfuerzoLlego, prioridadLlego, error);
+        // ── La asignación ────────────────────────────────────────────────────────
+        //
+        // Es lo que hace que tomar una actividad del pool ponga su work item a nombre de quien la
+        // tomó, sin que nadie tenga que acordarse de ir a DevOps a hacerlo. Va con el token de la
+        // INSTALACIÓN igual que el esfuerzo y la prioridad —y no con el personal, como los
+        // comentarios—: quien toma una actividad casi nunca tiene el suyo capturado, y exigirlo
+        // dejaría la asignación sin hacer justo el primer día, que es cuando más falta hace.
+        if (faltaAsignacion)
+        {
+            int aQuien = actividad.ClaimedByDeveloperId!.Value;
+            var ficha = await db.Developers.AsNoTracking().FirstOrDefaultAsync(d => d.Id == aQuien, ct);
 
-        bool todoLlego = (!faltaEsfuerzo || esfuerzoLlego != null)
-                      && (!faltaPrioridad || prioridadLlego != null);
+            if (ficha is null)
+            {
+                problemas.Add("La ficha de quien tiene la actividad ya no existe, así que no se puede " +
+                              "poner el work item a su nombre.");
+            }
+            else if (string.IsNullOrWhiteSpace(ficha.Email))
+            {
+                // No es un fallo de DevOps sino un dato que falta AQUÍ, y por eso se dice con el
+                // nombre y con dónde se arregla: un «no se pudo asignar» a secas mandaría a mirar el
+                // ticket, que es el único sitio donde no está el problema.
+                problemas.Add($"«{ficha.FullName}» no tiene correo en su ficha, y sin él no se puede " +
+                              "poner el work item a su nombre en Azure DevOps. Captúraselo en su ficha " +
+                              "de desarrollador y reintenta.");
+            }
+            else if (devopsMudo)
+            {
+                problemas.Add("La asignación no se llegó a intentar, porque Azure DevOps ya no había " +
+                              "contestado antes.");
+            }
+            else
+            {
+                try
+                {
+                    var (nombre, correo) = await devops.ReasignarAsync(credenciales, numero, ficha.Email, espera);
+
+                    // Se comprueba a QUIÉN lo resolvió DevOps, en vez de dar por hecho que aceptó lo
+                    // que se le mandó: un correo que allá identifica a otra cuenta dejaría el work
+                    // item a nombre equivocado y la marca de agua diciendo que todo está en orden.
+                    //
+                    // Pero solo se rechaza cuando se puede PROBAR que es otra persona, o sea cuando
+                    // DevOps contestó con un correo y no es el que se mandó. Sin correo de vuelta
+                    // —hay respuestas donde «System.AssignedTo» llega como texto suelto— la
+                    // comparación caería al NOMBRE, y ahí «Jesus Canul» contra «Jesus Abraham Canul»
+                    // daría un desacuerdo falso: la asignación se marcaría como fallida para siempre
+                    // y se reintentaría en cada guardado, sin que nada estuviera mal.
+                    bool esOtraPersona = !string.IsNullOrWhiteSpace(correo)
+                                      && !DevOpsIdentityMatcher.Corresponde(nombre, correo, ficha);
+
+                    if (!esOtraPersona)
+                    {
+                        asignacionLlego = aQuien;
+                        nombreAsignado = string.IsNullOrWhiteSpace(nombre) ? ficha.FullName : nombre;
+                        await ReflejarAsignacionAsync(numero, nombre, correo, ficha.Email, ct);
+                    }
+                    else
+                    {
+                        problemas.Add("Azure DevOps dejó el work item a nombre de " +
+                                      $"«{(string.IsNullOrWhiteSpace(nombre) ? "(sin asignar)" : nombre)}» " +
+                                      $"y no de «{ficha.FullName}». Comprueba que el correo de su ficha " +
+                                      $"({ficha.Email}) sea el de su cuenta de Azure DevOps.");
+                    }
+                }
+                catch (ErrorDeAzureDevOps ex) { problemas.Add(ex.Message); }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    problemas.Add($"Azure DevOps no contestó en {Paciencia.TotalSeconds:0} segundos " +
+                                  "al asignar el work item.");
+                    devopsMudo = true;
+                }
+            }
+        }
+
+        // ── El estado ────────────────────────────────────────────────────────────
+        //
+        // Mover a «en progreso» va DETRÁS de asignar y no al revés, porque es el orden en que se
+        // hace a mano y el que deja mejor el historial del work item: primero aparece a nombre de
+        // alguien y después se mueve de columna. Al revés, durante un instante hay un ticket «en
+        // progreso» sin dueño, que es justo lo que este automatismo existe para evitar.
+        if (faltaEstado)
+        {
+            if (devopsMudo)
+            {
+                problemas.Add("El work item no se llegó a mover a «en progreso», porque Azure DevOps " +
+                              "ya no había contestado antes.");
+            }
+            else
+            {
+                var destino = await EstadoEnProgresoAsync(ct);
+                try
+                {
+                    // Se guarda lo que DevOps DIJO que quedó, no lo que se le pidió: hay plantillas
+                    // que renombran o redirigen la transición, y anotar el destino pedido haría que
+                    // la actividad afirmara un estado que allá no existe.
+                    var quedo = await devops.CambiarEstadoAsync(credenciales, numero, destino, espera);
+                    estadoLlego = string.IsNullOrWhiteSpace(quedo) ? destino : quedo;
+                    await ReflejarEstadoAsync(numero, estadoLlego, ct);
+                }
+                catch (ErrorDeAzureDevOps ex)
+                {
+                    // El mensaje de DevOps ante una transición inválida suele ENUMERAR los estados
+                    // válidos, así que se enseña entero y se nombra el que se intentó: es lo que
+                    // permite capturar el bueno en la configuración sin ir a adivinarlo al proyecto.
+                    problemas.Add($"No se pudo mover el work item a «{destino}»: {ex.Message} " +
+                                  "Si en este proyecto ese estado se llama de otra forma, escríbelo en " +
+                                  $"la configuración, en «{SettingsService.Claves.PoolDevOpsEstadoEnProgreso}».");
+                }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    problemas.Add($"Azure DevOps no contestó en {Paciencia.TotalSeconds:0} segundos " +
+                                  "al mover el work item de columna.");
+                }
+            }
+        }
+
+        string? error = problemas.Count == 0 ? null : string.Join(" ", problemas);
+        await AnotarResultadoAsync(poolActivityId, esfuerzoLlego, prioridadLlego,
+                                   asignacionLlego, estadoLlego, error);
+
+        bool todoLlego = (!faltaEsfuerzo   || esfuerzoLlego   != null)
+                      && (!faltaPrioridad  || prioridadLlego  != null)
+                      && (!faltaAsignacion || asignacionLlego != null)
+                      && (!faltaEstado     || estadoLlego     != null);
+
+        var resumen = Resumen(esfuerzoLlego, prioridadLlego, nombreAsignado, estadoLlego);
 
         await Anotar(poolActivityId, todoLlego
-            ? $"Empujado a DevOps en el work item #{numero}: {Resumen(esfuerzoLlego, prioridadLlego)}"
+            ? $"Empujado a DevOps en el work item #{numero}: {resumen}"
             : $"Empuje a DevOps INCOMPLETO en el work item #{numero}: {error}", ct);
 
         if (todoLlego)
-            return (true, $"Azure DevOps actualizado en el ticket #{numero} ({Resumen(esfuerzoLlego, prioridadLlego)}).");
+            return (true, $"Azure DevOps actualizado en el ticket #{numero} ({resumen}).");
 
         // El empuje PARCIAL se nombra como tal. Decir solo «falló» cuando la estimación sí entró
         // haría que quien lo lea suponga que allá no hay nada, y volvería a mandarlo todo a mano.
-        var loQueSiLlego = Resumen(esfuerzoLlego, prioridadLlego);
-        var cabecera = loQueSiLlego.Length == 0
+        var cabecera = resumen.Length == 0
             ? $"La actividad quedó guardada aquí, pero el ticket #{numero} de Azure DevOps NO se actualizó:"
-            : $"El ticket #{numero} de Azure DevOps quedó A MEDIAS —sí entró {loQueSiLlego}—:";
+            : $"El ticket #{numero} de Azure DevOps quedó A MEDIAS —sí entró {resumen}—:";
 
         return (false, $"{cabecera} {error} Queda pendiente de enviar: puedes reintentarlo desde la " +
                        "actividad, sin volver a capturar nada.");
     }
 
-    /// <summary>Lo que sí llegó, dicho en corto. Cadena vacía si no llegó nada.</summary>
-    private static string Resumen(decimal? esfuerzo, int? prioridad)
+    /// <summary>
+    /// A qué estado se mueve el work item cuando alguien toma la actividad ligada a él.
+    ///
+    /// <para><b>Configurable, y si no, DEDUCIDO.</b> El nombre depende de la plantilla de proceso
+    /// —«Active» en Agile y CMMI, «Doing» en Basic, «In Progress» en algunos Scrum personalizados— y
+    /// escribir uno a fuego dejaría esto muerto el día que la organización cambiara de plantilla.
+    /// Pero exigir que alguien lo configure antes de que sirva de algo es peor: nadie configura lo
+    /// que no sabe que existe, y la asignación automática llegaría sin su otra mitad. Por eso, sin
+    /// ajuste, se mira qué estados usan de verdad los tickets ya sincronizados y se elige el más
+    /// común de los que significan «en desarrollo».</para>
+    ///
+    /// <para>El desempate es por nombre y no arbitrario: con dos estados igual de frecuentes, una
+    /// elección que cambiara entre arranques movería unos tickets a un estado y otros a otro sin que
+    /// nada lo explicara.</para>
+    /// </summary>
+    public async Task<string> EstadoEnProgresoAsync(CancellationToken ct = default)
     {
-        var partes = new List<string>(2);
+        var configurado = (await configuracion.ObtenerAsync(
+            SettingsService.Claves.PoolDevOpsEstadoEnProgreso, ct))?.Trim();
+
+        if (!string.IsNullOrEmpty(configurado)) return configurado;
+
+        var porEstado = await db.DevOpsTickets.AsNoTracking()
+            .Where(t => t.State != "")
+            .GroupBy(t => t.State)
+            .Select(g => new { Estado = g.Key, Cuantos = g.Count() })
+            .ToListAsync(ct);
+
+        // El mapeo es el MISMO que usa la importación para decidir qué es «en desarrollo». Que sea el
+        // mismo importa: con una tabla propia aquí, un estado podría contar como en curso al mover el
+        // ticket y como otra cosa al leerlo, dentro de la misma aplicación.
+        var enCurso = porEstado
+            .Where(e => DevOpsService.MapearEstado(e.Estado) == RequirementStatus.EnDesarrollo)
+            .OrderByDescending(e => e.Cuantos)
+            .ThenBy(e => e.Estado, StringComparer.Ordinal)
+            .FirstOrDefault();
+
+        return enCurso?.Estado ?? EstadoEnProgresoPorOmision;
+    }
+
+    /// <summary>
+    /// El estado al que se mueve un work item cuando no hay ajuste ni tickets de los que deducirlo.
+    /// «Active» es el de Agile y CMMI, que son las plantillas de la organización; si no encaja,
+    /// DevOps rechaza la transición diciendo cuáles valen y ese texto se enseña entero.
+    /// </summary>
+    public const string EstadoEnProgresoPorOmision = "Active";
+
+    /// <summary>
+    /// Refleja aquí a nombre de quién quedó el work item, para que la rejilla de tickets no siga
+    /// enseñando al asignado anterior hasta la próxima sincronización.
+    ///
+    /// <para>Con una actualización DIRECTA, por lo mismo que <see cref="AnotarResultadoAsync"/>: no
+    /// es una edición de negocio que deba pelearse con lo que otro esté guardando, y así no arrastra
+    /// al guardado nada que quedara pendiente en el contexto de quien llamó. Si el ticket no está
+    /// sincronizado aquí no hay fila que tocar, y eso no es un fallo: lo que se manda a DevOps se
+    /// manda por número.</para>
+    ///
+    /// <para><b>El correo NUNCA se escribe vacío</b>, y no es una precaución de más:
+    /// <c>AssignedToUniqueName</c> es la llave con la que toda la aplicación decide de quién es un
+    /// ticket —qué sale en «Mis tickets DevOps», qué puede operar un desarrollador, a quién se le
+    /// liga el requerimiento—. Hay respuestas de DevOps donde <c>System.AssignedTo</c> llega como
+    /// texto suelto y sin <c>uniqueName</c>; escribir el nulo de esa respuesta borraría un dato bueno
+    /// que trajo la sincronización y degradaría ese ticket a empatarse solo por nombre. Cuando DevOps
+    /// no lo dice se guarda el correo que se le MANDÓ, que es el de la persona cuya asignación
+    /// acabamos de dar por buena.</para>
+    /// </summary>
+    /// <param name="correoPedido">El correo con el que se pidió la asignación. Es el respaldo cuando
+    /// la respuesta no trae uno, y por eso este método solo se llama desde la rama que ya aceptó que
+    /// el work item quedó a nombre de esa persona.</param>
+    private async Task ReflejarAsignacionAsync(
+        int numero, string nombre, string correo, string correoPedido, CancellationToken ct)
+    {
+        var identidad = string.IsNullOrWhiteSpace(correo) ? correoPedido : correo;
+
+        await db.DevOpsTickets
+            .Where(t => t.ExternalId == numero)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(t => t.AssignedTo, nombre ?? "")
+                .SetProperty(t => t.AssignedToUniqueName,
+                             string.IsNullOrWhiteSpace(identidad) ? null : identidad), ct);
+    }
+
+    /// <summary>La gemela de la anterior para el estado. Mismo motivo y misma forma.</summary>
+    private async Task ReflejarEstadoAsync(int numero, string estado, CancellationToken ct) =>
+        await db.DevOpsTickets
+            .Where(t => t.ExternalId == numero)
+            .ExecuteUpdateAsync(s => s.SetProperty(t => t.State, estado), ct);
+
+    /// <summary>Lo que sí llegó, dicho en corto. Cadena vacía si no llegó nada.</summary>
+    private static string Resumen(decimal? esfuerzo, int? prioridad, string? asignadoA, string? estado)
+    {
+        var partes = new List<string>(4);
         if (esfuerzo is decimal h) partes.Add($"esfuerzo {h:0.##} h");
         if (prioridad is int p) partes.Add($"prioridad {p}");
-        return string.Join(" y ", partes);
+        if (!string.IsNullOrWhiteSpace(asignadoA)) partes.Add($"asignado a {asignadoA}");
+        if (!string.IsNullOrWhiteSpace(estado)) partes.Add($"movido a «{estado}»");
+        return string.Join(", ", partes);
     }
 
     /// <summary>
@@ -472,7 +704,8 @@ public partial class PoolDevOpsService(
     /// <para>Sin token de cancelación a propósito: esto ES la constancia. Si se cancela la petición
     /// justo aquí, lo que se perdería es precisamente el rastro de que el empuje falló.</para>
     /// </summary>
-    private async Task AnotarResultadoAsync(int poolActivityId, decimal? esfuerzo, int? prioridad, string? error)
+    private async Task AnotarResultadoAsync(
+        int poolActivityId, decimal? esfuerzo, int? prioridad, int? asignadoA, string? estado, string? error)
     {
         var ahora = DateTime.UtcNow;
         var recorte = error is null ? null : error.Length <= 1000 ? error : error[..1000];
@@ -487,6 +720,8 @@ public partial class PoolDevOpsService(
                     // entró, y la actividad volvería a mandar algo que allá ya está.
                     .SetProperty(a => a.DevOpsEsfuerzoEnviado, a => esfuerzo ?? a.DevOpsEsfuerzoEnviado)
                     .SetProperty(a => a.DevOpsPrioridadEnviada, a => prioridad ?? a.DevOpsPrioridadEnviada)
+                    .SetProperty(a => a.DevOpsAsignadoADeveloperId, a => asignadoA ?? a.DevOpsAsignadoADeveloperId)
+                    .SetProperty(a => a.DevOpsEstadoEnviado, a => estado ?? a.DevOpsEstadoEnviado)
                     .SetProperty(a => a.DevOpsEmpujadoEnUtc, ahora)
                     .SetProperty(a => a.DevOpsUltimoError, recorte), CancellationToken.None);
         }
@@ -507,7 +742,15 @@ public partial class PoolDevOpsService(
             .FirstOrDefaultAsync(a => a.Id == poolActivityId, ct);
         if (actividad == null) return (false, "Esa actividad ya no existe. Actualiza la lista.");
 
-        if (!usuario.IsAdmin && actividad.ClaimedByDeveloperId != usuario.DeveloperId)
+        // Con EsSuya y NO comparando los dos nullables a mano. Escrito como
+        // «actividad.ClaimedByDeveloperId != usuario.DeveloperId», una cuenta de desarrollador SIN
+        // FICHA —DeveloperId nulo, que se da de verdad: la clave ajena de Users está declarada
+        // OnDelete(SetNull), así que borrar un Developer deja la sesión viva sin ficha— pasaba la
+        // guarda sobre cualquier actividad LIBRE, donde ClaimedByDeveloperId también es nulo: nulo
+        // distinto de nulo es falso, y la comprobación dejaba pasar. Con lo que esta ruta puede
+        // hacer hoy —escribir esfuerzo y prioridad en un work item ajeno con el token de la
+        // instalación— eso es una puerta que no debe existir. EsSuya exige que la ficha exista.
+        if (!EsSuya(actividad))
             return (false, "Esa actividad no es tuya. Pídeselo al líder.");
 
         if (!actividad.LigadaADevOps)
@@ -525,7 +768,8 @@ public partial class PoolDevOpsService(
     // ── Qué quedó sin llegar ─────────────────────────────────────────────────────
 
     /// <summary>
-    /// Las actividades ligadas cuyo esfuerzo o prioridad no están en DevOps.
+    /// Las actividades ligadas a las que les falta algo por llegar a DevOps: el esfuerzo, la
+    /// prioridad, a nombre de quién tiene que estar el work item o que pase a «en progreso».
     ///
     /// <para>Es la otra mitad de «no puede fallar en silencio»: el aviso del momento lo vio una
     /// persona y lo cerró. Sin esta lista, un empuje perdido no sería consultable por nadie y el
@@ -553,17 +797,44 @@ public partial class PoolDevOpsService(
         var numeros = pendientes.Select(a => a.DevOpsWorkItemId!.Value).Distinct().ToList();
         var tickets = await db.DevOpsTickets.AsNoTracking()
             .Where(t => numeros.Contains(t.ExternalId))
-            .Select(t => new { t.ExternalId, t.Title, t.State })
+            .Select(t => new { t.ExternalId, t.Title, t.State, t.AssignedTo })
             .ToListAsync(ct);
 
         var porNumero = tickets.ToDictionary(t => t.ExternalId);
+        var nombres = await NombresDeQuienesLasTienenAsync(pendientes, ct);
 
         return new PendientesDeDevOpsDto(pendientes.Select(a =>
         {
             porNumero.TryGetValue(a.DevOpsWorkItemId!.Value, out var ticket);
-            return AVista(a, ticket?.Title, ticket?.State);
+            return AVista(a, ticket?.Title, ticket?.State, ticket?.AssignedTo, Nombre(nombres, a));
         }).ToList());
     }
+
+    /// <summary>
+    /// Cómo se llama quien tiene tomada cada actividad, en UNA consulta.
+    ///
+    /// <para>Hace falta para que la lista del líder pueda decir «el ticket #123 no está a nombre de
+    /// Ana», que es la única forma en que esa fila sirve para algo: «la asignación no llegó» sin
+    /// decir de quién obliga a abrir la actividad para saber a quién se le iba a poner.</para>
+    /// </summary>
+    private async Task<Dictionary<int, string>> NombresDeQuienesLasTienenAsync(
+        IReadOnlyCollection<PoolActivity> actividades, CancellationToken ct)
+    {
+        var ids = actividades
+            .Select(a => a.ClaimedByDeveloperId)
+            .OfType<int>()
+            .Distinct()
+            .ToList();
+
+        if (ids.Count == 0) return [];
+
+        return await db.Developers.AsNoTracking()
+            .Where(d => ids.Contains(d.Id))
+            .ToDictionaryAsync(d => d.Id, d => d.FullName, ct);
+    }
+
+    private static string? Nombre(Dictionary<int, string> nombres, PoolActivity a) =>
+        a.ClaimedByDeveloperId is int quien && nombres.TryGetValue(quien, out var nombre) ? nombre : null;
 
     /// <summary>Cómo está el vínculo de UNA actividad. Requiere sesión y nada más: no dice nada que
     /// quien trabaja la actividad no deba ver.</summary>
@@ -576,21 +847,26 @@ public partial class PoolDevOpsService(
             .FirstOrDefaultAsync(a => a.Id == poolActivityId, ct);
         if (actividad == null) return (false, "Esa actividad ya no existe. Actualiza la lista.", null);
 
-        string? titulo = null, estado = null;
+        string? titulo = null, estado = null, asignado = null;
         if (actividad.DevOpsWorkItemId is int numero)
         {
             var ticket = await db.DevOpsTickets.AsNoTracking()
                 .Where(t => t.ExternalId == numero)
-                .Select(t => new { t.Title, t.State })
+                .Select(t => new { t.Title, t.State, t.AssignedTo })
                 .FirstOrDefaultAsync(ct);
             titulo = ticket?.Title;
             estado = ticket?.State;
+            asignado = ticket?.AssignedTo;
         }
 
-        return (true, "", AVista(actividad, titulo, estado));
+        var nombres = await NombresDeQuienesLasTienenAsync([actividad], ct);
+
+        return (true, "", AVista(actividad, titulo, estado, asignado, Nombre(nombres, actividad)));
     }
 
-    private static VinculoDevOpsDto AVista(PoolActivity a, string? tituloDelTicket, string? estadoDelTicket) =>
+    private static VinculoDevOpsDto AVista(
+        PoolActivity a, string? tituloDelTicket, string? estadoDelTicket,
+        string? asignadoEnDevOps, string? quienLaTiene) =>
         new(a.Id,
             a.Title,
             a.DevOpsWorkItemId,
@@ -598,6 +874,8 @@ public partial class PoolDevOpsService(
             tituloDelTicket != null,
             tituloDelTicket,
             estadoDelTicket,
+            string.IsNullOrWhiteSpace(asignadoEnDevOps) ? null : asignadoEnDevOps,
+            quienLaTiene,
             a.HorasEstimadas,
             a.DevOpsEsfuerzoEnviado,
             a.Priority,
@@ -605,6 +883,8 @@ public partial class PoolDevOpsService(
             a.DevOpsPrioridadEnviada,
             a.EsfuerzoPendienteDeEnviar,
             a.PrioridadPendienteDeEnviar,
+            a.AsignacionPendienteDeEnviar,
+            a.EstadoPendienteDeEnviar,
             a.DevOpsEmpujadoEnUtc,
             a.DevOpsUltimoError);
 
@@ -671,7 +951,8 @@ public partial class PoolDevOpsService(
     }
 
     /// <summary>
-    /// Publica un comentario en el work item ligado, FIRMADO con el token de quien lo escribe.
+    /// Publica un comentario en el work item ligado —con las capturas que lo respalden, si las
+    /// hay— FIRMADO con el token de quien lo escribe.
     ///
     /// <para><b>Aquí no hay caída al token de la instalación</b>, y es la decisión que da sentido a
     /// todo esto: un comentario es una afirmación de una persona, y con una cuenta compartida el
@@ -682,20 +963,51 @@ public partial class PoolDevOpsService(
     /// tengo token» no es el caso raro, es el de todo el mundo el primer día. Por eso el mensaje
     /// explica para qué hace falta y a dónde ir, en vez de contestar un «no autorizado» que nadie
     /// sabría cómo resolver.</para>
+    ///
+    /// <para><b>Las EVIDENCIAS se admiten aquí, y antes no.</b> El argumento para dejarlas fuera era
+    /// que la prueba de una actividad del pool ya tenía su sitio —los enlaces del checklist— y que
+    /// dos sitios para lo mismo dejarían la mitad de las pruebas en el que nadie abre. Lo que ese
+    /// razonamiento pasaba por alto es que el checklist se mira AQUÍ y el ticket se mira ALLÁ: quien
+    /// lee el work item en DevOps —el cliente, QA, quien lo reabra dentro de seis meses— no tiene
+    /// acceso a esta aplicación, así que un enlace del checklist no es evidencia para él. Y el
+    /// criterio «Comentaste correctamente el ticket con evidencias» se evalúa mirando el hilo del
+    /// ticket: pedirlo sin dar forma de cumplirlo desde donde se trabaja era pedir que la gente
+    /// abriera DevOps aparte, que es exactamente lo que este panel existe para evitar.</para>
+    ///
+    /// <para>Las capturas se validan por sus BYTES antes de subir nada, igual que en la pantalla de
+    /// tickets: a esta ruta se puede llamar sin pasar por el navegador, y lo que se suba acaba
+    /// servido desde el dominio de DevOps.</para>
     /// </summary>
     public async Task<(bool ok, string mensaje)> ComentarAsync(
-        int poolActivityId, string? texto, CancellationToken ct = default)
+        int poolActivityId, string? texto, IReadOnlyList<(string nombre, byte[] contenido)>? evidencias = null,
+        CancellationToken ct = default)
     {
         AuthorizationGuard.RequireAdminOrDesarrollador(usuario, Ambito);
 
+        evidencias ??= [];
         texto = (texto ?? "").Trim();
-        if (texto.Length == 0) return (false, "Escribe el comentario antes de enviarlo.");
+
+        // Con evidencias, el texto deja de ser obligatorio: pegar la captura del error corregido ES
+        // el comentario, y obligar a escribir «adjunto evidencia» al lado no añade nada.
+        if (texto.Length == 0 && evidencias.Count == 0)
+            return (false, "Escribe el comentario o adjunta una evidencia antes de enviarlo.");
         if (texto.Length > MaxComentario)
             return (false, $"El comentario no puede pasar de {MaxComentario} caracteres.");
+        if (evidencias.Count > MaxEvidencias)
+            return (false, $"No se pueden adjuntar más de {MaxEvidencias} evidencias en un comentario.");
 
         var (actividad, motivo) = await ActividadLigadaAsync(poolActivityId, ct);
         if (actividad is null) return (false, motivo);
         if (!EsSuya(actividad)) return (false, NoEsTuya);
+
+        // Se validan TODAS antes de subir ninguna. Al revés, un lote con la tercera mala dejaría las
+        // dos primeras ya subidas a DevOps sin comentario que las enseñe: adjuntos huérfanos que
+        // nadie va a encontrar para borrarlos.
+        foreach (var (nombre, contenido) in evidencias)
+        {
+            var (ok, error, _) = ArchivosSubidos.Validar(nombre, contenido, soloImagenes: true);
+            if (!ok) return (false, error);
+        }
 
         var (credenciales, problema) = await CredencialesAsync(exigirPropio: true, ct);
         if (credenciales is null) return (false, problema);
@@ -706,13 +1018,26 @@ public partial class PoolDevOpsService(
         // escapa entero antes de armar nada, igual que en la pantalla de tickets. La cabecera dice
         // de dónde sale el comentario, porque quien lo lee en DevOps no tiene por qué saber que
         // existe un pool de actividades.
-        var html = $"<b>Actividad del pool #{poolActivityId}: " +
-                   $"{WebUtility.HtmlEncode(actividad.Title)}</b><br>" +
-                   WebUtility.HtmlEncode(texto).Replace("\n", "<br>");
+        var html = new StringBuilder();
+        html.Append("<b>Actividad del pool #").Append(poolActivityId).Append(": ")
+            .Append(WebUtility.HtmlEncode(actividad.Title)).Append("</b><br>")
+            .Append(WebUtility.HtmlEncode(texto).Replace("\n", "<br>"));
 
         try
         {
-            await devops.PublicarComentarioAsync(credenciales, numero, html, ct);
+            foreach (var (nombre, contenido) in evidencias)
+            {
+                // La dirección la devuelve DevOps, así que es la única parte del HTML que no hace
+                // falta escapar; el nombre sí, porque lo escribió quien subió el archivo. Mismo
+                // marcado que la pantalla de tickets, para que las dos evidencias se vean igual en
+                // el hilo del work item.
+                var url = await devops.SubirAdjuntoAsync(credenciales, contenido, nombre, ct);
+                html.Append("<br><br>📎 <b>")
+                    .Append(WebUtility.HtmlEncode(ArchivosSubidos.NombreSeguro(nombre)))
+                    .Append("</b><br><img src=\"").Append(url).Append("\" width=\"640\" />");
+            }
+
+            await devops.PublicarComentarioAsync(credenciales, numero, html.ToString(), ct);
         }
         catch (ErrorDeAzureDevOps ex)
         {
@@ -730,9 +1055,16 @@ public partial class PoolDevOpsService(
             await db.SaveChangesAsync(ct);
         }
 
-        await Anotar(poolActivityId, $"Comentario publicado en DevOps en el work item #{numero}", ct);
+        await Anotar(poolActivityId, evidencias.Count == 0
+            ? $"Comentario publicado en DevOps en el work item #{numero}"
+            : $"Comentario con {evidencias.Count} evidencia(s) publicado en DevOps en el work item #{numero}",
+            ct);
 
-        return (true, $"Comentario publicado en el ticket #{numero} de Azure DevOps, a tu nombre.");
+        var conEvidencias = evidencias.Count == 0
+            ? ""
+            : $" Con {evidencias.Count} evidencia(s) adjunta(s).";
+
+        return (true, $"Comentario publicado en el ticket #{numero} de Azure DevOps, a tu nombre.{conEvidencias}");
     }
 
     /// <summary>

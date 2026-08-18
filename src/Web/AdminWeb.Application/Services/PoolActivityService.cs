@@ -398,17 +398,28 @@ public class PoolActivityService(
         // silencio y el ticket dejaría de recibir nada sin que nadie lo hubiera pedido. Desligar es
         // destructivo y tiene su propia ruta, que además lo dice en su respuesta.
         //
-        // Al apuntar a OTRO ticket sí se limpia la marca de agua: dice «DevOps ya tiene esto» y esa
-        // afirmación es sobre un work item concreto. Conservarla haría que la actividad se creyera
-        // al día en un ticket al que nunca se le mandó nada, y no volvería a mandarse hasta la
-        // siguiente edición del esfuerzo. Borrarla la deja pendiente, y el empuje de abajo la
+        // Al apuntar a OTRO ticket se limpian TODAS las marcas de agua: cada una dice «DevOps ya
+        // tiene esto» y esa afirmación es sobre un work item concreto. Conservar cualquiera haría que
+        // la actividad se creyera al día en un ticket al que nunca se le mandó nada, y no volvería a
+        // mandarse hasta la siguiente edición. Borrarlas la deja pendiente, y el empuje de abajo lo
         // resuelve dentro de la misma operación.
+        //
+        // LAS CUATRO, Y LA DE LA ASIGNACIÓN ES LA QUE MÁS IMPORTA. Es la única que sobrevive a soltar
+        // el reclamo —SoltarReclamo la conserva a propósito, porque sin dueño no hay nada pendiente—,
+        // así que es la única que puede llegar viva hasta aquí: una actividad que alguien tomó, se
+        // devolvió al pool y el líder repunta a otro ticket. Sin este borrado, cuando la misma
+        // persona la vuelva a tomar, «pendiente» compara su identificador contra el que confirmó el
+        // ticket ANTERIOR, sale que no falta nada, y el work item nuevo se queda «en progreso» y SIN
+        // DUEÑO: exactamente el estado que esta función existe para evitar, y encima en silencio,
+        // porque la actividad no aparece en la lista de pendientes del líder.
         if (workItem is not null && actividad.DevOpsWorkItemId != workItem)
         {
-            actividad.DevOpsWorkItemId       = workItem;
-            actividad.DevOpsEsfuerzoEnviado  = null;
-            actividad.DevOpsPrioridadEnviada = null;
-            actividad.DevOpsUltimoError      = null;
+            actividad.DevOpsWorkItemId            = workItem;
+            actividad.DevOpsEsfuerzoEnviado       = null;
+            actividad.DevOpsPrioridadEnviada      = null;
+            actividad.DevOpsAsignadoADeveloperId  = null;
+            actividad.DevOpsEstadoEnviado         = null;
+            actividad.DevOpsUltimoError           = null;
         }
 
         // El esfuerzo del líder se reescribe solo cuando le toca ponerlo. En un bug la validación ya
@@ -1388,6 +1399,18 @@ public class PoolActivityService(
         actividad.DeliveredAt          = null;
         actividad.ReviewComment        = null;
         actividad.LinkedDevActivityId  = null;
+
+        // El estado que se mandó a DevOps es DE ESTE RECLAMO, así que se va con él: quien tome la
+        // actividad después tiene que volver a poner su work item en curso, aunque ya lo estuviera.
+        // Reafirmar un estado que ya está allá no cuesta nada; no reafirmarlo dejaría el ticket
+        // parado en la columna donde lo dejó el anterior, que es el problema que esto vino a
+        // resolver.
+        //
+        // A nombre de quién quedó allá NO se toca, y son dos casos distintos a propósito: la
+        // asignación se DEDUCE comparando la marca con quien la tiene tomada, así que sin dueño no
+        // hay nada pendiente y el work item se queda a nombre del que lo trabajó. Desasignarlo sería
+        // vaciar un campo que quizá puso otra persona para reflejar que aquí dejó de haber dueño.
+        actividad.DevOpsEstadoEnviado  = null;
 
         // La estimación de un BUG es de quien lo tenía tomado, así que se va con él. Dejarla puesta
         // haría dos daños: quien lo tome después heredaría el número de otro, y la comprobación de

@@ -346,8 +346,10 @@ public static class DevOpsEndpoints
         return (resultado, null);
     }
 
-    /// <summary>Cuántas capturas caben en un comentario. Cada una es una subida aparte a DevOps.</summary>
-    private const int MaxEvidencias = 5;
+    /// <summary>Cuántas capturas caben en un comentario. Una sola definición, en
+    /// <see cref="ArchivosSubidos.MaxEvidenciasPorComentario"/>, porque son varias las pantallas que
+    /// acaban publicando por este camino.</summary>
+    private const int MaxEvidencias = ArchivosSubidos.MaxEvidenciasPorComentario;
 
     /// <summary>
     /// Un rechazo de negocio sale como 400 con su mensaje, no como excepción. El texto lo escribió el
