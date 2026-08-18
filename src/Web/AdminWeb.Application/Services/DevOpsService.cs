@@ -163,11 +163,36 @@ public partial class DevOpsService(
         FiltroDeSincronizacion? filtro = null, CancellationToken ct = default)
     {
         AuthorizationGuard.RequireAdmin(usuario);
+        return await SincronizarProgramadaAsync(filtro, ct);
+    }
 
+    /// <summary>
+    /// La misma sincronización, para cuando la dispara un trabajo de fondo.
+    ///
+    /// <para><b>Sin guarda de rol, y no es un descuido</b>: ahí no hay sesión, así que exigir
+    /// administrador sería exigir algo que no puede existir. Lo que autoriza esta ejecución es la
+    /// configuración del servidor. Es el mismo reparto que ya hacen la ingesta de correo y el resumen
+    /// diario: el método que llama el trabajo no lleva guarda, y el que se puede pedir desde fuera
+    /// —<see cref="SincronizarAsync"/>— sí.</para>
+    ///
+    /// <para><b>Las credenciales salen DIRECTAS del ajuste de la instalación</b> y no de
+    /// <c>CredencialesAsync</c>: aquél busca primero el token personal, y para eso consulta la tabla
+    /// de secretos, que exige sesión. Llamarlo desde un ámbito de fondo revienta dentro de esa
+    /// guarda antes de llegar a la red.</para>
+    ///
+    /// <para>Y por lo mismo NO se toca lo que es personal: ni la foto de los tickets vigilados —que
+    /// se filtra por el nombre de quien sincroniza y aquí saldría vacía— ni los avisos de asignación,
+    /// que cuelgan de la sincronización personal y no de ésta.</para>
+    /// </summary>
+    public async Task<ResultadoDeSincronizacionDto> SincronizarProgramadaAsync(
+        FiltroDeSincronizacion? filtro = null, CancellationToken ct = default)
+    {
+        // La comprobación del interruptor vive AQUÍ y no en el gemelo con guarda: si se quedara allá,
+        // el trabajo de fondo sincronizaría con la integración apagada.
         if (!await configuracion.ObtenerBooleanoAsync(SettingsService.Claves.AzureDevOpsEnabled, ct))
             return Fallo("La integración con Azure DevOps está apagada. Enciéndela en Configuración.");
 
-        var (credenciales, problema) = await CredencialesAsync(exigirPropio: false, ct: ct);
+        var (credenciales, problema) = await CredencialesDeLaInstalacionAsync(ct);
         if (credenciales is null) return Fallo(problema);
 
         try
@@ -1309,6 +1334,31 @@ public partial class DevOpsService(
     /// <para>Devuelve <c>null</c> y un motivo entendible en vez de lanzar: sin token no hay defecto
     /// que reportar, hay algo que la persona tiene que hacer.</para>
     /// </summary>
+    /// <summary>
+    /// Organización, proyecto y el token de la INSTALACIÓN, sin pasar por la tabla de secretos.
+    ///
+    /// <para>Existe para lo que corre sin sesión. <see cref="CredencialesAsync"/> mira primero el
+    /// token personal de quien pide, y esa consulta lleva su propia guarda de «hay que estar
+    /// dentro»: desde un trabajo de fondo lanza antes de llegar a ninguna parte.</para>
+    /// </summary>
+    private async Task<(CredencialesDevOps? credenciales, string problema)> CredencialesDeLaInstalacionAsync(
+        CancellationToken ct)
+    {
+        var organizacion = (await configuracion.ObtenerAsync(SettingsService.Claves.AzureDevOpsOrgUrl, ct))?.TrimEnd('/');
+        var proyecto = await configuracion.ObtenerAsync(SettingsService.Claves.AzureDevOpsProject, ct);
+        var pat = await configuracion.ObtenerAsync(SettingsService.Claves.AzureDevOpsPat, ct);
+
+        if (string.IsNullOrEmpty(organizacion) || string.IsNullOrEmpty(proyecto))
+            return (null, "Falta la URL de organización o el proyecto de Azure DevOps.");
+
+        if (string.IsNullOrEmpty(pat))
+            return (null, "No hay token de Azure DevOps de la instalación, y sin sesión no hay otro " +
+                          "que usar. Captúralo en Configuración para que la sincronización automática " +
+                          "pueda funcionar.");
+
+        return (new CredencialesDevOps(organizacion, proyecto, pat), "");
+    }
+
     private async Task<(CredencialesDevOps? credenciales, string problema)> CredencialesAsync(
         bool exigirPropio, string? patCandidato = null, CancellationToken ct = default)
     {
@@ -1372,23 +1422,8 @@ public partial class DevOpsService(
 
     private static string? Vacio(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 
-    /// <summary>
-    /// Quita el marcado de un comentario de DevOps.
-    ///
-    /// Los comentarios se guardan en HTML y los escribe gente de FUERA del equipo. Se limpia en el
-    /// servidor, y no en la pantalla, para que del lado del navegador no exista siquiera un texto con
-    /// marcado que alguien pueda acabar pintando como HTML. La decodificación va DESPUÉS de quitar
-    /// las etiquetas: al revés, un «&amp;lt;script&amp;gt;» se convertiría en una etiqueta de verdad.
-    /// </summary>
-    private static string ATextoPlano(string? html)
-    {
-        if (string.IsNullOrWhiteSpace(html)) return "";
-
-        var sinEtiquetas = EtiquetasHtml().Replace(html, " ");
-        var texto = WebUtility.HtmlDecode(sinEtiquetas);
-        return string.Join(' ', texto.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-    }
-
-    [GeneratedRegex("<[^>]*>", RegexOptions.None, matchTimeoutMilliseconds: 2000)]
-    private static partial Regex EtiquetasHtml();
+    /// <summary>Quita el marcado de un comentario de DevOps. La limpieza vive en
+    /// <see cref="TextoDeDevOps"/>, compartida con el pool: es la misma regla sobre el mismo HTML
+    /// ajeno, y tres copias serían tres oportunidades de que una se quedara atrás.</summary>
+    private static string ATextoPlano(string? html) => TextoDeDevOps.ATextoPlano(html);
 }

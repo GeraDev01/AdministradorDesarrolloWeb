@@ -634,6 +634,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             // columnas. Sin estos Ignore, EF intentaría materializarlas y EnsureCreated crearía
             // columnas que el migrador no parchea — el desfase silencioso de siempre.
             e.Ignore(p => p.LigadaADevOps);
+            e.Ignore(p => p.YaPublicada);
             e.Ignore(p => p.EsfuerzoPendienteDeEnviar);
             e.Ignore(p => p.PrioridadPendienteDeEnviar);
             e.Ignore(p => p.AsignacionPendienteDeEnviar);

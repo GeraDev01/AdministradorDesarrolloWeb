@@ -1161,22 +1161,8 @@ public partial class PoolDevOpsService(
         catch { /* la bitácora es constancia, no una condición para que la operación valga */ }
     }
 
-    /// <summary>
-    /// Quita el marcado de un comentario de DevOps. Mismo criterio que en <c>DevOpsService</c>: los
-    /// comentarios los escribe gente de FUERA del equipo, vienen en HTML y se limpian en el servidor
-    /// para que del lado del navegador no exista siquiera un texto con marcado que alguien pueda
-    /// acabar pintando. La decodificación va DESPUÉS de quitar las etiquetas: al revés, un
-    /// «&amp;lt;script&amp;gt;» se convertiría en una etiqueta de verdad.
-    /// </summary>
-    private static string ATextoPlano(string? html)
-    {
-        if (string.IsNullOrWhiteSpace(html)) return "";
-
-        var sinEtiquetas = EtiquetasHtml().Replace(html, " ");
-        var texto = WebUtility.HtmlDecode(sinEtiquetas);
-        return string.Join(' ', texto.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-    }
-
-    [GeneratedRegex("<[^>]*>", RegexOptions.None, matchTimeoutMilliseconds: 2000)]
-    private static partial Regex EtiquetasHtml();
+    /// <summary>Quita el marcado de un comentario de DevOps. La limpieza vive en
+    /// <see cref="TextoDeDevOps"/>, compartida con la pantalla de tickets y con el alta automática
+    /// del pool.</summary>
+    private static string ATextoPlano(string? html) => TextoDeDevOps.ATextoPlano(html);
 }

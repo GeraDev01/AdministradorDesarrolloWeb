@@ -193,11 +193,19 @@ public class PoolActivityService(
 
         // La prioridad manda en el orden dentro de cada estado: lo urgente arriba, que es lo que
         // hace útil la columna. Descendente porque Crítica es el valor más alto del enum.
-        return await q
-            .OrderBy(a => a.Status)
+        //
+        // El orden ENTRE estados no es el del enumerado sino el de PoolSeed.OrdenDeEstado, y por eso
+        // se ordena en memoria: «Por clasificar» tuvo que declararse con el valor 6 —los números
+        // están escritos en una base en producción y renumerar convertiría cada actividad aceptada en
+        // otra cosa—, así que ordenando por el número, lo ÚNICO que reclama una decisión del líder
+        // saldría al fondo, detrás de todo lo que ya está muerto. La lista es de decenas de filas y
+        // ya viene materializada; ordenarla aquí no cuesta nada.
+        var filas = await q.ToListAsync(ct);
+
+        return [.. filas
+            .OrderBy(a => PoolSeed.OrdenDeEstado(a.Status))
             .ThenByDescending(a => a.Priority)
-            .ThenByDescending(a => a.CreatedAt)
-            .ToListAsync(ct);
+            .ThenByDescending(a => a.CreatedAt)];
     }
 
     /// <summary>Las que esperan verificación del líder.</summary>
@@ -344,8 +352,12 @@ public class PoolActivityService(
             .FirstOrDefaultAsync(a => a.Id == id, ct);
         if (actividad == null) return (false, "Esa actividad ya no existe. Actualiza la lista.");
 
-        if (actividad.Status != PoolActivityStatus.Disponible)
+        // También se edita lo que todavía no se ha clasificado: para una actividad que entró sola
+        // desde un work item, editarla ES clasificarla, y al final de este método pasa a Disponible.
+        if (actividad.Status is not (PoolActivityStatus.Disponible or PoolActivityStatus.PorClasificar))
             return (false, "Ya la tomó alguien: no se puede cambiar lo que vale ni lo que pide.");
+
+        bool clasificando = actividad.Status == PoolActivityStatus.PorClasificar;
 
         var (valido, error, celda, enlace, workItem) = await ValidarBorradorAsync(cambios, id, ct);
         if (!valido) return (false, error);
@@ -388,6 +400,17 @@ public class PoolActivityService(
         actividad.Priority    = cambios.Priority;
         actividad.HorasLimite = Redondear(cambios.HorasLimite);
         actividad.ExternalUrl = enlace;
+
+        // EL EQUIPO. Hasta ahora esta línea no existía: el contrato lo traía, el endpoint lo metía en
+        // el borrador y aquí se descartaba en silencio, así que segmentar una actividad ya publicada
+        // era imposible y nadie lo notaba porque toda actividad nacía con su equipo puesto.
+        //
+        // Y la regla de «ausente» es LA CONTRARIA que la del work item de abajo: allí, sin número, el
+        // vínculo se deja como está, porque nulo significa «no me lo mandaron». Aquí NO se puede
+        // hacer eso, porque en el equipo el nulo es un valor legítimo —«la ve toda la casa»— y es
+        // además el único con el que se puede DESsegmentar. Si se interpretara como «no lo toques»,
+        // una actividad publicada para un equipo no podría volver a abrirse a todos nunca.
+        actividad.EquipoId    = cambios.EquipoId;
 
         // ── EL VÍNCULO, AL CAMBIAR DE TICKET ─────────────────────────────────────
         //
@@ -438,17 +461,33 @@ public class PoolActivityService(
         actividad.ExtraCriteria.Clear();
         foreach (var extra in extras) actividad.ExtraCriteria.Add(extra);
 
+        // CLASIFICAR ES PUBLICAR. Una actividad que entró sola desde un work item no vale puntos ni
+        // se puede tomar mientras no tenga tipo, complejidad y horas; en cuanto los tiene —y la
+        // validación de arriba es la que garantiza que los tiene— ya es una actividad del pool como
+        // cualquier otra. No hace falta un segundo gesto ni una ruta aparte: pasar por aquí ES la
+        // decisión, y separarlos solo daría ocasión de dejarla clasificada pero sin publicar.
+        if (clasificando) actividad.Status = PoolActivityStatus.Disponible;
+
         await db.SaveChangesAsync(ct);
         await audit.RecordAsync(AuditAction.Update, "PoolActivity", actividad.Id.ToString(),
-            $"Actividad del pool actualizada: {actividad.Points} pts, prioridad " +
-            $"{EtiquetasDeCatalogo.PrioridadDelPool(actividad.Priority)}, " +
-            $"{extras.Count} criterio(s) extra", ct);
+            clasificando
+                ? $"Clasificada y publicada en el pool: {PoolSeed.Etiqueta(actividad.WorkType)} / " +
+                  $"{PoolSeed.Etiqueta(actividad.Complexity)}, {actividad.Points} pts"
+                : $"Actividad del pool actualizada: {actividad.Points} pts, prioridad " +
+                  $"{EtiquetasDeCatalogo.PrioridadDelPool(actividad.Priority)}, " +
+                  $"{extras.Count} criterio(s) extra", ct);
 
         // El empuje va aquí y no solo al ligar porque la prioridad y el esfuerzo se editan: mandar
         // solo la primera vez dejaría DevOps con el número del día que se publicó, que es peor que
         // no mandar nada — parecería al día y no lo estaría.
-        return (true, ConEmpuje(MensajeDeAlta(actividad.Points, extras).Replace("publicada", "actualizada"),
-                                await EmpujarADevOpsAsync(actividad.Id, ct)));
+        // El empuje se hace igual en los dos casos, pero al CLASIFICAR es la primera vez que sale
+        // algo hacia el work item: hasta este momento la actividad no tenía nada que afirmar y sus
+        // pendientes estaban cerrados a propósito (ver PoolActivity.YaPublicada).
+        var mensaje = clasificando
+            ? MensajeDeAlta(actividad.Points, extras)
+            : MensajeDeAlta(actividad.Points, extras).Replace("publicada", "actualizada");
+
+        return (true, ConEmpuje(mensaje, await EmpujarADevOpsAsync(actividad.Id, ct)));
     }
 
     /// <summary>
@@ -496,13 +535,22 @@ public class PoolActivityService(
         var actividad = await db.PoolActivities.FirstOrDefaultAsync(a => a.Id == id, ct);
         if (actividad == null) return (false, "Esa actividad ya no existe. Actualiza la lista.");
 
-        if (actividad.Status != PoolActivityStatus.Disponible)
+        // Lo que todavía no se ha clasificado también se retira, y es la ÚNICA forma de descartarlo:
+        // liberar exige que esté en curso, así que sin esto una actividad que entró sola y no
+        // interesa se quedaría en la bandeja del líder para siempre, sin ninguna salida.
+        if (actividad.Status is not (PoolActivityStatus.Disponible or PoolActivityStatus.PorClasificar))
             return (false, "Solo se retira lo que sigue libre en el pool. Si alguien la tomó, usa «Liberar».");
+
+        bool sinClasificar = actividad.Status == PoolActivityStatus.PorClasificar;
 
         actividad.Status = PoolActivityStatus.Retirada;
         await db.SaveChangesAsync(ct);
-        await audit.RecordAsync(AuditAction.Update, "PoolActivity", actividad.Id.ToString(), "Retirada del pool", ct);
-        return (true, "Actividad retirada del pool.");
+        await audit.RecordAsync(AuditAction.Update, "PoolActivity", actividad.Id.ToString(),
+            sinClasificar ? "Descartada sin clasificar" : "Retirada del pool", ct);
+
+        return (true, sinClasificar
+            ? "Actividad descartada. No volverá a entrar sola desde su work item."
+            : "Actividad retirada del pool.");
     }
 
     /// <summary>

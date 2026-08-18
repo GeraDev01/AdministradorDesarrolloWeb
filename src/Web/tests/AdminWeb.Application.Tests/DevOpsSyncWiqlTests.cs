@@ -136,4 +136,61 @@ public class DevOpsSyncWiqlTests
         Assert.DoesNotContain("token-secreto", credenciales.ToString());
         Assert.DoesNotContain("token-secreto", $"{credenciales}");
     }
+
+    // ── La ventana por fecha de CREACIÓN ─────────────────────────────────────────
+
+    /// <summary>
+    /// Acota por <c>CreatedDate</c> y NO por <c>ChangedDate</c>, que son cosas distintas: un work
+    /// item de hace dos años que alguien comentó ayer entra por «cambiados» y no por «creados». Para
+    /// traer al pool lo que acaba de aparecer, la fecha que importa es la de creación — si no, cada
+    /// comentario en un ticket viejo lo volvería a proponer como trabajo nuevo.
+    /// </summary>
+    [Fact]
+    public void CreadosEnDias_usaCreatedDate_yNoChangedDate()
+    {
+        var wiql = AzureDevOpsService.ConstruirWiqlDeSincronizacion(
+            "Webpro", new FiltroDeSincronizacion([], [], [], CreadosEnDias: 7));
+
+        Assert.Contains("[System.CreatedDate] >= @Today - 7", wiql);
+        Assert.DoesNotContain("[System.ChangedDate] >=", wiql);
+    }
+
+    /// <summary>Las dos ventanas se pueden pedir a la vez y se suman, como cualquier otro par de
+    /// cláusulas.</summary>
+    [Fact]
+    public void LasDosVentanas_seSuman()
+    {
+        var wiql = AzureDevOpsService.ConstruirWiqlDeSincronizacion(
+            "Webpro", new FiltroDeSincronizacion([], [], [], CambiadosEnDias: 3, CreadosEnDias: 7));
+
+        Assert.Contains("[System.ChangedDate] >= @Today - 3", wiql);
+        Assert.Contains("[System.CreatedDate] >= @Today - 7", wiql);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-5)]
+    public void VentanaDeCreacionAbsurda_seIgnora(int dias)
+    {
+        var wiql = AzureDevOpsService.ConstruirWiqlDeSincronizacion(
+            "Webpro", new FiltroDeSincronizacion([], [], [], CreadosEnDias: dias));
+
+        Assert.DoesNotContain("CreatedDate", wiql);
+    }
+
+    /// <summary>
+    /// <b>La prueba que caza el fallo que no se ve.</b> Un filtro que SOLO trae la ventana de
+    /// creación no puede parecer vacío: si <c>EstaVacio</c> no contara ese campo, el bloque entero de
+    /// cláusulas no se emitiría y la sincronización se traería el proyecto COMPLETO. No rompe nada y
+    /// no da ningún error; solo trae diez mil work items.
+    /// </summary>
+    [Fact]
+    public void SoloCreadosEnDias_noCuentaComoFiltroVacio()
+    {
+        var filtro = new FiltroDeSincronizacion([], [], [], CreadosEnDias: 7);
+
+        Assert.False(filtro.EstaVacio);
+        Assert.Contains("CreatedDate",
+            AzureDevOpsService.ConstruirWiqlDeSincronizacion("Webpro", filtro));
+    }
 }

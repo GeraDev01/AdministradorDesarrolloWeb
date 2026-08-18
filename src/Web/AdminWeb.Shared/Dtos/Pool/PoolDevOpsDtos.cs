@@ -116,3 +116,22 @@ public record HiloDeDevOpsDto(
 // de una actividad ya tenía su sitio en los enlaces del checklist. Pero el checklist se mira AQUÍ y
 // el ticket se mira ALLÁ —quien lee el work item en DevOps no entra a esta aplicación—, así que un
 // enlace del checklist no es evidencia para él. Ver PoolDevOpsService.ComentarAsync.
+
+// ── El alta automática ───────────────────────────────────────────────────────────
+
+/// <summary>
+/// Cómo fue traer al pool los work items que todavía no estaban.
+///
+/// <para><b>«Fuera» no es un detalle de instrumentación.</b> El alta corta a un tope por pasada para
+/// que una bandeja que hay que revisar a mano no reciba cien de golpe, y un recorte que no se dijera
+/// se leería como «ya está todo»: quien mire la pantalla tiene que saber que quedan más esperando.</para>
+/// </summary>
+/// <param name="Creadas">Cuántas actividades se dieron de alta, todas sin clasificar.</param>
+/// <param name="Fuera">Cuántas cumplían pero no cupieron en esta pasada. Entrarán en la siguiente.</param>
+/// <param name="Titulos">Lo que entró, para poder enseñarlo sin volver a consultar.</param>
+public record ResultadoDeAltaEnPoolDto(
+    bool Ok,
+    string Mensaje,
+    int Creadas,
+    int Fuera,
+    IReadOnlyList<string> Titulos);

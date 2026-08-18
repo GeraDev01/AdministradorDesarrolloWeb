@@ -282,11 +282,18 @@ public record PuntoDePlantillaDto(
 /// cuál vale acabaría escribiendo el esfuerzo en el ticket equivocado.</para>
 /// <para>Va AL FINAL y con valor por omisión porque el record es posicional: puesto en medio,
 /// rompería en silencio a cada llamador que rellena estos campos por posición.</para></param>
+/// <param name="Tipo">Qué clase de trabajo es. <b>Nulable, y obligatorio para publicar.</b> Nulo
+/// significa «todavía no se ha decidido», que es como entran las actividades que llegan solas desde
+/// un work item de Azure DevOps. Se rechaza al publicar en vez de caer a un valor por omisión: con
+/// un respaldo silencioso, pulsar «Guardar» sin haber elegido nada dejaría la actividad como Bug de
+/// complejidad Baja —los dos valores 0 de sus enumerados— y el líder habría decidido sin saberlo.</param>
+/// <param name="Complejidad">Lo mismo. De ella y del tipo salen los PUNTOS, así que adivinarla es
+/// regalar o quitar puntos en silencio.</param>
 public record PublicarActividadRequest(
     string Titulo,
     string? Detalle,
-    PoolWorkType Tipo,
-    PoolComplexity Complejidad,
+    PoolWorkType? Tipo,
+    PoolComplexity? Complejidad,
     string? Enlace,
     PoolPriority Prioridad = PoolPriority.Media,
     decimal? Horas = null,

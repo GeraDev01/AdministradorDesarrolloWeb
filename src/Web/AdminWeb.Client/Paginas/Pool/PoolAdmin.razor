@@ -96,6 +96,15 @@
 
                             <RadzenButton data-recorrido="pool-publicar"
                                           Text="Publicar" Icon="add" Disabled="@_ocupado" Click="@AbrirFormularioNuevo" />
+
+                            @* «Traer de DevOps» hace lo mismo que el trabajo de fondo, y existe además
+                               de él por dos razones: deja usar esto sin encender nada, y deja adelantar
+                               la siguiente pasada cuando acabas de crear el ticket y no quieres esperar.
+                               No sincroniza —lee los work items que la sincronización ya trajo—, así que
+                               es barato y no depende de la red. *@
+                            <RadzenButton Text="Traer de DevOps" Icon="download" ButtonStyle="ButtonStyle.Light"
+                                          Disabled="@_ocupado" Click="@TraerDeDevOps"
+                                          title="Da de alta en el pool, sin clasificar, los work items nuevos que todavía no están" />
                         </RadzenStack>
 
                         @if (_capturando)
@@ -355,6 +364,45 @@
                             textos que explican lo mismo y que un día dirán cosas distintas. Esto es el aviso y
                             el camino; el detalle está a un clic.
                         *@
+                        @*
+                            LO QUE ENTRÓ SOLO Y ESPERA UNA DECISIÓN, arriba del todo.
+
+                            Va ENCIMA del aviso de lo que no llegó a DevOps porque son cosas de
+                            urgencia distinta: aquello está mal y hay que arreglarlo cuando se pueda;
+                            esto está a medias y NADIE MÁS puede moverlo. Una actividad sin clasificar
+                            no vale puntos, no se ve en el pool de nadie y no se puede tomar: mientras
+                            el líder no la mire, el trabajo que representa no existe para el equipo.
+
+                            El botón de traer está aquí y no escondido en un menú porque es lo que
+                            permite adelantar la siguiente pasada cuando uno acaba de crear el ticket
+                            —y lo que hace que esto se pueda usar antes de encender el trabajo de
+                            fondo, o sin encenderlo nunca.
+                        *@
+                        @if (_porClasificar.Count > 0)
+                        {
+                            <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
+                                <RadzenStack Gap="0.35rem">
+                                    <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                                        @(_porClasificar.Count == 1
+                                            ? "Una actividad llegó desde Azure DevOps y espera que le pongas tipo, tiempo y equipo. Hasta entonces no vale puntos y nadie puede tomarla:"
+                                            : $"{_porClasificar.Count} actividades llegaron desde Azure DevOps y esperan que les pongas tipo, tiempo y equipo. Hasta entonces no valen puntos y nadie puede tomarlas:")
+                                    </RadzenText>
+                                    @foreach (var p in _porClasificar)
+                                    {
+                                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem"
+                                                     AlignItems="AlignItems.Center" Wrap="FlexWrap.Wrap">
+                                            <RadzenButton Text="Clasificar" Size="ButtonSize.ExtraSmall"
+                                                          Disabled="@_ocupado"
+                                                          Click="@(() => AbrirFormularioDe(p))" />
+                                            <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                                @p.Titulo
+                                            </RadzenText>
+                                        </RadzenStack>
+                                    }
+                                </RadzenStack>
+                            </RadzenAlert>
+                        }
+
                         @if (_pendientesDeDevOps.Count > 0)
                         {
                             <RadzenAlert data-recorrido="pool-pendiente-devops"
@@ -559,7 +607,22 @@
                                         @* Editar y retirar solo mientras siga libre: cambiarle el alcance o el
                                            valor a quien ya la está trabajando sería cambiar el trato a medio
                                            camino. Lo que ya tiene dueño se libera, que sí avisa. *@
-                                        @if (a.Estado == PoolActivityStatus.Disponible)
+                                        @if (a.Estado == PoolActivityStatus.PorClasificar)
+                                        {
+                                            @* Entró sola desde un work item y todavía no vale nada.
+                                               «Clasificar» abre el MISMO formulario que editar: poner
+                                               tipo, tiempo y equipo es lo que la publica, y separar
+                                               los dos gestos solo daría ocasión de dejarla a medias.
+                                               El botón va en primario porque es lo único de esta
+                                               rejilla que reclama al líder. *@
+                                            <RadzenButton Text="Clasificar" Size="ButtonSize.ExtraSmall"
+                                                          Disabled="@_ocupado"
+                                                          Click="@(() => AbrirFormularioDe(a))" />
+                                            <RadzenButton Text="Descartar" ButtonStyle="ButtonStyle.Light"
+                                                          Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                          Click="@(() => Retirar(a))" />
+                                        }
+                                        else if (a.Estado == PoolActivityStatus.Disponible)
                                         {
                                             <RadzenButton Text="Editar" ButtonStyle="ButtonStyle.Light"
                                                           Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
@@ -1136,6 +1199,16 @@
     /// </summary>
     private IReadOnlyList<VinculoDevOpsDto> _pendientesDeDevOps = [];
 
+    /// <summary>
+    /// Lo que entró solo desde un work item y todavía no tiene tipo, tiempo ni equipo.
+    ///
+    /// <para>Sale de la MISMA lista que la rejilla, filtrando por estado, y no de una consulta
+    /// aparte: son las mismas filas, y pedirlas dos veces las dejaría diciendo cosas distintas en la
+    /// misma pantalla en cuanto una se clasificara.</para>
+    /// </summary>
+    private IReadOnlyList<ActividadDelPoolDto> _porClasificar =>
+        [.. Actividades.Where(a => a.Estado == PoolActivityStatus.PorClasificar)];
+
     // Configuración.
     private PoolWorkType? _tipoDeLaPlantilla = PoolWorkType.Bug;
 
@@ -1302,8 +1375,13 @@
         // está trayendo el que la actividad ya tiene publicado. El set de TipoCapturado vaciaría el
         // campo de horas justo antes de rellenarlo, y aunque hoy el orden lo salvaría, bastaría con
         // mover dos líneas para que el formulario abriera en blanco sin que nada fallara.
-        _tipoCapturado = actividad.Tipo;
-        _complejidadCapturada = actividad.Complejidad;
+        // En una actividad SIN CLASIFICAR, el tipo y la complejidad que trae el DTO son los valores
+        // por omisión de sus enumerados (Bug y Baja), no una decisión de nadie: precargarlos haría
+        // que el formulario propusiera una respuesta que nunca se eligió, y guardar sin mirar la
+        // convertiría en eso. Se abren en blanco a propósito, que es lo que obliga a decidir.
+        bool sinClasificar = actividad.Estado == PoolActivityStatus.PorClasificar;
+        _tipoCapturado = sinClasificar ? null : actividad.Tipo;
+        _complejidadCapturada = sinClasificar ? null : actividad.Complejidad;
         _prioridad = actividad.Prioridad;
         _equipoDestino = actividad.EquipoId;
 
@@ -1473,8 +1551,12 @@
         var cuerpo = new PublicarActividadRequest(
             Titulo: _titulo,
             Detalle: _detalle,
-            Tipo: _tipoCapturado ?? PoolWorkType.Bug,
-            Complejidad: _complejidadCapturada ?? PoolComplexity.Media,
+            // SIN respaldo, y es el cambio que hace que la clasificación sea una decisión: con un
+            // «?? Bug» y un «?? Media», pulsar Guardar sin haber tocado los desplegables dejaba la
+            // actividad clasificada como Bug de complejidad Baja —los valores 0 de sus enumerados—
+            // sin que nadie lo hubiera elegido. El servidor rechaza los nulos y dice cuál falta.
+            Tipo: _tipoCapturado,
+            Complejidad: _complejidadCapturada,
             Enlace: _enlace,
             Prioridad: _prioridad,
             Horas: EsBug ? _horas : _plazoPropio,
@@ -1493,11 +1575,46 @@
 
     private async Task Retirar(ActividadDelPoolDto actividad)
     {
-        if (!await Avisos.ConfirmarAsync($"¿Retirar «{actividad.Titulo}» del pool?", "Retirar",
-                "Sí, retirarla"))
+        bool sinClasificar = actividad.Estado == PoolActivityStatus.PorClasificar;
+
+        // Descartar lo que entró solo es DEFINITIVO para ese work item: la deduplicación mira si el
+        // ticket ya tiene actividad en cualquier estado, así que una descartada no vuelve a entrar
+        // sola nunca más. Hay que decirlo antes, no después.
+        var pregunta = sinClasificar
+            ? $"¿Descartar «{actividad.Titulo}»?\n\nNo volverá a entrar sola desde su work item; " +
+              "si más adelante la quieres, habrá que publicarla a mano."
+            : $"¿Retirar «{actividad.Titulo}» del pool?";
+
+        if (!await Avisos.ConfirmarAsync(pregunta, sinClasificar ? "Descartar" : "Retirar",
+                sinClasificar ? "Sí, descartarla" : "Sí, retirarla"))
             return;
 
         await Enviar<object?>($"api/pool/{actividad.Id}/retirar", null);
+    }
+
+    /// <summary>
+    /// Trae al pool los work items que todavía no están, como actividades sin clasificar.
+    ///
+    /// <para>El mensaje se enseña TAL CUAL porque dice dos cosas que hacen falta: cuántas entraron y
+    /// —si el tope recortó— cuántas quedaron esperando. Un recorte silencioso se leería como «ya está
+    /// todo», que es justo lo contrario de lo que pasa.</para>
+    /// </summary>
+    private async Task TraerDeDevOps()
+    {
+        _ocupado = true;
+        try
+        {
+            var (ok, r) = await Api.EnviarAsync<object?, ResultadoDeAltaEnPoolDto>(
+                "api/pool/devops/traer", null, _cancelacion.Token);
+
+            if (!ok || r is null) return;
+
+            if (r.Creadas > 0) Avisos.Exito(r.Mensaje);
+            else Avisos.Aviso(r.Mensaje);
+        }
+        finally { _ocupado = false; }
+
+        await CargarPool();
     }
 
     private async Task Liberar(ActividadDelPoolDto actividad)

@@ -17,7 +17,12 @@ public enum PoolComplexity { Baja = 0, Media = 1, Alta = 2, MuyAlta = 3 }
 /// <item><b>Retirada</b>: el líder la quitó del pool antes de que nadie la tomara.</item>
 /// </list>
 /// </summary>
-public enum PoolActivityStatus { Disponible = 0, Tomada = 1, EnRevision = 2, Devuelta = 3, Aceptada = 4, Retirada = 5 }
+// PorClasificar lo escribe la RÉPLICA WEB cuando trae sola una actividad desde un work item de
+// Azure DevOps. Aquí se declara para que el desplegable de estados no se quede corto y para que la
+// rejilla no la lea como «Retirada»; el escritorio no la produce ni la trabaja. No es peligrosa: sus
+// rutas se cierran con igualdad explícita —tomar es un UPDATE condicional sobre Disponible— así que
+// una actividad sin clasificar no se puede tomar, entregar ni verificar desde aquí.
+public enum PoolActivityStatus { Disponible = 0, Tomada = 1, EnRevision = 2, Devuelta = 3, Aceptada = 4, Retirada = 5, PorClasificar = 6 }
 
 /// <summary>
 /// Una actividad del pool: trabajo con un valor en puntos fijado ANTES de que nadie lo tome.

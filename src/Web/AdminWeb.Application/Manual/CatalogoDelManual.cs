@@ -362,6 +362,14 @@ internal static class CatalogoDelManual
             - **Aceptada**: verificada. **Aquí, y solo aquí, se abonan los puntos.** Es un estado final.
             - **Retirada**: el líder la quitó del pool antes de que nadie la tomara.
 
+            # De dónde salen las actividades
+
+            De dos sitios. El líder publica las que quiere, una a una; y las que vienen de **Azure DevOps entran solas**: cada cierto tiempo la aplicación mira los work items nuevos —los del líder y los que allá no tienen dueño— y crea con ellos una actividad **por clasificar**, con el título, la descripción y el enlace ya puestos.
+
+            Una actividad por clasificar **todavía no es una actividad del pool**: no vale puntos, no aparece en tu lista y no se puede tomar. Le falta lo único que no se puede adivinar —qué clase de trabajo es, cuánto tiempo lleva y de qué equipo es—, y de eso salen los puntos. En cuanto el líder lo decide, se publica y ya se puede tomar como cualquier otra.
+
+            Si no se sincroniza sola, el líder tiene un botón **«Traer de DevOps»** que hace lo mismo en el momento.
+
             # Si la actividad viene de un ticket de Azure DevOps
 
             Cuando el líder liga la actividad con un work item, el pool y DevOps dejan de ser dos sitios que hay que mantener a mano:

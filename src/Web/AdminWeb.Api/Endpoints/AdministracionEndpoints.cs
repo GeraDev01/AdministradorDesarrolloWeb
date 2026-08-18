@@ -218,7 +218,8 @@ public static class AdministracionEndpoints
             new(SettingsService.Claves.AzureDevOpsPat, "PAT (Personal Access Token)",
                 "Cada quien reporta su tiempo con su PAT personal; este es el de la sincronización.",
                 TipoDeCampoDeConfiguracion.Secreto),
-            new(SettingsService.Claves.DevOpsSyncIntervalMinutes, "Cada cuántos minutos se sincroniza",
+            new(SettingsService.Claves.DevOpsSyncIntervalMinutes,
+                "Cada cuántos minutos se sincroniza sola con DevOps (0 o vacío = solo a mano)",
                 null, TipoDeCampoDeConfiguracion.Numero),
         ]),
 

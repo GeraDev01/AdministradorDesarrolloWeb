@@ -117,6 +117,8 @@ public static class PoolEndpoints
         grupo.MapPost("/publicar", async (
             PublicarActividadRequest cuerpo, PoolActivityService pool, CancellationToken ct) =>
         {
+            if (SinClasificar(cuerpo) is string falta) return Resultado(false, falta);
+
             var (ok, mensaje, _) = await pool.CrearAsync(ABorrador(cuerpo), cuerpo.CriteriosExtra, ct);
             return Resultado(ok, mensaje);
         })
@@ -126,11 +128,29 @@ public static class PoolEndpoints
         grupo.MapPost("/{id:int}/editar", async (
             int id, PublicarActividadRequest cuerpo, PoolActivityService pool, CancellationToken ct) =>
         {
+            if (SinClasificar(cuerpo) is string falta) return Resultado(false, falta);
+
             var (ok, mensaje) = await pool.EditarAsync(id, ABorrador(cuerpo), cuerpo.CriteriosExtra, ct);
             return Resultado(ok, mensaje);
         })
         .RequireAuthorization(PoliticaDelLider)
-        .WithSummary("Edita una actividad que sigue libre en el pool");
+        .WithSummary("Edita (o clasifica y publica) una actividad que nadie ha tomado");
+
+        // TRAER AL POOL, a mano. Existe además del trabajo de fondo, y no en su lugar: es lo que
+        // permite probarlo el primer día sin encender nada, y lo que deja al líder adelantar la
+        // siguiente pasada cuando sabe que acaba de crear un ticket. Hace exactamente lo mismo que el
+        // trabajo; lo único que cambia es quién lo pidió.
+        //
+        // NO sincroniza: lee los work items que la sincronización ya trajo. Separarlos es lo que hace
+        // que esta ruta no dependa de la red ni de ninguna credencial.
+        grupo.MapPost("/devops/traer", async (
+            PoolDesdeDevOpsService alta, CancellationToken ct) =>
+        {
+            var resultado = await alta.LlevarAlPoolAsync(ct);
+            return resultado.Ok ? Results.Ok(resultado) : Results.BadRequest(resultado);
+        })
+        .RequireAuthorization(PoliticaDelLider)
+        .WithSummary("Da de alta en el pool, sin clasificar, los work items que todavía no están");
 
         grupo.MapGet("/criterios-disponibles", async (
             PoolQueryService consultas, CancellationToken ct) =>
@@ -370,12 +390,34 @@ public static class PoolEndpoints
     /// sabe sacarlo también del enlace pegado y quien rechaza que los dos se contradigan. Traducirlo
     /// aquí dejaría esa regla fuera del sitio donde se guarda.
     /// </remarks>
+    /// <summary>
+    /// Por qué no se puede publicar todavía, o nulo si sí se puede.
+    ///
+    /// <para><b>Esta regla vive aquí y no en el servicio, y es a propósito.</b> La entidad no puede
+    /// representar «sin tipo»: <c>PoolWorkType</c> y <c>PoolComplexity</c> no son nulables, y
+    /// volverlos nulables obligaría a un ALTER COLUMN sobre una base que también lee la aplicación de
+    /// escritorio —donde un NULL en una columna que su modelo declara no anulable no da una fila
+    /// incompleta, da una fila que EF no puede leer—. Así que la nulabilidad muere justo aquí, al
+    /// traducir el contrato a borrador, y este es el último punto donde se puede comprobar.</para>
+    ///
+    /// <para>Se comprueba en las DOS rutas —publicar y editar— porque editar es también el gesto con
+    /// el que se clasifica lo que entró solo desde un work item.</para>
+    /// </summary>
+    private static string? SinClasificar(PublicarActividadRequest c) => (c.Tipo, c.Complejidad) switch
+    {
+        (null, null) => "Elige el tipo de actividad y su complejidad: de esos dos salen los puntos.",
+        (null, _)    => "Elige el tipo de actividad: bug, tarea o requerimiento.",
+        (_, null)    => "Elige la complejidad: es la otra mitad de lo que decide los puntos.",
+        _            => null
+    };
+
     private static PoolActivity ABorrador(PublicarActividadRequest c) => new()
     {
         Title = c.Titulo,
         Description = c.Detalle,
-        WorkType = c.Tipo,
-        Complexity = c.Complejidad,
+        // El «!» es seguro porque SinClasificar() corta antes en las dos rutas que llaman aquí.
+        WorkType = c.Tipo!.Value,
+        Complexity = c.Complejidad!.Value,
         Priority = c.Prioridad,
         HorasLimite = c.Horas,
         HorasEstimadas = c.HorasEstimadas,

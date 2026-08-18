@@ -340,7 +340,26 @@ public class PoolActivity
     /// </summary>
     public static bool EstadoSigueEnJuego(PoolActivityStatus estado) =>
         estado is PoolActivityStatus.Disponible or PoolActivityStatus.Tomada
-               or PoolActivityStatus.EnRevision or PoolActivityStatus.Devuelta;
+               or PoolActivityStatus.EnRevision or PoolActivityStatus.Devuelta
+               or PoolActivityStatus.PorClasificar;
+
+    /// <summary>
+    /// La actividad ya pasó por las manos del líder: tiene tipo, complejidad, horas y puntos, y por
+    /// tanto hay algo que afirmar sobre ella hacia fuera.
+    ///
+    /// <para><b>Es la puerta de todo lo que sale hacia Azure DevOps</b>, y no es una cortesía. Sin
+    /// ella, una actividad recién nacida del alta automática saldría como «pendiente de enviar» y el
+    /// empuje intentaría resolver credenciales —lo que pasa por
+    /// <c>UserSecretsService.ObtenerMioEnClaroAsync</c>, que exige sesión—: cada alta reventaría
+    /// dentro de esa guarda y dejaría «no hay sesión» escrito como último error en todas. Y aunque
+    /// eso no ocurriera, mandaría la prioridad «Media», que en DevOps se escribe como 3, a un ticket
+    /// recién creado que tiene el 2 por omisión: le BAJARÍA la prioridad a cien tickets de golpe.</para>
+    ///
+    /// <para>Se escribe una sola vez y la usan los dos pendientes, en vez de repetir la condición en
+    /// cada uno: tres listas de estados en la misma clase se separan el día que alguien añada un
+    /// cuarto, y la que se olvide mentirá en la dirección peor.</para>
+    /// </summary>
+    public bool YaPublicada => Status is not PoolActivityStatus.PorClasificar;
 
     /// <summary>Pasó su fecha límite y sigue sin entregarse.</summary>
     public bool Vencida => EnCurso && ClaimDeadlineAt is DateTime f && f < DateTime.UtcNow;
@@ -359,12 +378,13 @@ public class PoolActivity
     /// dejó de haberla.</para>
     /// </summary>
     public bool EsfuerzoPendienteDeEnviar =>
-        LigadaADevOps && HorasEstimadas is decimal h && DevOpsEsfuerzoEnviado != h;
+        LigadaADevOps && YaPublicada && HorasEstimadas is decimal h && DevOpsEsfuerzoEnviado != h;
 
     /// <summary>La prioridad del pool no es la que tiene DevOps. Siempre hay una: el campo no es
     /// nulable y toda actividad nace en Media.</summary>
     public bool PrioridadPendienteDeEnviar =>
-        LigadaADevOps && DevOpsPrioridadEnviada != PrioridadDelPoolEnDevOps.ADevOps(Priority);
+        LigadaADevOps && YaPublicada
+        && DevOpsPrioridadEnviada != PrioridadDelPoolEnDevOps.ADevOps(Priority);
 
     /// <summary>
     /// El work item no está a nombre de quien tiene tomada la actividad.

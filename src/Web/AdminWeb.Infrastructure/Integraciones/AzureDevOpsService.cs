@@ -73,18 +73,35 @@ public sealed record CambioDeAsignacionDevOps(DateTime Fecha, string? De, string
 /// de la cuenta de DevOps — que es justo lo que hacía fallar el empate por identidad.
 /// </param>
 /// <param name="CambiadosEnDias">Solo lo movido en los últimos N días. Nulo = todo el historial.</param>
+/// <param name="CreadosEnDias">
+/// Solo lo CREADO en los últimos N días. Nulo = sin acotar.
+///
+/// <para>Es distinto de <paramref name="CambiadosEnDias"/> y no lo sustituye: un work item de hace
+/// dos años que alguien tocó ayer entra por «cambiados» y no por «creados». Para traer al pool lo
+/// que acaba de aparecer, la fecha que importa es la de creación —si no, cada comentario en un
+/// ticket viejo lo volvería a proponer como trabajo nuevo—.</para>
+/// </param>
 public sealed record FiltroDeSincronizacion(
     IReadOnlyList<string> Tipos,
     IReadOnlyList<string> Asignados,
     IReadOnlyList<string> Estados,
     bool SoloMisAsignados = false,
-    int? CambiadosEnDias = null)
+    int? CambiadosEnDias = null,
+    int? CreadosEnDias = null)
 {
     public static FiltroDeSincronizacion Vacio { get; } = new([], [], []);
 
+    /// <summary>
+    /// No hay nada que acotar, así que la consulta sale sin filtros.
+    ///
+    /// <para><b>Todo campo nuevo tiene que entrar aquí</b>, y no es una formalidad: un filtro cuyos
+    /// campos no se contaran daría «vacío», el bloque de cláusulas no se emitiría ENTERO y la
+    /// sincronización se traería el proyecto completo. No rompe nada y no se ve; solo trae diez mil
+    /// work items.</para>
+    /// </summary>
     public bool EstaVacio =>
         Tipos.Count == 0 && Asignados.Count == 0 && Estados.Count == 0
-        && !SoloMisAsignados && CambiadosEnDias == null;
+        && !SoloMisAsignados && CambiadosEnDias == null && CreadosEnDias == null;
 }
 
 /// <summary>
@@ -643,6 +660,12 @@ public class AzureDevOpsService(HttpClient http) : IClienteAzureDevOps
             // @Today - N es aritmética de fechas de WIQL; el número va sin comillas.
             if (filtro.CambiadosEnDias is int dias && dias > 0)
                 sb.Append(" AND [System.ChangedDate] >= @Today - ").Append(dias);
+
+            // La fecha de CREACIÓN, que es otra cosa: acota lo que acaba de aparecer, no lo que
+            // alguien movió. Se pueden pedir las dos a la vez y se suman, como cualquier otro par de
+            // cláusulas de aquí.
+            if (filtro.CreadosEnDias is int nuevos && nuevos > 0)
+                sb.Append(" AND [System.CreatedDate] >= @Today - ").Append(nuevos);
         }
 
         sb.Append(" ORDER BY [System.ChangedDate] DESC");

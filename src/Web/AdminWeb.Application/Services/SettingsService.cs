@@ -86,6 +86,24 @@ public class SettingsService(AppDbContext db, ICurrentUser currentUser, AuditSer
         /// «Active».</para>
         /// </summary>
         public const string PoolDevOpsEstadoEnProgreso = "pool.devops.estado-en-progreso";
+
+        /// <summary>
+        /// A nombre de quién están «mis» work items, para el alta automática en el pool. Uno o
+        /// varios correos separados por comas.
+        ///
+        /// <para>Hace falta un ajuste y no basta la sesión porque quien dispara el alta es un trabajo
+        /// de fondo, donde no hay nadie conectado. Y no sirve la macro <c>@Me</c> de DevOps: se
+        /// resuelve contra el dueño del token, que ahí es el de la instalación, así que traería los
+        /// tickets de una cuenta compartida.</para>
+        ///
+        /// <para>Vacío no apaga el alta: sigue trayendo los work items que en DevOps no tienen
+        /// dueño, que son los que de verdad hay que repartir.</para>
+        /// </summary>
+        public const string PoolDevOpsCorreosDeAlta = "pool.devops.correos-de-alta";
+
+        /// <summary>Cuántos días atrás se miran los work items al traerlos al pool. Acota el primer
+        /// arranque: sin ventana, la primera pasada daría de alta todo el histórico abierto.</summary>
+        public const string PoolDevOpsDiasDeAlta = "pool.devops.dias-de-alta";
     }
 
     /// <summary>

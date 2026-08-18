@@ -127,6 +127,7 @@ builder.Services.AddScoped<PoolActivityService>();
 // funcione y se pruebe sin la integración— así que si esta línea faltara, publicar y editar
 // seguirían andando y sencillamente no llegaría nada a DevOps: un fallo silencioso. Van juntas.
 builder.Services.AddScoped<PoolDevOpsService>();
+builder.Services.AddScoped<PoolDesdeDevOpsService>();
 builder.Services.AddScoped<ForumService>();
 builder.Services.AddScoped<ConocimientoService>();
 builder.Services.AddScoped<SuggestionService>();
@@ -339,6 +340,19 @@ if (builder.Configuration.GetValue("AdminWeb:TrabajosDeFondoActivos", false))
     // la aplicación abierta a esa hora; si no, se marcaba como perdida y no ocurría nunca.
     builder.Services.AddHostedService<DesplieguesProgramadosJob>();
 }
+
+// La sincronización con DevOps va APARTE del interruptor general, y puede encenderse antes del corte.
+//
+// Los seis de arriba esperan porque el escritorio hace lo mismo con sus temporizadores y se
+// duplicarían los avisos y los despliegues. Éste no duplica nada: los avisos de asignación cuelgan de
+// la sincronización PERSONAL —la del botón de «Mis tickets»— y no de ésta, y traer un work item dos
+// veces es escribir la misma fila dos veces. Lo que sí hace, y el escritorio no hace, es dar de alta
+// en el pool lo que va apareciendo; por eso interesa tenerlo funcionando ya.
+//
+// Con su propia llave y no colgado de la general: encender aquélla para tener ésta encendería los
+// otros cinco, que es exactamente lo que aquélla existe para evitar.
+if (builder.Configuration.GetValue("AdminWeb:SincronizacionDeDevOpsActiva", false))
+    builder.Services.AddHostedService<SincronizacionDeDevOpsJob>();
 
 builder.Services.AddExceptionHandler<MapeoExcepciones>();
 builder.Services.AddProblemDetails();

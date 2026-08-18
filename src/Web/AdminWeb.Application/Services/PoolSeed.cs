@@ -54,7 +54,32 @@ public static class PoolSeed
         PoolActivityStatus.EnRevision => "Por verificar",
         PoolActivityStatus.Devuelta   => "Devuelta para corregir",
         PoolActivityStatus.Aceptada   => "Aceptada",
+        // Se dice lo que ESPERA, no de dónde vino: quien la mira necesita saber que la pelota está
+        // en su tejado. De dónde salió lo cuenta el vínculo con el work item, que ya está a la vista.
+        PoolActivityStatus.PorClasificar => "Por clasificar",
         _                             => "Retirada"
+    };
+
+    /// <summary>
+    /// En qué orden se enseñan los estados cuando una rejilla ordena por él.
+    ///
+    /// <para>Existe porque el NÚMERO del enumerado no sirve para ordenar: los valores están escritos
+    /// en una base en producción y el estado nuevo tuvo que ir al final, detrás de «Aceptada» y
+    /// «Retirada». Ordenando por el número, lo ÚNICO que reclama una decisión del líder saldría al
+    /// fondo de la rejilla, después de todo lo que ya está muerto.</para>
+    ///
+    /// <para>El orden es el de la urgencia con que reclaman a alguien: primero lo que espera al
+    /// líder, después lo que está en marcha, y al final lo que ya no pide nada.</para>
+    /// </summary>
+    public static int OrdenDeEstado(PoolActivityStatus estado) => estado switch
+    {
+        PoolActivityStatus.PorClasificar => 0,   // espera al líder, y nadie más puede moverla
+        PoolActivityStatus.EnRevision    => 1,   // espera al líder
+        PoolActivityStatus.Devuelta      => 2,   // espera a quien la tomó
+        PoolActivityStatus.Tomada        => 3,   // en marcha
+        PoolActivityStatus.Disponible    => 4,   // esperando a que alguien la tome
+        PoolActivityStatus.Aceptada      => 5,
+        _                                => 6    // Retirada
     };
 
     /// <summary>

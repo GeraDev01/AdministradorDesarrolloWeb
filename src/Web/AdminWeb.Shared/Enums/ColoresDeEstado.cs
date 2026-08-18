@@ -73,6 +73,9 @@ public static class ColoresDeEstado
         PoolActivityStatus.EnRevision => "var(--rz-warning)",               // espera al líder
         PoolActivityStatus.Devuelta   => "var(--rz-danger)",                // hay que rehacerla
         PoolActivityStatus.Aceptada   => "var(--rz-success)",
+        // Por clasificar reclama al LÍDER, igual que «Por verificar»: es lo único de la rejilla que
+        // no avanza hasta que él la mire. Comparte el ámbar por eso, no por parecido de ciclo.
+        PoolActivityStatus.PorClasificar => "var(--rz-warning)",
         _                             => "var(--rz-text-secondary-color)"   // Retirada
     };
 
