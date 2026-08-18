@@ -278,10 +278,32 @@ public static class AdministracionEndpoints
                 null, TipoDeCampoDeConfiguracion.Interruptor),
         ]),
 
-        new("🎯 Pool de actividades", null,
+        new("🎯 Pool de actividades",
+            "Lo de «traer de DevOps» gobierna el alta automática: qué work items se convierten solos en "
+            + "actividades por clasificar. Cada cuánto ocurre se ajusta arriba, en Azure DevOps.",
         [
             new(SettingsService.Claves.PoolMaxTomadas, "Cuántas actividades puede tener tomadas una persona a la vez",
                 null, TipoDeCampoDeConfiguracion.Numero),
+
+            // Las tres del vínculo con DevOps. Estaban declaradas y las leía el servidor, pero no
+            // salían en ninguna pantalla: un ajuste que solo se puede escribir metiendo una fila a
+            // mano en la base no es un ajuste, es una constante escondida.
+            new(SettingsService.Claves.PoolDevOpsCorreosDeAlta,
+                "Traer al pool los work items asignados a estos correos (separados por comas)",
+                "Vacío no lo apaga: se siguen trayendo los que en DevOps no tienen dueño, que son los "
+                + "que hay que repartir. Es el correo de la CUENTA DE DEVOPS, que no siempre es el de "
+                + "la ficha.",
+                TipoDeCampoDeConfiguracion.Texto),
+            new(SettingsService.Claves.PoolDevOpsDiasDeAlta,
+                "Cuántos días atrás se miran los work items al traerlos (7 si se deja vacío)",
+                "Acota el primer arranque: sin ventana, la primera pasada daría de alta todo el "
+                + "histórico abierto.",
+                TipoDeCampoDeConfiguracion.Numero),
+            new(SettingsService.Claves.PoolDevOpsEstadoEnProgreso,
+                "A qué estado se mueve el work item cuando alguien toma su actividad",
+                "Vacío está bien: se deduce de los estados que ya usan los tickets sincronizados. "
+                + "Escríbelo solo si en tu proyecto se llama de otra forma («Doing», «In Progress»…).",
+                TipoDeCampoDeConfiguracion.Texto),
         ]),
     ];
 
