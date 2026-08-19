@@ -389,6 +389,7 @@ public class MigracionDePlazosAHorasTests : IDisposable
 
         DatabaseMigrator.EnsureUpToDate(db);   // el segundo arranque
 
+        // La matriz ENTERA: aquí la siembra sí corrió, así que están las dieciséis celdas.
         var leido = OtroContexto(db);
         foreach (var (tipo, complejidad, _, horas) in PoolSeed.Matriz)
             Assert.Equal(horas, HorasDeLaCelda(leido, tipo, complejidad));
@@ -407,8 +408,12 @@ public class MigracionDePlazosAHorasTests : IDisposable
 
         DatabaseMigrator.EnsureUpToDate(db);
 
+        // Solo las celdas que EXISTÍAN en el escritorio: aquí corre el MIGRADOR y no la siembra.
+        // El retrabajo es posterior y nunca tuvo plazo en días, así que no hay nada que
+        // convertirle; sus cuatro celdas las pone PoolSeed al arrancar la aplicación. Pedirlas
+        // aquí sería comprobar que el migrador hace algo que a propósito no hace.
         var leido = OtroContexto(db);
-        foreach (var (tipo, complejidad, _, horas) in PoolSeed.Matriz)
+        foreach (var (tipo, complejidad, _, horas) in PoolSeed.Matriz.Where(m => !m.Tipo.Resta()))
             Assert.Equal(horas, HorasDeLaCelda(leido, tipo, complejidad));
     }
 

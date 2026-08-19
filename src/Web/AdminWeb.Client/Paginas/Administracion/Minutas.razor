@@ -144,7 +144,7 @@
 
     <RadzenDataGrid data-recorrido="minutas-rejilla"
                     TItem="MinutaEnListaDto" Data="@Lista" IsLoading="@_ocupado"
-                    AllowSorting="true" AllowPaging="true" PageSize="15"
+                    AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="15"
                     EmptyText="No hay minutas en ese período.">
         <Columns>
             <RadzenDataGridColumn TItem="MinutaEnListaDto" Property="Id" Title="ID" Width="70px" />

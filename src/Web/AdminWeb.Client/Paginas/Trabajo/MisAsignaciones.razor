@@ -127,7 +127,7 @@
 
             <RadzenDataGrid data-recorrido="asignaciones-tabla"
                             TItem="MiAsignacionDto" Data="@d.Filas" IsLoading="@_ocupado"
-                            AllowSorting="true" AllowPaging="true" PageSize="20"
+                            AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="20"
                             RowRender="@PintarVencidos"
                             EmptyText="No tienes requerimientos asignados que cumplan el filtro.">
                 <Columns>

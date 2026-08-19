@@ -69,7 +69,7 @@
         <div style="flex:1 1 32rem;min-width:24rem">
             <RadzenDataGrid data-recorrido="plantillas-lista"
                             TItem="PlantillaListaDto" Data="@_filas" IsLoading="@_cargando"
-                            AllowSorting="true" AllowPaging="true" PageSize="15"
+                            AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="15"
                             EmptyText="No hay plantillas que cumplan el filtro."
                             SelectionMode="DataGridSelectionMode.Single"
                             Value="@_seleccion" ValueChanged="@Seleccionar">

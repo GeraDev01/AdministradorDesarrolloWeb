@@ -191,7 +191,7 @@
                 </RadzenText>
 
                 <RadzenDataGrid TItem="ReglaDeAsignacionDto" Data="@Reglas" AllowPaging="false"
-                                EmptyText="Sin reglas: el reparto se hace solo por identidad.">
+                                EmptyText="Sin reglas: el reparto se hace solo por identidad." AllowColumnResize="true">
                     <Columns>
                         <RadzenDataGridColumn TItem="ReglaDeAsignacionDto" Property="Orden" Title="Orden" Width="80px" />
                         <RadzenDataGridColumn TItem="ReglaDeAsignacionDto" Property="CondicionTexto" Title="Condición" Width="170px" />
@@ -436,7 +436,7 @@
     *@
     <RadzenDataGrid data-recorrido="devops-rejilla"
                     @ref="_rejilla" TItem="TicketDevOpsDto" Data="@_filas" IsLoading="@_ocupado"
-                    AllowSorting="true" AllowPaging="true" PageSize="25"
+                    AllowSorting="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="25"
                     AllowFiltering="true" FilterMode="FilterMode.Advanced"
                     FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive"
                     AllowColumnPicking="true" AllowColumnResize="true"

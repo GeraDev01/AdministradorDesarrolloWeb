@@ -144,7 +144,7 @@
 
         <RadzenDataGrid data-recorrido="freshdesk-rejilla"
                         TItem="TicketDeFreshdeskDto" Data="@_datos.Tickets" IsLoading="@_ocupado"
-                        AllowSorting="true" AllowPaging="true" PageSize="20"
+                        AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="20"
                         SelectionMode="DataGridSelectionMode.Single"
                         Value="@_seleccion" ValueChanged="@Seleccionar"
                         EmptyText="No hay tickets que cumplan la búsqueda. Sincroniza para traerlos.">

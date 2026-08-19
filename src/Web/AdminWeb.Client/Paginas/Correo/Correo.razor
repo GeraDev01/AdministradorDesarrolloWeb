@@ -126,7 +126,7 @@
 
                             <RadzenDataGrid data-recorrido="correo-bandeja"
                                             TItem="MensajeDeCorreoDto" Data="@_mensajes" IsLoading="@_ocupado"
-                                            AllowPaging="true" PageSize="15" AllowColumnResize="true"
+                                            AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="15" AllowColumnResize="true"
                                             EmptyText="No hay mensajes en esta carpeta.">
                                 <Columns>
                                     <RadzenDataGridColumn TItem="MensajeDeCorreoDto" Title="Fecha" Width="130px" Sortable="false">

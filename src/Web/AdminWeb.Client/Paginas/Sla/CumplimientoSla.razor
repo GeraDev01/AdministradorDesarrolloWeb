@@ -78,7 +78,7 @@
 
         <RadzenDataGrid data-recorrido="cumplimiento-tabla"
                         TItem="SlaCumplimientoFilaDto" Data="@d.Filas" IsLoading="@_ocupado"
-                        AllowSorting="true" AllowColumnResize="true" AllowPaging="true" PageSize="25"
+                        AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="25"
                         EmptyText="No hay compromisos de SLA con fecha límite en el período elegido.">
             <Columns>
                 <RadzenDataGridColumn TItem="SlaCumplimientoFilaDto" Property="Grupo" Title="Grupo" />

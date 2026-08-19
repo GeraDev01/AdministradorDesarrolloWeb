@@ -56,7 +56,7 @@
                     <RadzenDataGrid data-recorrido="metricas-requerimientos"
                                     TItem="MetricaDeRequerimientoDto" Data="@d.Requerimientos"
                                     IsLoading="@_ocupado" AllowSorting="true" AllowColumnResize="true"
-                                    AllowPaging="true" PageSize="25"
+                                    AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="25"
                                     EmptyText="No hay requerimientos registrados.">
                         <Columns>
                             <RadzenDataGridColumn TItem="MetricaDeRequerimientoDto" Property="Id"
@@ -132,7 +132,7 @@
                         }
 
                         <RadzenDataGrid TItem="MetricaPorDesarrolladorDto" Data="@d.PorDesarrollador"
-                                        IsLoading="@_ocupado" AllowSorting="true" AllowPaging="true" PageSize="25"
+                                        IsLoading="@_ocupado" AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="25"
                                         EmptyText="No hay desarrolladores activos.">
                             <Columns>
                                 <RadzenDataGridColumn TItem="MetricaPorDesarrolladorDto" Property="Desarrollador"

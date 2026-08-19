@@ -132,7 +132,7 @@
 
             <RadzenDataGrid data-recorrido="almacen-archivos"
                             TItem="ArchivoDeBlobDto" Data="@Filtrados" IsLoading="@_ocupado"
-                            AllowSorting="false" AllowPaging="true" PageSize="20"
+                            AllowSorting="false" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="20"
                             EmptyText="La carpeta está vacía o todavía no existe.">
                 <Columns>
                     @* Nada de MarkupString sobre estos nombres: los escribe quien sube el archivo, y

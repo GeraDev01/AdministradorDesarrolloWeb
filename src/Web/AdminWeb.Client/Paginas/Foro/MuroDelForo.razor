@@ -256,7 +256,7 @@
                         @* Paginado en el SERVIDOR: el muro crece sin límite y traerlo entero deja de
                            funcionar al segundo mes. *@
                         <RadzenPager Count="@_total" PageSize="@TamanoMuro" PageNumbersCount="5"
-                                     PageChanged="@AlCambiarPaginaAsync" />
+                                     PageChanged="@AlCambiarPaginaAsync" @attributes="@Paginador.EnEspanol" />
 
                         <RadzenText TextStyle="TextStyle.Caption">
                             @_total publicación(es). Las fijadas van primero; el resto, por última actividad,
@@ -291,8 +291,8 @@
                         <RadzenDataGrid data-recorrido="foro-auditoria"
                                         @ref="_rejilla" TItem="ForoAuditoriaFilaDto"
                                         Data="@_auditoria" Count="@_totalAuditoria"
-                                        LoadData="@CargarAuditoriaAsync" IsLoading="@_cargandoAuditoria"
-                                        AllowPaging="true" PageSize="@TamanoAuditoria" AllowColumnPicking="true"
+                                        LoadData="@CargarAuditoriaAsync" IsLoading="@_cargandoAuditoria" AllowColumnResize="true"
+                                        AllowPaging="true" @attributes="@Paginador.EnEspanol" PageSize="@TamanoAuditoria" AllowColumnPicking="true"
                                         PickedColumnsChanged="@AlElegirColumnasAsync"
                                         EmptyText="No hay entradas con ese filtro."
                                         RowDoubleClick="@(a => AbrirHilo(a.Data.HiloId))">

@@ -110,8 +110,8 @@
             </RadzenCard>
         }
 
-        <RadzenDataGrid TItem="SugerenciaDelLiderDto" Data="@d.Sugerencias" IsLoading="@_ocupado"
-                        AllowPaging="true" PageSize="15"
+        <RadzenDataGrid TItem="SugerenciaDelLiderDto" Data="@d.Sugerencias" IsLoading="@_ocupado" AllowColumnResize="true"
+                        AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="15"
                         EmptyText="No hay sugerencias con ese filtro.">
             @* Sin ordenación por encabezado: el orden lo decide el servidor (antigüedad, o apoyo si
                se pide) y dejar que la rejilla lo cambie por su cuenta escondería que «más votadas

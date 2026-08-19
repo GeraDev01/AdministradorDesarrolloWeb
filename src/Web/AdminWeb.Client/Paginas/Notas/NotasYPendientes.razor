@@ -138,7 +138,7 @@
     *@
     <RadzenDataGrid data-recorrido="notas-rejilla"
                     TItem="NotaDto" Data="@Lista" IsLoading="@_ocupado"
-                    AllowSorting="true" AllowPaging="true" PageSize="15"
+                    AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="15"
                     RowRender="@Pintar"
                     RowDoubleClick="@(n => Avisos.VerDetalleAsync(DetalleDe(n.Data)))"
                     EmptyText="@(_soloPendientes ? "No queda nada pendiente." : "Todavía no hay notas.")">

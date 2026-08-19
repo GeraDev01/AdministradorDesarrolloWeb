@@ -192,6 +192,30 @@ public static class PoolEndpoints
         .RequireAuthorization(PoliticaDelLider)
         .WithSummary("Quita del pool una actividad que ya no aplica");
 
+        // «Propia» va junto a «retirar» porque son las dos salidas de una actividad que nadie tomó,
+        // y conviene leerlas seguidas: una dice «esto ya no aplica» y la otra «esto ya lo hice yo».
+        grupo.MapPost("/{id:int}/propia", async (
+            int id, PoolActivityService pool, CancellationToken ct) =>
+        {
+            var (ok, mensaje) = await pool.MarcarComoPropiaAsync(id, ct);
+            return Resultado(ok, mensaje);
+        })
+        .RequireAuthorization(PoliticaDelLider)
+        .WithSummary("Cierra una actividad porque la hizo el líder: sin tomarla y sin puntos");
+
+        // DELETE y no POST, al revés que todo lo demás de este grupo: aquí el verbo ES la advertencia.
+        // Las otras rutas cambian el estado de una fila que sigue estando; ésta la quita, así que
+        // llamarla «/eliminar» por POST la dejaría con la misma pinta que «/retirar» —que es
+        // justamente con la que no puede confundirse—.
+        grupo.MapDelete("/{id:int}", async (
+            int id, PoolActivityService pool, CancellationToken ct) =>
+        {
+            var (ok, mensaje) = await pool.EliminarAsync(id, ct);
+            return Resultado(ok, mensaje);
+        })
+        .RequireAuthorization(PoliticaDelLider)
+        .WithSummary("Borra del pool una actividad que nunca debió estar; nunca una que ya dio puntos");
+
         grupo.MapPost("/{id:int}/liberar", async (
             int id, MotivoRequest? cuerpo, PoolActivityService pool, CancellationToken ct) =>
         {

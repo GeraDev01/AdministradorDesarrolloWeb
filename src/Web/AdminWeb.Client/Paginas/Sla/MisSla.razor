@@ -106,7 +106,7 @@
 
             <RadzenDataGrid data-recorrido="mis-sla-rejilla"
                             TItem="SlaCompromisoDto" Data="@d.Compromisos" IsLoading="@_ocupado"
-                            AllowSorting="true" AllowPaging="true" PageSize="20"
+                            AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="20"
                             RowRender="@PintarUrgentes"
                             EmptyText="No tienes compromisos pendientes.">
                 <Columns>

@@ -154,13 +154,17 @@ public class ReportesServiceTests
     }
 
     [Fact]
-    public async Task Catalogo_TraeLosQuinceReportesYAQuienSePuedeFiltrar()
+    public async Task Catalogo_TraeTodosLosReportesYAQuienSePuedeFiltrar()
     {
         var (db, _, _) = BaseConDatos();
 
         var catalogo = await Svc(db).CatalogoAsync();
 
-        Assert.Equal(15, catalogo.Reportes.Count);
+        // Diecisiete: los quince de siempre más los dos del pool —por tipo y por desarrollador—,
+        // que son los que contestan cuántas actividades entraron como RETRABAJO.
+        Assert.Equal(17, catalogo.Reportes.Count);
+        Assert.Contains(catalogo.Reportes, r => r.Clave == "pool-por-tipo");
+        Assert.Contains(catalogo.Reportes, r => r.Clave == "pool-por-desarrollador");
         Assert.Equal(catalogo.Reportes.Count, catalogo.Reportes.Select(r => r.Clave).Distinct().Count());
         Assert.All(catalogo.Reportes, r => Assert.False(string.IsNullOrWhiteSpace(r.Descripcion)));
         Assert.Equal(["Ana", "Beto"], catalogo.Desarrolladores.Select(d => d.Texto).ToArray());

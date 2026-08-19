@@ -67,7 +67,7 @@
             <Tabs>
                 <RadzenTabsItem Text="Ranking individual" Icon="leaderboard">
                     <RadzenDataGrid TItem="RankingPublicoFilaDto" Data="@d.Individual"
-                                    IsLoading="@_ocupado" AllowSorting="true" PageSize="25" AllowPaging="true"
+                                    IsLoading="@_ocupado" AllowSorting="true" AllowColumnResize="true" PageSize="25" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo"
                                     EmptyText="Sin puntos aprobados en el mes." RowRender="@ResaltarLaMia">
                         <Columns>
                             <RadzenDataGridColumn TItem="RankingPublicoFilaDto" Property="Posicion" Title="Pos." Width="80px">
@@ -86,7 +86,7 @@
 
                 <RadzenTabsItem Text="Ranking por equipo" Icon="groups">
                     <RadzenDataGrid TItem="RankingPublicoFilaDto" Data="@d.Equipos"
-                                    IsLoading="@_ocupado" AllowSorting="true" PageSize="25" AllowPaging="true"
+                                    IsLoading="@_ocupado" AllowSorting="true" AllowColumnResize="true" PageSize="25" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo"
                                     EmptyText="No hay equipos." RowRender="@ResaltarLaMia">
                         <Columns>
                             <RadzenDataGridColumn TItem="RankingPublicoFilaDto" Property="Posicion" Title="Pos." Width="80px">

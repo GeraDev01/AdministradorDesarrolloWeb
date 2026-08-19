@@ -80,7 +80,7 @@
 
                         <RadzenDataGrid data-recorrido="mi-pool-mias"
                                         TItem="MiActividadDelPoolDto" Data="@d.Mias" IsLoading="@_ocupado"
-                                        AllowSorting="true" AllowPaging="true" PageSize="10"
+                                        AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.EnEspanol" PageSize="10"
                                         SelectionMode="DataGridSelectionMode.Single"
                                         Value="@_seleccion" ValueChanged="@Seleccionar"
                                         EmptyText="Todavía no has tomado ninguna actividad del pool. Búscalas en «Disponibles».">
@@ -273,7 +273,7 @@
 
                                     <RadzenDataGrid data-recorrido="mi-pool-checklist"
                                                     TItem="PuntoDeChecklistDto" Data="@_checklist" IsLoading="@_ocupado"
-                                                    AllowSorting="false"
+                                                    AllowSorting="false" AllowColumnResize="true"
                                                     EmptyText="Esta actividad se quedó sin checklist: devuélvela al pool y vuelve a tomarla.">
                                         <Columns>
                                             <RadzenDataGridColumn TItem="PuntoDeChecklistDto" Title="" Width="50px">
@@ -396,7 +396,7 @@
                                         </RadzenText>
                                     </RadzenStack>
 
-                                    @if (t.Tipo == PoolWorkType.Bug)
+                                    @if (t.Tipo.ComoBug())
                                     {
                                         <RadzenStack Gap="0.25rem">
                                             <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem"
@@ -452,7 +452,7 @@
                         *@
                         <RadzenDataGrid data-recorrido="mi-pool-disponibles"
                                         TItem="ActividadLibreDto" Data="@d.Disponibles" IsLoading="@_ocupado"
-                                        AllowSorting="true" AllowPaging="true" PageSize="15"
+                                        AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="15"
                                         RowDoubleClick="@(a => Avisos.VerDetalleAsync(DetalleDe(a.Data)))"
                                         EmptyText="No hay actividades libres en el pool ahora mismo.">
                             <Columns>
@@ -656,7 +656,7 @@
     /// que el servidor acepta: dejar pasar un 0 o un 5000 solo serviría para que lo rebotara después.
     /// </summary>
     private bool PuedeTomar(ActividadLibreDto actividad) =>
-        actividad.Tipo != PoolWorkType.Bug
+        !actividad.Tipo.ComoBug()
         || (_estimacion is decimal h
             && h >= HorasDelPool.MinEsfuerzo && h <= HorasDelPool.MaxEsfuerzo);
 
@@ -668,7 +668,7 @@
     private async Task ConfirmarTomar(ActividadLibreDto actividad)
     {
         var cuerpo = new TomarActividadRequest(
-            actividad.Tipo == PoolWorkType.Bug ? _estimacion : null);
+            actividad.Tipo.ComoBug() ? _estimacion : null);
 
         if (await Enviar($"api/pool/{actividad.Id}/tomar", cuerpo))
         {

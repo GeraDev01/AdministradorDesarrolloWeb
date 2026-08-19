@@ -373,8 +373,8 @@
                                     <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
                                         <RadzenIcon Icon="history" /> Rotaciones recientes
                                     </RadzenText>
-                                    <RadzenDataGrid TItem="RotacionDto" Data="@_historial" AllowSorting="false"
-                                                    AllowPaging="true" PageSize="10"
+                                    <RadzenDataGrid TItem="RotacionDto" Data="@_historial" AllowSorting="false" AllowColumnResize="true"
+                                                    AllowPaging="true" @attributes="@Paginador.EnEspanol" PageSize="10"
                                                     EmptyText="Todavía no se ha movido a nadie de equipo.">
                                         <Columns>
                                             <RadzenDataGridColumn TItem="RotacionDto" Title="Cuándo" Width="150px" Sortable="false">

@@ -42,8 +42,8 @@
 
     <RadzenDataGrid data-recorrido="avisos-rejilla"
                     TItem="AvisoDto" Data="@_filas" Count="@_total"
-                    LoadData="@CargarAsync" AllowPaging="true" PageSize="25"
-                    AllowSorting="false" IsLoading="@_ocupado"
+                    LoadData="@CargarAsync" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="25"
+                    AllowSorting="false" AllowColumnResize="true" IsLoading="@_ocupado"
                     RowRender="@PintarAviso" RowDoubleClick="@AbrirAsync"
                     EmptyText="No tienes avisos.">
         <Columns>

@@ -100,8 +100,8 @@ public class PoolActivityServiceTests : IDisposable
             Title          = titulo,
             WorkType       = tipo,
             Complexity     = complejidad,
-            HorasLimite    = tipo == PoolWorkType.Bug ? PlazoDelBug : null,
-            HorasEstimadas = tipo == PoolWorkType.Bug ? null : EsfuerzoDelLider
+            HorasLimite    = tipo.ComoBug() ? PlazoDelBug : null,
+            HorasEstimadas = tipo.ComoBug() ? null : EsfuerzoDelLider
         };
 
     /// <summary>Crea una actividad y devuelve la entidad ya persistida.</summary>
@@ -148,8 +148,11 @@ public class PoolActivityServiceTests : IDisposable
         var actividad = await PublicarAsync(db, admin);
         int puntosOriginales = actividad.Points;
 
+        // Se pone todo en 1 salvo lo que RESTA, que va en -1: desde que existe el retrabajo el
+        // signo de una celda lo manda su tipo, y guardar un retrabajo en positivo se rechaza. Lo
+        // que esta prueba comprueba —que cambiar la matriz no mueve lo ya publicado— no cambia.
         var matriz = await Svc(db, admin).ObtenerMatrizAsync();
-        foreach (var celda in matriz) celda.Points = 1;
+        foreach (var celda in matriz) celda.Points = celda.WorkType.Resta() ? -1 : 1;
         Assert.True((await Svc(db, admin).GuardarMatrizAsync(matriz)).ok);
 
         var releida = db.PoolActivities.AsNoTracking().Single(a => a.Id == actividad.Id);
@@ -864,7 +867,11 @@ public class PoolSeedTests
         Assert.Equal(0, segunda);
         Assert.Equal(PoolSeed.Matriz.Length, db.PoolPointsMatrix.AsNoTracking().Count());
         Assert.Equal(PoolSeed.Checklists.Length, db.PoolChecklistTemplateItems.AsNoTracking().Count());
-        Assert.Equal(3, db.ScoringCriteria.AsNoTracking().Count(c => c.Name.StartsWith(PoolSeed.PrefijoCriterio)));
+        // Uno por tipo, contado desde el enumerado: escrito a mano, la prueba habría que
+        // acordarse de subirla el día que aparezca el quinto tipo, y el que se olvide es el que
+        // se queda sin criterio y sin poder abonar sus puntos.
+        Assert.Equal(Enum.GetValues<PoolWorkType>().Length,
+            db.ScoringCriteria.AsNoTracking().Count(c => c.Name.StartsWith(PoolSeed.PrefijoCriterio)));
     }
 
     [Fact]
@@ -880,13 +887,21 @@ public class PoolSeedTests
     {
         // Si «muy alta» valiera casi lo mismo que «baja», tomar solo lo fácil sería siempre la mejor
         // estrategia y el pool dejaría de repartir el trabajo difícil.
+        //
+        // Lo que crece es la MAGNITUD y no el número, y por eso se compara en valor absoluto: el
+        // retrabajo resta, así que ahí «más difícil» significa más negativo. Comparando los números
+        // a pelo, la única fila que se puede saltar la regla —la que castiga— pasaría siempre.
         foreach (var tipo in Enum.GetValues<PoolWorkType>())
         {
             var puntos = PoolSeed.Matriz.Where(m => m.Tipo == tipo)
-                .OrderBy(m => m.Complejidad).Select(m => m.Puntos).ToList();
+                .OrderBy(m => m.Complejidad).Select(m => Math.Abs(m.Puntos)).ToList();
             for (int i = 1; i < puntos.Count; i++)
                 Assert.True(puntos[i] > puntos[i - 1], $"{tipo}: los puntos no crecen con la complejidad.");
         }
+
+        // Y el signo es el que le toca a cada tipo: lo que resta, resta en las cuatro complejidades.
+        foreach (var celda in PoolSeed.Matriz)
+            Assert.Equal(celda.Tipo.Resta(), celda.Puntos < 0);
     }
 
     [Fact]

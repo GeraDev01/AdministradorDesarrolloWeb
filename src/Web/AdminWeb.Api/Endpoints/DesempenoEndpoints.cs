@@ -43,6 +43,43 @@ public static class DesempenoEndpoints
         .RequireAuthorization("SoloAdmin")
         .WithSummary("Ranking individual y por equipo de un mes (administrador)");
 
+        // ── El detalle de una fila del ranking ───────────────────────────────────
+        //
+        // Dos rutas y no una con un parámetro «tipo»: una persona y un equipo se identifican con
+        // números de tablas distintas, y una sola ruta obligaría a llevar además de cuál es. Las dos
+        // devuelven el MISMO contrato, que es lo que deja que el panel de la pantalla sea uno solo.
+        //
+        // SoloAdmin, igual que el ranking del que cuelgan y por el mismo motivo: esto es el desglose
+        // de la evaluación de terceros. El servicio vuelve a exigirlo.
+
+        grupo.MapGet("/ranking/desarrollador/{id:int}", async (
+            int id, int? anio, int? mes, DesempenoQueryService consultas, CancellationToken ct) =>
+        {
+            var (periodo, error) = NormalizarPeriodo(anio, mes);
+            if (error != null) return Results.BadRequest(new ResultadoDto(false, error));
+
+            var detalle = await consultas.DetalleDeDesarrolladorAsync(id, periodo.anio, periodo.mes, ct);
+            return detalle is null
+                ? Results.NotFound(new ResultadoDto(false, "Esa persona ya no existe."))
+                : Results.Ok(detalle);
+        })
+        .RequireAuthorization("SoloAdmin")
+        .WithSummary("De dónde salieron los puntos de una persona en el mes");
+
+        grupo.MapGet("/ranking/equipo/{id:int}", async (
+            int id, int? anio, int? mes, DesempenoQueryService consultas, CancellationToken ct) =>
+        {
+            var (periodo, error) = NormalizarPeriodo(anio, mes);
+            if (error != null) return Results.BadRequest(new ResultadoDto(false, error));
+
+            var detalle = await consultas.DetalleDeEquipoAsync(id, periodo.anio, periodo.mes, ct);
+            return detalle is null
+                ? Results.NotFound(new ResultadoDto(false, "Ese equipo ya no existe."))
+                : Results.Ok(detalle);
+        })
+        .RequireAuthorization("SoloAdmin")
+        .WithSummary("De dónde salieron los puntos de los integrantes de un equipo en el mes");
+
         // Sin id en la ruta a propósito: el panel es el de quien pregunta, y lo resuelve el servicio
         // desde la identidad de la petición. Un id por parámetro convertiría esto en «el panel de
         // cualquiera» en cuanto alguien probara otro número.

@@ -139,6 +139,20 @@ public class ReportesService(
         new("resumen-por-equipo", "Resumen por equipo",
             "Integrantes, requerimientos activos y puntos propios por equipo.",
             ResumenPorEquipoAsync, 0, 2, "Requerimientos activos por equipo"),
+
+        // Los dos del POOL. Hasta ahora el pool no tenía ni un reporte: se veía en su pantalla y no
+        // salía de ahí, así que «cuántos retrabajos entraron este mes» —que es la pregunta que los
+        // trajo— solo se podía contestar contando filas a mano.
+        new("pool-por-tipo", "Pool de actividades por tipo",
+            "Actividades del pool dadas de alta en el rango, por tipo: cuántas entraron, en qué "
+            + "quedaron y cuántos puntos movieron. Es donde se ve cuántas fueron RETRABAJO "
+            + "—bugs sobre algo ya entregado, que restan—.",
+            PoolPorTipoAsync, 0, 1, "Altas del pool por tipo"),
+
+        new("pool-por-desarrollador", "Pool de actividades por desarrollador",
+            "Lo que cada persona tomó del pool en el rango, con los puntos que ganó y los que "
+            + "perdió por retrabajo.",
+            PoolPorDesarrolladorAsync, 0, 3, "Puntos del pool por desarrollador"),
     ];
 
     // ── Lo que pide la pantalla ──────────────────────────────────────────────────────────────
@@ -553,6 +567,120 @@ public class ReportesService(
             .ToList();
 
         return new(["Desarrollador", "Total pts", "Premios", "Penalizaciones", "Entradas"], filas);
+    }
+
+    /// <summary>
+    /// El pool por TIPO: cuántas entraron de cada clase y en qué quedaron.
+    ///
+    /// <para>La fila que motivó el reporte es la del RETRABAJO —un bug sobre algo ya entregado—,
+    /// porque su cuenta es la que dice si estamos entregando antes de tiempo. Pero se enseñan los
+    /// cuatro tipos: un número de retrabajos suelto no significa nada hasta que se ve contra cuánto
+    /// trabajo total salió del pool en el mismo periodo.</para>
+    ///
+    /// <para><b>El rango es el de ALTA</b> (<c>CreatedAt</c>) y no el de aceptación, porque la
+    /// pregunta es cuántas ENTRARON así. Una actividad publicada en marzo y aceptada en abril cuenta
+    /// en marzo, que es cuando se supo que hacía falta.</para>
+    ///
+    /// <para>Lo que todavía no se ha clasificado va en su propia fila y no repartido entre los
+    /// cuatro tipos. Es obligado: <c>WorkType</c> no es nulable, así que una actividad recién llegada
+    /// de un work item lleva el valor 0 —Bug— sin que nadie lo haya decidido, y sumarla ahí inflaría
+    /// justo la fila con la que se compara el retrabajo.</para>
+    /// </summary>
+    private async Task<TablaDeReporte> PoolPorTipoAsync(ParametrosDeReporte p, CancellationToken ct)
+    {
+        var hasta = p.Hasta.AddDays(1);
+
+        var actividades = await db.PoolActivities.AsNoTracking()
+            .Where(a => a.CreatedAt >= p.Desde && a.CreatedAt < hasta)
+            .Select(a => new { a.WorkType, a.Status, a.Points, a.ClaimedByDeveloperId })
+            .ToListAsync(ct);
+
+        // El filtro por personas mira QUIÉN LA TOMÓ. Con el filtro puesto, lo que sigue libre no es
+        // de nadie todavía y por eso no puede salir: sumarlo diría que a esa persona le tocó trabajo
+        // que nadie ha reclamado.
+        if (p.Devs.Count > 0)
+            actividades = actividades
+                .Where(a => a.ClaimedByDeveloperId is int d && p.Devs.Contains(d))
+                .ToList();
+
+        var filas = Enum.GetValues<PoolWorkType>()
+            .Select(tipo =>
+            {
+                var grupo = actividades
+                    .Where(a => a.WorkType == tipo && a.Status != PoolActivityStatus.PorClasificar)
+                    .ToList();
+                var aceptadas = grupo.Where(a => a.Status == PoolActivityStatus.Aceptada).ToList();
+
+                return new object?[]
+                {
+                    PoolSeed.Etiqueta(tipo),
+                    grupo.Count,
+                    grupo.Count(a => a.Status is PoolActivityStatus.Tomada or PoolActivityStatus.Devuelta
+                                                or PoolActivityStatus.EnRevision),
+                    aceptadas.Count,
+                    aceptadas.Sum(a => a.Points),
+                    grupo.Count(a => a.Status == PoolActivityStatus.Retirada),
+                    grupo.Count(a => a.Status == PoolActivityStatus.Propia)
+                };
+            })
+            .ToList();
+
+        var sinClasificar = actividades.Count(a => a.Status == PoolActivityStatus.PorClasificar);
+        if (sinClasificar > 0)
+            filas.Add(["(sin clasificar)", sinClasificar, 0, 0, 0, 0, 0]);
+
+        return new(
+            ["Tipo", "Altas", "En curso", "Aceptadas", "Puntos otorgados", "Retiradas", "Las hizo el líder"],
+            filas);
+    }
+
+    /// <summary>
+    /// El pool por PERSONA: lo que cada quien tomó y lo que le sumó o le restó.
+    ///
+    /// <para>Las penalizaciones van en su propia columna y NO escondidas dentro del total, por lo
+    /// mismo que en el reporte de desempeño: un total de 12 puede ser doce limpios o veinte menos
+    /// ocho, y no son la misma persona ni el mismo mes.</para>
+    ///
+    /// <para>Aquí el rango es el de ACEPTACIÓN (<c>ReviewedAt</c>) y no el de alta, al revés que en el
+    /// reporte por tipo: lo que se está contando son puntos, y un punto cuenta cuando se abona. Es la
+    /// misma fecha con la que <c>AceptarAsync</c> escribe la entrada de puntos.</para>
+    /// </summary>
+    private async Task<TablaDeReporte> PoolPorDesarrolladorAsync(ParametrosDeReporte p, CancellationToken ct)
+    {
+        var hasta = p.Hasta.AddDays(1);
+
+        var aceptadas = await db.PoolActivities.AsNoTracking()
+            .Include(a => a.ClaimedBy)
+            .Where(a => a.Status == PoolActivityStatus.Aceptada
+                        && a.ClaimedByDeveloperId != null
+                        && a.ReviewedAt >= p.Desde && a.ReviewedAt < hasta)
+            .Select(a => new
+            {
+                a.ClaimedByDeveloperId,
+                Nombre = a.ClaimedBy!.FullName,
+                a.WorkType,
+                a.Points
+            })
+            .ToListAsync(ct);
+
+        var filas = aceptadas
+            .Where(a => p.Devs.Count == 0 || p.Devs.Contains(a.ClaimedByDeveloperId!.Value))
+            .GroupBy(a => a.Nombre)
+            .Select(g => new object?[]
+            {
+                g.Key,
+                g.Count(),
+                g.Count(a => a.WorkType == PoolWorkType.Retrabajo),
+                g.Sum(a => a.Points),
+                g.Where(a => a.Points > 0).Sum(a => a.Points),
+                g.Where(a => a.Points < 0).Sum(a => a.Points)
+            })
+            .OrderByDescending(f => (int)f[3]!)
+            .ToList();
+
+        return new(
+            ["Desarrollador", "Aceptadas", "De ellas, retrabajo", "Puntos netos", "Ganados", "Perdidos"],
+            filas);
     }
 
     private async Task<TablaDeReporte> EstimadoVsRealAsync(ParametrosDeReporte p, CancellationToken ct)

@@ -77,7 +77,7 @@ else
                     </RadzenText>
                     <RadzenDataGrid data-recorrido="dashboard-entregas"
                                     TItem="EntregaProximaDto" Data="@_datos.ProximasEntregas"
-                                    AllowSorting="false" RowRender="@PintarEntrega"
+                                    AllowSorting="false" AllowColumnResize="true" RowRender="@PintarEntrega"
                                     EmptyText="Nada comprometido para esta semana."
                                     Style="min-height:220px">
                         <Columns>
@@ -130,7 +130,7 @@ else
                             <RadzenIcon Icon="groups" /> Carga por desarrollador
                         </RadzenText>
                         <RadzenDataGrid data-recorrido="dashboard-carga"
-                                        TItem="CargaDesarrolladorDto" Data="@carga" AllowSorting="false"
+                                        TItem="CargaDesarrolladorDto" Data="@carga" AllowSorting="false" AllowColumnResize="true"
                                         EmptyText="No hay desarrolladores activos."
                                         Style="min-height:220px">
                             <Columns>
@@ -153,7 +153,7 @@ else
                             <RadzenIcon Icon="push_pin" /> Recordatorios pendientes
                         </RadzenText>
                         <RadzenDataGrid data-recorrido="dashboard-recordatorios"
-                                        TItem="RecordatorioDto" Data="@recordatorios" AllowSorting="false"
+                                        TItem="RecordatorioDto" Data="@recordatorios" AllowSorting="false" AllowColumnResize="true"
                                         RowRender="@PintarRecordatorio"
                                         EmptyText="No hay recordatorios pendientes."
                                         Style="min-height:220px">
@@ -180,7 +180,7 @@ else
                             <RadzenIcon Icon="emoji_events" /> Top ranking — @_datos.PeriodoRanking
                         </RadzenText>
                         <RadzenDataGrid data-recorrido="dashboard-podio"
-                                        TItem="PuestoRankingDto" Data="@podio" AllowSorting="false"
+                                        TItem="PuestoRankingDto" Data="@podio" AllowSorting="false" AllowColumnResize="true"
                                         EmptyText="Sin datos este mes."
                                         Style="min-height:220px">
                             <Columns>

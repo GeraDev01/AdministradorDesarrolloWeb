@@ -207,7 +207,7 @@
                                 <RadzenFieldset Text="Periodo por periodo, con su fecha de caducidad"
                                                 Icon="date_range" AllowCollapse="true" Collapsed="true">
                                     <RadzenDataGrid TItem="PeriodoDeVacacionesDto" Data="@s.Periodos"
-                                                    AllowSorting="false" AllowPaging="false"
+                                                    AllowSorting="false" AllowColumnResize="true" AllowPaging="false"
                                                     EmptyText="Todavía no has cerrado ningún año de servicio.">
                                         <Columns>
                                             <RadzenDataGridColumn TItem="PeriodoDeVacacionesDto" Title="Año" Property="Anio" Width="70px" />
@@ -315,7 +315,7 @@
                             @if (e.Fuera.Count > 0)
                             {
                                 <RadzenDataGrid TItem="CompaneroFueraDto" Data="@e.Fuera"
-                                                AllowSorting="false" AllowPaging="false">
+                                                AllowSorting="false" AllowColumnResize="true" AllowPaging="false">
                                     <Columns>
                                         <RadzenDataGridColumn TItem="CompaneroFueraDto" Title="Quién" Property="Nombre">
                                             <Template Context="c">
@@ -507,7 +507,7 @@
 
         <RadzenDataGrid data-recorrido="vacaciones-lista"
                         TItem="SolicitudDeVacacionesDto" Data="@d.Solicitudes" IsLoading="@_ocupado"
-                        AllowSorting="true" AllowPaging="true" PageSize="15"
+                        AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="15"
                         EmptyText="Todavía no has pedido vacaciones.">
             <Columns>
                 <RadzenDataGridColumn TItem="SolicitudDeVacacionesDto" Title="Inicio" Property="Inicio" Width="110px">

@@ -232,7 +232,7 @@
                 @if (s.Periodos.Count > 0)
                 {
                     <RadzenDataGrid TItem="PeriodoDeVacacionesDto" Data="@s.Periodos"
-                                    AllowSorting="false" AllowPaging="false"
+                                    AllowSorting="false" AllowColumnResize="true" AllowPaging="false"
                                     EmptyText="Todavía no ha cerrado ningún periodo."
                                     RowRender="@PintarPeriodo">
                         <Columns>
@@ -330,7 +330,7 @@
     }
 
     <RadzenDataGrid TItem="DesarrolladorDto" Data="@_filas" IsLoading="@_cargando"
-                    AllowSorting="true" AllowPaging="true" PageSize="25"
+                    AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="25"
                     EmptyText="No hay desarrolladores que cumplan el filtro."
                     SelectionMode="DataGridSelectionMode.Single" @bind-Value="@_seleccion"
                     RowDoubleClick="@(_ => AbrirEdicion())"

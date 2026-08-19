@@ -2,6 +2,7 @@ using AdminWeb.Application.Services;
 using AdminWeb.Domain.Entities;
 using AdminWeb.Domain.Security;
 using AdminWeb.Infrastructure.Data;
+using AdminWeb.Shared;
 using AdminWeb.Shared.Dtos.Metricas;
 using AdminWeb.Shared.Enums;
 using Xunit;
@@ -280,5 +281,128 @@ public class MetricasQueryServiceTests
 
         Assert.Equal(MetricasQueryService.MaxDiasDeVentana, d.DiasDeVentana);
         Assert.Contains($"{MetricasQueryService.MaxDiasDeVentana} días", d.ResumenDeCapacidad);
+    }
+
+    /// <summary>
+    /// EL POOL TAMBIÉN ES CARGA. Antes solo contaban los requerimientos asignados, así que un equipo
+    /// que trabaja por el pool salía entero con cero horas pendientes y las cuatro tarjetas decían
+    /// «Libres». La prueba de que era un fallo y no «es que no hay trabajo» estaba en la misma fila:
+    /// «Horas registradas» sí sumaba el tiempo del pool, porque el cronómetro cuelga de la actividad
+    /// que el pool crea al tomarla.
+    /// </summary>
+    [Fact]
+    public async Task La_capacidad_cuenta_tambien_las_actividades_del_pool_que_alguien_tiene_tomadas()
+    {
+        using var db = TestDb.New();
+        var ana = Dev(db, "Ana");
+
+        db.PoolActivities.Add(new PoolActivity
+        {
+            Title = "Tomada y en curso", WorkType = PoolWorkType.Bug, Complexity = PoolComplexity.Alta,
+            Points = 12, Status = PoolActivityStatus.Tomada,
+            ClaimedByDeveloperId = ana.Id, HorasEstimadas = 30m
+        });
+        // La devuelta para corregir SIGUE en sus manos: es la otra mitad de PoolActivity.EnCurso.
+        db.PoolActivities.Add(new PoolActivity
+        {
+            Title = "Devuelta para corregir", WorkType = PoolWorkType.Tarea, Complexity = PoolComplexity.Baja,
+            Points = 3, Status = PoolActivityStatus.Devuelta,
+            ClaimedByDeveloperId = ana.Id, HorasEstimadas = 15m
+        });
+        // Y la que ya se aceptó NO ocupa capacidad futura, igual que un requerimiento entregado.
+        db.PoolActivities.Add(new PoolActivity
+        {
+            Title = "Ya aceptada", WorkType = PoolWorkType.Tarea, Complexity = PoolComplexity.Baja,
+            Points = 3, Status = PoolActivityStatus.Aceptada,
+            ClaimedByDeveloperId = ana.Id, HorasEstimadas = 100m
+        });
+        db.SaveChanges();
+
+        var deAna = (await Svc(db, Lider()).EstimacionYCapacidadAsync())
+            .Capacidad.Single(c => c.Desarrollador == "Ana");
+
+        Assert.Equal(45, deAna.HorasPendientes);
+        Assert.Equal(2, deAna.PoolTomadas);
+        // «Req. abiertos» sigue contando SOLO requerimientos: son dos clases de trabajo y una columna
+        // que dice «requerimientos» no puede llevar dentro otra cosa.
+        Assert.Equal(0, deAna.Abiertos);
+        // Y con más de 40 h pendientes ya no está libre, aunque no tenga ni un requerimiento.
+        Assert.Equal("Sobrecargado", deAna.Disponibilidad);
+    }
+
+    /// <summary>
+    /// Quien solo tiene actividades del pool deja de salir «Libre», que es lo que decidía la primera
+    /// rama de <c>CapacityStats.Clasificar</c> mirando únicamente los requerimientos abiertos.
+    /// </summary>
+    [Fact]
+    public async Task Quien_solo_tiene_pool_sale_ocupado_y_no_libre()
+    {
+        using var db = TestDb.New();
+        var ana = Dev(db, "Ana");
+
+        db.PoolActivities.Add(new PoolActivity
+        {
+            Title = "Una sola, pequeña", WorkType = PoolWorkType.Tarea, Complexity = PoolComplexity.Baja,
+            Points = 3, Status = PoolActivityStatus.Tomada,
+            ClaimedByDeveloperId = ana.Id, HorasEstimadas = 4m
+        });
+        db.SaveChanges();
+
+        var deAna = (await Svc(db, Lider()).EstimacionYCapacidadAsync())
+            .Capacidad.Single(c => c.Desarrollador == "Ana");
+
+        Assert.Equal("Ocupado", deAna.Disponibilidad);
+    }
+
+    /// <summary>
+    /// LA CAPACIDAD SE DICE. Era la queja: «la capacidad de trabajo del equipo debe ser de 40 horas
+    /// por persona; no aparece nada». El número viajaba en el DTO pero la pantalla lo pintaba en un
+    /// solo sitio, en letra chica y redactado como umbral de sobrecarga. Ahora está en una tarjeta
+    /// propia y en el resumen, que es la única línea de la pestaña que se pinta SIEMPRE, aunque no
+    /// haya ni una fila.
+    /// </summary>
+    [Fact]
+    public async Task La_capacidad_por_persona_se_ensena_en_una_tarjeta_y_en_el_resumen()
+    {
+        using var db = TestDb.New();
+        Dev(db, "Ana");
+        Dev(db, "Beto");
+
+        var d = await Svc(db, Lider()).EstimacionYCapacidadAsync();
+
+        Assert.Equal(CapacidadDeTrabajo.HorasPorPersona, d.CapacidadHoras);
+        var porPersona = d.IndicadoresDeCapacidad.Single(i => i.Titulo == "Capacidad por persona");
+        Assert.Equal("40 h", porPersona.Valor);
+
+        // La del equipo son 40 × las personas disponibles, y se dice por cuántas se multiplica.
+        var delEquipo = d.IndicadoresDeCapacidad.Single(i => i.Titulo == "Capacidad del equipo");
+        Assert.Equal("80 h", delEquipo.Valor);
+
+        Assert.Contains("40 h por persona", d.ResumenDeCapacidad);
+    }
+
+    /// <summary>
+    /// Quien está de vacaciones HOY no suma a la capacidad del equipo: la regla de esta pantalla es
+    /// que las vacaciones ganan a todo lo demás, y prometer sus cuarenta horas sería prometer trabajo
+    /// que nadie va a hacer.
+    /// </summary>
+    [Fact]
+    public async Task La_capacidad_del_equipo_no_cuenta_a_quien_esta_de_vacaciones_hoy()
+    {
+        using var db = TestDb.New();
+        var hoy = DateTime.Today;
+        var ana = Dev(db, "Ana");
+        Dev(db, "Beto");
+
+        db.VacationRequests.Add(new VacationRequest
+        {
+            DeveloperId = ana.Id, StartDate = hoy.AddDays(-1), EndDate = hoy.AddDays(3),
+            Status = VacationStatus.Aprobada
+        });
+        db.SaveChanges();
+
+        var d = await Svc(db, Lider()).EstimacionYCapacidadAsync();
+
+        Assert.Equal("40 h", d.IndicadoresDeCapacidad.Single(i => i.Titulo == "Capacidad del equipo").Valor);
     }
 }

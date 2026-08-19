@@ -832,3 +832,68 @@
     font-size: 1.25em;
     vertical-align: -.18em;
 }
+
+/* ── EL PIE DE LAS REJILLAS: LOS CONTROLES DE PÁGINA, JUNTOS ────────────────── */
+
+/* Esto arregla algo que se reportó así: «al pasar a la segunda página desaparece
+   la forma de volver a la primera». No desaparecía; estaba en la otra punta de
+   la pantalla y apagada.
+
+   Radzen reparte el pie A TODO LO ANCHO de la tabla: «primera» y «anterior»
+   pegadas al borde IZQUIERDO, los números en el centro, y «siguiente» y
+   «última» pegadas al DERECHO. Lo hace con dos márgenes automáticos
+   —.rz-pager-prev y .rz-pager-next— que se comen todo el hueco libre, así que
+   en una rejilla de 1600 px los dos botones de volver quedan a un palmo y medio
+   de donde se acaba de pulsar «siguiente». Y como son iconos SIN RÓTULO y en la
+   página 1 van deshabilitados al 20 % de opacidad, en la primera página no se
+   ven en absoluto: nunca se llega a aprender que están ahí.
+
+   Se anulan los dos márgenes y el grupo entero se centra. Queda la barra
+   completa y contigua —«|< < 1 2 3 > >|»—, que es la forma en la que un
+   paginador se reconoce sin leerlo.
+
+   Se hace AQUÍ y no rejilla por rejilla porque son sesenta y siete rejillas
+   paginadas más dos paginadores sueltos, y el atributo que haría lo mismo
+   (PagerHorizontalAlign) habría que acordarse de ponerlo en la número setenta. */
+.rz-pager {
+    justify-content: center;
+}
+
+.rz-pager-prev {
+    margin-inline-end: 0;
+}
+
+.rz-pager-next {
+    margin-inline-start: 0;
+}
+
+/* Y las flechas apagadas se ven. Al 20 % de opacidad —lo que Radzen da a
+   cualquier botón deshabilitado— un icono sin rótulo sobre fondo claro es un
+   hueco: en la primera página el paginador parecía empezar en el número 1, y
+   por eso al volver de la segunda nadie sabía dónde buscar. Al 45 % siguen
+   diciendo «ahora no» sin dejar de estar. Es una excepción acotada al pie de
+   las rejillas; los botones deshabilitados del resto de la aplicación llevan
+   texto y no necesitan esto. */
+.rz-pager .rz-pager-element.rz-state-disabled {
+    opacity: .45;
+}
+
+/* Y que la banda del paginador se lea como un PIE.
+
+   Radzen deja `--rz-pager-border: none`, y la única clase que llevaría borde
+   (.rz-pager-bottom) la pinta RadzenDataList y NO RadzenDataGrid. El resultado
+   es una franja sin bordes pegada justo debajo de la barra de desplazamiento
+   horizontal que la tabla pinta cuando las columnas suman más que el hueco
+   —en el pool suman 2000 px sobre 1540—, así que los botones parecen colgar de
+   la nada debajo de una barra gris. Con una línea, el pie es el pie.
+
+   Se usa `:has` y no `:first-child` para el de arriba: hay rejillas con
+   cabecera de agrupación o selector de columnas, y ahí el paginador superior no
+   es el primer hijo. */
+.rz-data-grid > .rz-pager:has(+ .rz-data-grid-data) {
+    border-bottom: 1px solid var(--rz-border-color);
+}
+
+.rz-data-grid-data + .rz-pager {
+    border-top: 1px solid var(--rz-border-color);
+}

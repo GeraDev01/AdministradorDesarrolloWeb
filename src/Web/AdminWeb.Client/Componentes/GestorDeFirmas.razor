@@ -116,7 +116,7 @@
 
     <RadzenDataGrid data-recorrido="gestor-firmas-lista"
                     TItem="FirmaDelLiderDto" Data="@_firmas" IsLoading="@_ocupado"
-                    AllowSorting="true" EmptyText="Todavía no hay ninguna firma guardada.">
+                    AllowSorting="true" AllowColumnResize="true" EmptyText="Todavía no hay ninguna firma guardada.">
         <Columns>
             <RadzenDataGridColumn TItem="FirmaDelLiderDto" Title="Firma" Width="140px" Sortable="false">
                 @* La imagen se pide por su ruta y no viaja en la lista: con diez firmas guardadas se

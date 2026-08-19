@@ -55,7 +55,7 @@
                 <RadzenStack Gap="0.75rem">
                     <RadzenDataGrid data-recorrido="presencia-tablero"
                                     TItem="PresenteDto" Data="@Presentes" IsLoading="@_ocupado"
-                                    AllowSorting="false" RowRender="@ApagarDesconectados"
+                                    AllowSorting="false" AllowColumnResize="true" RowRender="@ApagarDesconectados"
                                     EmptyText="No hay cuentas activas.">
                         <Columns>
                             @* AQUÍ HABÍA UNA COLUMNA DE 52 px QUE PINTABA p.Icono, y se quitó entera.
@@ -190,7 +190,7 @@
                     }
 
                     <RadzenDataGrid TItem="AsistenciaDelDiaDto" Data="@Asistencias" IsLoading="@_ocupado"
-                                    AllowSorting="false" RowRender="@ApagarSinRegistro"
+                                    AllowSorting="false" AllowColumnResize="true" RowRender="@ApagarSinRegistro"
                                     EmptyText="No hay cuentas activas que mostrar.">
                         <Columns>
                             <RadzenDataGridColumn TItem="AsistenciaDelDiaDto" Property="Nombre" Title="Persona" />
@@ -292,7 +292,7 @@
                     </RadzenStack>
 
                     <RadzenDataGrid TItem="JornadaDelDiaDto" Data="@Jornadas" IsLoading="@_ocupado"
-                                    AllowSorting="false" EmptyText="Nadie abrió la aplicación ese día.">
+                                    AllowSorting="false" AllowColumnResize="true" EmptyText="Nadie abrió la aplicación ese día.">
                         <Columns>
                             <RadzenDataGridColumn TItem="JornadaDelDiaDto" Property="Persona" Title="Persona" />
                             <RadzenDataGridColumn TItem="JornadaDelDiaDto" Title="Entrada" Width="110px" Sortable="false">

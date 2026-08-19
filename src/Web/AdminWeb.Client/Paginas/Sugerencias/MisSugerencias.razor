@@ -114,7 +114,7 @@
                     @* ── Las mías ────────────────────────────────────────────────────────── *@
                     <RadzenDataGrid data-recorrido="sugerencias-mias"
                                     TItem="MiSugerenciaDto" Data="@_mias" IsLoading="@_ocupado"
-                                    AllowPaging="true" PageSize="15" AllowColumnResize="true"
+                                    AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="15" AllowColumnResize="true"
                                     EmptyText="Todavía no has enviado sugerencias.">
                         <Columns>
                             <RadzenDataGridColumn TItem="MiSugerenciaDto" Title="Fecha" Width="110px" Sortable="false">
@@ -241,7 +241,7 @@
 
                     <RadzenDataGrid data-recorrido="sugerencias-propuestas"
                                     TItem="PropuestaDelEquipoDto" Data="@_equipo" IsLoading="@_ocupado"
-                                    AllowPaging="true" PageSize="15" AllowColumnResize="true"
+                                    AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="15" AllowColumnResize="true"
                                     EmptyText="No hay propuestas todavía.">
                         <Columns>
                             @* «Apoyos», la misma palabra que en la rejilla de arriba y que en la del

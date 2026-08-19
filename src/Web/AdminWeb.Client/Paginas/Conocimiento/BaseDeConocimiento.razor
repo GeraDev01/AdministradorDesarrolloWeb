@@ -242,7 +242,7 @@
         @* El paginado lo hace el SERVIDOR: la documentación crece sin techo y traerla entera deja de
            funcionar al año. *@
         <RadzenPager Count="@_total" PageSize="@TamanoPagina" PageNumbersCount="5"
-                     PageChanged="@AlCambiarPaginaAsync" />
+                     PageChanged="@AlCambiarPaginaAsync" @attributes="@Paginador.EnEspanol" />
 
         <RadzenText TextStyle="TextStyle.Caption">
             @_total artículo(s). Lo más recientemente tocado va primero.

@@ -114,8 +114,8 @@
                     </RadzenText>
 
                     <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">Sesiones de cronómetro</RadzenText>
-                    <RadzenDataGrid TItem="SesionDeActividadDto" Data="@det.Sesiones" AllowPaging="true" PageSize="10"
-                                    EmptyText="Todavía no tiene tiempo registrado.">
+                    <RadzenDataGrid TItem="SesionDeActividadDto" Data="@det.Sesiones" AllowPaging="true" @attributes="@Paginador.EnEspanol" PageSize="10"
+                                    EmptyText="Todavía no tiene tiempo registrado." AllowColumnResize="true">
                         <Columns>
                             <RadzenDataGridColumn TItem="SesionDeActividadDto" Title="Inicio" Property="InicioUtc"
                                                   Width="180px">
@@ -132,8 +132,8 @@
                     </RadzenDataGrid>
 
                     <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">Evidencia adjunta</RadzenText>
-                    <RadzenDataGrid TItem="EvidenciaDeActividadDto" Data="@det.Evidencias" AllowPaging="true" PageSize="10"
-                                    EmptyText="No adjuntó evidencia.">
+                    <RadzenDataGrid TItem="EvidenciaDeActividadDto" Data="@det.Evidencias" AllowPaging="true" @attributes="@Paginador.EnEspanol" PageSize="10"
+                                    EmptyText="No adjuntó evidencia." AllowColumnResize="true">
                         <Columns>
                             <RadzenDataGridColumn TItem="EvidenciaDeActividadDto" Title="Archivo" Property="Nombre" />
                             <RadzenDataGridColumn TItem="EvidenciaDeActividadDto" Title="Tamaño" Property="Bytes"
@@ -158,7 +158,7 @@
 
         <RadzenDataGrid data-recorrido="actividades-rejilla"
                         TItem="ActividadDelEquipoDto" Data="@d.Actividades" IsLoading="@_ocupado"
-                        AllowSorting="true" AllowPaging="true" PageSize="15"
+                        AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="15"
                         EmptyText="No hay actividades con ese filtro.">
             <Columns>
                 <RadzenDataGridColumn TItem="ActividadDelEquipoDto" Title="Desarrollador"

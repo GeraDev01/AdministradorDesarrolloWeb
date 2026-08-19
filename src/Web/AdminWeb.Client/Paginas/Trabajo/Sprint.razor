@@ -393,7 +393,7 @@
 
                         <RadzenDataGrid data-recorrido="sprint-comprometidos"
                                         TItem="RequerimientoDeSprintDto" Data="@Comprometidos" IsLoading="@_ocupado"
-                                        AllowSorting="false" AllowPaging="true" PageSize="20"
+                                        AllowSorting="false" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="20"
                                         RowRender="@ResaltarLosMios"
                                         EmptyText="Este sprint todavía no tiene requerimientos.">
                             <Columns>
@@ -573,7 +573,7 @@
                             @* El más reciente arriba en la tabla (se lee de arriba abajo), aunque la
                                gráfica va al revés: ahí el tiempo tiene que correr de izquierda a derecha. *@
                             <RadzenDataGrid TItem="SprintResumenDto" Data="@Enumerable.Reverse(h.Sprints)"
-                                            IsLoading="@_ocupado" AllowSorting="false" AllowPaging="true" PageSize="15"
+                                            IsLoading="@_ocupado" AllowSorting="false" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="15"
                                             EmptyText="Todavía no hay sprints.">
                                 <Columns>
                                     <RadzenDataGridColumn TItem="SprintResumenDto" Property="Nombre" Title="Sprint" />

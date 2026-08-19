@@ -409,6 +409,29 @@ public class PoolActivity
     public bool EstadoPendienteDeEnviar => LigadaADevOps && EnCurso && DevOpsEstadoEnviado is null;
 
     /// <summary>
+    /// La actividad se cerró SIN que el pool llegara a entregar nada por ella: se retiró porque ya
+    /// no aplicaba, o la hizo el líder por su cuenta.
+    ///
+    /// <para><b>Es la tercera puerta de lo que sale hacia Azure DevOps</b>, junto a
+    /// <see cref="SigueEnJuego"/> y <see cref="YaPublicada"/>, y hace falta porque esas dos no
+    /// cubren este caso: «ya publicada» solo pregunta si está clasificada, así que una actividad
+    /// cerrada la cruza igual. Sin esta puerta pasa esto, y es concreto: una actividad que entró
+    /// sola desde un work item se descarta o se marca como hecha por el líder, con eso deja de estar
+    /// «por clasificar», <see cref="PrioridadPendienteDeEnviar"/> se enciende —su prioridad nunca se
+    /// mandó, y el campo no es nulable: toda actividad nace en Media— y el aviso ámbar del líder se
+    /// queda con esa fila DENTRO PARA SIEMPRE. La lista que existe para que un empuje perdido no se
+    /// pierda acabaría llena de trabajo que ya nadie va a tocar, que es la forma conocida de que una
+    /// lista de pendientes deje de mirarse.</para>
+    ///
+    /// <para><b>Por qué se pregunta por lo CERRADO y no por lo vivo.</b> Lo contrario —exigir
+    /// <see cref="SigueEnJuego"/>— también apagaría el aviso de las ACEPTADAS, y ésas sí tienen algo
+    /// que reclamar: se entregó trabajo real contra ese ticket, y si el esfuerzo no llegó, que se
+    /// vea. Aquí no se entregó nada.</para>
+    /// </summary>
+    public static bool EstadoCerradoSinEntrega(PoolActivityStatus estado) =>
+        estado is PoolActivityStatus.Retirada or PoolActivityStatus.Propia;
+
+    /// <summary>
     /// Hay algo que el pool dice y DevOps todavía no.
     ///
     /// <para><b>Se DERIVA y no se guarda como una marca.</b> Una columna «pendiente» sería un tercer
@@ -416,10 +439,16 @@ public class PoolActivity
     /// bajarla —o subirla— el sistema mentiría en la dirección peor: diciendo que está todo enviado.
     /// Derivándola de lo que se envió contra lo que dice la actividad, no hay nada que olvidar y una
     /// edición posterior la vuelve a levantar sola.</para>
+    ///
+    /// <para>La guarda de <see cref="EstadoCerradoSinEntrega"/> va DELANTE de los cuatro y no dentro
+    /// de cada uno: es una condición sobre la actividad entera —«esto ya no va a ninguna parte»— y
+    /// repartida en cuatro sitios sería la cuarta lista de estados de esta clase esperando a
+    /// separarse de las otras tres.</para>
     /// </summary>
     public bool PendienteDeEnviarADevOps =>
-        EsfuerzoPendienteDeEnviar || PrioridadPendienteDeEnviar
-        || AsignacionPendienteDeEnviar || EstadoPendienteDeEnviar;
+        !EstadoCerradoSinEntrega(Status)
+        && (EsfuerzoPendienteDeEnviar || PrioridadPendienteDeEnviar
+            || AsignacionPendienteDeEnviar || EstadoPendienteDeEnviar);
 }
 
 /// <summary>

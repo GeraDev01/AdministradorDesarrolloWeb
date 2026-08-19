@@ -79,8 +79,8 @@
     <RadzenDataGrid data-recorrido="bitacora-rejilla"
                     @ref="_rejilla" TItem="EntradaBitacoraDto" Data="@_filas" Count="@_total"
                     LoadData="@Cargar" IsLoading="@_cargando"
-                    AllowPaging="true" PageSize="50" PageSizeOptions="@(new[] { 25, 50, 100, 200 })"
-                    AllowSorting="false"
+                    AllowPaging="true" @attributes="@Paginador.EnEspanol" PageSize="50" PageSizeOptions="@(new[] { 25, 50, 100, 200 })"
+                    AllowSorting="false" AllowColumnResize="true"
                     RowDoubleClick="@(l => Avisos.VerDetalleAsync(DetalleDe(l.Data)))"
                     EmptyText="No hay entradas en ese rango con esos filtros.">
         <Columns>

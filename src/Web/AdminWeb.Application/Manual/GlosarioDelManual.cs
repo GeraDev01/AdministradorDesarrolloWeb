@@ -71,6 +71,13 @@ internal static class GlosarioDelManual
             Siempre se otorgan bajo un **criterio** del catálogo, nunca sueltos: es lo que los hace comparables entre dos personas distintas.
             """),
 
+        Termino("retrabajo", "retrabajo", "pool, retrabajo, puntos",
+            """
+            Un bug sobre algo que **ya se entregó**. Es el único tipo de actividad del pool que da puntos **negativos**: al aceptarla se le restan a quien la trabajó.
+
+            No castiga corregir errores —eso es un bug corriente y se paga—; lo que evita es que entregar antes de tiempo y arreglarlo después salga a cuenta. Lo clasifica el líder al publicarla.
+            """),
+
         Termino("complejidad", "complejidad", "pool, complejidad",
             """
             Qué tan complicada es una actividad del pool: baja, media, alta o muy alta. La fija el líder al publicarla, antes de que nadie la trabaje.

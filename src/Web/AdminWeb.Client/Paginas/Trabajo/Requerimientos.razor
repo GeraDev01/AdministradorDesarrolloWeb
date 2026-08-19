@@ -231,7 +231,7 @@
                 </RadzenStack>
 
                 <RadzenDataGrid TItem="AdjuntoDeRequerimientoDto" Data="@_adjuntos" IsLoading="@_ocupado"
-                                AllowSorting="false"
+                                AllowSorting="false" AllowColumnResize="true"
                                 EmptyText="Este requerimiento todavía no tiene documentos.">
                     <Columns>
                         <RadzenDataGridColumn TItem="AdjuntoDeRequerimientoDto" Title="Tipo" Width="150px">
@@ -288,7 +288,7 @@
     *@
     <RadzenDataGrid data-recorrido="requerimientos-tabla"
                     TItem="RequerimientoDto" Data="@Filas" IsLoading="@_ocupado"
-                    AllowSorting="true" AllowPaging="true" PageSize="20"
+                    AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="20"
                     RowRender="@PintarVencidos"
                     RowDoubleClick="@(r => Avisos.VerDetalleAsync(DetalleDe(r.Data)))"
                     EmptyText="No hay requerimientos que cumplan el filtro.">

@@ -1,3 +1,5 @@
+using AdminWeb.Shared;
+
 namespace AdminWeb.Application.Services;
 
 /// <summary>Disponibilidad de un desarrollador para asignarle trabajo.</summary>
@@ -13,9 +15,17 @@ public enum Disponibilidad
     Sobrecargado
 }
 
-/// <summary>Una fila del reporte de capacidad: la carga de una persona y su disponibilidad.</summary>
+/// <summary>
+/// Una fila del reporte de capacidad: la carga de una persona y su disponibilidad.
+/// </summary>
+/// <param name="Abiertos">Requerimientos abiertos que tiene asignados.</param>
+/// <param name="PoolTomadas">Actividades del pool que tiene tomadas o devueltas para corregir. Va
+/// APARTE de <paramref name="Abiertos"/> y no sumado dentro: son dos clases de trabajo distintas y
+/// meterlas en un número rotulado «Req. abiertos» haría que la columna dijera una cosa y valiera
+/// otra. En <paramref name="HorasPendientes"/> sí van juntas, porque ahí lo que se mide es la carga
+/// y a la carga le da igual de dónde venga.</param>
 public record CapacityRow(string Developer, int Abiertos, double HorasPendientes, double HorasRegistradas,
-    int DiasVacaciones, Disponibilidad Estado);
+    int DiasVacaciones, Disponibilidad Estado, int PoolTomadas = 0);
 
 /// <summary>
 /// Planeación de capacidad: cruza la carga (requerimientos abiertos y horas estimadas pendientes) con
@@ -29,8 +39,15 @@ public record CapacityRow(string Developer, int Abiertos, double HorasPendientes
 /// </summary>
 public static class CapacityStats
 {
-    /// <summary>Umbral por defecto (horas estimadas pendientes) a partir del cual se considera sobrecarga.</summary>
-    public const double CapacidadPorDefecto = 40;
+    /// <summary>
+    /// Umbral por defecto (horas estimadas pendientes) a partir del cual se considera sobrecarga.
+    ///
+    /// <para>El número ya no se escribe aquí: vive en <see cref="CapacidadDeTrabajo.HorasPorPersona"/>,
+    /// en Shared, porque el navegador tiene que poder ENSEÑARLO y desde allí no se ve este proyecto.
+    /// Este alias se queda para no cambiar a los llamadores de dentro, que llevan años leyendo la
+    /// capacidad por este nombre.</para>
+    /// </summary>
+    public const double CapacidadPorDefecto = CapacidadDeTrabajo.HorasPorPersona;
 
     /// <summary>
     /// El semáforo. Las vacaciones ganan a todo lo demás: da igual cuánto tenga abierto quien hoy no

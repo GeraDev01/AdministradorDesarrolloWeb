@@ -104,7 +104,7 @@
 
         <RadzenDataGrid data-recorrido="mis-evaluaciones-hitos"
                         TItem="HitoDto" Data="@d.Hitos" IsLoading="@_ocupado"
-                        AllowSorting="true" AllowPaging="true" PageSize="10"
+                        AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.EnEspanol" PageSize="10"
                         EmptyText="Sin hitos registrados.">
             <Columns>
                 <RadzenDataGridColumn TItem="HitoDto" Property="Fecha" Title="Fecha" Width="120px">

@@ -248,8 +248,8 @@
                                 }
 
                                 <RadzenDataGrid data-recorrido="despliegues-servidores"
-                                                TItem="ServidorDto" Data="@ServidoresActivos" AllowPaging="true" PageSize="10"
-                                                AllowSorting="true" EmptyText="No hay servidores activos.">
+                                                TItem="ServidorDto" Data="@ServidoresActivos" AllowPaging="true" @attributes="@Paginador.EnEspanol" PageSize="10"
+                                                AllowSorting="true" AllowColumnResize="true" EmptyText="No hay servidores activos.">
                                     <Columns>
                                         <RadzenDataGridColumn TItem="ServidorDto" Title="Desplegar" Width="100px" Sortable="false">
                                             <Template Context="s">
@@ -417,7 +417,7 @@
                             </RadzenCard>
                         }
 
-                        <RadzenDataGrid TItem="SistemaDto" Data="@_sistemas" AllowSorting="true" AllowPaging="true"
+                        <RadzenDataGrid TItem="SistemaDto" Data="@_sistemas" AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.EnEspanol"
                                         PageSize="8" RowRender="@ApagarSistemasInactivos"
                                         SelectionMode="DataGridSelectionMode.Single"
                                         Value="@_sistemaSeleccionado" ValueChanged="@SeleccionarSistema"
@@ -499,8 +499,8 @@
                             }
                         </RadzenStack>
 
-                        <RadzenDataGrid TItem="VersionDto" Data="@VersionesDelSistemaSeleccionado" AllowSorting="true"
-                                        AllowPaging="true" PageSize="10"
+                        <RadzenDataGrid TItem="VersionDto" Data="@VersionesDelSistemaSeleccionado" AllowSorting="true" AllowColumnResize="true"
+                                        AllowPaging="true" @attributes="@Paginador.EnEspanol" PageSize="10"
                                         EmptyText="Este sistema no tiene versiones registradas.">
                             <Columns>
                                 <RadzenDataGridColumn TItem="VersionDto" Property="Version" Title="Versión" Width="160px" />
@@ -599,7 +599,7 @@
                             la conserva.
                         </RadzenAlert>
 
-                        <RadzenDataGrid TItem="ServidorDto" Data="@_servidores" AllowSorting="true" AllowPaging="true"
+                        <RadzenDataGrid TItem="ServidorDto" Data="@_servidores" AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.EnEspanol"
                                         PageSize="12" RowRender="@ApagarServidoresInactivos"
                                         EmptyText="No hay servidores dados de alta.">
                             <Columns>
@@ -680,7 +680,7 @@
                                 </RadzenText>
                             </RadzenStack>
 
-                            <RadzenDataGrid TItem="PerfilDto" Data="@_perfiles" AllowSorting="true" AllowPaging="true"
+                            <RadzenDataGrid TItem="PerfilDto" Data="@_perfiles" AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.EnEspanol"
                                             PageSize="10" EmptyText="No hay perfiles guardados.">
                                 <Columns>
                                     <RadzenDataGridColumn TItem="PerfilDto" Property="Nombre" Title="Perfil" Width="200px" />
@@ -722,8 +722,8 @@
                    esta pestaña es exactamente eso para los despliegues. *@
                 <RadzenTabsItem Text="Historial" Icon="history">
                     <RadzenStack Gap="0.75rem">
-                        <RadzenDataGrid TItem="DespliegueDelHistorialDto" Data="@_historial" AllowSorting="true"
-                                        AllowPaging="true" PageSize="15"
+                        <RadzenDataGrid TItem="DespliegueDelHistorialDto" Data="@_historial" AllowSorting="true" AllowColumnResize="true"
+                                        AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="15"
                                         SelectionMode="DataGridSelectionMode.Single"
                                         Value="@_historialSeleccionado" ValueChanged="@SeleccionarDelHistorial"
                                         EmptyText="Todavía no hay despliegues.">

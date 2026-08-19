@@ -68,7 +68,7 @@
 
         <RadzenDataGrid data-recorrido="servidores-rejilla"
                         TItem="EstadoDeServidorDto" Data="@Filtrados" IsLoading="@_ocupado"
-                        AllowSorting="true" AllowPaging="true" PageSize="25"
+                        AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="25"
                         RowRender="@ApagarLosDadosDeBaja"
                         EmptyText="No hay servidores que cumplan el filtro.">
             <Columns>

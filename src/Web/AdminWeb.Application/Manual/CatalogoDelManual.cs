@@ -343,7 +343,7 @@ internal static class CatalogoDelManual
 
             # Qué trae cada actividad
 
-            - **Tipo**: bug, tarea o requerimiento.
+            - **Tipo**: bug, tarea, requerimiento o **retrabajo**.
             - **Complejidad**: baja, media, alta o muy alta. La fija el líder al publicarla.
             - **Puntos**: salen de la combinación de tipo y complejidad, y quedan **congelados** en la actividad. Si mañana cambia la tabla de puntos, lo que ya tomaste sigue valiendo lo que valía.
             - **Plazo**: cuántas horas tienes desde que la tomas. Ojo, son horas de reloj y no días hábiles: 40 horas es pasado mañana.
@@ -353,6 +353,16 @@ internal static class CatalogoDelManual
 
             Todo eso se ve **antes** de tomarla. Léelo antes de decidir.
 
+            # El retrabajo: la actividad que RESTA
+
+            Hay un tipo que funciona al revés que los otros tres: el **retrabajo**. Es un bug sobre algo **que ya se entregó** —normalmente un ticket de DevOps que reabre un requerimiento dado por terminado—, y sus puntos son **negativos**: al aceptarla, se le restan a quien la trabajó.
+
+            No es un castigo por corregir errores. Un bug corriente es trabajo que había que hacer y se paga como tal; volver a abrir algo que ya se dio por entregado es trabajo que **no debería haber hecho falta**, y si se pagara igual, entregar de más y corregir después saldría a cuenta. Resta exactamente lo que habría sumado el bug equivalente, así que el balance de esa jugada queda en cero.
+
+            En todo lo demás va como un bug: el plazo lo pone el líder al publicarla y el esfuerzo lo estima quien la toma. Y **lo clasifica el líder**: es una decisión sobre de dónde viene el ticket, no algo que se pueda deducir de lo que cuesta arreglarlo.
+
+            En los reportes hay dos que lo cuentan: «Pool de actividades por tipo» —cuántas entraron de cada clase en un período— y «Pool de actividades por desarrollador» —lo que cada quien ganó y perdió—. En `Desempeño`, la columna «Retrabajos» dice cuántos lleva cada persona en el mes.
+
             # El recorrido de una actividad
 
             - **Libre en el pool**: nadie la ha tomado. Se la lleva el primero que pulse; si dos lo hacen a la vez, solo uno se la lleva y el otro recibe un aviso.
@@ -361,6 +371,7 @@ internal static class CatalogoDelManual
             - **Devuelta**: el líder la regresó con un motivo. Sigue siendo tuya: corriges y vuelves a entregar.
             - **Aceptada**: verificada. **Aquí, y solo aquí, se abonan los puntos.** Es un estado final.
             - **Retirada**: el líder la quitó del pool antes de que nadie la tomara.
+            - **La hizo el líder**: la resolvió él mismo. Nunca estuvo disponible para nadie, no pasó por verificación y **no abonó puntos**. Es un estado final, y existe para que ese trabajo quede contado como hecho y no como descartado.
 
             # De dónde salen las actividades
 
@@ -369,6 +380,17 @@ internal static class CatalogoDelManual
             Una actividad por clasificar **todavía no es una actividad del pool**: no vale puntos, no aparece en tu lista y no se puede tomar. Le falta lo único que no se puede adivinar —qué clase de trabajo es, cuánto tiempo lleva y de qué equipo es—, y de eso salen los puntos. En cuanto el líder lo decide, se publica y ya se puede tomar como cualquier otra.
 
             Si no se sincroniza sola, el líder tiene un botón **«Traer de DevOps»** que hace lo mismo en el momento.
+
+            # Las salidas de una actividad que nadie tomó
+
+            Son cuatro y dicen cosas distintas. Elegir la que toca importa porque es lo que después se lee en el histórico:
+
+            - **Retirar** (o **Descartar**, si todavía estaba por clasificar): ya no aplica. Se queda en la lista, con su historia. Si venía de un work item, **no volverá a entrar sola nunca más**.
+            - **La hice yo**: ya está hecha, y la hizo el líder. Se cierra en el acto, sin puntos para nadie.
+            - **Eliminar**: nunca debió estar —un duplicado, una prueba, algo publicado al equipo equivocado—. Se borra de la base y no queda nada. **Ojo**: si venía de un work item, volverá a entrar sola en la siguiente pasada, porque lo que evitaba que volviera era justamente la fila que se acaba de borrar. Para descartar un ticket de una vez, «Retirar».
+            - **Liberar**: para lo que alguien ya tomó. Vuelve al pool y se le avisa a quien la tenía.
+
+            Lo que **nunca** se puede borrar es una actividad aceptada: su entrada de puntos la nombra, y sin ella el ranking dejaría de poder explicarse.
 
             # Si la actividad viene de un ticket de Azure DevOps
 

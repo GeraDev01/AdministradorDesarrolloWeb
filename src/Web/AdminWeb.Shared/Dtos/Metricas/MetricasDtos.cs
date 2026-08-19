@@ -104,9 +104,15 @@ public record FilaDeEstimacionDto(
 /// <summary>
 /// La carga de un desarrollador para decidir a quién asignarle lo siguiente.
 /// </summary>
-/// <param name="HorasPendientes">Suma de horas estimadas de sus requerimientos abiertos.</param>
+/// <param name="HorasPendientes">Lo que tiene por delante, en horas estimadas: sus requerimientos
+/// abiertos MÁS las actividades del pool que tiene tomadas. Las dos cosas juntas porque las dos
+/// ocupan a la misma persona; separadas, un equipo que trabaje por el pool sale entero en cero.</param>
 /// <param name="HorasRegistradas">Lo que lleva cronometrado en total. Es contexto, no carga futura.</param>
 /// <param name="DiasDeVacaciones">Días de vacación aprobada dentro de la ventana consultada.</param>
+/// <param name="PoolTomadas">Actividades del pool que tiene entre manos. Aparte de <paramref
+/// name="Abiertos"/> —que son requerimientos— porque son dos clases de trabajo y una columna llamada
+/// «Req. abiertos» no puede llevar dentro otra cosa. Sus horas SÍ están en
+/// <paramref name="HorasPendientes"/>: a la carga le da igual de dónde venga.</param>
 public record FilaDeCapacidadDto(
     string Desarrollador,
     int Abiertos,
@@ -114,7 +120,8 @@ public record FilaDeCapacidadDto(
     double HorasRegistradas,
     int DiasDeVacaciones,
     string Disponibilidad,
-    TonoDeIndicador Tono);
+    TonoDeIndicador Tono,
+    int PoolTomadas = 0);
 
 /// <summary>
 /// Las dos mitades del reporte de planeación —precisión de estimaciones y capacidad del equipo— en

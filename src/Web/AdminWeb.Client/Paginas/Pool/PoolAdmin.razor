@@ -136,6 +136,28 @@
                                                         TextProperty="Texto" ValueProperty="Valor" Style="min-width:12rem" />
                                     </RadzenStack>
 
+                                    @* SOLO CUANDO SE ELIGE. El retrabajo es el único tipo cuyo nombre
+                                       no dice lo que hace —«Bug», «Tarea» y «Requerimiento» se
+                                       explican solos— y encima es el único que RESTA, así que
+                                       publicarlo por error es de las pocas cosas de esta pantalla que
+                                       le quitan puntos a alguien. El aviso aparece al elegirlo y
+                                       desaparece después: un renglón permanente explicando el tipo que
+                                       menos se usa acabaría sin leerse, que es como no estar. *@
+                                    @if (_tipoCapturado == PoolWorkType.Retrabajo)
+                                    {
+                                        <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter"
+                                                     AllowClose="false" class="rz-mb-0">
+                                            <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                                                <b>Retrabajo</b>: un bug sobre algo que <b>ya se entregó</b>.
+                                                Sus puntos son NEGATIVOS —se le restan a quien la tome al
+                                                aceptarla— y por eso no se usa para un bug corriente, que
+                                                es trabajo que había que hacer. En lo demás va como un
+                                                bug: el plazo lo pones tú y el esfuerzo lo estima quien
+                                                lo tome.
+                                            </RadzenText>
+                                        </RadzenAlert>
+                                    }
+
                                     <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem" Wrap="FlexWrap.Wrap"
                                                  AlignItems="AlignItems.Center">
                                         <RadzenLabel Text="Prioridad:" Component="prioridadNueva" />
@@ -187,11 +209,11 @@
                                                sesiones de trabajo—. El mismo par se repite en las cabeceras de
                                                las rejillas, para que las dos cantidades se reconozcan por el
                                                dibujo sin tener que leer el rótulo entero. *@
-                                            <RadzenIcon Icon="@(EsBug ? "schedule" : "timer")" />
+                                            <RadzenIcon Icon="@(ComoBug ? "schedule" : "timer")" />
                                             <RadzenLabel Text="@RotuloDeLasHoras()" Component="horasNuevas" />
                                             <RadzenNumeric TValue="decimal?" @bind-Value="_horas" Name="horasNuevas"
-                                                           Min="@(EsBug ? 0m : HorasDelPool.MinEsfuerzo)"
-                                                           Max="@(EsBug ? HorasDelPool.MaxPlazo : HorasDelPool.MaxEsfuerzo)"
+                                                           Min="@(ComoBug ? 0m : HorasDelPool.MinEsfuerzo)"
+                                                           Max="@(ComoBug ? HorasDelPool.MaxPlazo : HorasDelPool.MaxEsfuerzo)"
                                                            Step="@HorasDelPool.Salto" Placeholder="horas"
                                                            Style="width:8rem" />
                                         </RadzenStack>
@@ -200,7 +222,7 @@
                                             @AyudaDeLasHoras()
                                         </RadzenText>
 
-                                        @if (!EsBug && _plazoPropio is decimal heredado)
+                                        @if (!ComoBug && _plazoPropio is decimal heredado)
                                         {
                                             @*
                                                 Una tarea o un requerimiento no captura plazo: lo pone la matriz.
@@ -441,7 +463,7 @@
                         *@
                         <RadzenDataGrid data-recorrido="pool-tabla"
                                         TItem="ActividadDelPoolDto" Data="@Actividades" IsLoading="@_ocupado"
-                                        AllowSorting="true" AllowPaging="true" PageSize="15"
+                                        AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="15"
                                         RowRender="@ApagarLasCerradas"
                                         RowDoubleClick="@(a => Avisos.VerDetalleAsync(DetalleDe(a.Data)))"
                                         EmptyText="No hay actividades que cumplan el filtro.">
@@ -602,8 +624,17 @@
                                         </RadzenStack>
                                     </Template>
                                 </RadzenDataGridColumn>
-                                <RadzenDataGridColumn TItem="ActividadDelPoolDto" Title="" Width="230px" Sortable="false">
+                                @* 300 px y no 230, y los botones dentro de una pila que ENVUELVE.
+                                   Esta columna pasó de dos botones a cuatro —«La hice yo» y
+                                   «Eliminar» son nuevas— y sueltos se salían de la celda. La pila
+                                   los deja caer a un segundo renglón cuando no caben en vez de
+                                   desbordar, que es lo que hace la de permisos con sus tres.
+
+                                   Los 70 px extra los paga la barra horizontal de la tabla, no la
+                                   columna del título: ésa tiene MinWidth y ya no cede (ver arriba). *@
+                                <RadzenDataGridColumn TItem="ActividadDelPoolDto" Title="" Width="300px" Sortable="false">
                                     <Template Context="a">
+                                        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem" Wrap="FlexWrap.Wrap">
                                         @* Editar y retirar solo mientras siga libre: cambiarle el alcance o el
                                            valor a quien ya la está trabajando sería cambiar el trato a medio
                                            camino. Lo que ya tiene dueño se libera, que sí avisa. *@
@@ -638,6 +669,43 @@
                                                           Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
                                                           Click="@(() => Liberar(a))" />
                                         }
+
+                                        @* «LA HICE YO», y sale en las MISMAS dos ramas que «Retirar»:
+                                           solo se puede declarar propio lo que nadie ha tomado. Si
+                                           alguien ya la tiene, esto le quitaría de las manos un
+                                           trabajo en marcha y sin avisarle; para eso está «Liberar».
+
+                                           Va junto a «Descartar» y a «Retirar» porque las tres son la
+                                           salida de una actividad que nadie tomó, y las tres dicen
+                                           cosas distintas: «ya no aplica», «ya no aplica y no vuelvas
+                                           a traerla», «ya está hecha». Hasta ahora solo existían las
+                                           dos primeras, así que el trabajo que el líder resolvía él
+                                           mismo se retiraba —y quedaba contado como descartado—. *@
+                                        @if (a.Estado is PoolActivityStatus.Disponible or PoolActivityStatus.PorClasificar)
+                                        {
+                                            <RadzenButton Text="La hice yo" Icon="done" ButtonStyle="ButtonStyle.Light"
+                                                          Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                          Click="@(() => MarcarComoPropia(a))"
+                                                          title="Ciérrala como hecha por ti: sale del pool, nadie la toma y no da puntos" />
+                                        }
+
+                                        @* ELIMINAR es lo único irreversible de esta rejilla y por eso
+                                           aparece en menos sitios que ninguna otra acción: solo donde
+                                           no hay nada que perder —libre, sin clasificar, retirada o
+                                           hecha por el líder—. Lo aceptado NO se puede borrar porque
+                                           su entrada de puntos lo nombra, y lo tomado tampoco porque
+                                           se le desaparecería de la lista a quien lo está trabajando;
+                                           el servidor lo rechaza igual, así que el botón que no está
+                                           y la operación que no se permite dicen lo mismo. *@
+                                        @if (a.Estado is PoolActivityStatus.Disponible or PoolActivityStatus.PorClasificar
+                                                      or PoolActivityStatus.Retirada or PoolActivityStatus.Propia)
+                                        {
+                                            <RadzenButton Text="Eliminar" Icon="delete" ButtonStyle="ButtonStyle.Light"
+                                                          Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                          Click="@(() => Eliminar(a))"
+                                                          title="Bórrala de la base. No es lo mismo que retirarla" />
+                                        }
+
                                         @if (!string.IsNullOrWhiteSpace(a.Enlace))
                                         {
                                             @* «open_in_new»: avisa de que se sale de la aplicación, y
@@ -647,6 +715,7 @@
                                                 <RadzenIcon Icon="open_in_new" />
                                             </a>
                                         }
+                                        </RadzenStack>
                                     </Template>
                                 </RadzenDataGridColumn>
                             </Columns>
@@ -695,7 +764,7 @@
 
                         <RadzenDataGrid data-recorrido="pool-verificacion"
                                         TItem="EntregaPorVerificarDto" Data="@Pendientes" IsLoading="@_ocupado"
-                                        AllowSorting="true" AllowPaging="true" PageSize="10"
+                                        AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.EnEspanol" PageSize="10"
                                         SelectionMode="DataGridSelectionMode.Single"
                                         Value="@_seleccion" ValueChanged="@Seleccionar"
                                         EmptyText="No hay nada por verificar.">
@@ -783,7 +852,7 @@
                                     }
 
                                     <RadzenDataGrid TItem="PuntoDeChecklistDto" Data="@_checklist" IsLoading="@_ocupado"
-                                                    AllowSorting="false" EmptyText="Esta actividad no tiene checklist.">
+                                                    AllowSorting="false" AllowColumnResize="true" EmptyText="Esta actividad no tiene checklist.">
                                         <Columns>
                                             <RadzenDataGridColumn TItem="PuntoDeChecklistDto" Title="" Width="50px">
                                                 @* Exactamente la misma columna que MiPool.razor, vista
@@ -933,14 +1002,25 @@
                             </RadzenAlert>
 
                             <RadzenDataGrid TItem="CeldaDeMatrizDto" Data="@cfg.Matriz" IsLoading="@_ocupado"
-                                            AllowSorting="false" EmptyText="No hay matriz configurada.">
+                                            AllowSorting="false" AllowColumnResize="true" EmptyText="No hay matriz configurada.">
                                 <Columns>
                                     <RadzenDataGridColumn TItem="CeldaDeMatrizDto" Property="TipoTexto" Title="Tipo" Width="180px" />
                                     <RadzenDataGridColumn TItem="CeldaDeMatrizDto" Property="ComplejidadTexto"
                                                           Title="Complejidad" Width="180px" />
                                     <RadzenDataGridColumn TItem="CeldaDeMatrizDto" Property="Puntos" Title="Puntos" Width="160px">
+                                        @* EL RANGO SALE DEL TIPO DE LA FILA. El retrabajo resta —es un
+                                           bug sobre algo ya entregado— y su celda se guarda en
+                                           negativo; todo lo demás en positivo. Es la misma regla que
+                                           valida el servidor, y ponerla también aquí no es
+                                           duplicarla: sin ella la casilla del retrabajo no dejaría
+                                           bajar de 1 y el líder no podría ajustar el único número
+                                           que esta pantalla existe para ajustar. El cero queda fuera
+                                           en los dos casos: una actividad que no vale nada no es una
+                                           regla, es una celda a medio llenar. *@
                                         <Template Context="c">
-                                            <RadzenNumeric TValue="int" @bind-Value="c.Puntos" Min="1" Style="width:7rem" />
+                                            <RadzenNumeric TValue="int" @bind-Value="c.Puntos" Style="width:7rem"
+                                                           Min="@(c.Tipo.Resta() ? -100m : 1m)"
+                                                           Max="@(c.Tipo.Resta() ? -1m : 100m)" />
                                         </Template>
                                     </RadzenDataGridColumn>
                                     <RadzenDataGridColumn TItem="CeldaDeMatrizDto" Property="HorasLimite"
@@ -985,7 +1065,7 @@
                             </RadzenText>
 
                             <RadzenDataGrid TItem="PuntoDePlantillaDto" Data="@PlantillaDelTipo" IsLoading="@_ocupado"
-                                            AllowSorting="false" RowRender="@ApagarLosInactivos"
+                                            AllowSorting="false" AllowColumnResize="true" RowRender="@ApagarLosInactivos"
                                             EmptyText="Este tipo no tiene checklist configurado.">
                                 <Columns>
                                     <RadzenDataGridColumn TItem="PuntoDePlantillaDto" Property="Texto"
@@ -1104,8 +1184,8 @@
             // Tarea ↔ Requerimiento NO la cruza y no se limpia nada: en los dos el número es el
             // esfuerzo y lo pone el líder, así que borrarlo le haría recapturar algo que sigue
             // siendo suyo.
-            bool eraBug = (_tipoCapturado ?? PoolWorkType.Bug) == PoolWorkType.Bug;
-            bool seraBug = (value ?? PoolWorkType.Bug) == PoolWorkType.Bug;
+            bool eraBug  = (_tipoCapturado ?? PoolWorkType.Bug).ComoBug();
+            bool seraBug = (value ?? PoolWorkType.Bug).ComoBug();
 
             _tipoCapturado = value;
             if (eraBug == seraBug) return;
@@ -1146,7 +1226,7 @@
     private decimal? _plazoPropio;
 
     /// <summary>Si lo que se está capturando es un bug, que es lo que decide qué pide el campo de horas.</summary>
-    private bool EsBug => (_tipoCapturado ?? PoolWorkType.Bug) == PoolWorkType.Bug;
+    private bool ComoBug => (_tipoCapturado ?? PoolWorkType.Bug).ComoBug();
 
     /// <summary>El catálogo de criterios que se pueden pedir como extra. Se carga una vez.</summary>
     private List<CriterioDisponibleDto> _criteriosDisponibles = [];
@@ -1389,7 +1469,7 @@
         // casos: en un bug, el PLAZO que puso el líder; en lo demás, el ESFUERZO que estimó. Poner
         // siempre el mismo dato dejaría el formulario cargado con el número equivocado y guardar lo
         // publicaría como si fuera el otro.
-        if (actividad.Tipo == PoolWorkType.Bug)
+        if (actividad.Tipo.ComoBug())
         {
             _horas = actividad.Horas;
             _plazoPropio = null;
@@ -1462,7 +1542,7 @@
 
     /// <summary>Cómo se llama el campo de horas con el tipo que está elegido ahora mismo.</summary>
     private string RotuloDeLasHoras() =>
-        EsBug ? "Plazo para entregar (horas):" : "Esfuerzo estimado (horas):";
+        ComoBug ? "Plazo para entregar (horas):" : "Esfuerzo estimado (horas):";
 
     /// <summary>
     /// El plazo propio que una tarea o un requerimiento arrastra de antes. El CERO se redacta aparte
@@ -1484,16 +1564,16 @@
     /// </summary>
     private string AyudaDeLasHoras()
     {
-        if (EsBug)
+        if (ComoBug)
         {
             // El esfuerzo se nombra aunque no se capture aquí: si no, el líder busca dónde estimarlo
             // y no lo encuentra. Que no esté es la regla, no un olvido.
             const string dequien =
-                " El esfuerzo de un bug no se captura aquí: lo estima quien lo tome, en el momento de tomarlo.";
+                " El esfuerzo no se captura aquí: lo estima quien lo tome, en el momento de tomarlo.";
 
             if (_horas is not decimal plazo)
-                return "Obligatorio: en un bug el plazo lo pones tú y la matriz no lo pone por ti. " +
-                       "0 = sin fecha límite." + dequien;
+                return "Obligatorio: en un bug —y en un retrabajo— el plazo lo pones tú y la matriz " +
+                       "no lo pone por ti. 0 = sin fecha límite." + dequien;
 
             if (plazo <= 0)
                 return "0 = sin fecha límite: nadie va a vencer esta actividad." + dequien;
@@ -1536,7 +1616,7 @@
         // texto dice CUÁL de las dos cantidades falta, porque el campo es uno y el rótulo cambia.
         if (_horas is null)
         {
-            Avisos.Aviso(EsBug
+            Avisos.Aviso(ComoBug
                 ? "Escribe el plazo en horas: en un bug lo pones tú y la matriz no lo pone por ti. " +
                   "0 = sin fecha límite."
                 : "Escribe el esfuerzo estimado en horas. Sin ese número no hay nada que contrastar " +
@@ -1559,8 +1639,8 @@
             Complejidad: _complejidadCapturada,
             Enlace: _enlace,
             Prioridad: _prioridad,
-            Horas: EsBug ? _horas : _plazoPropio,
-            HorasEstimadas: EsBug ? null : _horas,
+            Horas: ComoBug ? _horas : _plazoPropio,
+            HorasEstimadas: ComoBug ? null : _horas,
             CriteriosExtra: [.. _criteriosElegidos],
             // El número viaja tal cual esté; si está vacío y el enlace de arriba es la dirección de un
             // work item, el número lo saca de ahí el servidor. Aquí no se extrae nada: esa regla —y
@@ -1590,6 +1670,73 @@
             return;
 
         await Enviar<object?>($"api/pool/{actividad.Id}/retirar", null);
+    }
+
+    /// <summary>
+    /// «La hice yo»: la actividad se cierra a nombre del líder, sin pasar por el pool y sin puntos.
+    ///
+    /// <para>La confirmación dice las TRES consecuencias antes de pulsar —sale del pool, nadie podrá
+    /// tomarla, no abona puntos— porque ninguna de las tres se puede deshacer desde la pantalla y las
+    /// tres son lo que alguien podría no esperarse. La tercera sobre todo: quien la marque estando
+    /// dentro de «el pool reparte puntos» puede dar por hecho que se los lleva él.</para>
+    /// </summary>
+    private async Task MarcarComoPropia(ActividadDelPoolDto actividad)
+    {
+        if (!await Avisos.ConfirmarAsync(
+                $"¿«{actividad.Titulo}» la hiciste tú?\n\n" +
+                "Se cierra ahora mismo: sale del pool, nadie podrá tomarla y no abona puntos a " +
+                "nadie. Queda en la lista como «La hizo el líder», con tu nombre y la fecha.",
+                "La hice yo", "Sí, la hice yo"))
+            return;
+
+        await Enviar<object?>($"api/pool/{actividad.Id}/propia", null);
+    }
+
+    /// <summary>
+    /// Borra la actividad. Es lo único irreversible de esta pantalla, así que la pregunta dice las
+    /// dos cosas que la separan de «Retirar»: que no queda nada, y que un work item de DevOps
+    /// volverá a entrar solo.
+    ///
+    /// <para>Lo del work item se avisa SIEMPRE y no solo cuando la actividad viene de uno, porque
+    /// esta rejilla no sabe si viene: <c>ActividadDelPoolDto</c> trae el enlace pero no el número del
+    /// work item, y una actividad publicada a mano también puede llevar enlace. Avisar de más aquí
+    /// cuesta un renglón; no avisar cuesta que el ticket reaparezca sin que nadie entienda por qué.
+    /// El mensaje de vuelta del servidor sí lo sabe y lo dice con el número.</para>
+    /// </summary>
+    private async Task Eliminar(ActividadDelPoolDto actividad)
+    {
+        if (!await Avisos.ConfirmarAsync(
+                $"¿Eliminar «{actividad.Titulo}»?\n\n" +
+                "Se borra de la base y no se puede deshacer. No es lo mismo que retirarla: retirar " +
+                "la deja en la lista con su historia.\n\n" +
+                "Y si venía de un work item de Azure DevOps, volverá a entrar sola en la siguiente " +
+                "pasada. Para descartarlo de una vez, «Retirar» en vez de eliminar.",
+                "Eliminar del pool", "Sí, eliminarla"))
+            return;
+
+        await Borrar($"api/pool/{actividad.Id}");
+    }
+
+    /// <summary>
+    /// El gemelo de <c>Enviar</c> para el único DELETE de esta pantalla.
+    ///
+    /// <para>Va aparte porque el cliente común no tiene ese verbo: lo pone <c>VerbosHttp</c>, sobre
+    /// el <c>HttpClient</c> crudo, y por eso el mensaje hay que enseñarlo aquí en vez de dejar que lo
+    /// enseñe el cliente. El mensaje se enseña salga bien o mal: en el rechazo es el que explica por
+    /// qué no se pudo —«ya abonó puntos», «alguien la tiene tomada»— y ese texto es justo lo que
+    /// convierte un «no se pudo» en algo que se puede resolver.</para>
+    /// </summary>
+    private async Task<bool> Borrar(string ruta)
+    {
+        _ocupado = true;
+        try
+        {
+            var r = await Http.BorrarAsync(ruta, _cancelacion.Token);
+            if (!string.IsNullOrEmpty(r.Mensaje)) Avisos.Resultado(r.Ok, r.Mensaje);
+            if (r.Ok) await Cargar();
+            return r.Ok;
+        }
+        finally { _ocupado = false; }
     }
 
     /// <summary>
@@ -1730,7 +1877,13 @@
     /// </summary>
     private string ValorSegunLaMatriz() =>
         CeldaElegida() is { } celda
-            ? $"Vale {celda.Puntos} puntos"
+            // «Resta N puntos» y no «Vale -N puntos»: el signo delante de un número es lo primero
+            // que se pierde al leer de un vistazo, y esto es justo lo que hay que entender ANTES de
+            // publicar. Es el mismo cuidado con el que el campo de horas cambia de rótulo según lo
+            // que esté pidiendo.
+            ? celda.Puntos < 0
+                ? $"RESTA {-celda.Puntos} puntos a quien la tome: es retrabajo sobre algo ya entregado"
+                : $"Vale {celda.Puntos} puntos"
             // Sin triángulo: esto es una cadena que se pinta como texto plano y no hay dónde colgar un
             // componente. La frase ya dice el problema Y qué hacer, que es lo que hace falta; si
             // además tiene que verse como aviso, eso lo decide el color de quien la pinta, no un
@@ -1752,8 +1905,8 @@
             ? "sin fecha límite"
             : $"caería el {HorasDelPool.CaeriaEl(celda.HorasLimite)}";
 
-        return celda.Tipo == PoolWorkType.Bug
-            ? $"{plazo}  ·  solo alcanza a los bugs publicados sin plazo propio"
+        return celda.Tipo.ComoBug()
+            ? $"{plazo}  ·  solo alcanza a los publicados sin plazo propio: bugs y retrabajos"
             : plazo;
     }
 
@@ -1814,10 +1967,10 @@
     /// </summary>
     private static string TituloDelEsfuerzo(ActividadDelPoolDto a) =>
         a.HorasEstimadas is decimal h
-            ? a.Tipo == PoolWorkType.Bug
+            ? a.Tipo.ComoBug()
                 ? $"Esfuerzo: {HorasDelPool.Escribir(h)}, estimadas por quien lo tomó al tomarlo."
                 : $"Esfuerzo: {HorasDelPool.Escribir(h)}, estimadas por el líder al publicarla."
-            : a.Tipo == PoolWorkType.Bug
+            : a.Tipo.ComoBug()
                 ? "Todavía sin estimar: en un bug lo estima quien lo toma, en el momento de tomarlo."
                 : "Sin estimar.";
 
@@ -1945,7 +2098,8 @@
     /// </summary>
     private void ApagarLasCerradas(RowRenderEventArgs<ActividadDelPoolDto> args)
     {
-        if (args.Data.Estado is PoolActivityStatus.Aceptada or PoolActivityStatus.Retirada)
+        if (args.Data.Estado is PoolActivityStatus.Aceptada or PoolActivityStatus.Retirada
+                                     or PoolActivityStatus.Propia)
             args.Attributes["style"] = "opacity:.55";
     }
 

@@ -67,13 +67,34 @@
             <RadzenTabsItem Text="Ranking mensual" Icon="leaderboard">
                 @* Lista vacía y no null mientras carga: la rejilla enseña su EmptyText en vez de
                    quedarse a medio pintar. *@
+                @* EL DOBLE CLIC ABRE DE QUÉ SE COMPONE LA FILA. Un ranking es una lista de números y
+                   ninguno se puede discutir sin saber de dónde sale: «42 puntos» se acepta o no se
+                   acepta, mientras que la lista de lo que se hizo se revisa, se corrige y se explica.
+                   La información ya existía, repartida entre la autocalificación de cada quien y el
+                   pool; lo que faltaba era poder llegar a ella desde aquí y acotada al mes que se
+                   está mirando. El panel se abre DEBAJO y no en una ventana modal, por lo mismo que
+                   en el pool: una modal encima de otra pantalla se pierde detrás del navegador. *@
                 <RadzenDataGrid TItem="RankingIndividualFilaDto" Data="@(_datos?.Individual ?? Array.Empty<RankingIndividualFilaDto>())"
                                 IsLoading="@_ocupado" AllowSorting="true" AllowColumnResize="true"
-                                PageSize="25" AllowPaging="true" EmptyText="Sin puntos aprobados en el mes."
+                                PageSize="25" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" EmptyText="Sin puntos aprobados en el mes."
+                                RowDoubleClick="@(f => AbrirDetalleDeDesarrollador(f.Data))"
                                 RowRender="@ResaltarPodio">
                     <Columns>
                         <RadzenDataGridColumn TItem="RankingIndividualFilaDto" Property="Posicion" Title="Pos." Width="80px">
                             <Template Context="fila">@fila.Medalla</Template>
+                        </RadzenDataGridColumn>
+                        @* El botón del ojo, porque un doble clic no se ve y quien navega con el
+                           teclado no lo tiene. Mismo criterio que BotonDeDetalle en las demás
+                           rejillas; aquí no se usa ese componente porque lo que abre no es un cuadro
+                           de campos sino un panel con dos listas. *@
+                        <RadzenDataGridColumn TItem="RankingIndividualFilaDto" Title="" Width="52px" Sortable="false">
+                            <Template Context="fila">
+                                <RadzenButton Icon="visibility" ButtonStyle="ButtonStyle.Light"
+                                              Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                              Click="@(() => AbrirDetalleDeDesarrollador(fila))"
+                                              title="Ver de qué se componen sus puntos del mes"
+                                              aria-label="Ver de qué se componen sus puntos del mes" />
+                            </Template>
                         </RadzenDataGridColumn>
                         <RadzenDataGridColumn TItem="RankingIndividualFilaDto" Property="Desarrollador" Title="Desarrollador" />
                         <RadzenDataGridColumn TItem="RankingIndividualFilaDto" Property="Total" Title="Total" Width="110px"
@@ -90,10 +111,35 @@
                                               Width="120px" TextAlign="TextAlign.Right">
                             <Template Context="fila">@(fila.Penalizacion < 0 ? fila.Penalizacion.ToString() : "—")</Template>
                         </RadzenDataGridColumn>
+                        @* DE DÓNDE SALEN. «Premio» y «Penalización» dicen el signo; esta columna dice
+                           la PROCEDENCIA, que es otra pregunta: cuarenta puntos de trabajo publicado,
+                           tomado y verificado no son lo mismo que cuarenta de autocalificación, y
+                           hasta ahora la tabla no distinguía. Puede salir en negativo, porque el
+                           retrabajo resta. *@
+                        <RadzenDataGridColumn TItem="RankingIndividualFilaDto" Property="DelPool" Title="Del pool"
+                                              Width="120px" TextAlign="TextAlign.Right">
+                            <Template Context="fila">
+                                @(fila.DelPool == 0 ? "—" : ConSigno(fila.DelPool))
+                            </Template>
+                        </RadzenDataGridColumn>
+                        @* Los retrabajos son la CUENTA, no los puntos: los puntos ya están en la
+                           columna de al lado y lo que aporta el número es cuántas veces hubo que
+                           volver sobre algo ya entregado. En rojo porque es lo que se viene a
+                           buscar. *@
+                        <RadzenDataGridColumn TItem="RankingIndividualFilaDto" Property="Retrabajos" Title="Retrabajos"
+                                              Width="120px" TextAlign="TextAlign.Right">
+                            <Template Context="fila">
+                                <span style="@(fila.Retrabajos > 0 ? "color:var(--rz-danger);font-weight:600" : "")">
+                                    @(fila.Retrabajos == 0 ? "—" : fila.Retrabajos.ToString())
+                                </span>
+                            </Template>
+                        </RadzenDataGridColumn>
                         <RadzenDataGridColumn TItem="RankingIndividualFilaDto" Property="Entradas" Title="Entradas"
                                               Width="110px" TextAlign="TextAlign.Right" />
                     </Columns>
                 </RadzenDataGrid>
+
+                @PanelDeDetalle()
             </RadzenTabsItem>
 
             <RadzenTabsItem Text="Ranking por equipo" Icon="groups">
@@ -102,10 +148,20 @@
                    equipos cuyo Lead más trabaja. *@
                 <RadzenDataGrid TItem="RankingEquipoFilaDto" Data="@(_datos?.Equipos ?? Array.Empty<RankingEquipoFilaDto>())"
                                 IsLoading="@_ocupado" AllowSorting="true" AllowColumnResize="true"
-                                PageSize="25" AllowPaging="true" EmptyText="No hay equipos.">
+                                PageSize="25" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" EmptyText="No hay equipos."
+                                RowDoubleClick="@(f => AbrirDetalleDeEquipo(f.Data))">
                     <Columns>
                         <RadzenDataGridColumn TItem="RankingEquipoFilaDto" Property="Posicion" Title="Pos." Width="80px">
                             <Template Context="fila">@fila.Medalla</Template>
+                        </RadzenDataGridColumn>
+                        <RadzenDataGridColumn TItem="RankingEquipoFilaDto" Title="" Width="52px" Sortable="false">
+                            <Template Context="fila">
+                                <RadzenButton Icon="visibility" ButtonStyle="ButtonStyle.Light"
+                                              Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                              Click="@(() => AbrirDetalleDeEquipo(fila))"
+                                              title="Ver qué hicieron sus integrantes en el mes"
+                                              aria-label="Ver qué hicieron sus integrantes en el mes" />
+                            </Template>
                         </RadzenDataGridColumn>
                         <RadzenDataGridColumn TItem="RankingEquipoFilaDto" Property="Equipo" Title="Equipo" />
                         <RadzenDataGridColumn TItem="RankingEquipoFilaDto" Property="Total" Title="Total"
@@ -118,10 +174,26 @@
                                               Title="Pts integrantes" Width="150px" TextAlign="TextAlign.Right" />
                         <RadzenDataGridColumn TItem="RankingEquipoFilaDto" Property="PuntosEquipo"
                                               Title="Pts equipo" Width="130px" TextAlign="TextAlign.Right" />
+                        <RadzenDataGridColumn TItem="RankingEquipoFilaDto" Property="DelPool" Title="Del pool"
+                                              Width="120px" TextAlign="TextAlign.Right">
+                            <Template Context="fila">
+                                @(fila.DelPool == 0 ? "—" : ConSigno(fila.DelPool))
+                            </Template>
+                        </RadzenDataGridColumn>
+                        <RadzenDataGridColumn TItem="RankingEquipoFilaDto" Property="Retrabajos" Title="Retrabajos"
+                                              Width="120px" TextAlign="TextAlign.Right">
+                            <Template Context="fila">
+                                <span style="@(fila.Retrabajos > 0 ? "color:var(--rz-danger);font-weight:600" : "")">
+                                    @(fila.Retrabajos == 0 ? "—" : fila.Retrabajos.ToString())
+                                </span>
+                            </Template>
+                        </RadzenDataGridColumn>
                         <RadzenDataGridColumn TItem="RankingEquipoFilaDto" Property="Miembros"
                                               Title="# Miembros" Width="120px" TextAlign="TextAlign.Right" />
                     </Columns>
                 </RadzenDataGrid>
+
+                @PanelDeDetalle()
 
                 @* POR QUÉ FALTA UN EQUIPO. Los que tienen subequipos no compiten, y una tabla de la
                    que un equipo simplemente desaparece se lee como un fallo: alguien nota a fin de
@@ -184,7 +256,7 @@
 
                     <RadzenDataGrid data-recorrido="desempeno-cola"
                                     TItem="PuntoPendienteDto" Data="@_pendientes" IsLoading="@_ocupado"
-                                    AllowSorting="true" AllowPaging="true" PageSize="15"
+                                    AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="15"
                                     SelectionMode="DataGridSelectionMode.Multiple"
                                     Value="@_marcadas" ValueChanged="@Marcar"
                                     RowRender="@ResaltarLasReplicas"
@@ -341,6 +413,164 @@
     private bool _ocupado;
     private DesempenoAdminDto? _datos;
 
+
+    // ── El detalle de una fila del ranking ───────────────────────────────────
+
+    /// <summary>
+    /// De qué se compone la fila que se abrió. Nulo = no hay ninguna abierta.
+    ///
+    /// <para>Se guarda el OBJETO y no el identificador, al revés que la entrada de la cola de
+    /// revisión de más abajo. Ahí hacía falta resolverlo por id porque cada recarga trae instancias
+    /// nuevas y la ficha se quedaría enseñando una copia vieja; aquí el detalle no viene dentro de
+    /// <c>_datos</c>: es una consulta aparte que se pide al abrir, así que no hay nada contra lo que
+    /// re-resolverlo.</para>
+    /// </summary>
+    private DetalleDeDesempenoDto? _detalle;
+
+    private async Task AbrirDetalleDeDesarrollador(RankingIndividualFilaDto fila) =>
+        await AbrirDetalle($"api/desempeno/ranking/desarrollador/{fila.DeveloperId}");
+
+    private async Task AbrirDetalleDeEquipo(RankingEquipoFilaDto fila) =>
+        await AbrirDetalle($"api/desempeno/ranking/equipo/{fila.TeamId}");
+
+    /// <summary>
+    /// Trae el detalle DEL MES QUE SE ESTÁ MIRANDO. El período va en la petición y no se da por
+    /// supuesto en el servidor: la pantalla puede estar en marzo mientras el reloj dice agosto, y un
+    /// panel que contestara con el mes en curso enseñaría números que no cuadran con la fila de la
+    /// que salió.
+    /// </summary>
+    private async Task AbrirDetalle(string ruta)
+    {
+        _ocupado = true;
+        try
+        {
+            _detalle = await Api.LeerAsync<DetalleDeDesempenoDto>(
+                $"{ruta}?anio={_anio}&mes={_mes}", _cancelacion.Token);
+        }
+        finally { _ocupado = false; }
+    }
+
+    /// <summary>
+    /// El panel que se abre al pulsar una fila del ranking: los totales del período, cada entrada de
+    /// puntos con su motivo y las actividades del pool que se aceptaron.
+    ///
+    /// <para>Es UNO SOLO y se pinta en las dos pestañas porque las dos abren el mismo contrato: en el
+    /// individual «Quién» es siempre la misma persona y en el de equipo dice de qué integrante salió
+    /// cada renglón. Dos paneles gemelos acabarían enseñando cosas distintas del mismo dato.</para>
+    ///
+    /// <para>Las DOS listas y no una: las entradas de puntos son la contabilidad —lo que suma y lo
+    /// que resta, incluida la autocalificación— y las actividades del pool son el trabajo, con su
+    /// tipo, su complejidad y su enlace al ticket. La segunda explica una parte de la primera, y
+    /// mezclarlas dejaría una tabla con la mitad de las columnas vacías en cada renglón.</para>
+    /// </summary>
+    private RenderFragment PanelDeDetalle() => __builder =>
+    {
+        @if (_detalle is { } d)
+        {
+            <RadzenCard class="rz-mt-3">
+                <RadzenStack Gap="0.75rem">
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center"
+                                 Gap="1rem" Wrap="FlexWrap.Wrap">
+                        <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                            @d.Titulo · @d.Periodo
+                        </RadzenText>
+                        <RadzenButton Text="Cerrar" Icon="close" ButtonStyle="ButtonStyle.Light"
+                                      Size="ButtonSize.ExtraSmall" Click="@(() => _detalle = null)" />
+                    </RadzenStack>
+
+                    <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                        Total <b style="@EstiloDeTotal(d.Total)">@ConSigno(d.Total)</b>
+                        &nbsp;·&nbsp; premios @(d.Premio > 0 ? $"+{d.Premio}" : "—")
+                        &nbsp;·&nbsp; penalizaciones @(d.Penalizacion < 0 ? d.Penalizacion.ToString() : "—")
+                        &nbsp;·&nbsp; del pool @(d.DelPool == 0 ? "—" : ConSigno(d.DelPool))
+                        @if (d.Retrabajos > 0)
+                        {
+                            <span style="color:var(--rz-danger);font-weight:600">
+                                &nbsp;·&nbsp; @d.Retrabajos retrabajo(s)
+                            </span>
+                        }
+                    </RadzenText>
+
+                    <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">Puntos del mes</RadzenText>
+                    <RadzenDataGrid TItem="EntradaDeDesempenoDto" Data="@d.Entradas" AllowSorting="true"
+                                    AllowColumnResize="true" AllowPaging="true" PageSize="10"
+                                    @attributes="@Paginador.EnEspanol"
+                                    EmptyText="Sin puntos aprobados en el mes.">
+                        <Columns>
+                            <RadzenDataGridColumn TItem="EntradaDeDesempenoDto" Property="Fecha" Title="Fecha" Width="120px">
+                                <Template Context="e">@e.Fecha.ToLocalTime().ToString("dd/MM/yyyy")</Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="EntradaDeDesempenoDto" Property="Quien" Title="Quién" Width="170px" />
+                            <RadzenDataGridColumn TItem="EntradaDeDesempenoDto" Property="Criterio" Title="Criterio"
+                                                  MinWidth="200px">
+                                @* El origen se marca con una insignia y no con un color: «del pool»
+                                   no es bueno ni malo, es de dónde viene, y el color en esta pantalla
+                                   ya significa suma o resta. *@
+                                <Template Context="e">
+                                    @e.Criterio
+                                    @if (e.EsDelPool)
+                                    {
+                                        <RadzenBadge BadgeStyle="BadgeStyle.Light" Text="pool" class="rz-ml-2" />
+                                    }
+                                </Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="EntradaDeDesempenoDto" Property="Puntos" Title="Puntos"
+                                                  Width="110px" TextAlign="TextAlign.Right">
+                                <Template Context="e">
+                                    <b style="@EstiloDeTotal(e.Puntos)">@ConSigno(e.Puntos)</b>
+                                </Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="EntradaDeDesempenoDto" Property="Comentario" Title="Comentario">
+                                <Template Context="e">@(e.Comentario ?? "—")</Template>
+                            </RadzenDataGridColumn>
+                        </Columns>
+                    </RadzenDataGrid>
+
+                    <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">
+                        Actividades del pool aceptadas en el mes
+                    </RadzenText>
+                    <RadzenDataGrid TItem="ActividadDelPoolEnDesempenoDto" Data="@d.ActividadesDelPool"
+                                    AllowSorting="true" AllowColumnResize="true" AllowPaging="true" PageSize="10"
+                                    @attributes="@Paginador.EnEspanol"
+                                    EmptyText="Ninguna actividad del pool se aceptó en el mes.">
+                        <Columns>
+                            <RadzenDataGridColumn TItem="ActividadDelPoolEnDesempenoDto" Property="AceptadaUtc"
+                                                  Title="Aceptada" Width="120px">
+                                <Template Context="a">
+                                    @(a.AceptadaUtc is DateTime f ? f.ToLocalTime().ToString("dd/MM/yyyy") : "—")
+                                </Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="ActividadDelPoolEnDesempenoDto" Property="Quien"
+                                                  Title="Quién" Width="170px" />
+                            <RadzenDataGridColumn TItem="ActividadDelPoolEnDesempenoDto" Property="Titulo"
+                                                  Title="Actividad" MinWidth="220px" />
+                            <RadzenDataGridColumn TItem="ActividadDelPoolEnDesempenoDto" Property="TipoTexto"
+                                                  Title="Tipo" Width="130px" />
+                            <RadzenDataGridColumn TItem="ActividadDelPoolEnDesempenoDto" Property="ComplejidadTexto"
+                                                  Title="Complejidad" Width="130px" />
+                            <RadzenDataGridColumn TItem="ActividadDelPoolEnDesempenoDto" Property="Puntos"
+                                                  Title="Puntos" Width="110px" TextAlign="TextAlign.Right">
+                                <Template Context="a">
+                                    <b style="@EstiloDeTotal(a.Puntos)">@ConSigno(a.Puntos)</b>
+                                </Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="ActividadDelPoolEnDesempenoDto" Title="" Width="60px" Sortable="false">
+                                <Template Context="a">
+                                    @if (!string.IsNullOrWhiteSpace(a.Enlace))
+                                    {
+                                        <a href="@a.Enlace" target="_blank" rel="noopener" title="Abrir el ticket">
+                                            <RadzenIcon Icon="open_in_new" />
+                                        </a>
+                                    }
+                                </Template>
+                            </RadzenDataGridColumn>
+                        </Columns>
+                    </RadzenDataGrid>
+                </RadzenStack>
+            </RadzenCard>
+        }
+    };
+
     // Cola de revisión.
     private List<PuntoPendienteDto> _pendientes = [];
     private IList<PuntoPendienteDto>? _marcadas;
@@ -370,6 +600,10 @@
 
     private async Task CargarRanking()
     {
+        // El panel abierto se cierra al cambiar de mes o de filtro: sus números son de OTRO período
+        // y la fila de la que salió puede ya ni estar. Dejarlo abierto sería enseñar agosto debajo de
+        // una tabla de marzo.
+        _detalle = null;
         _ocupado = true;
         try
         {

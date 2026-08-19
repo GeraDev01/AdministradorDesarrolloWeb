@@ -12,6 +12,15 @@ namespace AdminWeb.Shared.Dtos.Desempeno;
 /// <param name="Medalla">🥇🥈🥉 / «#n», y 👑 para el nivel Lead, que aparece fuera de concurso.</param>
 /// <param name="Premio">Suma de los puntos positivos aprobados del período.</param>
 /// <param name="Penalizacion">Suma de los puntos negativos aprobados (viene en negativo, como se captura).</param>
+/// <param name="DelPool">De <paramref name="Total"/>, cuánto salió de ACTIVIDADES DEL POOL. Va
+/// aparte porque son las dos mitades de cómo se ganan puntos aquí y no se ganan igual: lo del pool
+/// es trabajo que el líder publicó, alguien tomó y alguien verificó; el resto sale de
+/// autocalificarse y de lo que el líder otorga a mano. Un mismo total de 40 no dice lo mismo si son
+/// cuarenta del pool que si son cuarenta de autocalificación, y hasta ahora no había forma de
+/// distinguirlo sin abrir las entradas una por una. Puede ser NEGATIVO: el retrabajo resta.</param>
+/// <param name="Retrabajos">Cuántas de esas actividades fueron RETRABAJO —bugs sobre algo ya
+/// entregado—. Es la cuenta, no los puntos: los puntos ya están dentro de <paramref name="DelPool"/>
+/// y lo que aporta el número es cuántas veces pasó.</param>
 public record RankingIndividualFilaDto(
     int Posicion,
     string Medalla,
@@ -21,7 +30,12 @@ public record RankingIndividualFilaDto(
     int Premio,
     int Penalizacion,
     int Entradas,
-    bool EsNivelLead);
+    bool EsNivelLead,
+    // Al FINAL y con valor por omisión: es un record posicional, y metido en medio dejaría a cada
+    // llamador que rellena por posición corriendo sus argumentos de sitio sin que el compilador lo
+    // viera.
+    int DelPool = 0,
+    int Retrabajos = 0);
 
 /// <summary>
 /// Una fila del ranking por equipo para el administrador. Se separan los puntos que vienen de los
@@ -31,6 +45,9 @@ public record RankingIndividualFilaDto(
 /// <param name="Total">Lo del equipo: sus integrantes más sus puntos propios. Es el que ordena la
 /// tabla. Aquí solo hay equipos que compiten —los que tienen subequipos no salen—, así que no existe
 /// un total «de la rama»: la rama son las filas de sus hijos.</param>
+/// <param name="DelPool">De los puntos de sus integrantes, cuántos salieron del pool. Mismo motivo
+/// que en la fila individual, y aquí además contesta una pregunta que solo tiene sentido en equipo:
+/// si un equipo va arriba porque hace el trabajo que se publica o porque se autocalifica mucho.</param>
 public record RankingEquipoFilaDto(
     int Posicion,
     string Medalla,
@@ -39,7 +56,59 @@ public record RankingEquipoFilaDto(
     int Total,
     int PuntosIntegrantes,
     int PuntosEquipo,
-    int Miembros);
+    int Miembros,
+    int DelPool = 0,
+    int Retrabajos = 0);
+
+// ── El detalle de una fila del ranking ───────────────────────────────────────────
+
+/// <summary>
+/// Una entrada de puntos, como se lee al abrir una fila del ranking.
+/// </summary>
+/// <param name="EsDelPool">Si viene de una actividad del pool. Se distingue en la lista porque es lo
+/// único que ya está justificado en otra pantalla: de una entrada del pool se puede ir a ver la
+/// actividad, el checklist y quién la verificó; de una autocalificación, solo su comentario.</param>
+public record EntradaDeDesempenoDto(
+    int Id,
+    DateTime Fecha,
+    string Criterio,
+    int Puntos,
+    string? Comentario,
+    string Quien,
+    bool EsDelPool);
+
+/// <summary>Una actividad del pool que ya se aceptó, en el detalle de una fila del ranking.</summary>
+public record ActividadDelPoolEnDesempenoDto(
+    int Id,
+    string Titulo,
+    string TipoTexto,
+    string ComplejidadTexto,
+    int Puntos,
+    string Quien,
+    DateTime? AceptadaUtc,
+    string? Enlace);
+
+/// <summary>
+/// LO QUE HAY DETRÁS DE UNA FILA DEL RANKING: de dónde salió cada punto del período.
+///
+/// <para>Es lo que faltaba para poder discutir un ranking. Un total es un número que se acepta o no
+/// se acepta; una lista de lo que se hizo se puede revisar, corregir y explicar. Sirve igual para el
+/// individual y para el de equipos —en un equipo, «quién» dice de qué integrante salió cada
+/// entrada—, y por eso es un solo contrato: dos casi iguales acabarían divergiendo en el campo que
+/// solo uno necesitara.</para>
+/// </summary>
+/// <param name="Titulo">El nombre de la persona o del equipo. Es el encabezado del panel.</param>
+/// <param name="Periodo">«agosto de 2026», ya escrito por el servidor.</param>
+public record DetalleDeDesempenoDto(
+    string Titulo,
+    string Periodo,
+    int Total,
+    int Premio,
+    int Penalizacion,
+    int DelPool,
+    int Retrabajos,
+    IReadOnlyList<EntradaDeDesempenoDto> Entradas,
+    IReadOnlyList<ActividadDelPoolEnDesempenoDto> ActividadesDelPool);
 
 /// <summary>Los dos rankings del período para la pantalla de desempeño del administrador.</summary>
 /// <param name="IncluyeNivelLead">Si se pidieron también los de nivel Lead (fuera de concurso).</param>

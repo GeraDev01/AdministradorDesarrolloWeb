@@ -138,7 +138,7 @@
 
                         <RadzenDataGrid data-recorrido="evaluaciones-rejilla"
                                         TItem="EvaluacionDto" Data="@_ficha.Evaluaciones" IsLoading="@_ocupado"
-                                        AllowSorting="true" AllowPaging="true" PageSize="10"
+                                        AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.EnEspanol" PageSize="10"
                                         EmptyText="Todavía no tiene evaluaciones registradas.">
                             <Columns>
                                 <RadzenDataGridColumn TItem="EvaluacionDto" Property="Fecha" Title="Fecha" Width="120px">
@@ -223,7 +223,7 @@
                         }
 
                         <RadzenDataGrid TItem="HitoDto" Data="@_ficha.Hitos" IsLoading="@_ocupado"
-                                        AllowSorting="true" AllowPaging="true" PageSize="10"
+                                        AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.EnEspanol" PageSize="10"
                                         EmptyText="Sin hitos registrados.">
                             <Columns>
                                 <RadzenDataGridColumn TItem="HitoDto" Property="Fecha" Title="Fecha" Width="120px">

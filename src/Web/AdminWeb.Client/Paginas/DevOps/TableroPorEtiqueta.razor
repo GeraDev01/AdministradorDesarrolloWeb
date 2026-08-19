@@ -82,7 +82,7 @@
     <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">@(_datos?.Resumen ?? "")</RadzenText>
 
     <RadzenDataGrid TItem="FilaPorEtiquetaDto" Data="@_filas" IsLoading="@_ocupado"
-                    AllowSorting="true" AllowPaging="true" PageSize="25"
+                    AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="25"
                     EmptyText="No hay tickets sincronizados con etiquetas.">
         <Columns>
             <RadzenDataGridColumn TItem="FilaPorEtiquetaDto" Property="Etiqueta" Title="Etiqueta" Width="260px">

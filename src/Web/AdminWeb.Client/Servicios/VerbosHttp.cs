@@ -2,17 +2,25 @@ using System.Net;
 using System.Net.Http.Json;
 using AdminWeb.Shared.Dtos;
 
-namespace AdminWeb.Client.Paginas.Conocimiento;
+namespace AdminWeb.Client.Servicios;
 
 /// <summary>
-/// Las dos llamadas de esta pantalla que no son ni una lectura ni un alta: cambiar un artículo (PUT)
-/// y borrarlo (DELETE).
+/// Los dos verbos que el cliente común no cubre: cambiar un documento entero (PUT) y borrarlo
+/// (DELETE).
 ///
-/// <para><b>Por qué existen aquí.</b> El cliente común de la aplicación cubre lo que hacen casi todas
-/// las pantallas —leer, mandar un formulario, subir archivos— y ninguna otra necesitaba estos dos
-/// verbos. Editar un artículo es sustituir el documento entero por su versión nueva, y borrar un
-/// borrador es borrarlo: son exactamente lo que PUT y DELETE significan, y torcerlos en dos rutas
-/// «/editar» y «/eliminar» por POST habría dejado la API describiendo mal lo que hace.</para>
+/// <para><b>Por qué existen aparte de <see cref="ClienteApi"/>.</b> Aquél cubre lo que hacen casi
+/// todas las pantallas —leer, mandar un formulario, subir archivos— y devuelve una tupla
+/// <c>(ok, datos)</c> avisando él mismo del error. Estos dos hacen falta porque hay rutas que son
+/// literalmente un PUT y un DELETE: sustituir un artículo por su versión nueva, y borrar una fila.
+/// Torcerlos en dos rutas «/editar» y «/eliminar» por POST habría dejado la API describiendo mal lo
+/// que hace.</para>
+///
+/// <para><b>Por qué están en Servicios y no colgando de una pantalla.</b> Nacieron dentro de
+/// «Conocimiento», que fue quien primero necesitó los dos verbos, y ahí se quedaron mientras fue la
+/// única. Al aparecer la segunda —el pool, que borra actividades— la alternativa era copiarlos o que
+/// una pantalla llamara a los ayudantes de otra: las dos acaban igual, con dos versiones del mismo
+/// código separándose. Aquí no hay que importar nada, porque <c>_Imports.razor</c> ya trae este
+/// espacio de nombres.</para>
 ///
 /// <para><b>La respuesta se lee IGUAL salga bien o mal</b>, y eso no es un atajo. Estas rutas
 /// contestan siempre el mismo cuerpo —un resultado con su mensaje—: en el éxito explica qué pasó
@@ -21,7 +29,7 @@ namespace AdminWeb.Client.Paginas.Conocimiento;
 /// que hay que enseñar tal cual; sustituirlo por un «no se pudo» genérico convertiría una explicación
 /// en un misterio.</para>
 /// </summary>
-internal static class LlamadasDeConocimiento
+internal static class VerbosHttp
 {
     public static async Task<ResultadoDto> CambiarAsync<TCuerpo>(
         this HttpClient http, string ruta, TCuerpo cuerpo, CancellationToken ct = default)
@@ -69,10 +77,14 @@ internal static class LlamadasDeConocimiento
         }
         catch { /* pudo no traer cuerpo, o no ser el resultado que se esperaba */ }
 
+        // Los respaldos son GENÉRICOS a propósito. Antes decían «Ese artículo ya no existe» porque
+        // esto vivía en Conocimiento; ahora lo usa también el pool, y un 404 al borrar una actividad
+        // no puede contestar hablando de artículos. Solo se llega aquí cuando la ruta no mandó su
+        // mensaje, que es justo cuando no se sabe de qué se estaba hablando.
         return new ResultadoDto(respuesta.IsSuccessStatusCode, respuesta.StatusCode switch
         {
             HttpStatusCode.Forbidden => "No tienes permiso para hacer eso.",
-            HttpStatusCode.NotFound  => "Ese artículo ya no existe. Actualiza la lista.",
+            HttpStatusCode.NotFound  => "Eso ya no existe. Actualiza la lista.",
             HttpStatusCode.Conflict  => "Alguien más lo modificó mientras tanto. Recarga antes de guardar.",
             _ when respuesta.IsSuccessStatusCode => "Listo.",
             _                        => "No se pudo completar la operación."

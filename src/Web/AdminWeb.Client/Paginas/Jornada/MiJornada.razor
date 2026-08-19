@@ -125,7 +125,7 @@
         </RadzenStack>
 
         <RadzenDataGrid TItem="DiaDeJornadaDto" Data="@d.Historial" IsLoading="@_ocupado"
-                        AllowSorting="true" AllowPaging="true" PageSize="15"
+                        AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="15"
                         EmptyText="Todavía no has marcado ninguna jornada.">
             <Columns>
                 <RadzenDataGridColumn TItem="DiaDeJornadaDto" Title="Día" Width="120px">

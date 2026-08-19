@@ -356,7 +356,7 @@
     *@
     <RadzenDataGrid data-recorrido="mis-tickets-rejilla"
                     TItem="TicketDevOpsDto" Data="@Filas" IsLoading="@_ocupado"
-                    AllowSorting="true" AllowPaging="true" PageSize="25"
+                    AllowSorting="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="25"
                     AllowFiltering="true" FilterMode="FilterMode.Advanced"
                     FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive"
                     AllowColumnPicking="true" AllowColumnResize="true"

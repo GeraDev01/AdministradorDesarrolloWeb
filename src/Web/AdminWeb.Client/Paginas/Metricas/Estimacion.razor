@@ -69,7 +69,7 @@
 
                         <RadzenDataGrid data-recorrido="estimacion-tabla"
                                         TItem="FilaDeEstimacionDto" Data="@d.Estimacion" IsLoading="@_ocupado"
-                                        AllowSorting="true" AllowColumnResize="true" AllowPaging="true" PageSize="25"
+                                        AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="25"
                                         EmptyText="No hay requerimientos con horas estimadas.">
                             <Columns>
                                 <RadzenDataGridColumn TItem="FilaDeEstimacionDto" Property="RequerimientoId"
@@ -129,8 +129,15 @@
                             <RadzenLabel Text="Vacaciones en los próximos" Component="dias" />
                             <RadzenNumeric @bind-Value="_dias" Min="1" Max="365" Name="dias" Style="width:100px"
                                            Change="@((int _) => Cargar())" Disabled="@_ocupado" />
+                            @* Se NOMBRA la capacidad, en vez de describir solo el umbral. La frase
+                               anterior decía «"Sobrecargado" = más de 40 h estimadas pendientes», que
+                               es el mismo número diciendo otra cosa: quien viene a esta pantalla a
+                               saber cuál es la capacidad leía una frase sobre sobrecargados y seguía
+                               buscando. Ahora el dato va primero y el umbral se explica a partir de
+                               él, que además es el orden en que se pensó. *@
                             <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
-                                días. «Sobrecargado» = más de @d.CapacidadHoras.ToString("0") h estimadas pendientes.
+                                días. Capacidad de trabajo: @d.CapacidadHoras.ToString("0") h por persona;
+                                «Sobrecargado» es tener más horas estimadas pendientes que eso.
                             </RadzenText>
                         </RadzenStack>
 
@@ -161,16 +168,50 @@
 
                         <RadzenDataGrid data-recorrido="estimacion-capacidad"
                                         TItem="FilaDeCapacidadDto" Data="@d.Capacidad" IsLoading="@_ocupado"
-                                        AllowSorting="true" AllowPaging="true" PageSize="25"
+                                        AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="25"
                                         EmptyText="No hay desarrolladores activos.">
                             <Columns>
                                 <RadzenDataGridColumn TItem="FilaDeCapacidadDto" Property="Desarrollador"
                                                       Title="Desarrollador" />
                                 <RadzenDataGridColumn TItem="FilaDeCapacidadDto" Property="Abiertos"
                                                       Title="Req. abiertos" Width="150px" TextAlign="TextAlign.Right" />
+                                @* El pool va en SU columna y no sumado a «Req. abiertos». Son dos
+                                   clases de trabajo —uno se asigna, el otro se toma— y meterlos en
+                                   una columna que dice «requerimientos» la dejaría diciendo una cosa
+                                   y valiendo otra. Sus horas sí están en «Horas pendientes», porque
+                                   ahí lo que se mide es la carga y a la carga le da igual de dónde
+                                   venga; hasta ahora no estaban, y un equipo que trabaja por el pool
+                                   salía entero en cero. *@
+                                <RadzenDataGridColumn TItem="FilaDeCapacidadDto" Property="PoolTomadas"
+                                                      Title="Pool tomado" Width="140px" TextAlign="TextAlign.Right" />
                                 <RadzenDataGridColumn TItem="FilaDeCapacidadDto" Property="HorasPendientes"
                                                       Title="Horas pendientes" Width="170px" TextAlign="TextAlign.Right">
                                     <Template Context="f">@f.HorasPendientes.ToString("0.#")</Template>
+                                </RadzenDataGridColumn>
+                                @* LA CAPACIDAD SE REPITE EN CADA FILA a propósito, y sí, es el mismo
+                                   40 en todas. Es la cifra contra la que se lee la de al lado: «12 h
+                                   pendientes» no dice nada hasta que se sabe de cuánto, y un número
+                                   que hay que ir a buscar a otro renglón de la pantalla no se compara,
+                                   se supone. La columna de al lado hace la resta, que es la pregunta
+                                   de verdad —«¿cuánto le cabe todavía?»— y lo que decide a quién se le
+                                   da lo siguiente.
+
+                                   El sobrante NEGATIVO se pinta en rojo y no se recorta a cero:
+                                   «-18 h» dice cuánto hay que quitarle a esa persona, y un cero diría
+                                   que está justa. Es el mismo criterio con el que la otra pestaña
+                                   pinta la diferencia entre lo estimado y lo real. *@
+                                <RadzenDataGridColumn TItem="FilaDeCapacidadDto" Title="Capacidad (h)"
+                                                      Width="140px" TextAlign="TextAlign.Right" Sortable="false">
+                                    <Template Context="f">@d.CapacidadHoras.ToString("0")</Template>
+                                </RadzenDataGridColumn>
+                                <RadzenDataGridColumn TItem="FilaDeCapacidadDto" Title="Le cabe (h)"
+                                                      Width="140px" TextAlign="TextAlign.Right" Sortable="false">
+                                    <Template Context="f">
+                                        @{ var sobra = d.CapacidadHoras - f.HorasPendientes; }
+                                        <span style="@(sobra < 0 ? "color:var(--rz-danger);font-weight:600" : "")">
+                                            @sobra.ToString("0.#")
+                                        </span>
+                                    </Template>
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="FilaDeCapacidadDto" Property="HorasRegistradas"
                                                       Title="Horas registradas" Width="180px" TextAlign="TextAlign.Right">
@@ -215,6 +256,20 @@
                 </RadzenTabsItem>
             </Tabs>
         </RadzenTabs>
+    }
+    else
+    {
+        @* SIN ESTA RAMA, un fallo al traer los datos dejaba la pantalla con el título, el botón de
+           recargar y NADA MÁS: ni pestañas, ni tarjetas, ni un aviso. Y eso no se lee como «algo
+           falló», se lee como «aquí no hay nada que ver» —que es literalmente como se reportó—.
+
+           `LeerAsync` avisa del error con su propio mensaje, pero ese aviso es un globo que se va
+           solo: quien vuelva a la pestaña un minuto después ya no lo tiene. Esta rama se queda. *@
+        <RadzenText TextStyle="TextStyle.Body2">
+            @(_ocupado
+                ? "Calculando la estimación y la capacidad…"
+                : "No se pudieron traer los datos. Vuelve a intentarlo con «Recargar».")
+        </RadzenText>
     }
 </RadzenStack>
 

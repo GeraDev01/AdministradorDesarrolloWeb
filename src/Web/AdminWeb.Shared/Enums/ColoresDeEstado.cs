@@ -76,6 +76,10 @@ public static class ColoresDeEstado
         // Por clasificar reclama al LÍDER, igual que «Por verificar»: es lo único de la rejilla que
         // no avanza hasta que él la mire. Comparte el ámbar por eso, no por parecido de ciclo.
         PoolActivityStatus.PorClasificar => "var(--rz-warning)",
+        // TERCER neutro, y por el mismo motivo que los otros dos: la hizo el líder, ya está cerrada
+        // y no le reclama nada a nadie. No va al verde de «Aceptada» a propósito — ese verde
+        // significa «se verificó y se abonaron puntos», y aquí no hubo ni lo uno ni lo otro.
+        PoolActivityStatus.Propia        => "var(--rz-text-secondary-color)",
         _                             => "var(--rz-text-secondary-color)"   // Retirada
     };
 

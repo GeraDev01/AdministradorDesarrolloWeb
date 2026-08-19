@@ -330,7 +330,7 @@
                         }
 
                         <RadzenDataGrid TItem="SolicitudDeVacacionesDelLiderDto" Data="@d.Solicitudes"
-                                        IsLoading="@_ocupado" AllowSorting="true" AllowPaging="true" PageSize="15"
+                                        IsLoading="@_ocupado" AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="15"
                                         EmptyText="No hay solicitudes que cumplan el filtro.">
                             <Columns>
                                 <RadzenDataGridColumn TItem="SolicitudDeVacacionesDelLiderDto" Title="Desarrollador"

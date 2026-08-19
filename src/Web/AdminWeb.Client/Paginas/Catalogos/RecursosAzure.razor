@@ -140,7 +140,7 @@
     }
 
     <RadzenDataGrid TItem="RecursoAzureDto" Data="@_filas" IsLoading="@_cargando"
-                    AllowSorting="true" AllowPaging="true" PageSize="25"
+                    AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="25"
                     SelectionMode="DataGridSelectionMode.Single" @bind-Value="@_seleccion"
                     RowDoubleClick="@(_ => AbrirEdicion())"
                     EmptyText="No hay recursos que cumplan el filtro.">

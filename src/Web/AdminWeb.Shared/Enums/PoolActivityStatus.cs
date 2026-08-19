@@ -12,6 +12,9 @@ namespace AdminWeb.Shared.Enums;
 /// <item><b>PorClasificar</b>: entró sola desde un work item de Azure DevOps y todavía no tiene
 ///     tipo, complejidad ni horas, así que <b>no vale puntos y no se puede tomar</b>. Espera a que
 ///     el líder decida qué es; al hacerlo pasa a Disponible con el valor de la matriz.</item>
+/// <item><b>Propia</b>: la hizo el líder. No pasó por el pool —nadie pudo tomarla— y <b>no abonó
+///     puntos a nadie</b>. Es terminal, y existe para que el trabajo que el líder resolvió él mismo
+///     quede contado como lo que fue y no como una actividad libre que nadie quiso.</item>
 /// </list>
 ///
 /// <para><b>Disponible es el valor 0</b>, y conviene saberlo: toda fila que se cree sin fijar el
@@ -30,5 +33,8 @@ public enum PoolActivityStatus
     Devuelta = 3,
     Aceptada = 4,
     Retirada = 5,
-    PorClasificar = 6
+    PorClasificar = 6,
+
+    /// <summary>La hizo el líder: ni se tomó ni dio puntos. Terminal.</summary>
+    Propia = 7
 }

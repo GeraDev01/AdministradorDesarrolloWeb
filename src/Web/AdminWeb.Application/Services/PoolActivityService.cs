@@ -260,7 +260,7 @@ public class PoolActivityService(
         // El esfuerzo solo se escribe cuando NO es un bug: en un bug lo pone quien lo tome, y la
         // validación de arriba ya rechazó que viniera. El sello acompaña siempre al número, para que
         // después se pueda saber cuándo se capturó y no solo cuánto se dijo.
-        var esfuerzo = borrador.WorkType == PoolWorkType.Bug ? null : Redondear(borrador.HorasEstimadas);
+        var esfuerzo = borrador.WorkType.ComoBug() ? null : Redondear(borrador.HorasEstimadas);
 
         // DiasLimite NO se escribe: la web ya no lo usa. Durante la convivencia, el escritorio verá
         // las actividades publicadas desde aquí como «sin plazo propio» y les aplicará los días de su
@@ -385,7 +385,7 @@ public class PoolActivityService(
         // guardarse en una columna aparte. Aquí la actividad sigue Disponible —lo exige la guarda de
         // arriba—, así que nadie la tenía tomada y a nadie que esté trabajando se le quita su número.
         bool cambiaElAutorDeLaEstimacion =
-            (actividad.WorkType == PoolWorkType.Bug) != (cambios.WorkType == PoolWorkType.Bug);
+            actividad.WorkType.ComoBug() != cambios.WorkType.ComoBug();
         if (cambiaElAutorDeLaEstimacion)
         {
             actividad.HorasEstimadas      = null;
@@ -449,7 +449,7 @@ public class PoolActivityService(
         // garantizó que no viene ninguno, y lo que quede es lo que escribió quien lo tomó (o el nulo
         // que acaba de dejar la limpieza de arriba): pisarlo con null aquí borraría, en cada edición
         // de un bug, la estimación de otra persona.
-        if (cambios.WorkType != PoolWorkType.Bug)
+        if (!cambios.WorkType.ComoBug())
         {
             actividad.HorasEstimadas      = Redondear(cambios.HorasEstimadas);
             actividad.HorasEstimadasEnUtc = DateTime.UtcNow;
@@ -551,6 +551,140 @@ public class PoolActivityService(
         return (true, sinClasificar
             ? "Actividad descartada. No volverá a entrar sola desde su work item."
             : "Actividad retirada del pool.");
+    }
+
+    /// <summary>
+    /// El líder dice que ESA ACTIVIDAD LA HIZO ÉL. Se cierra en el acto: no se queda esperando a que
+    /// alguien la tome, no pasa por entregar ni por verificar y <b>no abona puntos a nadie</b>.
+    ///
+    /// <para><b>Por qué hace falta un camino propio y no basta «Retirar».</b> Retirar dice «esto ya
+    /// no aplica»; esto dice «esto ya está hecho». Son dos historias distintas de la misma fila y la
+    /// diferencia se nota justo donde se mira: lo retirado es trabajo que se descartó y lo propio es
+    /// trabajo que se entregó, solo que sin pasar por el pool. Mezclarlos dejaría el histórico
+    /// contando como descartado todo lo que el líder resolvió él mismo.</para>
+    ///
+    /// <para><b>Por qué no da puntos, y por qué eso no se puede olvidar.</b> Los puntos del pool son
+    /// el reparto de un trabajo que el líder publica y otra persona toma; el líder no se los abona a
+    /// sí mismo. Este método no toca <c>PointEntries</c> ni <c>PointEntryId</c> —la guarda que usa
+    /// <see cref="AceptarAsync"/> para no abonar dos veces—, así que una actividad propia no cruza
+    /// nunca por ahí. Y además pone los puntos congelados de la fila a CERO: son los que pinta la
+    /// rejilla, y dejar un «12» al lado de un estado que no abonó nada se lee como un abono perdido.
+    /// Cuánto valía no se pierde: queda escrito en el historial.</para>
+    ///
+    /// <para>Solo se marca lo que sigue LIBRE —disponible o sin clasificar—. Si alguien ya la tomó,
+    /// esto le quitaría de las manos un trabajo que está haciendo, y encima sin avisarle: para eso
+    /// está <see cref="LiberarAsync"/>, que sí le avisa.</para>
+    /// </summary>
+    public async Task<(bool ok, string mensaje)> MarcarComoPropiaAsync(int id, CancellationToken ct = default)
+    {
+        AuthorizationGuard.RequireAdmin(currentUser);
+
+        var actividad = await db.PoolActivities.FirstOrDefaultAsync(a => a.Id == id, ct);
+        if (actividad == null) return (false, "Esa actividad ya no existe. Actualiza la lista.");
+
+        if (actividad.Status is not (PoolActivityStatus.Disponible or PoolActivityStatus.PorClasificar))
+            return (false, "Solo se marca como propia lo que sigue libre en el pool. " +
+                           "Si alguien ya la tomó, usa «Liberar» primero: así se le avisa.");
+
+        var quien = NombreDelUsuario();
+        int valia = actividad.Points;
+        var ahora = DateTime.UtcNow;
+
+        AnotarEnHistorial(actividad,
+            $"La hizo {quien}: cerrada sin pasar por el pool. Valía {valia} pts y no se abonaron a nadie.");
+
+        actividad.Status           = PoolActivityStatus.Propia;
+        actividad.Points           = 0;
+        actividad.ReviewedByUserId = currentUser.UserId;
+        actividad.ReviewedAt       = ahora;
+        actividad.ReviewComment    = null;
+
+        await db.SaveChangesAsync(ct);
+
+        await audit.RecordAsync(AuditAction.Update, "PoolActivity", actividad.Id.ToString(),
+            $"Marcada como hecha por el líder ({quien}): valía {valia} pts y no se abonaron", ct);
+
+        return (true, "Marcada como hecha por ti. Ya no está en el pool y no abonó puntos a nadie.");
+    }
+
+    /// <summary>
+    /// BORRA la actividad. No es «Retirar»: retirar la deja en la rejilla con su historia, y esto no
+    /// deja nada.
+    ///
+    /// <para><b>Para qué existe.</b> Para lo que nunca debió estar: el duplicado, la prueba, la que
+    /// se publicó al equipo equivocado y se volvió a publicar bien. Retirarlas las deja para siempre
+    /// en una lista que el líder lee entera, y una bandeja llena de basura deja de leerse.</para>
+    ///
+    /// <para><b>Lo que no se borra jamás, y por qué.</b> Nada que haya abonado puntos —ni aceptada ni
+    /// con <c>PointEntryId</c>—: la entrada de puntos la nombra en su comentario y sin la fila esa
+    /// referencia apunta al vacío, justo en la tabla con la que se explica un ranking. Y nada que
+    /// alguien tenga en las manos: eso se libera antes, que avisa a quien la estaba trabajando en vez
+    /// de hacérsela desaparecer de la lista.</para>
+    ///
+    /// <para><b>La consecuencia que hay que decir en pantalla.</b> Si venía de un work item de Azure
+    /// DevOps, VOLVERÁ A ENTRAR sola en la siguiente pasada: la deduplicación de
+    /// <c>PoolDesdeDevOpsService</c> se lee del propio pool —descarta el work item que ya tiene
+    /// actividad, en cualquier estado— y al borrar la fila desaparece esa marca. Para descartar un
+    /// ticket de una vez sigue estando «Retirar», que lo deja anotado. Por eso el mensaje de vuelta
+    /// lo dice cuando toca, en vez de quedarse escrito solo aquí.</para>
+    ///
+    /// <para><b>Cómo se borra.</b> Los hijos primero y el padre después, dentro de una transacción que
+    /// se deshace si el padre no llega a borrarse. El esquema declara <c>ON DELETE CASCADE</c> en las
+    /// dos tablas hijas, así que en una base al día bastaría con el padre; se borran igual a mano
+    /// porque <c>ExecuteDelete</c> no pasa por el seguimiento de EF —el que aplicaría la cascada del
+    /// modelo—, y entonces lo único que sostiene la limpieza es una restricción de la base, que es
+    /// justo la que puede faltar en una base vieja. Y el DELETE del padre lleva LA MISMA condición que
+    /// se acaba de comprobar: entre la lectura y el borrado caben varios viajes a la base, y esta
+    /// clase ya se topó con esa carrera al aceptar.</para>
+    /// </summary>
+    public async Task<(bool ok, string mensaje)> EliminarAsync(int id, CancellationToken ct = default)
+    {
+        AuthorizationGuard.RequireAdmin(currentUser);
+
+        var actividad = await db.PoolActivities.AsNoTracking()
+            .Where(a => a.Id == id)
+            .Select(a => new { a.Title, a.Status, a.PointEntryId, a.DevOpsWorkItemId })
+            .FirstOrDefaultAsync(ct);
+        if (actividad == null) return (false, "Esa actividad ya no existe. Actualiza la lista.");
+
+        if (actividad.Status == PoolActivityStatus.Aceptada || actividad.PointEntryId != null)
+            return (false, "Esa actividad ya abonó puntos y no se borra: la entrada de puntos la " +
+                           "nombra, y sin ella el ranking dejaría de poder explicarse.");
+
+        if (actividad.Status is PoolActivityStatus.Tomada or PoolActivityStatus.EnRevision
+                             or PoolActivityStatus.Devuelta)
+            return (false, "Alguien la tiene tomada. Usa «Liberar» primero: así se le avisa a quien " +
+                           "la estaba trabajando en vez de que se le desaparezca de la lista.");
+
+        using var tx = await db.Database.BeginTransactionAsync(ct);
+
+        await db.PoolActivityChecklistItems.Where(c => c.PoolActivityId == id).ExecuteDeleteAsync(ct);
+        await db.PoolActivityExtraCriteria.Where(c => c.PoolActivityId == id).ExecuteDeleteAsync(ct);
+
+        int borradas = await db.PoolActivities
+            .Where(a => a.Id == id
+                     && a.PointEntryId == null
+                     && (a.Status == PoolActivityStatus.Disponible
+                      || a.Status == PoolActivityStatus.PorClasificar
+                      || a.Status == PoolActivityStatus.Retirada
+                      || a.Status == PoolActivityStatus.Propia))
+            .ExecuteDeleteAsync(ct);
+
+        if (borradas == 0)
+        {
+            await tx.RollbackAsync(ct);
+            return (false, "Esa actividad cambió mientras mirabas la lista. Recárgala y vuelve a mirar.");
+        }
+
+        await tx.CommitAsync(ct);
+
+        await audit.RecordAsync(AuditAction.Delete, "PoolActivity", id.ToString(),
+            $"Eliminada del pool: «{Recortar(actividad.Title, 120)}»", ct);
+
+        return (true, actividad.DevOpsWorkItemId is int workItem
+            ? $"Actividad eliminada. Ojo: venía del work item #{workItem}, así que volverá a entrar " +
+              "sola en la siguiente pasada. Para descartarlo de una vez, «Retirar» en vez de eliminar."
+            : "Actividad eliminada.");
     }
 
     /// <summary>
@@ -663,7 +797,7 @@ public class PoolActivityService(
         // Se valida ANTES del UPDATE condicional, así que quien mande una estimación inválida se va
         // sin haber reclamado nada: la actividad sigue Disponible y sin dueño.
         decimal? estimacion = null;
-        if (actividad.WorkType == PoolWorkType.Bug)
+        if (actividad.WorkType.ComoBug())
         {
             if (horasEstimadas is not decimal propuesta)
                 return (false, "Antes de tomar un bug tienes que decir en cuántas horas crees " +
@@ -955,8 +1089,12 @@ public class PoolActivityService(
         var puntosExtra = cumplidos.Sum(c => c.Points);
         var puntosTotal = actividad.Points + puntosExtra;
 
+        // EL SIGNO SE ESCRIBE, no se da por hecho. Desde que existe el RETRABAJO —un bug sobre algo
+        // ya entregado— los puntos de una actividad pueden ser NEGATIVOS, y un «+» pegado delante de
+        // un número que resta produce «+-8», que además de feo se lee mal justo en el aviso que le
+        // llega a la persona. El formato «+#;-#;0» pone el signo que toque y deja el cero sin signo.
         var desglose = cumplidos.Count > 0
-            ? $" (+{actividad.Points} base, +{puntosExtra} por {string.Join(", ", cumplidos.Select(c => c.Name))})"
+            ? $" ({actividad.Points:+#;-#;0} base, {puntosExtra:+#;-#;0} por {string.Join(", ", cumplidos.Select(c => c.Name))})"
             : "";
 
         var ahora = DateTime.Now;   // local: el período se imputa al mes del calendario de la gente
@@ -981,7 +1119,7 @@ public class PoolActivityService(
             EvidenceUrl      = await PrimeraEvidenciaAsync(actividad.Id, ct) ?? actividad.ExternalUrl
         };
 
-        var historial = HistorialCon(actividad, $"Aceptada por {NombreDelUsuario()}: +{puntosTotal} pts{desglose}.");
+        var historial = HistorialCon(actividad, $"Aceptada por {NombreDelUsuario()}: {puntosTotal:+#;-#;0} pts{desglose}.");
         int revisor = currentUser.UserId ?? 0;
 
         using var tx = await db.Database.BeginTransactionAsync(ct);
@@ -1015,13 +1153,17 @@ public class PoolActivityService(
         await tx.CommitAsync(ct);
 
         await audit.RecordAsync(AuditAction.Update, "PoolActivity", id.ToString(),
-            $"Aceptada: +{puntosTotal} pts{desglose} a {await NombreDeDesarrolladorAsync(developerId, ct)}", ct);
+            $"Aceptada: {puntosTotal:+#;-#;0} pts{desglose} a {await NombreDeDesarrolladorAsync(developerId, ct)}", ct);
 
         try
         {
             await notifications.NotifyDeveloperAsync(developerId, NotificationKind.General,
-                "Tu actividad del pool fue aceptada",
-                $"«{actividad.Title}»: +{puntosTotal} puntos{desglose}, ya cuentan en el ranking de {ahora:MMMM}.",
+                // El titular cambia con el signo. «Fue aceptada» a secas encima de un «-8» se lee
+                // como una buena noticia hasta que se llega al número, y esta es de las que conviene
+                // que se entiendan desde el asunto.
+                puntosTotal < 0 ? "Tu actividad del pool se aceptó, y descuenta puntos"
+                                : "Tu actividad del pool fue aceptada",
+                $"«{actividad.Title}»: {puntosTotal:+#;-#;0} puntos{desglose}, ya cuentan en el ranking de {ahora:MMMM}.",
                 dedupeKey: $"pool-aceptada-{id}", ct: ct);
         }
         catch { /* los puntos ya están abonados: un aviso fallido no puede tumbar la operación */ }
@@ -1031,8 +1173,10 @@ public class PoolActivityService(
         // —la que por casualidad tuviera ese número— y dejaba abierto el cronómetro de esta.
         await CerrarActividadEnlazadaAsync(actividad.LinkedDevActivityId ?? 0, ct);
 
-        return (true, $"Aceptada. Se abonaron {puntosTotal} puntos a " +
-                      $"{await NombreDeDesarrolladorAsync(developerId, ct)} en {ahora:MM/yyyy}.");
+        var quien = await NombreDeDesarrolladorAsync(developerId, ct);
+        return (true, puntosTotal < 0
+            ? $"Aceptada. Se le DESCONTARON {-puntosTotal} puntos a {quien} en {ahora:MM/yyyy}."
+            : $"Aceptada. Se abonaron {puntosTotal} puntos a {quien} en {ahora:MM/yyyy}.");
     }
 
     /// <summary>
@@ -1097,7 +1241,15 @@ public class PoolActivityService(
 
         foreach (var f in filas)
         {
-            if (f.Points <= 0)
+            // El signo lo manda el TIPO, no quien teclea. Un retrabajo que se guardara en positivo
+            // pagaría por volver a abrir algo ya entregado, que es justo lo contrario de para lo que
+            // existe; y un bug en negativo castigaría el trabajo normal sin que nadie lo hubiera
+            // decidido. El cero queda fuera en los dos casos: una actividad que no vale nada no es
+            // una regla, es una celda a medio llenar.
+            if (f.WorkType.Resta() && f.Points >= 0)
+                return (false, $"{PoolSeed.Etiqueta(f.WorkType)} / {PoolSeed.Etiqueta(f.Complexity)}: " +
+                               "el retrabajo RESTA, así que sus puntos tienen que ser negativos.");
+            if (!f.WorkType.Resta() && f.Points <= 0)
                 return (false, $"{PoolSeed.Etiqueta(f.WorkType)} / {PoolSeed.Etiqueta(f.Complexity)}: " +
                                "los puntos tienen que ser mayores que cero.");
             // El plazo de la matriz, en HORAS. Con tope por arriba, que antes no había: sin él una
@@ -1236,9 +1388,14 @@ public class PoolActivityService(
         if (celda == null)
             return (false, $"No hay puntos configurados para {PoolSeed.Etiqueta(b.WorkType)} / " +
                            $"{PoolSeed.Etiqueta(b.Complexity)}. Captúralos en la pestaña de configuración.", null, null, null);
-        if (celda.Points <= 0)
-            return (false, $"{PoolSeed.Etiqueta(b.WorkType)} / {PoolSeed.Etiqueta(b.Complexity)} vale " +
-                           "0 puntos: corrige la matriz antes de publicar.", null, null, null);
+        // El CERO es lo que no vale, no el signo. Esta guarda existe para atajar la celda a medio
+        // configurar —publicar algo que no vale nada—, y desde que existe el RETRABAJO hay un tipo
+        // cuyas celdas son negativas a propósito: preguntando por «<= 0» se rechazaban todas, y el
+        // mensaje decía «vale 0 puntos» de una celda que valía -12.
+        if (celda.Points == 0 || celda.Points < 0 != b.WorkType.Resta())
+            return (false, $"{PoolSeed.Etiqueta(b.WorkType)} / {PoolSeed.Etiqueta(b.Complexity)} está " +
+                           $"en {celda.Points} puntos, y {(b.WorkType.Resta() ? "un retrabajo tiene que restar" : "eso no suma")}: " +
+                           "corrige la matriz antes de publicar.", null, null, null);
 
         // ── PLAZO ────────────────────────────────────────────────────────────────
         //
@@ -1249,7 +1406,7 @@ public class PoolActivityService(
         // En un BUG el plazo es OBLIGATORIO y lo pone el líder: es el trato del modelo. Si se dejara
         // caer a la matriz cuando viene vacío, «cuando sea Bug, el plazo se lo pongo yo» dejaría de
         // ser cierto sin que nadie lo notara.
-        if (b.WorkType == PoolWorkType.Bug && b.HorasLimite is null)
+        if (b.WorkType.ComoBug() && b.HorasLimite is null)
             return (false, "Un bug lleva el plazo que tú decidas, en horas. Escríbelo: la matriz no lo " +
                            "pone por ti. 0 = sin fecha límite.", null, null, null);
 
@@ -1266,7 +1423,7 @@ public class PoolActivityService(
         // En un BUG se RECHAZA en vez de ignorarse. Si el líder pudiera precargarlo, a quien lo toma
         // no se le preguntaría nunca y el número dejaría de ser suyo — que es lo único que lo hace
         // comparable, porque se escribe antes de saber lo que costó.
-        if (b.WorkType == PoolWorkType.Bug)
+        if (b.WorkType.ComoBug())
         {
             if (b.HorasEstimadas is not null)
                 return (false, "El esfuerzo de un bug lo estima quien lo toma, en el momento de tomarlo. " +
@@ -1467,7 +1624,7 @@ public class PoolActivityService(
         // En tarea y requerimiento NO se toca: ahí la estimación es del líder y sigue siendo válida
         // con la actividad de vuelta en el pool. Es la segunda de las dos invariantes que permiten
         // derivar el autor de HorasEstimadas del tipo (la otra está en EditarAsync).
-        if (actividad.WorkType == PoolWorkType.Bug)
+        if (actividad.WorkType.ComoBug())
         {
             actividad.HorasEstimadas      = null;
             actividad.HorasEstimadasEnUtc = null;

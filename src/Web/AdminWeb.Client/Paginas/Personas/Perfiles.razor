@@ -50,7 +50,7 @@
         <RadzenCard data-recorrido="perfiles-lista" Style="flex:1 1 20rem;max-width:26rem">
             <RadzenText TextStyle="TextStyle.Subtitle2">Desarrolladores</RadzenText>
             <RadzenDataGrid TItem="PersonaConFichaDto" Data="@_personas" IsLoading="@_ocupado"
-                            AllowSorting="false" AllowPaging="true" PageSize="15"
+                            AllowSorting="false" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="15"
                             SelectionMode="DataGridSelectionMode.Single"
                             Value="@_seleccion" ValueChanged="@Seleccionar"
                             EmptyText="No hay desarrolladores activos.">

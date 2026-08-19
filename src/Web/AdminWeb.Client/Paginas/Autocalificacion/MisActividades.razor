@@ -163,7 +163,7 @@
 
             <RadzenDataGrid data-recorrido="actividades-lista"
                             TItem="AutocalificacionDto" Data="@d.Autocalificaciones" IsLoading="@_ocupado"
-                            AllowSorting="true" AllowPaging="true" PageSize="15"
+                            AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="15"
                             EmptyText="Todavía no has registrado ninguna actividad.">
                 <Columns>
                     <RadzenDataGridColumn TItem="AutocalificacionDto" Title="Fecha" Width="105px">
@@ -609,7 +609,7 @@
             }
 
             <RadzenDataGrid TItem="ActividadLibreDto" Data="@filas" IsLoading="@_ocupado"
-                            AllowSorting="true" AllowPaging="true" PageSize="15"
+                            AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="15"
                             EmptyText="Todavía no tienes actividades libres.">
                 <Columns>
                     <RadzenDataGridColumn TItem="ActividadLibreDto" Property="Titulo" Title="Actividad">
@@ -698,7 +698,7 @@
                 else
                 {
                     <RadzenDataGrid TItem="EvidenciaDto" Data="@_evidencias" AllowPaging="false"
-                                    AllowSorting="false" EmptyText="">
+                                    AllowSorting="false" AllowColumnResize="true" EmptyText="">
                         <Columns>
                             <RadzenDataGridColumn TItem="EvidenciaDto" Title="Archivo">
                                 @* Aquí el dibujo SÍ hace falta y no se puede quitar: es lo único que

@@ -172,7 +172,7 @@
         }
 
         <RadzenDataGrid TItem="UsuarioDto" Data="@datos.Usuarios" IsLoading="@_ocupado"
-                        AllowSorting="true" AllowPaging="true" PageSize="20"
+                        AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="20"
                         RowRender="@ApagarInactivos" EmptyText="No hay cuentas.">
             <Columns>
                 <RadzenDataGridColumn TItem="UsuarioDto" Property="Id" Title="ID" Width="70px" />

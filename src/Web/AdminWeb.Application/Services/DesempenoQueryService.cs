@@ -35,6 +35,12 @@ public class DesempenoQueryService(AppDbContext db, PerformanceScoringService pu
         var individual = await puntuacion.IndividualRankingAsync(anio, mes, incluirNivelLead, ct);
         var equipos = await puntuacion.TeamRankingAsync(anio, mes, ct);
 
+        // DE DÓNDE SALIERON LOS PUNTOS. Se resuelve con UNA consulta para toda la tabla y no fila a
+        // fila: son dos rankings de decenas de personas y preguntarlo por cada una sería un viaje a
+        // la base por renglón. Lo que se trae ya viene acotado al período y a lo aprobado, que es lo
+        // mismo que cuenta el ranking.
+        var delPool = await PuntosDelPoolAsync(anio, mes, ct);
+
         var filasIndividual = new List<RankingIndividualFilaDto>(individual.Count);
         int lugar = 0;   // solo avanza con competidores: un Lead no ocupa lugar
         foreach (var r in individual)
@@ -52,16 +58,31 @@ public class DesempenoQueryService(AppDbContext db, PerformanceScoringService pu
                 posicion = ++lugar;
             }
 
+            var suyo = delPool.GetValueOrDefault(r.DeveloperId);
             filasIndividual.Add(new RankingIndividualFilaDto(
                 posicion, medalla, r.DeveloperId, r.FullName,
                 Total: r.Total, Premio: r.Positive, Penalizacion: r.Negative,
-                Entradas: r.Count, EsNivelLead: r.EsNivelLead));
+                Entradas: r.Count, EsNivelLead: r.EsNivelLead,
+                DelPool: suyo.Puntos, Retrabajos: suyo.Retrabajos));
         }
 
-        var filasEquipo = equipos.Select((t, i) => new RankingEquipoFilaDto(
-            i + 1, Medalla(i), t.TeamId, t.Name,
-            Total: t.Total, PuntosIntegrantes: t.MembersSum, PuntosEquipo: t.TeamOwn,
-            Miembros: t.MemberCount)).ToList();
+        // Los del equipo son los de SUS INTEGRANTES sumados, no una cuenta aparte: los puntos que se
+        // le otorgan a un equipo como tal no salen del pool, que reparte a personas.
+        var integrantes = await db.Developers.AsNoTracking()
+            .Where(d => d.IsActive && d.TeamId != null)
+            .Select(d => new { d.Id, TeamId = d.TeamId!.Value })
+            .ToListAsync(ct);
+
+        var filasEquipo = equipos.Select((t, i) =>
+        {
+            var mios = integrantes.Where(d => d.TeamId == t.TeamId).Select(d => d.Id).ToList();
+            return new RankingEquipoFilaDto(
+                i + 1, Medalla(i), t.TeamId, t.Name,
+                Total: t.Total, PuntosIntegrantes: t.MembersSum, PuntosEquipo: t.TeamOwn,
+                Miembros: t.MemberCount,
+                DelPool: mios.Sum(id => delPool.GetValueOrDefault(id).Puntos),
+                Retrabajos: mios.Sum(id => delPool.GetValueOrDefault(id).Retrabajos));
+        }).ToList();
 
         // Los que no compiten se piden aparte y no se deducen de la tabla: en la tabla ya no están,
         // así que desde aquí no habría forma de distinguir «tiene subequipos» de «no existe».
@@ -70,6 +91,159 @@ public class DesempenoQueryService(AppDbContext db, PerformanceScoringService pu
             .ToList();
 
         return new DesempenoAdminDto(anio, mes, incluirNivelLead, filasIndividual, filasEquipo, fuera);
+    }
+
+    /// <summary>
+    /// Cuántos puntos del período salieron del POOL, por desarrollador, y cuántas de esas
+    /// actividades fueron retrabajo.
+    ///
+    /// <para>Se reconocen por el CRITERIO y no yendo a mirar las actividades: al aceptar una
+    /// actividad, el pool escribe su entrada bajo un criterio propio —«Pool: Bug», «Pool: Tarea»,
+    /// «Pool: Requerimiento», «Pool: Retrabajo»—, y esa entrada es la que cuenta en el ranking. Ir
+    /// por las actividades daría un número parecido pero no el mismo: hay actividades aceptadas cuyo
+    /// mes de imputación no es el de su aceptación, y lo que aquí hay que cuadrar es la columna de al
+    /// lado, que son puntos.</para>
+    ///
+    /// <para>El filtro es por PREFIJO y no por la lista de los cuatro nombres: el día que aparezca un
+    /// quinto tipo de actividad, su criterio nace con el mismo prefijo y entra solo. Lo que sí se
+    /// nombra a pelo es el del retrabajo, porque de ése hay que saber cuántos son.</para>
+    /// </summary>
+    private async Task<Dictionary<int, (int Puntos, int Retrabajos)>> PuntosDelPoolAsync(
+        int anio, int mes, CancellationToken ct)
+    {
+        var retrabajo = PoolSeed.NombreCriterio(PoolWorkType.Retrabajo);
+
+        var entradas = await db.PointEntries.AsNoTracking()
+            .Where(p => p.Year == anio && p.Month == mes
+                        && p.ApprovalStatus == PointApprovalStatus.Aprobado
+                        && p.Criterion != null && p.Criterion.Name.StartsWith(PoolSeed.PrefijoCriterio))
+            .Select(p => new { p.DeveloperId, p.Points, Criterio = p.Criterion!.Name })
+            .ToListAsync(ct);
+
+        return entradas
+            .GroupBy(e => e.DeveloperId)
+            .ToDictionary(
+                g => g.Key,
+                g => (Puntos: g.Sum(e => e.Points), Retrabajos: g.Count(e => e.Criterio == retrabajo)));
+    }
+
+    /// <summary>
+    /// LO QUE HAY DETRÁS DE UNA FILA DEL RANKING INDIVIDUAL: cada punto del período con su motivo, y
+    /// las actividades del pool que los produjeron.
+    ///
+    /// <para>Existe porque un ranking sin esto no se puede discutir. La fila dice «Ana, 42 puntos» y
+    /// no hay forma de contestar «¿de qué?» sin salir de la pantalla, abrir la autocalificación de
+    /// otra persona y cruzarla a mano con el pool. Es la misma información que ya existe repartida en
+    /// dos sitios, junta y acotada al mes que se está mirando.</para>
+    ///
+    /// <para>Va con guarda propia aunque la ruta ya exija administrador: esto es el desglose de la
+    /// evaluación de un tercero, que es exactamente lo que el contrato del desarrollador
+    /// (<c>RankingPublicoFilaDto</c>) se cuida de no llevar. Dos barreras, no una.</para>
+    /// </summary>
+    public async Task<DetalleDeDesempenoDto?> DetalleDeDesarrolladorAsync(
+        int developerId, int anio, int mes, CancellationToken ct = default)
+    {
+        AuthorizationGuard.RequireAdmin(actual);
+
+        var nombre = await db.Developers.AsNoTracking()
+            .Where(d => d.Id == developerId).Select(d => d.FullName).FirstOrDefaultAsync(ct);
+        if (nombre == null) return null;
+
+        return await ArmarDetalleAsync(nombre, anio, mes, [developerId], ct);
+    }
+
+    /// <summary>
+    /// Lo mismo para un EQUIPO: las entradas de todos sus integrantes activos, con el nombre de cada
+    /// quien al lado.
+    ///
+    /// <para>No incluye los puntos propios del equipo —los que el líder le otorga al equipo como
+    /// tal—: aquéllos no son actividad de nadie y ya se leen en su columna de la tabla. Lo que este
+    /// panel contesta es «¿qué hizo esta gente?».</para>
+    /// </summary>
+    public async Task<DetalleDeDesempenoDto?> DetalleDeEquipoAsync(
+        int teamId, int anio, int mes, CancellationToken ct = default)
+    {
+        AuthorizationGuard.RequireAdmin(actual);
+
+        var equipo = await db.Teams.AsNoTracking()
+            .Where(t => t.Id == teamId).Select(t => t.Name).FirstOrDefaultAsync(ct);
+        if (equipo == null) return null;
+
+        var miembros = await db.Developers.AsNoTracking()
+            .Where(d => d.IsActive && d.TeamId == teamId).Select(d => d.Id).ToListAsync(ct);
+
+        return await ArmarDetalleAsync(equipo, anio, mes, miembros, ct);
+    }
+
+    /// <summary>
+    /// El cuerpo común de los dos detalles. Uno pasa una persona y el otro todas las de un equipo;
+    /// lo demás es idéntico, y escribirlo dos veces sería dejar que un día digan cosas distintas.
+    /// </summary>
+    private async Task<DetalleDeDesempenoDto> ArmarDetalleAsync(
+        string titulo, int anio, int mes, IReadOnlyList<int> devs, CancellationToken ct)
+    {
+        var periodo = new DateTime(anio, mes, 1).ToString("MMMM 'de' yyyy");
+        if (devs.Count == 0)
+            return new DetalleDeDesempenoDto(titulo, periodo, 0, 0, 0, 0, 0, [], []);
+
+        var retrabajo = PoolSeed.NombreCriterio(PoolWorkType.Retrabajo);
+
+        var entradas = await db.PointEntries.AsNoTracking()
+            .Where(p => devs.Contains(p.DeveloperId)
+                        && p.Year == anio && p.Month == mes
+                        && p.ApprovalStatus == PointApprovalStatus.Aprobado)
+            .OrderByDescending(p => p.Date)
+            .Select(p => new EntradaDeDesempenoDto(
+                p.Id,
+                p.Date,
+                p.Criterion != null ? p.Criterion.Name : "(criterio borrado)",
+                p.Points,
+                p.Comment,
+                p.Developer != null ? p.Developer.FullName : "(sin ficha)",
+                p.Criterion != null && p.Criterion.Name.StartsWith(PoolSeed.PrefijoCriterio)))
+            .ToListAsync(ct);
+
+        // Las ACTIVIDADES se acotan por la fecha en que se verificaron, que es cuando se abonaron sus
+        // puntos: es la misma que usa AceptarAsync para escribir la entrada, así que las dos listas
+        // de este panel hablan del mismo mes. Acotarlas por su fecha de alta enseñaría trabajo cuyos
+        // puntos están en otro renglón del ranking.
+        var desde = new DateTime(anio, mes, 1, 0, 0, 0, DateTimeKind.Utc);
+        var hasta = desde.AddMonths(1);
+
+        var actividades = await db.PoolActivities.AsNoTracking()
+            .Where(a => a.Status == PoolActivityStatus.Aceptada
+                        && a.ClaimedByDeveloperId != null
+                        && devs.Contains(a.ClaimedByDeveloperId.Value)
+                        && a.ReviewedAt >= desde && a.ReviewedAt < hasta)
+            .OrderByDescending(a => a.ReviewedAt)
+            .Select(a => new
+            {
+                a.Id, a.Title, a.WorkType, a.Complexity, a.Points,
+                Quien = a.ClaimedBy != null ? a.ClaimedBy.FullName : "(sin ficha)",
+                a.ReviewedAt, a.ExternalUrl
+            })
+            .ToListAsync(ct);
+
+        // Las etiquetas se ponen FUERA de la consulta y por eso lo de arriba se proyecta a un
+        // anónimo con los enumerados CRUDOS: PoolSeed.Etiqueta no se traduce a SQL, y llamarla dentro
+        // del Select —o incluso un ToString() sobre la columna— dejaría la consulta a merced de que
+        // el proveedor sepa traducirlo. Aquí ya son objetos en memoria y no hay nada que traducir.
+        var actividadesDelPool = actividades
+            .Select(a => new ActividadDelPoolEnDesempenoDto(
+                a.Id, a.Title,
+                PoolSeed.Etiqueta(a.WorkType), PoolSeed.Etiqueta(a.Complexity),
+                a.Points, a.Quien, a.ReviewedAt, a.ExternalUrl))
+            .ToList();
+
+        return new DetalleDeDesempenoDto(
+            titulo, periodo,
+            Total: entradas.Sum(e => e.Puntos),
+            Premio: entradas.Where(e => e.Puntos > 0).Sum(e => e.Puntos),
+            Penalizacion: entradas.Where(e => e.Puntos < 0).Sum(e => e.Puntos),
+            DelPool: entradas.Where(e => e.EsDelPool).Sum(e => e.Puntos),
+            Retrabajos: entradas.Count(e => e.Criterio == retrabajo),
+            Entradas: entradas,
+            ActividadesDelPool: actividadesDelPool);
     }
 
     /// <summary>

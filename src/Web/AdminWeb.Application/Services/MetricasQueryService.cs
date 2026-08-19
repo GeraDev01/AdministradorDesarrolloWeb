@@ -233,6 +233,29 @@ public class MetricasQueryService(AppDbContext db, ICurrentUser actual)
             .Select(a => new { a.DeveloperId, a.RequirementId })
             .ToListAsync(ct);
 
+        // EL POOL TAMBIÉN ES CARGA, y hasta ahora no contaba.
+        //
+        // La carga se medía SOLO con asignaciones sobre requerimientos, y un equipo que trabaja por
+        // el pool salía entero con cero horas pendientes: cuatro tarjetas diciendo «Libres = N», la
+        // gráfica plana y una rejilla de ceros. Esa pantalla contesta «¿a quién le doy lo
+        // siguiente?», así que contestarla ignorando la mitad del trabajo real no es que enseñe de
+        // menos: es que enseña lo contrario.
+        //
+        // Que era un fallo y no «es que no hay trabajo» se veía en la MISMA fila: «Horas
+        // registradas» suma todas las sesiones de cronómetro de la persona, y el tiempo del pool sí
+        // entra ahí —al tomar una actividad, el pool le cuelga una actividad libre que es lo que el
+        // cronómetro mide—. Se leían filas con «82 h registradas · 0 h pendientes · Libre».
+        //
+        // Los estados son los mismos dos que <c>PoolActivity.EnCurso</c> —tomada y devuelta para
+        // corregir—, que es LA definición de «está en manos de alguien». No se reutiliza esa
+        // propiedad porque es calculada y no se traduce a SQL; se escriben aquí y se dice de dónde
+        // salen, que es lo que evita que las dos listas se separen sin que nadie lo note.
+        var delPool = await db.PoolActivities.AsNoTracking()
+            .Where(a => a.ClaimedByDeveloperId != null
+                     && (a.Status == PoolActivityStatus.Tomada || a.Status == PoolActivityStatus.Devuelta))
+            .Select(a => new { DeveloperId = a.ClaimedByDeveloperId!.Value, a.HorasEstimadas })
+            .ToListAsync(ct);
+
         var vacaciones = await db.VacationRequests.AsNoTracking()
             .Where(v => v.Status == VacationStatus.Aprobada)
             .Select(v => new { v.DeveloperId, v.StartDate, v.EndDate })
@@ -251,7 +274,13 @@ public class MetricasQueryService(AppDbContext db, ICurrentUser actual)
                 .Where(abiertos.ContainsKey)
                 .ToList();
 
-            double horasPendientes = mios.Sum(id => abiertos[id]);
+            // Un bug del pool que nadie ha estimado todavía cuenta como actividad pero suma cero
+            // horas: no hay número que sumar, y meterle uno inventado falsearía la única cifra con
+            // la que se decide.
+            var delPoolMias = delPool.Where(a => a.DeveloperId == d.Id).ToList();
+            double horasDelPool = delPoolMias.Sum(a => (double)(a.HorasEstimadas ?? 0));
+
+            double horasPendientes = mios.Sum(id => abiertos[id]) + horasDelPool;
             double horasRegistradas = EstimationStats.SegundosAHoras(
                 segundosPorDesarrollador.GetValueOrDefault(d.Id));
 
@@ -263,14 +292,18 @@ public class MetricasQueryService(AppDbContext db, ICurrentUser actual)
                 d.FullName, mios.Count,
                 Math.Round(horasPendientes, 1), Math.Round(horasRegistradas, 1),
                 diasDeVacaciones,
-                CapacityStats.Clasificar(deVacacionesHoy, mios.Count, horasPendientes, CapacityStats.CapacidadPorDefecto)));
+                // «Libre» es no tener NADA entre manos, así que las dos cosas cuentan: quien solo
+                // tiene actividades del pool ya no sale libre.
+                CapacityStats.Clasificar(deVacacionesHoy, mios.Count + delPoolMias.Count,
+                    horasPendientes, CapacityStats.CapacidadPorDefecto),
+                delPoolMias.Count));
         }
 
         var filasDeCapacidad = capacidad
             .OrderByDescending(x => x.Estado == Disponibilidad.Sobrecargado).ThenBy(x => x.Developer)
             .Select(x => new FilaDeCapacidadDto(
                 x.Developer, x.Abiertos, x.HorasPendientes, x.HorasRegistradas, x.DiasVacaciones,
-                CapacityStats.EtiquetaEstado(x.Estado), TonoDeDisponibilidad(x.Estado)))
+                CapacityStats.EtiquetaEstado(x.Estado), TonoDeDisponibilidad(x.Estado), x.PoolTomadas))
             .ToList();
 
         return new EstimacionYCapacidadDto(
@@ -281,10 +314,16 @@ public class MetricasQueryService(AppDbContext db, ICurrentUser actual)
             ResumenDeEstimacion: filasDeEstimacion.Count == 0
                 ? "No hay requerimientos con horas estimadas."
                 : $"{filasDeEstimacion.Count} requerimiento(s) con estimación · {resumen.ConDatos} ya con tiempo medido.",
-            IndicadoresDeCapacidad: IndicadoresDeCapacidad(capacidad),
+            IndicadoresDeCapacidad: IndicadoresDeCapacidad(capacidad, CapacityStats.CapacidadPorDefecto),
             Capacidad: filasDeCapacidad,
+            // La capacidad se DICE aquí, y no solo en las tarjetas, porque ésta es la única línea de
+            // la pestaña que se pinta siempre: sin filas no hay rejilla, sin filas no hay gráfica, y
+            // las tarjetas se leen de un vistazo pero no explican de dónde sale el número. Que la
+            // capacidad pudiera «no aparecer» es exactamente lo que se vino a arreglar.
             ResumenDeCapacidad:
-                $"{capacidad.Count} desarrollador(es) activo(s) · vacaciones contadas en los próximos {dias} días.");
+                $"{capacidad.Count} desarrollador(es) activo(s) · capacidad de trabajo " +
+                $"{CapacityStats.CapacidadPorDefecto:0} h por persona · vacaciones contadas en los " +
+                $"próximos {dias} días.");
     }
 
     /// <summary>Las seis tarjetas de la pestaña de estimación, con los mismos umbrales del escritorio.</summary>
@@ -307,19 +346,46 @@ public class MetricasQueryService(AppDbContext db, ICurrentUser actual)
         new IndicadorDto("Horas reales", $"{r.HorasReales:0.#}", TonoDeIndicador.Neutro, null),
     ];
 
-    /// <summary>Las cuatro tarjetas del semáforo de capacidad.</summary>
-    private static List<IndicadorDto> IndicadoresDeCapacidad(List<CapacityRow> filas) =>
-    [
-        new IndicadorDto("🟢 Libres", filas.Count(x => x.Estado == Disponibilidad.Libre).ToString(),
-            TonoDeIndicador.Exito, "Sin ningún requerimiento abierto."),
-        new IndicadorDto("🟡 Ocupados", filas.Count(x => x.Estado == Disponibilidad.Ocupado).ToString(),
-            TonoDeIndicador.Aviso, "Con trabajo, dentro de su capacidad."),
-        new IndicadorDto("🔴 Sobrecargados", filas.Count(x => x.Estado == Disponibilidad.Sobrecargado).ToString(),
-            TonoDeIndicador.Peligro,
-            $"Con más de {CapacityStats.CapacidadPorDefecto:0} horas estimadas pendientes."),
-        new IndicadorDto("🏖 De vacaciones", filas.Count(x => x.Estado == Disponibilidad.DeVacaciones).ToString(),
-            TonoDeIndicador.Neutro, "De vacaciones aprobadas HOY."),
-    ];
+    /// <summary>
+    /// Las tarjetas de la pestaña de capacidad: primero CUÁNTO CABE y después el semáforo de cómo va
+    /// el equipo contra eso.
+    ///
+    /// <para>Las dos primeras son nuevas y son la respuesta a una queja concreta: «la capacidad de
+    /// trabajo del equipo debe ser de 40 horas por persona; no aparece nada». No aparecía: el número
+    /// viajaba en el DTO pero la pantalla lo pintaba en un solo sitio —letra chica, dentro de la
+    /// segunda pestaña, y redactado como umbral de sobrecarga en vez de como capacidad—. Un semáforo
+    /// que dice «sobrecargado» sin decir contra qué no se puede ni discutir.</para>
+    ///
+    /// <para><b>La del EQUIPO no cuenta a quien hoy está de vacaciones</b>, y eso no es un detalle:
+    /// la regla de esta pantalla es que las vacaciones ganan a todo lo demás —da igual lo que tenga
+    /// abierto quien hoy no está—, así que sumarle sus cuarenta horas a la capacidad del equipo
+    /// prometería un trabajo que nadie va a hacer. La explicación dice por cuántas personas se
+    /// multiplica, para que el número se pueda comprobar.</para>
+    /// </summary>
+    private static List<IndicadorDto> IndicadoresDeCapacidad(List<CapacityRow> filas, double capacidadHoras)
+    {
+        int disponibles = filas.Count(x => x.Estado != Disponibilidad.DeVacaciones);
+
+        return
+        [
+            new IndicadorDto("Capacidad por persona", $"{capacidadHoras:0} h", TonoDeIndicador.Neutro,
+                "Horas de trabajo que se consideran una carga completa para una persona. " +
+                "Por encima de eso se marca «Sobrecargado»."),
+            new IndicadorDto("Capacidad del equipo", $"{capacidadHoras * disponibles:0} h",
+                TonoDeIndicador.Neutro,
+                $"{disponibles} persona(s) disponible(s) × {capacidadHoras:0} h. " +
+                "No cuenta a quien está de vacaciones hoy."),
+            new IndicadorDto("🟢 Libres", filas.Count(x => x.Estado == Disponibilidad.Libre).ToString(),
+                TonoDeIndicador.Exito, "Sin nada abierto: ni requerimientos ni actividades del pool."),
+            new IndicadorDto("🟡 Ocupados", filas.Count(x => x.Estado == Disponibilidad.Ocupado).ToString(),
+                TonoDeIndicador.Aviso, "Con trabajo, dentro de su capacidad."),
+            new IndicadorDto("🔴 Sobrecargados", filas.Count(x => x.Estado == Disponibilidad.Sobrecargado).ToString(),
+                TonoDeIndicador.Peligro,
+                $"Con más de {capacidadHoras:0} horas estimadas pendientes."),
+            new IndicadorDto("🏖 De vacaciones", filas.Count(x => x.Estado == Disponibilidad.DeVacaciones).ToString(),
+                TonoDeIndicador.Neutro, "De vacaciones aprobadas HOY."),
+        ];
+    }
 
     private static TonoDeIndicador TonoDeClase(EstimationClass c) => c switch
     {

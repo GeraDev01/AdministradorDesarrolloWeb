@@ -375,11 +375,30 @@
             </RadzenCard>
         }
 
+        @*
+            EL DOBLE CLIC ABRE EL DETALLE DE LA FILA. Lo que se viene a leer aquí es la RESPUESTA
+            DEL LÍDER —el motivo de un rechazo—, y eso es texto libre que en su celda se lee
+            recortado; el motivo que uno escribió y las notas, igual. Ensanchar esas columnas no era
+            salida: la fila pasaría a medir tres renglones y la lista dejaría de barrerse.
+
+            Mismo cuadro y mismo gesto que en AusenciasLider/Permisos.razor, y puestos A LA VEZ: es
+            el mismo permiso visto por los dos lados, igual que ya pasa con el punto de color del
+            estado. Que se abriera solo por un lado sería la asimetría que nadie sabe explicar.
+
+            Esta rejilla no lleva selección enlazada, así que el doble clic no descoloca nada: el
+            asistente de alta y el panel de adjuntar los abre su botón, no el clic en la fila.
+        *@
         <RadzenDataGrid data-recorrido="permisos-lista"
                         TItem="SolicitudDePermisoDto" Data="@d.Solicitudes" IsLoading="@_ocupado"
-                        AllowSorting="true" AllowPaging="true" PageSize="15"
+                        AllowSorting="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="15" AllowColumnResize="true"
+                        RowDoubleClick="@(l => Avisos.VerDetalleAsync(DetalleDe(l.Data)))"
                         EmptyText="Todavía no has solicitado ningún permiso.">
             <Columns>
+                @* Sin Sortable: es el camino al detalle para quien navega con el teclado, que no
+                   tiene doble clic, y para quien no sabe que las filas se abren —nada lo anuncia—. *@
+                <RadzenDataGridColumn TItem="SolicitudDePermisoDto" Title="" Width="52px" Sortable="false">
+                    <Template Context="l"><BotonDeDetalle Detalle="@DetalleDe(l)" /></Template>
+                </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="SolicitudDePermisoDto" Title="Estado" Property="Estado" Width="130px">
                     @* El punto de color, que aquí estuvo BLOQUEADO y ya no lo está. Lo bloqueaba el
                        servidor: la etiqueta llegaba hecha y CON EMOJI («⏳ Pendiente», «✅ Aprobada»…),
@@ -918,6 +937,29 @@
             : $"{p.Motivo ?? "(sin motivo)"}\n\nNotas:\n{p.Notas}";
 
     private static long Megas(MisPermisosDto d) => d.MaxJustificanteBytes / (1024 * 1024);
+
+    /// <summary>
+    /// Lo que enseña el cuadro de detalle de un permiso. Mismo orden que la rejilla —para que la
+    /// fila y el cuadro se lean igual— y los tres textos libres (motivo, notas y la respuesta del
+    /// líder) como TEXTO LARGO: son la razón de que este cuadro exista.
+    ///
+    /// <para>Es la gemela de <c>DetalleDe</c> en AusenciasLider/Permisos.razor y enseña los mismos
+    /// campos, salvo el desarrollador —aquí siempre soy yo— y «Resolvió», que ese DTO trae y éste
+    /// no. Los valores llegan YA ESCRITOS y con el formato de la celda: formatearlos otra vez aquí
+    /// dejaría la misma fila diciendo dos cosas distintas según dónde se mirara.</para>
+    /// </summary>
+    private static DetalleDeFila DetalleDe(SolicitudDePermisoDto l) =>
+        new DetalleDeFila("Mi permiso", l.EtiquetaTipo)
+            .Campo("Estado", l.EtiquetaEstado)
+            .Campo("Tipo", l.EtiquetaTipo)
+            .Campo("Desde", l.Desde.ToString("dd/MM/yyyy"))
+            .Campo("Hasta", l.Hasta.ToString("dd/MM/yyyy"))
+            .Campo("Duración", l.Duracion)
+            .Campo("Justificante", l.TieneJustificante ? "Sí, lo adjunté" : null)
+            .Campo("Origen", l.LoRegistroElLider ? "Lo registró el líder" : "Lo pedí yo")
+            .Texto("Motivo", l.Motivo)
+            .Texto("Notas", l.Notas)
+            .Texto("Respuesta del líder", l.RespuestaDelLider);
 
     public void Dispose()
     {

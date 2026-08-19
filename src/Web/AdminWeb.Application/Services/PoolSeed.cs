@@ -25,14 +25,23 @@ public static class PoolSeed
     {
         PoolWorkType.Bug           => PrefijoCriterio + "Bug",
         PoolWorkType.Tarea         => PrefijoCriterio + "Tarea",
+        // Criterio PROPIO y no compartido con «Bug», aunque el retrabajo sea un bug: es lo que hace
+        // que sus puntos —que restan— se puedan sumar aparte en el desempeño y en los reportes sin
+        // tener que ir a mirar de qué actividad venía cada entrada.
+        PoolWorkType.Retrabajo     => PrefijoCriterio + "Retrabajo",
         _                          => PrefijoCriterio + "Requerimiento"
     };
 
     public static string Etiqueta(PoolWorkType tipo) => tipo switch
     {
-        PoolWorkType.Bug   => "Bug",
-        PoolWorkType.Tarea => "Tarea",
-        _                  => "Requerimiento"
+        PoolWorkType.Bug       => "Bug",
+        PoolWorkType.Tarea     => "Tarea",
+        // «Retrabajo» a secas y no «Bug de algo ya entregado»: esta etiqueta va en una columna de
+        // 120 px y en un desplegable, y lo que la explica —de dónde sale y por qué resta— está en el
+        // manual y en el propio desplegable de publicar. Una etiqueta que no cabe se recorta, y
+        // recortada dice «Bug de algo ya…», que es peor que la palabra corta.
+        PoolWorkType.Retrabajo => "Retrabajo",
+        _                      => "Requerimiento"
     };
 
     public static string Etiqueta(PoolComplexity complejidad) => complejidad switch
@@ -57,6 +66,11 @@ public static class PoolSeed
         // Se dice lo que ESPERA, no de dónde vino: quien la mira necesita saber que la pelota está
         // en su tejado. De dónde salió lo cuenta el vínculo con el work item, que ya está a la vista.
         PoolActivityStatus.PorClasificar => "Por clasificar",
+        // La hizo el líder y por eso no la tomó nadie. Se nombra POR QUIÉN LA HIZO y no «Cerrada
+        // sin puntos», que es lo que se pensó primero: quien barre esta columna quiere saber que ese
+        // trabajo ya está resuelto y quién lo resolvió; que no diera puntos es la consecuencia, y se
+        // lee en la columna de puntos, que enseña un cero.
+        PoolActivityStatus.Propia        => "La hizo el líder",
         _                             => "Retirada"
     };
 
@@ -79,7 +93,8 @@ public static class PoolSeed
         PoolActivityStatus.Tomada        => 3,   // en marcha
         PoolActivityStatus.Disponible    => 4,   // esperando a que alguien la tome
         PoolActivityStatus.Aceptada      => 5,
-        _                                => 6    // Retirada
+        PoolActivityStatus.Propia        => 6,   // ya está hecha; no reclama nada
+        _                                => 7    // Retirada
     };
 
     /// <summary>
@@ -116,6 +131,19 @@ public static class PoolSeed
         (PoolWorkType.Requerimiento, PoolComplexity.Media,  12,  64m),
         (PoolWorkType.Requerimiento, PoolComplexity.Alta,   18, 104m),
         (PoolWorkType.Requerimiento, PoolComplexity.MuyAlta, 25, 160m),
+
+        // EL RETRABAJO RESTA, y resta lo mismo que habría sumado el bug equivalente. No es un
+        // castigo inventado: es dejar en cero el balance de «entregué de más y lo corrijo después».
+        // Con la mitad, entregar sin terminar seguiría saliendo a cuenta; con el doble, un error
+        // honesto en algo grande borraría el mes entero de quien lo cometió.
+        //
+        // Los PLAZOS son los del bug y en positivo, porque un plazo no es un premio: son las horas
+        // que se conceden para arreglarlo, y arreglarlo urge igual —más, siendo algo que el cliente
+        // ya tiene en las manos—.
+        (PoolWorkType.Retrabajo,     PoolComplexity.Baja,    -5,  24m),
+        (PoolWorkType.Retrabajo,     PoolComplexity.Media,   -8,  40m),
+        (PoolWorkType.Retrabajo,     PoolComplexity.Alta,   -12,  64m),
+        (PoolWorkType.Retrabajo,     PoolComplexity.MuyAlta, -18, 104m),
     ];
 
     /// <summary>
@@ -140,6 +168,15 @@ public static class PoolSeed
         (PoolWorkType.Requerimiento, "Pull request enlazado", true),
         (PoolWorkType.Requerimiento, "Pruebas realizadas", false),
         (PoolWorkType.Requerimiento, "Entregado y aceptado por quien lo pidió", false),
+
+        // El del retrabajo NO es el del bug con otro nombre. Un bug del pool se corrige y ya; aquí
+        // hay una pregunta más que sí o sí hay que contestar —por qué se escapó— porque es lo único
+        // que evita el siguiente. Y hay que avisar a quien ya tiene esa entrega funcionando.
+        (PoolWorkType.Retrabajo, "Identifiqué en qué entrega se introdujo", true),
+        (PoolWorkType.Retrabajo, "Escribí por qué no se detectó antes de entregar", false),
+        (PoolWorkType.Retrabajo, "Pull request enlazado", true),
+        (PoolWorkType.Retrabajo, "Probé el caso que falló y los de alrededor", false),
+        (PoolWorkType.Retrabajo, "Avisé a quien ya tenía la entrega", false),
     ];
 
     /// <summary>

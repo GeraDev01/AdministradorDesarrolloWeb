@@ -90,7 +90,7 @@
 
                         <RadzenDataGrid data-recorrido="vinculos-rejilla"
                                         TItem="VinculoDto" Data="@_datos.Vinculos" IsLoading="@_ocupado"
-                                        AllowSorting="true" AllowPaging="true" PageSize="15"
+                                        AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.ArribaYAbajo" PageSize="15"
                                         EmptyText="Todavía no hay vínculos. Créalos en la otra pestaña.">
                             <Columns>
                                 <RadzenDataGridColumn TItem="VinculoDto" Property="NumeroDevOps" Title="# DevOps" Width="100px">
@@ -213,7 +213,7 @@
                                         </RadzenText>
 
                                         <RadzenDataGrid TItem="WorkItemParaVincularDto" Data="@_datos.DevOps.Filas"
-                                                        IsLoading="@_ocupado" AllowSorting="true" AllowPaging="true" PageSize="10"
+                                                        IsLoading="@_ocupado" AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.EnEspanol" PageSize="10"
                                                         SelectionMode="DataGridSelectionMode.Single"
                                                         Value="@_seleccionDevOps" ValueChanged="@SeleccionarWorkItem"
                                                         EmptyText="Ningún work item cumple el filtro.">
@@ -299,7 +299,7 @@
                                         </RadzenText>
 
                                         <RadzenDataGrid TItem="TicketParaVincularDto" Data="@_datos.Freshdesk.Filas"
-                                                        IsLoading="@_ocupado" AllowSorting="true" AllowPaging="true" PageSize="10"
+                                                        IsLoading="@_ocupado" AllowSorting="true" AllowColumnResize="true" AllowPaging="true" @attributes="@Paginador.EnEspanol" PageSize="10"
                                                         SelectionMode="DataGridSelectionMode.Single"
                                                         Value="@_seleccionFreshdesk" ValueChanged="@SeleccionarTicket"
                                                         EmptyText="Ningún ticket cumple el filtro.">
