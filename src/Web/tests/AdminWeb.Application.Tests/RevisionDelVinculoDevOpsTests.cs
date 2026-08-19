@@ -93,6 +93,8 @@ public class RevisionDelVinculoDevOpsTests : IDisposable
         public Task<string> SubirAdjuntoAsync(CredencialesDevOps c, byte[] b, string n, CancellationToken ct = default) => No<Task<string>>();
         public Task<(string nombre, string correo)> ReasignarAsync(CredencialesDevOps c, int n, string? correo, CancellationToken ct = default) => No<Task<(string, string)>>();
         public Task<string> CambiarEstadoAsync(CredencialesDevOps c, int n, string e, CancellationToken ct = default) => No<Task<string>>();
+        public Task<ColumnaDeTablero> CambiarColumnaAsync(CredencialesDevOps c, int n, string col, bool m, CancellationToken ct = default) => No<Task<ColumnaDeTablero>>();
+        public Task<ColumnaDeTablero> LeerColumnaAsync(CredencialesDevOps c, int n, CancellationToken ct = default) => No<Task<ColumnaDeTablero>>();
         public Task<bool> SumarTrabajoCompletadoAsync(CredencialesDevOps c, int n, double h, bool r, CancellationToken ct = default) => No<Task<bool>>();
         public Task<IReadOnlyList<BugHijoDevOps>> ObtenerBugsHijosAsync(CredencialesDevOps c, int n, CancellationToken ct = default) => No<Task<IReadOnlyList<BugHijoDevOps>>>();
         public Task<IReadOnlyList<CambioDeAsignacionDevOps>> ObtenerHistorialDeAsignacionAsync(CredencialesDevOps c, int n, CancellationToken ct = default) => No<Task<IReadOnlyList<CambioDeAsignacionDevOps>>>();

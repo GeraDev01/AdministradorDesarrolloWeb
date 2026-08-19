@@ -83,6 +83,10 @@ public partial class PoolDevOpsService(
     /// </summary>
     public static readonly TimeSpan Paciencia = TimeSpan.FromSeconds(15);
 
+    /// <summary>Lo que cabe en <c>PoolActivity.DevOpsEstadoEnviado</c>. Anotar el estado y la columna
+    /// juntos puede pasarse de aquí, y pasarse no trunca: revienta el guardado.</summary>
+    private const int LargoDeLaMarcaDeEstado = 100;
+
     /// <summary>Tope de un comentario. Da para explicar un avance, no para pegar un volcado.</summary>
     public const int MaxComentario = 4000;
 
@@ -523,9 +527,9 @@ public partial class PoolDevOpsService(
             }
         }
 
-        // ── El estado ────────────────────────────────────────────────────────────
+        // ── El estado, y con él la columna ───────────────────────────────────────
         //
-        // Mover a «en progreso» va DETRÁS de asignar y no al revés, porque es el orden en que se
+        // Mover el work item va DETRÁS de asignar y no al revés, porque es el orden en que se
         // hace a mano y el que deja mejor el historial del work item: primero aparece a nombre de
         // alguien y después se mueve de columna. Al revés, durante un instante hay un ticket «en
         // progreso» sin dueño, que es justo lo que este automatismo existe para evitar.
@@ -533,8 +537,8 @@ public partial class PoolDevOpsService(
         {
             if (devopsMudo)
             {
-                problemas.Add("El work item no se llegó a mover a «en progreso», porque Azure DevOps " +
-                              "ya no había contestado antes.");
+                problemas.Add("El work item no se llegó a mover, porque Azure DevOps ya no había " +
+                              "contestado antes.");
             }
             else
             {
@@ -570,13 +574,57 @@ public partial class PoolDevOpsService(
                     var quedo = await devops.CambiarEstadoAsync(credenciales, numero, destino, espera);
                     estadoLlego = string.IsNullOrWhiteSpace(quedo) ? destino : quedo;
                     await ReflejarEstadoAsync(numero, estadoLlego, ct);
+
+                    // ── Y LA COLUMNA, si este tablero la necesita ────────────────
+                    //
+                    // Va en el MISMO paso que el estado y no en uno propio, a propósito: son la misma
+                    // decisión —«mover la tarjeta al tomarla»— y compartir la marca de agua evita una
+                    // columna más en la base y un segundo pendiente que mantener de acuerdo con el
+                    // primero. Si la columna falla, el paso entero se queda sin marcar y se reintenta:
+                    // volver a escribir el estado que ya está no cuesta nada.
+                    //
+                    // El orden importa: primero el estado, después la columna. Al revés, el cambio de
+                    // estado movería la tarjeta a la columna por omisión de ese estado y desharía lo
+                    // que se acabara de poner.
+                    var columna = await ColumnaAlTomarAsync(tipoDelTicket, ct);
+                    if (columna is not null)
+                    {
+                        // En su propio try para que el motivo hable de la COLUMNA. Compartiendo el de
+                        // arriba, un fallo aquí se contaría como «no se pudo mover al estado X», que
+                        // manda a mirar el ajuste equivocado — y el estado, de hecho, ya había
+                        // entrado.
+                        try
+                        {
+                            var quedoEn = await devops.CambiarColumnaAsync(
+                                credenciales, numero, columna.Value.nombre, columna.Value.mitadHecha, espera);
+
+                            // Se anotan las dos cosas juntas porque son un solo paso: si el estado
+                            // entró y la columna no, la marca se queda sin escribir y se reintenta
+                            // todo, que es lo correcto.
+                            // Recortado a lo que cabe en la marca de agua: si no cupiera, SQL
+                            // Server rechazaría el guardado entero y la actividad se quedaría sin
+                            // marca —reintentando para siempre algo que ya entró— por un nombre de
+                            // columna largo.
+                            if (!string.IsNullOrWhiteSpace(quedoEn.Columna))
+                            {
+                                var junto = $"{estadoLlego} · {quedoEn.Columna}";
+                                estadoLlego = junto.Length <= LargoDeLaMarcaDeEstado
+                                    ? junto : junto[..LargoDeLaMarcaDeEstado];
+                            }
+                        }
+                        catch (ErrorDeAzureDevOps ex)
+                        {
+                            estadoLlego = null;   // el paso no está completo: que se reintente
+                            problemas.Add($"El estado sí entró, pero no se pudo mover la tarjeta a la " +
+                                          $"columna «{columna.Value.nombre}»: {ex.Message} Las columnas " +
+                                          "son de cada TABLERO y se escriben con su nombre exacto, en " +
+                                          $"«{SettingsService.Claves.PoolDevOpsColumnaAlTomar}».");
+                        }
+                    }
                 }
                 catch (ErrorDeAzureDevOps ex)
                 {
                     // El mensaje de DevOps ante una transición inválida suele ENUMERAR los estados
-                    // válidos, así que se enseña entero y se nombra el que se intentó: es lo que
-                    // permite capturar el bueno en la configuración sin ir a adivinarlo al proyecto.
-                    // El mensaje de DevOps ante una transición invalida suele ENUMERAR los estados
                     // válidos de ESE tipo, así que se enseña entero junto con el tipo y el estado que
                     // se intentó: con las tres cosas, la configuración se corrige sin ir a adivinar
                     // nada al proyecto.
@@ -589,7 +637,7 @@ public partial class PoolDevOpsService(
                 catch (OperationCanceledException) when (!ct.IsCancellationRequested)
                 {
                     problemas.Add($"Azure DevOps no contestó en {Paciencia.TotalSeconds:0} segundos " +
-                                  "al mover el work item de columna.");
+                                  "al mover el work item.");
                 }
             }
         }
@@ -735,6 +783,61 @@ public partial class PoolDevOpsService(
             .FirstOrDefault();
 
         return enCurso?.Estado ?? EstadoEnProgresoPorOmision;
+    }
+
+    /// <summary>
+    /// A qué COLUMNA del tablero se mueve el work item de este tipo, o nulo si no hay que tocarla.
+    ///
+    /// <para><b>Casi siempre es nulo, y está bien.</b> Cada columna del tablero está mapeada a un
+    /// estado, así que cambiar el estado ya mueve la tarjeta: configurar la columna solo hace falta
+    /// en los tableros donde el estado NO la determina —dos columnas sobre el mismo estado, o
+    /// columnas partidas—, que es exactamente donde cambiar el estado deja la tarjeta en un sitio
+    /// que no es el que se quería.</para>
+    ///
+    /// <para>Se escribe igual que el estado, con los mismos pares por tipo, porque es la misma
+    /// pregunta hecha sobre otro campo: quien ya entendió uno no tiene que aprender otro formato. Y
+    /// el sufijo <c>|hecho</c> señala la mitad derecha de una columna partida, que no es una columna
+    /// aparte sino un booleano del tablero.</para>
+    /// </summary>
+    public async Task<(string nombre, bool mitadHecha)?> ColumnaAlTomarAsync(
+        string? tipoDeWorkItem, CancellationToken ct = default)
+    {
+        var (porTipo, general) = ParesDeEstadoPorTipo(
+            await configuracion.ObtenerAsync(SettingsService.Claves.PoolDevOpsColumnaAlTomar, ct));
+
+        string? valor = null;
+
+        if (!string.IsNullOrWhiteSpace(tipoDeWorkItem)
+            && porTipo.TryGetValue(tipoDeWorkItem.Trim(), out var delTipo))
+            valor = delTipo;
+        else
+            valor = general;
+
+        if (string.IsNullOrWhiteSpace(valor)) return null;
+
+        return SepararLaMitad(valor);
+    }
+
+    /// <summary>
+    /// Parte «Columna|hecho» en su nombre y su mitad.
+    ///
+    /// <para>El sufijo se admite en las dos lenguas con las que la gente lo escribe —«hecho» y
+    /// «done»— porque el tablero de DevOps lo llama «Done» y aquí todo lo demás está en español: no
+    /// obligar a acertar con cuál de las dos es lo que evita el ajuste que no hace nada y no dice por
+    /// qué.</para>
+    /// </summary>
+    public static (string nombre, bool mitadHecha) SepararLaMitad(string valor)
+    {
+        int barra = valor.LastIndexOf('|');
+        if (barra < 0) return (valor.Trim(), false);
+
+        var sufijo = valor[(barra + 1)..].Trim();
+        bool hecha = sufijo.Equals("hecho", StringComparison.OrdinalIgnoreCase)
+                  || sufijo.Equals("done", StringComparison.OrdinalIgnoreCase);
+
+        // Un sufijo que no se reconoce NO se traga: forma parte del nombre de la columna, que puede
+        // llevar una barra perfectamente. Adivinar aquí borraría media columna en silencio.
+        return hecha ? (valor[..barra].Trim(), true) : (valor.Trim(), false);
     }
 
     /// <summary>

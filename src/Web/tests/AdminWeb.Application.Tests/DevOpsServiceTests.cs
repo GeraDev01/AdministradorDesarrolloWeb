@@ -103,6 +103,21 @@ internal sealed class ClienteDevOpsDePrueba : IClienteAzureDevOps
         return Task.FromResult(nuevoEstado);
     }
 
+    public Task<ColumnaDeTablero> CambiarColumnaAsync(
+        CredencialesDevOps credenciales, int numero, string columna, bool mitadHecha,
+        CancellationToken ct = default)
+    {
+        Registrar(credenciales);
+        return Task.FromResult(new ColumnaDeTablero(columna, mitadHecha));
+    }
+
+    public Task<ColumnaDeTablero> LeerColumnaAsync(
+        CredencialesDevOps credenciales, int numero, CancellationToken ct = default)
+    {
+        Registrar(credenciales);
+        return Task.FromResult(new ColumnaDeTablero("", false));
+    }
+
     public Task CambiarPrioridadAsync(
         CredencialesDevOps credenciales, int numero, int prioridad, CancellationToken ct = default)
     {

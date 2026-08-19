@@ -307,6 +307,13 @@ public static class AdministracionEndpoints
                 + "blanco («Bug=») significa no moverlo. Vacío del todo también sirve: se deduce de "
                 + "los estados que ya usan tus tickets.",
                 TipoDeCampoDeConfiguracion.Texto),
+            new(SettingsService.Claves.PoolDevOpsColumnaAlTomar,
+                "A qué columna del tablero se mueve (solo si el estado no basta)",
+                "Vacío es lo normal: cada columna está mapeada a un estado, así que cambiar el estado "
+                + "ya mueve la tarjeta. Esto hace falta cuando tu tablero tiene DOS columnas sobre el "
+                + "mismo estado, o columnas partidas. Mismo formato: «Bug=En curso; Task=Haciéndose», "
+                + "y «|hecho» al final para la mitad derecha de una columna partida.",
+                TipoDeCampoDeConfiguracion.Texto),
         ]),
     ];
 

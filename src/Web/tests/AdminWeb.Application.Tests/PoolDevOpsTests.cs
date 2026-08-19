@@ -162,7 +162,39 @@ public class PoolDevOpsTests : IDisposable
             if (FalloDeEstado != null) throw FalloDeEstado;
 
             EstadosEscritos.Add(nuevoEstado);
+            OrdenDeLosMovimientos.Add("estado");
             return Task.FromResult(nuevoEstado);
+        }
+
+        /// <summary>Si se pone, mover de columna lanza. Es el caso del tablero que no tiene esa
+        /// columna, o del work item que no está en ningún tablero.</summary>
+        public Exception? FalloDeColumna { get; set; }
+
+        public List<(string columna, bool mitadHecha)> ColumnasEscritas { get; } = [];
+
+        /// <summary>Estado y columna en el orden en que se mandaron. Dos listas separadas dicen QUÉ
+        /// se mandó pero no CUÁL fue antes, y aquí el orden es la mitad de lo que hay que probar.</summary>
+        public List<string> OrdenDeLosMovimientos { get; } = [];
+
+        public Task<ColumnaDeTablero> CambiarColumnaAsync(
+            CredencialesDevOps credenciales, int numero, string columna, bool mitadHecha,
+            CancellationToken ct = default)
+        {
+            Llamadas.Add(credenciales);
+            if (FalloDeColumna != null) throw FalloDeColumna;
+
+            ColumnasEscritas.Add((columna, mitadHecha));
+            OrdenDeLosMovimientos.Add("columna");
+            return Task.FromResult(new ColumnaDeTablero(columna, mitadHecha));
+        }
+
+        public Task<ColumnaDeTablero> LeerColumnaAsync(
+            CredencialesDevOps credenciales, int numero, CancellationToken ct = default)
+        {
+            Llamadas.Add(credenciales);
+            return Task.FromResult(ColumnasEscritas.Count == 0
+                ? new ColumnaDeTablero("", false)
+                : new ColumnaDeTablero(ColumnasEscritas[^1].columna, ColumnasEscritas[^1].mitadHecha));
         }
 
         // El resto no lo usa el pool: lanza en vez de contestar algo inventado, para que una prueba
@@ -1512,6 +1544,208 @@ public class PoolDevOpsTests : IDisposable
         Assert.False(ok);
         Assert.Contains(PoolDevOpsService.MaxEvidencias.ToString(), mensaje);
         Assert.Empty(cliente.AdjuntosSubidos);
+    }
+
+    // ── 10c. La COLUMNA del tablero ──────────────────────────────────────
+
+    /// <summary>
+    /// Sin ajuste de columna NO se manda ninguna: el estado ya mueve la tarjeta en los tableros
+    /// normales, y dos peticiones más por cada toma —una para descubrir el campo del tablero y otra
+    /// para escribirlo— no se pagan por nada.
+    /// </summary>
+    [Fact]
+    public async Task Tomar_sinAjusteDeColumna_noSeTocaLaColumna()
+    {
+        using var db = await BaseListaAsync();
+        var cliente = new DevOpsDeMentira();
+        int devId = NuevoDesarrollador(db);
+
+        var (_, _, actividad) = await Pool(db, Admin(), cliente).CrearAsync(Borrador(workItem: 4321));
+        await Pool(db, Dev(devId), cliente).TomarAsync(actividad!.Id, devId);
+
+        Assert.NotEmpty(cliente.EstadosEscritos);      // el estado sí
+        Assert.Empty(cliente.ColumnasEscritas);        // la columna no
+    }
+
+    /// <summary>
+    /// Con el ajuste puesto, al tomarla la tarjeta se mueve de columna —y el tipo del work item
+    /// decide a cuál, igual que con el estado.
+    /// </summary>
+    [Fact]
+    public async Task Tomar_conAjusteDeColumna_seMueveLaTarjeta()
+    {
+        using var db = await BaseListaAsync();
+        db.DevOpsTickets.Add(new DevOpsTicket
+        {
+            ExternalId = 4321, Title = "algo", State = "New", WorkItemType = "Bug"
+        });
+        db.AppSettings.Add(new AppSetting
+        {
+            Key = SettingsService.Claves.PoolDevOpsColumnaAlTomar,
+            Value = "Bug=Corrección; Task=En curso"
+        });
+        await db.SaveChangesAsync();
+
+        var cliente = new DevOpsDeMentira();
+        int devId = NuevoDesarrollador(db);
+
+        var (_, _, actividad) = await Pool(db, Admin(), cliente).CrearAsync(Borrador(workItem: 4321));
+        var (tomada, texto) = await Pool(db, Dev(devId), cliente).TomarAsync(actividad!.Id, devId);
+
+        Assert.True(tomada, texto);
+        Assert.Equal([("Corrección", false)], cliente.ColumnasEscritas);
+
+        // Y queda constancia de las DOS cosas en la misma marca, porque son un solo paso.
+        var fila = await LeerAsync(db, actividad.Id);
+        Assert.Contains("Corrección", fila!.DevOpsEstadoEnviado);
+        Assert.False(fila.EstadoPendienteDeEnviar);
+    }
+
+    /// <summary>
+    /// El estado va PRIMERO y la columna después. Al revés, el cambio de estado arrastraría la
+    /// tarjeta a la columna por omisión de ese estado y desharía lo que se acabara de poner —que es
+    /// justo lo único que esta función viene a arreglar.
+    /// </summary>
+    [Fact]
+    public async Task Tomar_elEstadoVaAntesQueLaColumna()
+    {
+        using var db = await BaseListaAsync();
+        db.AppSettings.Add(new AppSetting
+        {
+            Key = SettingsService.Claves.PoolDevOpsColumnaAlTomar, Value = "En curso"
+        });
+        await db.SaveChangesAsync();
+
+        var cliente = new DevOpsDeMentira();
+        int devId = NuevoDesarrollador(db);
+
+        var (_, _, actividad) = await Pool(db, Admin(), cliente).CrearAsync(Borrador(workItem: 4321));
+        await Pool(db, Dev(devId), cliente).TomarAsync(actividad!.Id, devId);
+
+        Assert.Equal(["estado", "columna"], cliente.OrdenDeLosMovimientos);
+    }
+
+    /// <summary>La mitad derecha de una columna partida llega como el booleano aparte que es, y no
+    /// pegada al nombre de la columna —que sería una columna inexistente.</summary>
+    [Fact]
+    public async Task Tomar_conColumnaPartida_laMitadViajaAparte()
+    {
+        using var db = await BaseListaAsync();
+        db.AppSettings.Add(new AppSetting
+        {
+            Key = SettingsService.Claves.PoolDevOpsColumnaAlTomar, Value = "En curso|hecho"
+        });
+        await db.SaveChangesAsync();
+
+        var cliente = new DevOpsDeMentira();
+        int devId = NuevoDesarrollador(db);
+
+        var (_, _, actividad) = await Pool(db, Admin(), cliente).CrearAsync(Borrador(workItem: 4321));
+        await Pool(db, Dev(devId), cliente).TomarAsync(actividad!.Id, devId);
+
+        Assert.Equal([("En curso", true)], cliente.ColumnasEscritas);
+    }
+
+    /// <summary>
+    /// Si la columna falla, el paso entero se queda PENDIENTE aunque el estado sí hubiera entrado.
+    ///
+    /// <para>Marcarlo como hecho dejaría la tarjeta en la columna equivocada para siempre, sin nada
+    /// que lo reintentara. Volver a escribir el estado que ya está no cuesta nada, así que el
+    /// reintento del paso completo es lo barato.</para>
+    /// </summary>
+    [Fact]
+    public async Task Tomar_siLaColumnaFalla_elPasoSeQuedaPendiente()
+    {
+        using var db = await BaseListaAsync();
+        db.AppSettings.Add(new AppSetting
+        {
+            Key = SettingsService.Claves.PoolDevOpsColumnaAlTomar, Value = "Inventada"
+        });
+        await db.SaveChangesAsync();
+
+        var cliente = new DevOpsDeMentira
+        {
+            FalloDeColumna = new ErrorDeAzureDevOps(
+                "El valor «Inventada» no está entre los permitidos para el campo de columna.")
+        };
+        int devId = NuevoDesarrollador(db);
+
+        var (_, _, actividad) = await Pool(db, Admin(), cliente).CrearAsync(Borrador(workItem: 4321));
+        var (tomada, texto) = await Pool(db, Dev(devId), cliente).TomarAsync(actividad!.Id, devId);
+
+        Assert.True(tomada, texto);   // tomarla no depende de que DevOps coopere
+
+        var fila = await LeerAsync(db, actividad.Id);
+        Assert.Null(fila!.DevOpsEstadoEnviado);
+        Assert.True(fila.EstadoPendienteDeEnviar);
+
+        // Y el motivo habla de la COLUMNA y de su ajuste, no del estado: mandar a mirar el ajuste del
+        // estado —que sí había funcionado— es media hora perdida.
+        Assert.Contains("columna", fila.DevOpsUltimoError!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(SettingsService.Claves.PoolDevOpsColumnaAlTomar, fila.DevOpsUltimoError);
+    }
+
+    /// <summary>
+    /// Un work item que no está en ningún tablero no tumba la toma ni pierde la asignación: se
+    /// cuenta y se reintenta. Pasa con las tareas hijas y con las áreas de otro equipo, que no son un
+    /// error de configuración de nadie.
+    /// </summary>
+    [Fact]
+    public async Task Tomar_siElWorkItemNoEstaEnUnTablero_laTomaSigueEnPie()
+    {
+        using var db = await BaseListaAsync();
+        db.AppSettings.Add(new AppSetting
+        {
+            Key = SettingsService.Claves.PoolDevOpsColumnaAlTomar, Value = "En curso"
+        });
+        await db.SaveChangesAsync();
+
+        var cliente = new DevOpsDeMentira
+        {
+            FalloDeColumna = new ErrorDeAzureDevOps(
+                "El work item #4321 no pertenece a ningún tablero de este proyecto.")
+        };
+        int devId = NuevoDesarrollador(db);
+
+        var (_, _, actividad) = await Pool(db, Admin(), cliente).CrearAsync(Borrador(workItem: 4321));
+        var (tomada, _) = await Pool(db, Dev(devId), cliente).TomarAsync(actividad!.Id, devId);
+
+        Assert.True(tomada);
+
+        var fila = await LeerAsync(db, actividad.Id);
+        Assert.Equal(devId, fila!.DevOpsAsignadoADeveloperId);   // la asignación sí entró
+        Assert.False(fila.AsignacionPendienteDeEnviar);
+        Assert.Contains("tablero", fila.DevOpsUltimoError!);
+    }
+
+    /// <summary>
+    /// La marca de agua se recorta a lo que cabe en su columna.
+    ///
+    /// <para>Guarda el estado y la columna juntos, y en SQL Server pasarse de <c>nvarchar(100)</c> no
+    /// trunca: rechaza el guardado. Sin recorte, un nombre de columna largo dejaría la actividad sin
+    /// marca reintentando para siempre un movimiento que ya había entrado.</para>
+    /// </summary>
+    [Fact]
+    public async Task Tomar_conUnaColumnaDeNombreLargo_laMarcaCabeEnSuColumna()
+    {
+        using var db = await BaseListaAsync();
+        db.AppSettings.Add(new AppSetting
+        {
+            Key = SettingsService.Claves.PoolDevOpsColumnaAlTomar, Value = new string('C', 120)
+        });
+        await db.SaveChangesAsync();
+
+        var cliente = new DevOpsDeMentira();
+        int devId = NuevoDesarrollador(db);
+
+        var (_, _, actividad) = await Pool(db, Admin(), cliente).CrearAsync(Borrador(workItem: 4321));
+        await Pool(db, Dev(devId), cliente).TomarAsync(actividad!.Id, devId);
+
+        var fila = await LeerAsync(db, actividad.Id);
+        Assert.NotNull(fila!.DevOpsEstadoEnviado);
+        Assert.True(fila.DevOpsEstadoEnviado!.Length <= 100,
+                    $"la marca mide {fila.DevOpsEstadoEnviado.Length} y la columna admite 100");
+        Assert.False(fila.EstadoPendienteDeEnviar);
     }
 
     // ── 11. Un ticket sin sincronizar se puede ligar igual ───────────────────────

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Text.Json;
 
 namespace AdminWeb.Infrastructure.Integraciones;
@@ -59,6 +60,17 @@ public sealed record ComentarioDevOps(string Texto, string Autor, DateTime Cread
 
 /// <summary>Un bug colgado como hijo de un work item.</summary>
 public sealed record BugHijoDevOps(int Id, string Titulo, string Estado, string Url);
+
+/// <summary>
+/// En qué columna del tablero está un work item, y si está en la mitad derecha de una columna
+/// partida.
+///
+/// <para>Columna y estado NO son lo mismo, aunque casi siempre vayan juntos: el estado es del work
+/// item y la columna es del TABLERO de un equipo. Un tablero puede tener dos columnas sobre el mismo
+/// estado —«Análisis» y «En desarrollo», las dos sobre «Approved»— y entonces cambiar el estado no
+/// basta para decidir en cuál cae la tarjeta.</para>
+/// </summary>
+public sealed record ColumnaDeTablero(string Columna, bool MitadHecha);
 
 /// <summary>Un cambio de dueño, según el historial de revisiones del work item.</summary>
 public sealed record CambioDeAsignacionDevOps(DateTime Fecha, string? De, string? A, string? CorreoDeA);
@@ -145,9 +157,24 @@ public interface IClienteAzureDevOps
     Task<(string nombre, string correo)> ReasignarAsync(
         CredencialesDevOps credenciales, int numero, string? correoOVacio, CancellationToken ct = default);
 
-    /// <summary>Cambia System.State («mover de columna»). Devuelve el estado que quedó.</summary>
+    /// <summary>Cambia System.State. Devuelve el estado que quedó.</summary>
     Task<string> CambiarEstadoAsync(
         CredencialesDevOps credenciales, int numero, string nuevoEstado, CancellationToken ct = default);
+
+    /// <summary>
+    /// Mueve el work item a una COLUMNA del tablero, que no es lo mismo que cambiarle el estado.
+    ///
+    /// <para>Hace falta cuando el estado no determina la columna: tableros con dos columnas sobre el
+    /// mismo estado, o con columnas partidas. Descubre el campo del tablero leyendo el propio work
+    /// item, porque su nombre lleva dentro el identificador del tablero y ése cambia por equipo.</para>
+    /// </summary>
+    Task<ColumnaDeTablero> CambiarColumnaAsync(
+        CredencialesDevOps credenciales, int numero, string columna, bool mitadHecha,
+        CancellationToken ct = default);
+
+    /// <summary>En qué columna está ahora. Para poder enseñarlo sin cambiar nada.</summary>
+    Task<ColumnaDeTablero> LeerColumnaAsync(
+        CredencialesDevOps credenciales, int numero, CancellationToken ct = default);
 
     Task CambiarPrioridadAsync(
         CredencialesDevOps credenciales, int numero, int prioridad, CancellationToken ct = default);
@@ -192,7 +219,7 @@ public interface IClienteAzureDevOps
 /// máquina; en un servidor eso agota los sockets, porque cada instancia deja su conexión en
 /// TIME_WAIT durante minutos.
 /// </summary>
-public class AzureDevOpsService(HttpClient http) : IClienteAzureDevOps
+public partial class AzureDevOpsService(HttpClient http) : IClienteAzureDevOps
 {
     /// <summary>Campo de DevOps donde vive la estimación. Es el que pidió el equipo.</summary>
     public const string CampoEsfuerzo = "Microsoft.VSTS.Scheduling.Effort";
@@ -369,6 +396,117 @@ public class AzureDevOpsService(HttpClient http) : IClienteAzureDevOps
             ? estado.GetString() ?? nuevoEstado
             : nuevoEstado;
     }
+
+    /// <inheritdoc />
+    public async Task<ColumnaDeTablero> CambiarColumnaAsync(
+        CredencialesDevOps credenciales, int numero, string columna, bool mitadHecha,
+        CancellationToken ct = default)
+    {
+        // ── Por qué hay que LEER antes de escribir ───────────────────────────────
+        //
+        // La columna del tablero NO se escribe en «System.BoardColumn»: ese campo es calculado y de
+        // solo lectura, y DevOps rechaza el parche. La que se escribe es «WEF_{guid}_Kanban.Column»,
+        // donde el guid es el del TABLERO —uno por equipo—, así que el nombre del campo no se puede
+        // saber de antemano: hay que descubrirlo en el propio work item.
+        //
+        // Se pide sin filtro de campos a propósito: los WEF_ no salen si se piden por nombre, porque
+        // para pedirlos por nombre habría que saberlos ya.
+        var campos = await CamposDeTableroAsync(credenciales, numero, ct);
+
+        if (campos.CampoColumna is null)
+            throw new ErrorDeAzureDevOps(
+                $"El work item #{numero} no pertenece a ningún tablero de este proyecto, así que no " +
+                "tiene columna que cambiar. Suele pasar con los tipos que no aparecen en el tablero " +
+                "—una tarea hija, por ejemplo— o cuando el área del work item es de otro equipo.");
+
+        var parche = new List<object>
+        {
+            new { op = "add", path = $"/fields/{campos.CampoColumna}", value = columna }
+        };
+
+        // La mitad derecha de una columna partida es un campo aparte y BOOLEANO, no un estado ni un
+        // nombre de columna. Solo se manda si el tablero tiene esa columna partida: en un tablero sin
+        // partir el campo no existe y mandarlo haría fallar el parche entero.
+        if (campos.CampoMitadHecha is not null)
+            parche.Add(new { op = "add", path = $"/fields/{campos.CampoMitadHecha}", value = mitadHecha });
+
+        var payload = await ParchearAsync(credenciales, numero, parche.ToArray(),
+            $"mover el ticket a la columna «{columna}»", ct);
+
+        using var doc = JsonDocument.Parse(payload);
+        return LeerColumna(doc.RootElement);
+    }
+
+    /// <inheritdoc />
+    public async Task<ColumnaDeTablero> LeerColumnaAsync(
+        CredencialesDevOps credenciales, int numero, CancellationToken ct = default)
+    {
+        using var peticion = Nueva(HttpMethod.Get, credenciales,
+            $"{credenciales.OrgUrl}/{Uri.EscapeDataString(credenciales.Proyecto)}" +
+            $"/_apis/wit/workitems/{numero}?api-version=7.0");
+
+        using var respuesta = await EnviarAsync(peticion, ct);
+        await ExigirExitoAsync(respuesta, $"leer la columna del ticket #{numero}", ct);
+
+        using var doc = JsonDocument.Parse(await respuesta.Content.ReadAsStringAsync(ct));
+        return LeerColumna(doc.RootElement);
+    }
+
+    /// <summary>
+    /// Los nombres de los campos de tablero de ESTE work item, descubiertos leyéndolo.
+    ///
+    /// <para>Se buscan por forma y no por una lista escrita: «WEF_», el identificador del tablero y
+    /// el sufijo. Escribir el guid a fuego ataría la aplicación a un tablero concreto, y basta con
+    /// que alguien cree un equipo nuevo para que deje de valer.</para>
+    /// </summary>
+    private async Task<(string? CampoColumna, string? CampoMitadHecha)> CamposDeTableroAsync(
+        CredencialesDevOps credenciales, int numero, CancellationToken ct)
+    {
+        using var peticion = Nueva(HttpMethod.Get, credenciales,
+            $"{credenciales.OrgUrl}/{Uri.EscapeDataString(credenciales.Proyecto)}" +
+            $"/_apis/wit/workitems/{numero}?api-version=7.0");
+
+        using var respuesta = await EnviarAsync(peticion, ct);
+        await ExigirExitoAsync(respuesta, $"leer los campos del ticket #{numero}", ct);
+
+        using var doc = JsonDocument.Parse(await respuesta.Content.ReadAsStringAsync(ct));
+        if (!doc.RootElement.TryGetProperty("fields", out var campos)) return (null, null);
+
+        string? columna = null, mitad = null;
+        foreach (var campo in campos.EnumerateObject())
+        {
+            if (columna is null && CampoDeColumna().IsMatch(campo.Name)) columna = campo.Name;
+            else if (mitad is null && CampoDeMitadHecha().IsMatch(campo.Name)) mitad = campo.Name;
+        }
+
+        return (columna, mitad);
+    }
+
+    /// <summary>
+    /// En qué columna quedó, leído de los campos calculados que devuelve DevOps.
+    ///
+    /// <para>Aquí SÍ se lee «System.BoardColumn», que es de solo lectura pero perfectamente legible:
+    /// es lo que dice en qué columna acabó de verdad, que puede no ser la que se pidió si el tablero
+    /// tiene reglas propias.</para>
+    /// </summary>
+    private static ColumnaDeTablero LeerColumna(JsonElement raiz)
+    {
+        if (!raiz.TryGetProperty("fields", out var campos)) return new ColumnaDeTablero("", false);
+
+        var columna = campos.TryGetProperty("System.BoardColumn", out var c) ? c.GetString() ?? "" : "";
+        var hecha = campos.TryGetProperty("System.BoardColumnDone", out var d)
+                    && d.ValueKind == JsonValueKind.True;
+
+        return new ColumnaDeTablero(columna, hecha);
+    }
+
+    // El guid del tablero va en medio del nombre, así que el patrón es lo único estable. Con tiempo
+    // de espera acotado por lo mismo que los demás: el texto viene de un servidor ajeno.
+    [GeneratedRegex(@"^WEF_[0-9A-Fa-f]{32}_Kanban\.Column$", RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 1000)]
+    private static partial Regex CampoDeColumna();
+
+    [GeneratedRegex(@"^WEF_[0-9A-Fa-f]{32}_Kanban\.Column\.Done$", RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 1000)]
+    private static partial Regex CampoDeMitadHecha();
 
     /// <inheritdoc />
     public Task CambiarPrioridadAsync(

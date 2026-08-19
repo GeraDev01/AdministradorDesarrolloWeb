@@ -9,7 +9,8 @@ using Xunit;
 namespace AdminWeb.Application.Tests;
 
 /// <summary>
-/// A QUÉ ESTADO SE MUEVE EL WORK ITEM AL TOMAR SU ACTIVIDAD, que resultó depender del TIPO.
+/// ADÓNDE SE MUEVE EL WORK ITEM AL TOMAR SU ACTIVIDAD: a qué estado —que resultó depender del TIPO—
+/// y a qué columna del tablero.
 ///
 /// <para><b>De dónde sale esto.</b> La primera versión tenía un solo estado para todos los tipos y
 /// falló en producción: el proyecto real usa «Approved» para tareas y requerimientos y «New» para
@@ -197,6 +198,130 @@ public class EstadoAlTomarTests : IDisposable
                      await Puente(db).EstadoAlTomarAsync("Bug"));
     }
 
+    // ── La columna del tablero, que no es el estado ─────────────────────────────
+
+    /// <summary>
+    /// Sin ajuste NO se toca la columna, que es lo normal y tiene que seguir siéndolo.
+    ///
+    /// <para>En casi todos los tableros cada columna está mapeada a un estado, así que cambiar el
+    /// estado ya mueve la tarjeta. Escribir además la columna «por si acaso» costaría dos peticiones
+    /// más por cada toma y podría fallar en los work items que no están en ningún tablero.</para>
+    /// </summary>
+    [Fact]
+    public async Task SinAjuste_noSeTocaLaColumna()
+    {
+        using var db = BaseCon();
+        Assert.Null(await Puente(db).ColumnaAlTomarAsync("Bug"));
+    }
+
+    /// <summary>Se escribe con los mismos pares por tipo que el estado: es la misma pregunta sobre
+    /// otro campo, y aprender dos formatos para lo mismo es lo que hace que no se configure.</summary>
+    [Theory]
+    [InlineData("Bug", "Corrección")]
+    [InlineData("Task", "En curso")]
+    public async Task ElTipoDecideLaColumna(string tipo, string esperada)
+    {
+        using var db = BaseCon((SettingsService.Claves.PoolDevOpsColumnaAlTomar,
+                                "Bug=Corrección; Task=En curso"));
+
+        var columna = await Puente(db).ColumnaAlTomarAsync(tipo);
+
+        Assert.Equal(esperada, columna!.Value.nombre);
+        Assert.False(columna.Value.mitadHecha);
+    }
+
+    /// <summary>Y el valor suelto vale para los tipos que nadie nombró, igual que en el estado.</summary>
+    [Fact]
+    public async Task UnValorSuelto_valeParaLosTiposNoNombrados()
+    {
+        using var db = BaseCon((SettingsService.Claves.PoolDevOpsColumnaAlTomar, "En curso; Bug=Corrección"));
+
+        Assert.Equal("Corrección", (await Puente(db).ColumnaAlTomarAsync("Bug"))!.Value.nombre);
+        Assert.Equal("En curso", (await Puente(db).ColumnaAlTomarAsync("Feature"))!.Value.nombre);
+    }
+
+    /// <summary>Un tipo en blanco significa «esa columna no se toca», y hace falta para poder mover
+    /// unos tipos sí y otros no sin dejar de tener un valor general.</summary>
+    [Fact]
+    public async Task UnTipoEnBlanco_dejaLaColumnaQuieta()
+    {
+        using var db = BaseCon((SettingsService.Claves.PoolDevOpsColumnaAlTomar, "En curso; Bug="));
+
+        Assert.Null(await Puente(db).ColumnaAlTomarAsync("Bug"));
+        Assert.Equal("En curso", (await Puente(db).ColumnaAlTomarAsync("Task"))!.Value.nombre);
+    }
+
+    /// <summary>
+    /// La columna NO hereda del ajuste del estado. Son campos distintos con nombres distintos
+    /// —«Approved» es un estado y «Análisis» es una columna— y usar uno como el otro pediría a DevOps
+    /// una columna que no existe en el tablero.
+    /// </summary>
+    [Fact]
+    public async Task LaColumna_noSacaNadaDelAjusteDelEstado()
+    {
+        using var db = BaseCon((SettingsService.Claves.PoolDevOpsEstadoAlTomar, "Bug=New; Task=Approved"));
+
+        Assert.Null(await Puente(db).ColumnaAlTomarAsync("Bug"));
+        Assert.Null(await Puente(db).ColumnaAlTomarAsync("Task"));
+    }
+
+    // ── La mitad derecha de una columna partida ────────────────────────────────
+
+    /// <summary>Una columna sin sufijo cae en la mitad izquierda, que es «haciéndose».</summary>
+    [Fact]
+    public void SinSufijo_esLaMitadIzquierda()
+    {
+        var (nombre, hecha) = PoolDevOpsService.SepararLaMitad("  En curso  ");
+
+        Assert.Equal("En curso", nombre);
+        Assert.False(hecha);
+    }
+
+    /// <summary>El sufijo se admite en las dos lenguas: el tablero de DevOps lo llama «Done» y aquí
+    /// todo lo demás está en español, así que obligar a acertar con una sola sería un ajuste que no
+    /// hace nada y no dice por qué.</summary>
+    [Theory]
+    [InlineData("En curso|hecho")]
+    [InlineData("En curso|done")]
+    [InlineData("En curso | HECHO")]
+    public void ConSufijo_esLaMitadDerecha(string valor)
+    {
+        var (nombre, hecha) = PoolDevOpsService.SepararLaMitad(valor);
+
+        Assert.Equal("En curso", nombre);
+        Assert.True(hecha);
+    }
+
+    /// <summary>
+    /// Una barra que NO es el sufijo forma parte del nombre y se respeta entera.
+    ///
+    /// <para>Los nombres de columna los escribe quien configura el tablero y pueden llevar barra
+    /// —«Análisis/Diseño»—. Tragarse lo que hay tras la última barra mandaría a DevOps media columna
+    /// y el fallo diría que esa columna no existe, sin decir que se la comió esta función.</para>
+    /// </summary>
+    [Theory]
+    [InlineData("Análisis/Diseño")]
+    [InlineData("Análisis|Diseño")]
+    public void UnaBarraQueNoEsElSufijo_seQuedaEnElNombre(string valor)
+    {
+        var (nombre, hecha) = PoolDevOpsService.SepararLaMitad(valor);
+
+        Assert.Equal(valor, nombre);
+        Assert.False(hecha);
+    }
+
+    /// <summary>Y de punta a punta: el ajuste con sufijo llega separado a quien tiene que mandarlo.</summary>
+    [Fact]
+    public async Task ElSufijo_sobreviveAlAjuste()
+    {
+        using var db = BaseCon((SettingsService.Claves.PoolDevOpsColumnaAlTomar, "Task=En curso|hecho"));
+
+        var columna = await Puente(db).ColumnaAlTomarAsync("Task");
+
+        Assert.Equal("En curso", columna!.Value.nombre);
+        Assert.True(columna.Value.mitadHecha);
+    }
+
     // ── Andamiaje ────────────────────────────────────────────────────────────────
 
     private sealed class ProtectorDePrueba : IProtectorDeSecretos
@@ -219,6 +344,8 @@ public class EstadoAlTomarTests : IDisposable
         public Task<string> SubirAdjuntoAsync(CredencialesDevOps c, byte[] b, string n, CancellationToken ct = default) => No<Task<string>>();
         public Task<(string nombre, string correo)> ReasignarAsync(CredencialesDevOps c, int n, string? correo, CancellationToken ct = default) => No<Task<(string, string)>>();
         public Task<string> CambiarEstadoAsync(CredencialesDevOps c, int n, string e, CancellationToken ct = default) => No<Task<string>>();
+        public Task<ColumnaDeTablero> CambiarColumnaAsync(CredencialesDevOps c, int n, string col, bool m, CancellationToken ct = default) => No<Task<ColumnaDeTablero>>();
+        public Task<ColumnaDeTablero> LeerColumnaAsync(CredencialesDevOps c, int n, CancellationToken ct = default) => No<Task<ColumnaDeTablero>>();
         public Task CambiarPrioridadAsync(CredencialesDevOps c, int n, int p, CancellationToken ct = default) => No<Task>();
         public Task<(bool escrito, string aviso)> EscribirEstimacionAsync(CredencialesDevOps c, int n, double h, CancellationToken ct = default) => No<Task<(bool, string)>>();
         public Task<bool> SumarTrabajoCompletadoAsync(CredencialesDevOps c, int n, double h, bool r, CancellationToken ct = default) => No<Task<bool>>();

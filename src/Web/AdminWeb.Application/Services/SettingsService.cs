@@ -103,6 +103,21 @@ public class SettingsService(AppDbContext db, ICurrentUser currentUser, AuditSer
         public const string PoolDevOpsEstadoAlTomar = "pool.devops.estado-al-tomar";
 
         /// <summary>
+        /// A qué COLUMNA del tablero se mueve cada tipo de work item al tomar su actividad. Se
+        /// escribe igual que el estado: <c>Bug=En curso; Task=Haciéndose</c>.
+        ///
+        /// <para>Existe porque la columna no siempre se deduce del estado. Cada columna del tablero
+        /// está mapeada a un estado, así que cambiar el estado suele bastar; pero un tablero puede
+        /// tener DOS columnas sobre el mismo estado, y entonces el estado no puede decidir en cuál
+        /// cae la tarjeta. Vacío es lo normal: solo hace falta en esos tableros.</para>
+        ///
+        /// <para>Para la mitad derecha de una columna partida se añade <c>|hecho</c> al nombre:
+        /// <c>Task=En curso|hecho</c>. Esa mitad no es una columna ni un estado, es un booleano
+        /// aparte del tablero.</para>
+        /// </summary>
+        public const string PoolDevOpsColumnaAlTomar = "pool.devops.columna-al-tomar";
+
+        /// <summary>
         /// A nombre de quién están «mis» work items, para el alta automática en el pool. Uno o
         /// varios correos separados por comas.
         ///
