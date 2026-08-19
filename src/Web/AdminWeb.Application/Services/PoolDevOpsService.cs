@@ -538,7 +538,30 @@ public partial class PoolDevOpsService(
             }
             else
             {
-                var destino = await EstadoEnProgresoAsync(ct);
+                // El tipo del work item decide el estado, así que hay que leerlo. Puede no estar
+                // sincronizado aquí —el vínculo se escribe por número y vale igual—, y entonces solo
+                // se puede aplicar el valor general.
+                var tipoDelTicket = await db.DevOpsTickets.AsNoTracking()
+                    .Where(t => t.ExternalId == numero)
+                    .Select(t => t.WorkItemType)
+                    .FirstOrDefaultAsync(ct);
+
+                var destino = await EstadoAlTomarAsync(tipoDelTicket, ct);
+
+                if (destino is null)
+                {
+                    // Para este tipo se pidió NO moverlo. Se anota como resuelto —con el estado que
+                    // ya tiene— en vez de dejarlo pendiente: si no, la actividad se quedaría para
+                    // siempre en la lista de lo que falta por mandar, reclamando algo que nadie
+                    // quiere que ocurra.
+                    var actual = await db.DevOpsTickets.AsNoTracking()
+                        .Where(t => t.ExternalId == numero)
+                        .Select(t => t.State)
+                        .FirstOrDefaultAsync(ct);
+
+                    estadoLlego = string.IsNullOrWhiteSpace(actual) ? "(sin mover)" : actual;
+                }
+                else
                 try
                 {
                     // Se guarda lo que DevOps DIJO que quedó, no lo que se le pidió: hay plantillas
@@ -553,9 +576,15 @@ public partial class PoolDevOpsService(
                     // El mensaje de DevOps ante una transición inválida suele ENUMERAR los estados
                     // válidos, así que se enseña entero y se nombra el que se intentó: es lo que
                     // permite capturar el bueno en la configuración sin ir a adivinarlo al proyecto.
-                    problemas.Add($"No se pudo mover el work item a «{destino}»: {ex.Message} " +
-                                  "Si en este proyecto ese estado se llama de otra forma, escríbelo en " +
-                                  $"la configuración, en «{SettingsService.Claves.PoolDevOpsEstadoEnProgreso}».");
+                    // El mensaje de DevOps ante una transición invalida suele ENUMERAR los estados
+                    // válidos de ESE tipo, así que se enseña entero junto con el tipo y el estado que
+                    // se intentó: con las tres cosas, la configuración se corrige sin ir a adivinar
+                    // nada al proyecto.
+                    problemas.Add($"No se pudo mover el work item (tipo «{tipoDelTicket}») a " +
+                                  $"«{destino}»: {ex.Message} Los estados válidos dependen del TIPO; " +
+                                  "escribe el que corresponda en la configuración del pool, en " +
+                                  $"«{SettingsService.Claves.PoolDevOpsEstadoAlTomar}», con la forma " +
+                                  "«Bug=New; Task=Approved».");
                 }
                 catch (OperationCanceledException) when (!ct.IsCancellationRequested)
                 {
@@ -594,36 +623,111 @@ public partial class PoolDevOpsService(
     }
 
     /// <summary>
-    /// A qué estado se mueve el work item cuando alguien toma la actividad ligada a él.
+    /// A qué estado se mueve un work item cuando alguien toma la actividad ligada a él. Nulo = no se
+    /// mueve.
     ///
-    /// <para><b>Configurable, y si no, DEDUCIDO.</b> El nombre depende de la plantilla de proceso
-    /// —«Active» en Agile y CMMI, «Doing» en Basic, «In Progress» en algunos Scrum personalizados— y
-    /// escribir uno a fuego dejaría esto muerto el día que la organización cambiara de plantilla.
-    /// Pero exigir que alguien lo configure antes de que sirva de algo es peor: nadie configura lo
-    /// que no sabe que existe, y la asignación automática llegaría sin su otra mitad. Por eso, sin
-    /// ajuste, se mira qué estados usan de verdad los tickets ya sincronizados y se elige el más
-    /// común de los que significan «en desarrollo».</para>
+    /// <para><b>Depende del TIPO DE WORK ITEM, y ese fue el error de la primera versión.</b> Había un
+    /// solo estado para todos, y no puede haberlo: en DevOps los estados válidos son una propiedad
+    /// del tipo, no del proyecto. En una plantilla Scrum un Product Backlog Item pasa por «Approved»
+    /// y un Bug ni siquiera tiene ese estado; escribir el mismo nombre en los dos hace que uno de los
+    /// dos falle siempre, y falla con una transición rechazada por DevOps que nadie sabe interpretar.</para>
     ///
-    /// <para>El desempate es por nombre y no arbitrario: con dos estados igual de frecuentes, una
-    /// elección que cambiara entre arranques movería unos tickets a un estado y otros a otro sin que
-    /// nada lo explicara.</para>
+    /// <para><b>Y es el tipo de DEVOPS, no el del pool.</b> Nuestro tipo —Bug, Tarea,
+    /// Requerimiento— lo elige el líder al clasificar y puede no coincidir: un Bug de DevOps que
+    /// aquí se clasifica como Tarea seguiría siendo un Bug allá, y es allá donde se valida la
+    /// transición. Tomar el nuestro haría que la configuración funcionara casi siempre y fallara sin
+    /// explicación justo cuando los dos no coinciden.</para>
+    ///
+    /// <para><b>Cómo se escribe.</b> Un ajuste de texto con pares «tipo=estado» separados por comas o
+    /// punto y coma, y opcionalmente un valor suelto que vale para los tipos no nombrados:
+    /// <c>Bug=New; Task=Approved; Product Backlog Item=Approved</c>. Un tipo con el estado en blanco
+    /// —<c>Bug=</c>— significa NO MOVERLO, que es lo que hace falta cuando el estado inicial ya es el
+    /// bueno y no hay nada que cambiar.</para>
+    ///
+    /// <para>Sin nada configurado se mantiene lo de antes: se deduce del estado más común entre los
+    /// tickets ya sincronizados que signifiquen «en desarrollo», y en último extremo «Active». Nadie
+    /// configura lo que no sabe que existe, así que esto tiene que hacer algo razonable en vacío.</para>
     /// </summary>
-    public async Task<string> EstadoEnProgresoAsync(CancellationToken ct = default)
+    /// <param name="tipoDeWorkItem">
+    /// El tipo tal como lo llama DevOps («Bug», «Task», «User Story»…). Vacío cuando el ticket no
+    /// está sincronizado aquí: entonces solo se puede aplicar el valor general.
+    /// </param>
+    public async Task<string?> EstadoAlTomarAsync(string? tipoDeWorkItem, CancellationToken ct = default)
     {
-        var configurado = (await configuracion.ObtenerAsync(
+        var mapa = ParesDeEstadoPorTipo(
+            await configuracion.ObtenerAsync(SettingsService.Claves.PoolDevOpsEstadoAlTomar, ct));
+
+        // El tipo mandado gana sobre el general, y el general sobre lo deducido. Y el «=» vacío gana
+        // sobre todo: es la forma de decir «este tipo no se toca».
+        if (!string.IsNullOrWhiteSpace(tipoDeWorkItem)
+            && mapa.porTipo.TryGetValue(tipoDeWorkItem.Trim(), out var delTipo))
+            return string.IsNullOrWhiteSpace(delTipo) ? null : delTipo;
+
+        if (!string.IsNullOrWhiteSpace(mapa.general)) return mapa.general;
+
+        // La clave vieja, por si alguien la capturó antes de que esto fuera por tipo. Se lee después
+        // del mapa nuevo para que quien migre no tenga que borrarla primero.
+        var anterior = (await configuracion.ObtenerAsync(
             SettingsService.Claves.PoolDevOpsEstadoEnProgreso, ct))?.Trim();
+        if (!string.IsNullOrEmpty(anterior)) return anterior;
 
-        if (!string.IsNullOrEmpty(configurado)) return configurado;
+        return await DeducidoDeLosTicketsAsync(ct);
+    }
 
+    /// <summary>
+    /// Parte el ajuste en «lo que vale para un tipo» y «lo que vale para el resto».
+    ///
+    /// <para>Se admiten las dos formas en el mismo texto porque es lo que la gente escribe: un valor
+    /// suelto cuando todos los tipos van al mismo sitio, y pares cuando no. El tipo se compara sin
+    /// distinguir mayúsculas, que es como lo escribe cualquiera, pero conservando los espacios de
+    /// dentro: «Product Backlog Item» lleva dos.</para>
+    /// </summary>
+    /// <remarks>Pública y pura, por lo mismo que <see cref="ResolverWorkItem"/>: lo que la gente
+    /// teclea en un ajuste se prueba sin base y sin red, o no se prueba.</remarks>
+    public static (Dictionary<string, string> porTipo, string? general) ParesDeEstadoPorTipo(string? ajuste)
+    {
+        var porTipo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        string? general = null;
+
+        if (string.IsNullOrWhiteSpace(ajuste)) return (porTipo, general);
+
+        foreach (var trozo in ajuste.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            int igual = trozo.IndexOf('=');
+            if (igual < 0)
+            {
+                // Un valor suelto: el estado para los tipos que nadie nombró. Si vienen varios, manda
+                // el primero — inventar una mezcla sería peor que quedarse con lo que se leyó antes.
+                general ??= trozo;
+                continue;
+            }
+
+            var tipo = trozo[..igual].Trim();
+            var estado = trozo[(igual + 1)..].Trim();
+            if (tipo.Length > 0) porTipo[tipo] = estado;   // estado vacío = no mover, a propósito
+        }
+
+        return (porTipo, general);
+    }
+
+    /// <summary>
+    /// El estado más común, entre los tickets ya sincronizados, de los que significan «en
+    /// desarrollo». Es el respaldo cuando nadie ha configurado nada.
+    ///
+    /// <para>El mapeo es el MISMO que usa la importación para decidir qué es «en desarrollo». Que sea
+    /// el mismo importa: con una tabla propia aquí, un estado podría contar como en curso al mover el
+    /// ticket y como otra cosa al leerlo, dentro de la misma aplicación. Y el desempate es por nombre
+    /// y no arbitrario: con dos estados igual de frecuentes, una elección que cambiara entre
+    /// arranques movería unos tickets a un sitio y otros a otro sin que nada lo explicara.</para>
+    /// </summary>
+    private async Task<string> DeducidoDeLosTicketsAsync(CancellationToken ct)
+    {
         var porEstado = await db.DevOpsTickets.AsNoTracking()
             .Where(t => t.State != "")
             .GroupBy(t => t.State)
             .Select(g => new { Estado = g.Key, Cuantos = g.Count() })
             .ToListAsync(ct);
 
-        // El mapeo es el MISMO que usa la importación para decidir qué es «en desarrollo». Que sea el
-        // mismo importa: con una tabla propia aquí, un estado podría contar como en curso al mover el
-        // ticket y como otra cosa al leerlo, dentro de la misma aplicación.
         var enCurso = porEstado
             .Where(e => DevOpsService.MapearEstado(e.Estado) == RequirementStatus.EnDesarrollo)
             .OrderByDescending(e => e.Cuantos)

@@ -299,10 +299,13 @@ public static class AdministracionEndpoints
                 "Acota el primer arranque: sin ventana, la primera pasada daría de alta todo el "
                 + "histórico abierto.",
                 TipoDeCampoDeConfiguracion.Numero),
-            new(SettingsService.Claves.PoolDevOpsEstadoEnProgreso,
+            new(SettingsService.Claves.PoolDevOpsEstadoAlTomar,
                 "A qué estado se mueve el work item cuando alguien toma su actividad",
-                "Vacío está bien: se deduce de los estados que ya usan los tickets sincronizados. "
-                + "Escríbelo solo si en tu proyecto se llama de otra forma («Doing», «In Progress»…).",
+                "Depende del TIPO: en DevOps los estados válidos son propios de cada tipo de work "
+                + "item, no del proyecto. Escríbelo como «Bug=New; Task=Approved; User Story=Approved». "
+                + "Un valor suelto vale para los tipos que no nombres, y un tipo con el estado en "
+                + "blanco («Bug=») significa no moverlo. Vacío del todo también sirve: se deduce de "
+                + "los estados que ya usan tus tickets.",
                 TipoDeCampoDeConfiguracion.Texto),
         ]),
     ];

@@ -88,6 +88,21 @@ public class SettingsService(AppDbContext db, ICurrentUser currentUser, AuditSer
         public const string PoolDevOpsEstadoEnProgreso = "pool.devops.estado-en-progreso";
 
         /// <summary>
+        /// A qué estado se mueve cada TIPO de work item cuando alguien toma su actividad del pool.
+        ///
+        /// <para>Pares «tipo=estado» separados por comas o punto y coma, y opcionalmente un valor
+        /// suelto para los tipos no nombrados: <c>Bug=New; Task=Approved; User Story=Approved</c>.
+        /// Un tipo con el estado en blanco —<c>Bug=</c>— significa NO MOVERLO.</para>
+        ///
+        /// <para>Por tipo y no uno solo porque en DevOps los estados válidos son una propiedad del
+        /// TIPO de work item, no del proyecto: un Product Backlog Item pasa por «Approved» y un Bug
+        /// puede no tener ese estado siquiera. Con un único valor, uno de los dos falla siempre.
+        /// Sustituye a <see cref="PoolDevOpsEstadoEnProgreso"/>, que se sigue leyendo como respaldo
+        /// para no romper lo que ya estuviera capturado.</para>
+        /// </summary>
+        public const string PoolDevOpsEstadoAlTomar = "pool.devops.estado-al-tomar";
+
+        /// <summary>
         /// A nombre de quién están «mis» work items, para el alta automática en el pool. Uno o
         /// varios correos separados por comas.
         ///

@@ -687,7 +687,11 @@ public class PoolDevOpsTests : IDisposable
         Assert.Null(fila!.DevOpsEstadoEnviado);
         Assert.True(fila.EstadoPendienteDeEnviar);
         Assert.Contains("Doing", fila.DevOpsUltimoError);                                   // lo que contestó DevOps
-        Assert.Contains(SettingsService.Claves.PoolDevOpsEstadoEnProgreso, fila.DevOpsUltimoError);
+        // Y dice DÓNDE se corrige. La clave es la del ajuste POR TIPO: los estados válidos son
+        // propios de cada tipo de work item, así que un mensaje que mandara a un ajuste único
+        // mandaría a un sitio donde el problema no se puede arreglar.
+        Assert.Contains(SettingsService.Claves.PoolDevOpsEstadoAlTomar, fila.DevOpsUltimoError);
+        Assert.Contains("TIPO", fila.DevOpsUltimoError);
 
         // La asignación sí entró: un rechazo de la transición no dice nada sobre el otro campo.
         Assert.Equal(devId, fila.DevOpsAsignadoADeveloperId);
