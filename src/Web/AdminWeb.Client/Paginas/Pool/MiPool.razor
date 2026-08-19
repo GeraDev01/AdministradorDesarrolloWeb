@@ -1,9 +1,11 @@
 @page "/mi-pool"
 @attribute [Authorize(Policy = "AdminUDesarrollador")]
 @using AdminWeb.Shared.Dtos.Pool
+@using AdminWeb.Shared.Dtos.Jornada
 @implements IDisposable
 @inject ClienteApi Api
 @inject AvisosDeInterfaz Avisos
+@inject ConexionEnVivo EnVivo
 
 @*
     Mi pool: lo que hay libre para tomar y lo que ya está a mi nombre.
@@ -156,10 +158,23 @@
                                 </RadzenDataGridColumn>
                                 <RadzenDataGridColumn TItem="MiActividadDelPoolDto" Property="Avance"
                                                       Title="Checklist" Width="110px" Sortable="false" />
-                                <RadzenDataGridColumn TItem="MiActividadDelPoolDto" Title="" Width="230px" Sortable="false">
+                                <RadzenDataGridColumn TItem="MiActividadDelPoolDto" Title="" Width="330px" Sortable="false">
                                     <Template Context="a">
                                         @if (a.EnCurso)
                                         {
+                                            @*
+                                                Arrancar el cronómetro desde aquí. Hasta ahora esto solo se podía
+                                                hacer en la aplicación de escritorio, aunque el pool ya creaba la
+                                                percha al tomar la actividad.
+                                            *@
+                                            @if (a.SePuedeCronometrar)
+                                            {
+                                                <RadzenButton data-recorrido="mi-pool-cronometro"
+                                                              Text="Iniciar" Icon="play_arrow"
+                                                              ButtonStyle="ButtonStyle.Success"
+                                                              Size="ButtonSize.ExtraSmall"
+                                                              Disabled="@_ocupado" Click="@(() => Cronometrar(a))" />
+                                            }
                                             <RadzenButton data-recorrido="mi-pool-entregar"
                                                           Text="Entregar" Icon="outbox" Size="ButtonSize.ExtraSmall"
                                                           Disabled="@_ocupado" Click="@(() => Entregar(a))" />
@@ -698,6 +713,60 @@
               "de ser una estimación. No es el plazo: es cuánto trabajo crees que cuesta."
             : $"Se guardará que dijiste {HorasDelPool.Escribir(_estimacion.Value)}, y es con eso con " +
               "lo que se comparará el tiempo que registre tu cronómetro. No te resta nada equivocarte.";
+
+    /// <summary>
+    /// Arranca el cronómetro sobre esta actividad.
+    ///
+    /// <para>Se manda la PERCHA —la actividad libre que el pool creó al tomarla— y no el
+    /// identificador de la actividad del pool: son filas de tablas distintas y el mismo número
+    /// significa cosas distintas en cada una.</para>
+    ///
+    /// <para>Se avisa antes de arrancar porque solo puede haber UN cronómetro corriendo por persona:
+    /// arrancar éste pausa el que hubiera. Es la misma advertencia que da la pantalla de
+    /// asignaciones, y por el mismo motivo —que nadie descubra después que dejó de contar el tiempo
+    /// de otra cosa—.</para>
+    /// </summary>
+    private async Task Cronometrar(MiActividadDelPoolDto actividad)
+    {
+        if (actividad.CronometroActividadId is not int perchaId) return;
+
+        if (!await Avisos.ConfirmarAsync(
+                $"Se empieza a medir el tiempo de «{actividad.Titulo}». Si tenías otro cronómetro " +
+                "corriendo, se pausa: solo puede haber uno a la vez.",
+                "Iniciar cronómetro", "Sí, iniciar"))
+            return;
+
+        _ocupado = true;
+        try
+        {
+            var (ok, arrancado) = await Api.EnviarAsync<CronometroRequest, CronometroDto>(
+                "api/jornada/cronometro/iniciar", new CronometroRequest(null, perchaId), _cancelacion.Token);
+
+            if (!ok) return;
+
+            // EL LATIDO. Sin esto la sesión deja de dar señales en cuanto arranca, y el trabajo que
+            // consolida los cronómetros caídos la sella a los diez minutos: la persona seguiría
+            // trabajando dos horas y su tiempo quedaría en casi cero. Se sigue el objetivo NUEVO
+            // aunque se viniera siguiendo otro, porque el servidor acaba de pausar aquél y latir por
+            // él sería mantener vivo un cronómetro que ya no corre.
+            EnVivo.SeguirCronometro(null, perchaId);
+
+            // El aviso a DevOps se enseña APARTE y con su propio tono: pegarlo al «cronómetro en
+            // marcha» haría que un «no se pudo avisar» se pintara como un éxito.
+            Avisos.Exito("Cronómetro en marcha.");
+
+            if (arrancado?.AvisoDeDevOps is { } deDevOps && deDevOps.Length > 0)
+            {
+                if (deDevOps.Contains("No se pudo", StringComparison.OrdinalIgnoreCase))
+                    Avisos.Aviso(deDevOps);
+                else
+                    Avisos.Exito(deDevOps);
+            }
+        }
+        finally { _ocupado = false; }
+
+        await Cargar();
+    }
 
     private async Task Entregar(MiActividadDelPoolDto actividad) =>
         await Enviar<object?>($"api/pool/{actividad.Id}/entregar", null);

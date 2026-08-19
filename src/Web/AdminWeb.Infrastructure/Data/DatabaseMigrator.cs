@@ -1309,6 +1309,30 @@ public static class DatabaseMigrator
         // último momento en que sabemos que la persona seguía ahí.
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""WorkSessions"" ADD COLUMN ""LastHeartbeatUtc"" TEXT"); } catch { }
 
+        // Aviso de arranque del cronómetro publicado en el work item. Una marca por SESIÓN: detener
+        // y volver a empezar es una sesión nueva y avisa otra vez; reanudar una pausada, no.
+        //
+        // Y SE SIEMBRA AL CREARLA, que es lo que impide la avalancha. Todas las filas que ya existen
+        // nacerían en nulo, o sea «pendientes de avisar», y el primer barrido publicaría de golpe un
+        // comentario por cada sesión viva del equipo —en tickets de clientes, sin poder retirarlos—.
+        // A nadie se le avisa hacia atrás: lo viejo nace con el centinela puesto y solo lo que
+        // arranque a partir de ahora entra en juego. El centinela es DateTime.MinValue y no una
+        // fecha cualquiera porque así es inconfundible con un dato de verdad.
+        //
+        // La siembra va bajo el candado de «la columna no existía antes de esta ejecución»: sin él,
+        // el segundo arranque volvería a sellar lo que esté pendiente y mataría avisos legítimos.
+        if (!SqliteTieneColumna(db, "WorkSessions", "InicioComentadoEnUtc"))
+        {
+            try
+            {
+                db.Database.ExecuteSqlRaw(@"ALTER TABLE ""WorkSessions"" ADD COLUMN ""InicioComentadoEnUtc"" TEXT");
+                db.Database.ExecuteSqlRaw(
+                    @"UPDATE ""WorkSessions"" SET ""InicioComentadoEnUtc"" = '0001-01-01 00:00:00'
+                       WHERE ""InicioComentadoEnUtc"" IS NULL");
+            }
+            catch { }
+        }
+
         // ── Segundo factor: código de la aplicación del teléfono ──────────────────────────────
         //
         // Tres columnas de ESTADO en Users y dos tablas. El SECRETO no aparece por ningún lado de
@@ -2807,6 +2831,28 @@ CREATE UNIQUE INDEX [UX_PushSubscriptions_Endpoint] ON [PushSubscriptions]([Endp
         // o habría que descartar el tramo entero. Con el latido, el tiempo se consolida hasta el
         // último momento en que sabemos que la persona seguía ahí.
         Exec("IF COL_LENGTH('WorkSessions','LastHeartbeatUtc') IS NULL ALTER TABLE [WorkSessions] ADD [LastHeartbeatUtc] datetime2 NULL;");
+
+        // Aviso de arranque del cronómetro publicado en el work item. Una marca por SESIÓN: detener
+        // y volver a empezar es una sesión nueva y avisa otra vez; reanudar una pausada, no.
+        //
+        // Y SE SIEMBRA AL CREARLA, que es lo que impide la avalancha. Todas las filas que ya existen
+        // nacerían en nulo, o sea «pendientes de avisar», y el primer barrido publicaría de golpe un
+        // comentario por cada sesión viva del equipo —en tickets de clientes, sin poder retirarlos—.
+        // A nadie se le avisa hacia atrás: lo viejo nace con el centinela puesto y solo lo que
+        // arranque a partir de ahora entra en juego. El centinela es DateTime.MinValue y no una
+        // fecha cualquiera porque así es inconfundible con un dato de verdad.
+        //
+        // La siembra va bajo el candado de «la columna no existía antes de esta ejecución»: sin él,
+        // el segundo arranque volvería a sellar lo que esté pendiente y mataría avisos legítimos.
+        //
+        // El UPDATE va dentro de EXEC(N'...') porque SQL Server resuelve los nombres de columna al
+        // compilar el lote entero: sin eso, la sentencia no compilaría en la misma pasada que crea
+        // la columna, que es precisamente la única pasada en la que tiene que correr.
+        Exec(@"IF COL_LENGTH('WorkSessions','InicioComentadoEnUtc') IS NULL
+BEGIN
+    ALTER TABLE [WorkSessions] ADD [InicioComentadoEnUtc] datetime2 NULL;
+    EXEC(N'UPDATE [WorkSessions] SET [InicioComentadoEnUtc] = ''0001-01-01'' WHERE [InicioComentadoEnUtc] IS NULL');
+END;");
 
         // ── Segundo factor: código de la aplicación del teléfono ──────────────────────────────
         //

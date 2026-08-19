@@ -68,7 +68,19 @@ public record CronometroDto(
     string Titulo,
     DateTime InicioTramoUtc,
     int SegundosAcumulados,
-    DateTime AhoraUtc);
+    DateTime AhoraUtc,
+
+    /// <summary>
+    /// Lo que pasó con el aviso a Azure DevOps al arrancar, o nulo cuando no había nada que contar
+    /// —que es el caso normal: la función apagada, o algo que no está ligado a ningún work item—.
+    ///
+    /// <para>Va aquí dentro y no en un DTO envoltorio a propósito. El envoltorio obligaría a cambiar
+    /// el tipo que piden las pantallas que ya llaman a este endpoint, y si una se quedara sin
+    /// cambiar el JSON se deserializaría igual —sin un solo nombre en común— y el cronómetro
+    /// arrancaría en cero sin dar ningún error. Un campo más al final lo ignora quien no lo
+    /// conozca.</para>
+    /// </summary>
+    string? AvisoDeDevOps = null);
 
 /// <summary>
 /// Lo mínimo para pintar el botón de la barra superior: si toca marcar entrada, salida, o ya está

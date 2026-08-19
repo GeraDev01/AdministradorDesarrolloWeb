@@ -98,10 +98,23 @@ public record MiActividadDelPoolDto(
     int ChecklistHechos,
     int ChecklistTotal,
     string? MotivoDeDevolucion,
-    string? Enlace)
+    string? Enlace,
+
+    /// <summary>
+    /// La actividad libre que el pool creó al tomar ésta, y que es lo que el cronómetro mide. Nula
+    /// cuando no la hay —una actividad que todavía no se ha tomado, o cuyo reclamo se soltó—.
+    ///
+    /// <para>Viaja porque el botón de arrancar el cronómetro necesita ESE identificador y no el de la
+    /// actividad del pool: son dos filas distintas de dos tablas distintas, y confundirlas haría que
+    /// se midiera el tiempo contra la actividad libre de otra persona.</para>
+    /// </summary>
+    int? CronometroActividadId = null)
 {
     /// <summary>El avance del checklist, listo para la rejilla («3/5»).</summary>
     public string Avance => ChecklistTotal == 0 ? "—" : $"{ChecklistHechos}/{ChecklistTotal}";
+
+    /// <summary>Si se le puede arrancar el cronómetro desde aquí: hay percha que medir.</summary>
+    public bool SePuedeCronometrar => CronometroActividadId is not null;
 }
 
 // ── Pantalla del líder ───────────────────────────────────────────────────────────

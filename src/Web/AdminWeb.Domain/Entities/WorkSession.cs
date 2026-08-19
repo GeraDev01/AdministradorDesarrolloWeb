@@ -43,6 +43,25 @@ public class WorkSession
     /// </summary>
     public DateTime? LastHeartbeatUtc { get; set; }
 
+    /// <summary>
+    /// Cuándo se publicó en Azure DevOps el aviso de que esta sesión ARRANCÓ. Nulo si todavía no se
+    /// publicó, o si lo que se cronometra no está ligado a ningún work item.
+    ///
+    /// <para><b>Es marca por SESIÓN y no por objetivo</b>, y ahí está toda la regla: detener y volver
+    /// a empezar crea una sesión nueva y merece su propio aviso, mientras que reanudar una PAUSADA
+    /// sigue siendo la misma y no debe comentar nada. Una marca colgada del requerimiento o de la
+    /// actividad no sabría distinguir esos dos casos, que es justo lo que hay que distinguir.</para>
+    ///
+    /// <para><b>Guarda cuándo y no un sí/no</b> por lo mismo que las marcas del pool: con la fecha se
+    /// puede diagnosticar un aviso duplicado o uno que salió tardísimo; con un booleano solo se sabe
+    /// que en algún momento pasó algo.</para>
+    ///
+    /// <para>Anulable a la fuerza: la aplicación de escritorio sigue insertando en esta tabla sin
+    /// conocer esta columna. Por eso mismo, quien barre no puede preguntar solo por el nulo —el
+    /// histórico entero lo es— y el migrador siembra un centinela al crearla.</para>
+    /// </summary>
+    public DateTime? InicioComentadoEnUtc { get; set; }
+
     public WorkSessionStatus Status { get; set; } = WorkSessionStatus.Activa;
     public string? Note { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

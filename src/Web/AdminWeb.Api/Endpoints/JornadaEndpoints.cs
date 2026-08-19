@@ -96,7 +96,7 @@ public static class JornadaEndpoints
 
         grupo.MapPost("/cronometro/iniciar", async (
             CronometroRequest cuerpo, WorkSessionService cronometros, ICurrentUser quien,
-            JornadaQueryService jornada, CancellationToken ct) =>
+            JornadaQueryService jornada, AvisoDeInicioEnDevOpsService avisos, CancellationToken ct) =>
         {
             if (quien.DeveloperId is not int devId)
                 return Results.BadRequest(new ResultadoDto(false,
@@ -107,8 +107,18 @@ public static class JornadaEndpoints
                 return Results.BadRequest(new ResultadoDto(false,
                     "Indica un requerimiento o una actividad, no ambos."));
 
-            await cronometros.StartOrResumeAsync(devId, objetivo.Value, ct: ct);
-            return Results.Ok(await jornada.CronometroAsync(ct));
+            var (puede, motivo) = await cronometros.PuedeCronometrarAsync(devId, objetivo.Value, ct);
+            if (!puede) return Results.BadRequest(new ResultadoDto(false, motivo));
+
+            var sesion = await cronometros.StartOrResumeAsync(devId, objetivo.Value, ct: ct);
+
+            // El aviso a DevOps va DESPUÉS de que la sesión esté guardada, igual que el reporte de
+            // tiempo al detener y por lo mismo: el cronómetro ya arrancó, y nada de lo que pase
+            // hablando con un servidor ajeno puede deshacer eso ni retrasarlo más de la cuenta.
+            var aviso = await AvisarADevOpsAsync(avisos, sesion.Id, ct);
+
+            var cronometro = await jornada.CronometroAsync(ct);
+            return Results.Ok(cronometro is null ? null : cronometro with { AvisoDeDevOps = aviso });
         })
         .WithSummary("Arranca o reanuda el cronómetro (pausa cualquier otro del mismo desarrollador)");
 
@@ -139,6 +149,35 @@ public static class JornadaEndpoints
             return Results.Ok(new ResultadoDto(true, "Cronómetro detenido y tiempo consolidado." + aviso));
         })
         .WithSummary("Detiene el cronómetro, consolida el tramo y reporta el tiempo al ticket");
+    }
+
+    /// <summary>
+    /// Avisa en el ticket de Azure DevOps de que este cronómetro acaba de arrancar. Devuelve lo que
+    /// haya que contarle a la persona, o nulo cuando no había nada que contar.
+    ///
+    /// <para><b>Arrancar no depende de que esto salga bien</b>, exactamente como detener no depende
+    /// del reporte de tiempo: la sesión ya está guardada cuando se llega aquí. Contestar un fallo
+    /// dejaría a alguien pulsando «iniciar» sobre un cronómetro que ya está corriendo.</para>
+    ///
+    /// <para>Y no promete reintentos. Los hay —el barrido recoge lo que no salió— pero solo si su
+    /// interruptor está encendido en este entorno, y prometer desde aquí algo que depende de una
+    /// llave que este código no mira sería mentir a quien lee el mensaje.</para>
+    /// </summary>
+    private static async Task<string?> AvisarADevOpsAsync(
+        AvisoDeInicioEnDevOpsService avisos, int workSessionId, CancellationToken ct)
+    {
+        try
+        {
+            var texto = await avisos.AvisarInicioAsync(workSessionId, ct);
+            return string.IsNullOrWhiteSpace(texto) ? null : texto.Trim();
+        }
+        catch (Exception)
+        {
+            // Aquí solo llega lo IMPREVISTO: los fallos de la integración ya vienen contados dentro
+            // del resultado. El texto de una excepción cualquiera no es algo que convenga poner
+            // delante de nadie, y desde luego no vale la pena tumbar por él un arranque que sí ocurrió.
+            return null;
+        }
     }
 
     /// <summary>

@@ -128,6 +128,7 @@ builder.Services.AddScoped<PoolActivityService>();
 // seguirían andando y sencillamente no llegaría nada a DevOps: un fallo silencioso. Van juntas.
 builder.Services.AddScoped<PoolDevOpsService>();
 builder.Services.AddScoped<PoolDesdeDevOpsService>();
+builder.Services.AddScoped<AvisoDeInicioEnDevOpsService>();
 builder.Services.AddScoped<ForumService>();
 builder.Services.AddScoped<ConocimientoService>();
 builder.Services.AddScoped<SuggestionService>();
@@ -353,6 +354,13 @@ if (builder.Configuration.GetValue("AdminWeb:TrabajosDeFondoActivos", false))
 // otros cinco, que es exactamente lo que aquélla existe para evitar.
 if (builder.Configuration.GetValue("AdminWeb:SincronizacionDeDevOpsActiva", false))
     builder.Services.AddHostedService<SincronizacionDeDevOpsJob>();
+
+// El aviso de inicio de cronómetro, también aparte y por lo mismo. Aquí la razón de encenderlo
+// antes del corte es más fuerte todavía: mientras el escritorio siga siendo el único sitio con
+// botón de cronómetro para las actividades, esto es lo ÚNICO que puede avisar de esos arranques.
+// Con la llave puesta pero la función apagada en Configuración, no hace ni una consulta.
+if (builder.Configuration.GetValue("AdminWeb:AvisoDeInicioDeCronometroActivo", false))
+    builder.Services.AddHostedService<AvisoDeInicioDeCronometroJob>();
 
 builder.Services.AddExceptionHandler<MapeoExcepciones>();
 builder.Services.AddProblemDetails();

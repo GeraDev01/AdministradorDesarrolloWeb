@@ -134,6 +134,34 @@ public class SettingsService(AppDbContext db, ICurrentUser currentUser, AuditSer
         /// <summary>Cuántos días atrás se miran los work items al traerlos al pool. Acota el primer
         /// arranque: sin ventana, la primera pasada daría de alta todo el histórico abierto.</summary>
         public const string PoolDevOpsDiasDeAlta = "pool.devops.dias-de-alta";
+
+        /// <summary>
+        /// La zona horaria con la que el SERVIDOR dice las horas. Identificador de
+        /// <see cref="TimeZoneInfo"/>; vacía significa Ciudad de México.
+        ///
+        /// <para>Hace falta porque el servidor no vive donde vive la gente: el App Service corre en
+        /// UTC y no tiene <c>WEBSITE_TIME_ZONE</c>, así que un <c>ToLocalTime()</c> allá convierte
+        /// las 15:30 de quien trabajó en las 21:30 de nadie. Solo gobierna lo que se compone en el
+        /// servidor y viaja ya escrito —un comentario en Azure DevOps, un correo, un PDF—; en las
+        /// pantallas el problema no existe, porque corren en el navegador de la persona.</para>
+        ///
+        /// <para>Se acepta el identificador IANA (<c>America/Mexico_City</c>) y el de Windows
+        /// (<c>Central Standard Time (Mexico)</c>): .NET traduce entre los dos en los dos sistemas.</para>
+        /// </summary>
+        public const string ZonaHoraria = "general.zona-horaria";
+
+        /// <summary>
+        /// Si al arrancar el cronómetro se avisa en el work item de Azure DevOps, con la hora.
+        ///
+        /// <para><b>Apagado por omisión</b>, y no por prudencia genérica: esto escribe comentarios en
+        /// tickets que también leen los clientes y que no se pueden retirar. Encenderlo es una
+        /// decisión del líder, y conviene que sepa que a partir de entonces la actividad de cada
+        /// persona —su nombre y la hora a la que empezó— sale de la organización.</para>
+        ///
+        /// <para>Un aviso por sesión de cronómetro, y como mucho uno cada cuatro horas por objetivo:
+        /// quien para a comer y vuelve no genera un comentario nuevo.</para>
+        /// </summary>
+        public const string CronometroAvisoDeInicio = "cronometro.aviso-de-inicio";
     }
 
     /// <summary>
@@ -182,6 +210,17 @@ public class SettingsService(AppDbContext db, ICurrentUser currentUser, AuditSer
     /// <summary>Un interruptor de configuración. Lo que no diga «true» es false, como en el escritorio.</summary>
     public async Task<bool> ObtenerBooleanoAsync(string clave, CancellationToken ct = default) =>
         string.Equals(await ObtenerAsync(clave, ct), "true", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// La zona horaria con la que el servidor dice las horas, ya resuelta y lista para usar.
+    ///
+    /// <para><b>Nunca devuelve nulo ni lanza.</b> Un identificador mal tecleado, o bueno pero ausente
+    /// en esta máquina, cae en Ciudad de México; el porqué está en
+    /// <see cref="HoraDeLaOrganizacion.Zona"/>. Devuelve la zona y no el texto para que quien
+    /// formatee muchas horas seguidas —un barrido, un informe— la resuelva una sola vez.</para>
+    /// </summary>
+    public async Task<TimeZoneInfo> ObtenerZonaHorariaAsync(CancellationToken ct = default) =>
+        HoraDeLaOrganizacion.Zona(await ObtenerAsync(Claves.ZonaHoraria, ct));
 
     /// <summary>
     /// Todo lo configurable, listo para pintar una pantalla. <b>Los secretos van sin valor</b>: solo

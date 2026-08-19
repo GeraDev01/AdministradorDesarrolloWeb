@@ -90,6 +90,39 @@ public class WorkSessionService(AppDbContext db, ICurrentUser currentUser, Audit
         if (!target.EsValido)
             throw new ArgumentException("La sesión debe apuntar a un requerimiento o a una actividad, no a ambos.", nameof(target));
 
+        // ── De quién es LO QUE SE CRONOMETRA ─────────────────────────────────
+        //
+        // La guarda de arriba comprueba de quién es la SESIÓN, y el identificador que recibe es el
+        // del propio llamante: siempre pasa. Lo que no comprobaba nadie es de quién es el OBJETIVO,
+        // y el número viene del cuerpo de la petición. Sin esto, mandar el identificador de la
+        // actividad de otra persona abre un cronometro contra su trabajo —y desde que el arranque
+        // avisa en Azure DevOps, escribe además en el ticket de un cliente que no es el tuyo.
+        //
+        // Se comprueba contra devId y no contra currentUser: un líder puede cronometrar EN NOMBRE de
+        // alguien, y entonces lo que tiene que cuadrar es la actividad con esa persona, no con él.
+        if (target.ActivityId is int actividadId)
+        {
+            var duenno = await db.DevActivities.AsNoTracking()
+                .Where(a => a.Id == actividadId)
+                .Select(a => new { a.DeveloperId, a.Status })
+                .FirstOrDefaultAsync(ct);
+
+            if (duenno is null)
+                throw new ArgumentException("Esa actividad no existe.", nameof(target));
+
+            if (duenno.DeveloperId != devId)
+                throw new AuthorizationException(
+                    "Esa actividad es de otra persona, así que no puedes cronometrarla.");
+
+            // Una actividad cerrada ya rindió cuentas: su tiempo está consolidado y, si el líder la
+            // calificó, también pagada. Volver a medir contra ella cambiaría un total que ya se usó
+            // para dar puntos.
+            if (duenno.Status == DevActivityStatus.Cerrada)
+                throw new ArgumentException(
+                    "Esa actividad está cerrada. Reabre la actividad o crea otra para seguir midiendo.",
+                    nameof(target));
+        }
+
         var now = DateTime.UtcNow;
 
         foreach (var other in await db.WorkSessions
@@ -140,6 +173,42 @@ public class WorkSessionService(AppDbContext db, ICurrentUser currentUser, Audit
         if (moved) await audit.RecordAsync(AuditAction.Update, "Requirement", target.RequirementId!.Value.ToString(),
             $"#{target.RequirementId} → En desarrollo (inicio de cronómetro)", ct);
         return s;
+    }
+
+    /// <summary>
+    /// Si esta persona puede arrancar el cronómetro sobre ese objetivo, y por qué no si no puede.
+    ///
+    /// <para><b>Existe para que el «no puedes» llegue como un 400 con su motivo</b> y no como un
+    /// error del servidor. Las mismas condiciones se vuelven a comprobar dentro de
+    /// <see cref="StartOrResumeAsync"/>, que es donde tienen que estar para que valgan también
+    /// cuando la llamada no venga de ese endpoint; esto de aquí es la puerta delantera, no la
+    /// cerradura.</para>
+    ///
+    /// <para>De los requerimientos no dice nada todavía: hoy nadie comprueba que el requerimiento
+    /// esté asignado a quien lo cronometra, y taparlo aquí cambiaría el comportamiento de pantallas
+    /// que llevan tiempo funcionando así. Lo que SÍ está tapado es que ese trabajo salga hacia
+    /// Azure DevOps: el aviso de inicio no se publica si el objetivo no es de quien lo cronometra.</para>
+    /// </summary>
+    public async Task<(bool puede, string motivo)> PuedeCronometrarAsync(
+        int devId, WorkTarget target, CancellationToken ct = default)
+    {
+        if (target.ActivityId is not int actividadId) return (true, "");
+
+        var duenno = await db.DevActivities.AsNoTracking()
+            .Where(a => a.Id == actividadId)
+            .Select(a => new { a.DeveloperId, a.Status })
+            .FirstOrDefaultAsync(ct);
+
+        if (duenno is null) return (false, "Esa actividad ya no existe. Actualiza la lista.");
+
+        if (duenno.DeveloperId != devId)
+            return (false, "Esa actividad es de otra persona, así que no puedes cronometrarla.");
+
+        if (duenno.Status == DevActivityStatus.Cerrada)
+            return (false, "Esa actividad está cerrada y su tiempo ya está consolidado. " +
+                           "Crea otra si tienes que seguir midiendo.");
+
+        return (true, "");
     }
 
     /// <summary>Sobrecarga por requerimiento (compatibilidad con las pantallas existentes).</summary>

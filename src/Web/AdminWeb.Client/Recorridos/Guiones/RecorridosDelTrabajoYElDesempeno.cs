@@ -332,6 +332,12 @@ public sealed class RecorridosDelTrabajoYElDesempeno : IFuenteDeRecorridos
                 "dirección del pull request o del ticket al marcarlos, y mientras queden puntos " +
                 "sin hacer el servidor no acepta la entrega."),
 
+            new Paso("mi-pool-cronometro", "Medir el tiempo",
+                "Arranca el cronómetro sobre esta actividad. Solo puede haber uno corriendo a la " +
+                "vez: si tenías otro, se pausa. Si el líder activó el aviso de inicio y la actividad " +
+                "viene de un work item de Azure DevOps, al arrancar se comenta allá con la hora a la " +
+                "que empezaste —una vez, no en cada reanudación—. Para pausar o detener, Mi jornada."),
+
             new Paso("mi-pool-entregar", "Entregar",
                 "Manda la actividad a la cola de verificación del líder y deja de estar en tus " +
                 "manos hasta que él la acepte —y entonces se abonan los puntos— o te la devuelva " +

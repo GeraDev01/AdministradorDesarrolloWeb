@@ -371,9 +371,14 @@
         {
             // Este endpoint devuelve el cronómetro recién arrancado, no un resultado: es lo que
             // permite empezar a contar sin esperar a la recarga.
-            var (ok, _) = await Api.EnviarAsync<CronometroRequest, CronometroDto>(
+            var (ok, arrancado) = await Api.EnviarAsync<CronometroRequest, CronometroDto>(
                 "api/jornada/cronometro/iniciar", new CronometroRequest(r.Id, null), _cancelacion.Token);
             if (!ok) return;
+
+            // Y trae, si hubo, lo que pasó con el aviso al ticket. Solo se enseña cuando hay algo
+            // que contar: el caso normal es que no lo haya, y decirlo en cada arranque sería ruido.
+            if (!string.IsNullOrWhiteSpace(arrancado?.AvisoDeDevOps))
+                Avisos.Exito(arrancado.AvisoDeDevOps);
         }
         finally { _ocupado = false; }
 

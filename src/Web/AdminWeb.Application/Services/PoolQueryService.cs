@@ -205,7 +205,10 @@ public class PoolQueryService(AppDbContext db, ICurrentUser currentUser, PoolAct
         // El motivo solo acompaña a una devolución: en cualquier otro estado es el comentario de una
         // vuelta anterior ya resuelta, y enseñarlo haría creer que sigue habiendo algo que corregir.
         a.Status == PoolActivityStatus.Devuelta ? a.ReviewComment : null,
-        a.ExternalUrl);
+        a.ExternalUrl,
+        // La percha del cronómetro. Va aquí y no se deduce en la pantalla porque el identificador de
+        // la actividad libre no tiene nada que ver con el de la actividad del pool.
+        a.LinkedDevActivityId);
 
     private static ActividadDelPoolDto AVistaDelLider(PoolActivity a, string? equipo = null) => new(
         a.Id, a.Title, a.Description,

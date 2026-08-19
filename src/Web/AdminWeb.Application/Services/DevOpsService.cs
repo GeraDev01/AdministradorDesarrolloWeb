@@ -1341,23 +1341,8 @@ public partial class DevOpsService(
     /// token personal de quien pide, y esa consulta lleva su propia guarda de «hay que estar
     /// dentro»: desde un trabajo de fondo lanza antes de llegar a ninguna parte.</para>
     /// </summary>
-    private async Task<(CredencialesDevOps? credenciales, string problema)> CredencialesDeLaInstalacionAsync(
-        CancellationToken ct)
-    {
-        var organizacion = (await configuracion.ObtenerAsync(SettingsService.Claves.AzureDevOpsOrgUrl, ct))?.TrimEnd('/');
-        var proyecto = await configuracion.ObtenerAsync(SettingsService.Claves.AzureDevOpsProject, ct);
-        var pat = await configuracion.ObtenerAsync(SettingsService.Claves.AzureDevOpsPat, ct);
-
-        if (string.IsNullOrEmpty(organizacion) || string.IsNullOrEmpty(proyecto))
-            return (null, "Falta la URL de organización o el proyecto de Azure DevOps.");
-
-        if (string.IsNullOrEmpty(pat))
-            return (null, "No hay token de Azure DevOps de la instalación, y sin sesión no hay otro " +
-                          "que usar. Captúralo en Configuración para que la sincronización automática " +
-                          "pueda funcionar.");
-
-        return (new CredencialesDevOps(organizacion, proyecto, pat), "");
-    }
+    private Task<(CredencialesDevOps? credenciales, string problema)> CredencialesDeLaInstalacionAsync(
+        CancellationToken ct) => CredencialesDeLaInstalacion.ObtenerAsync(configuracion, ct);
 
     private async Task<(CredencialesDevOps? credenciales, string problema)> CredencialesAsync(
         bool exigirPropio, string? patCandidato = null, CancellationToken ct = default)

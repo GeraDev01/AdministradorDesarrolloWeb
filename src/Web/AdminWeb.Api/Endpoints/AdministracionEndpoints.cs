@@ -170,6 +170,20 @@ public static class AdministracionEndpoints
 
     private static readonly GrupoConocido[] Catalogo =
     [
+        new("🕒 Zona horaria",
+            "Con qué reloj habla el SERVIDOR cuando escribe una hora en un comentario de Azure DevOps, "
+            + "en un correo o en un PDF. Las pantallas no dependen de esto: ahí la hora la pone tu "
+            + "navegador, con tu propio reloj.",
+        [
+            new(SettingsService.Claves.ZonaHoraria,
+                "Zona horaria con la que el servidor dice las horas",
+                "Vacía = Ciudad de México. Vale el nombre IANA —«America/Mexico_City», "
+                + "«America/Bogota»— o el de Windows «Central Standard Time (Mexico)»; los dos "
+                + "funcionan. Cuidado con «Central Standard Time» a secas, que es la de Estados "
+                + "Unidos y adelanta una hora en verano. Un nombre que no exista no rompe nada: se "
+                + "usa Ciudad de México.",
+                TipoDeCampoDeConfiguracion.Texto),
+        ]),
         new("☁ Azure Blob Storage", "Cambiar las carpetas no mueve lo ya guardado: lo anterior se "
             + "queda donde está y lo nuevo va a la carpeta nueva.",
         [
@@ -307,6 +321,15 @@ public static class AdministracionEndpoints
                 + "blanco («Bug=») significa no moverlo. Vacío del todo también sirve: se deduce de "
                 + "los estados que ya usan tus tickets.",
                 TipoDeCampoDeConfiguracion.Texto),
+            new(SettingsService.Claves.CronometroAvisoDeInicio,
+                "Avisar en el work item cuando alguien empieza a trabajar",
+                "Al arrancar el cronómetro sobre una actividad ligada a Azure DevOps, publica allá un "
+                + "comentario con quién empezó y a qué hora. Un aviso por sesión de cronómetro, y como "
+                + "mucho uno cada cuatro horas por actividad: reanudar tras comer no genera otro. "
+                + "APAGADO por omisión a propósito: los comentarios los leen también los clientes y no "
+                + "se pueden retirar, así que encenderlo significa aceptar que la hora de inicio de "
+                + "cada persona sale de la organización. La hora se dice en la zona de arriba.",
+                TipoDeCampoDeConfiguracion.Interruptor),
             new(SettingsService.Claves.PoolDevOpsColumnaAlTomar,
                 "A qué columna del tablero se mueve (solo si el estado no basta)",
                 "Vacío es lo normal: cada columna está mapeada a un estado, así que cambiar el estado "
