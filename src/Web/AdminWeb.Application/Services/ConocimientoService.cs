@@ -261,6 +261,22 @@ public class ConocimientoService(
     /// otorgar</b>. Si el líder pide puntos sobre uno ya pagado no se le rechaza la aprobación —sería
     /// absurdo, la aprobación es legítima—: se publica y se le dice que ya se pagaron y cuándo.</item>
     /// </list>
+    ///
+    /// <para><b>ESTA ES LA ÚNICA EXCEPCIÓN DECLARADA A «UN SOLO CAMINO DE PUNTOS», y hace falta
+    /// decirlo aquí.</b> Desde el corte de la puerta única, el pool es lo único que convierte trabajo
+    /// en puntos: la autocalificación y calificar una actividad libre se apagaron porque las dos
+    /// ponían valor a algo ya hecho. Esto también lo hace, y se queda.</para>
+    ///
+    /// <para>El argumento es DE MODELO, no de política. La invariante fundacional del pool es que el
+    /// precio se fija ANTES de trabajar, y un artículo no funciona así: no se encarga —«escribe sobre
+    /// X, vale 8»—, lo que vale es el artículo. El pool tasa <b>trabajo encargado</b>; un artículo es
+    /// <b>producción espontánea</b>: sin reclamo, sin plazo, sin checklist y sin cronómetro. Meterlo
+    /// costaría cuatro columnas anulables cuya única función sería decir «esta fila no es realmente
+    /// del pool».</para>
+    ///
+    /// <para>Sin este párrafo, quien lea el código dentro de seis meses tomará esto por un camino que
+    /// se olvidaron de apagar — y lo apagará. Está declarado también en la lista de
+    /// <c>ProductoresDePuntosTests</c>, en la tabla de reglas de MODELO-DE-DATOS.md y en el manual.</para>
     /// </summary>
     public async Task<(bool ok, string mensaje)> AprobarAsync(
         int id, int? criterioId = null, int? puntos = null, string? nota = null, CancellationToken ct = default)

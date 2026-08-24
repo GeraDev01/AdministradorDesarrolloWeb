@@ -1,12 +1,23 @@
 # Un solo camino para el trabajo del desarrollador
 
-> **Estado: PROPUESTA, sin aprobar y sin empezar.** Es el análisis de viabilidad de unificar el
-> trabajo del desarrollador en una sola pantalla y un solo camino de puntos. Nada de lo que hay aquí
-> está implementado. Vive en el repositorio para poder retomarlo desde otra máquina.
+> **Estado: IMPLEMENTADO.** Este documento es el análisis con el que se decidió, y se conserva tal
+> como se escribió —incluidas las cosas que se descartaron y las que se aplazaron— porque el valor
+> que tiene ahora es explicar POR QUÉ el sistema quedó así, no describir cómo quedó.
 >
-> Lo que sí está implementado y va en el commit anterior a éste son los ocho arreglos que dieron
-> origen al análisis (paginación, capacidad de trabajo, «la hice yo», eliminar del pool, retrabajo,
-> detalle de permisos, columnas redimensionables y el detalle del desempeño).
+> **Para saber qué hace el código hoy, la fuente es [DECISIONES.md](DECISIONES.md)**, sección «Un
+> solo camino convierte trabajo en puntos, y una sola pantalla lo reparte», y la tabla de reglas de
+> [MODELO-DE-DATOS.md](MODELO-DE-DATOS.md). Si algo de aquí y algo de allá se contradicen, manda
+> aquéllos: éste se quedó fechado el día que se aprobó.
+>
+> **Dos desvíos respecto a lo que aquí se propone**, y los dos están razonados en DECISIONES.md:
+> el interruptor `pool.puerta-unica` **no se hizo** —se apagó en firme y las pruebas afectadas se
+> invirtieron una por una— y `HistoricoIntactoTests` se escribió sin la mitad de «con la puerta
+> encendida», que no existe sin interruptor: comprueba que el ranking de un mes pasado sale igual
+> con entradas de las cuatro procedencias, que es lo que esa prueba tenía que fijar.
+>
+> Los ocho arreglos que dieron origen al análisis (paginación, capacidad de trabajo, «la hice yo»,
+> eliminar del pool, retrabajo, detalle de permisos, columnas redimensionables y el detalle del
+> desempeño) van en el commit anterior a la primera versión de este documento.
 
 
 ## Contexto

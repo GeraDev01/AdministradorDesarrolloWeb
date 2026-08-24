@@ -290,21 +290,23 @@ internal static class CatalogoDelManual
             "De dónde llega el trabajo: requerimientos, tickets, sprint y SLA",
             "manual, trabajo, requerimientos, tickets, sprint, sla",
             """
-            El trabajo entra por varias puertas y todas terminan en la misma pregunta: qué tengo que hacer hoy. Este artículo explica cada puerta y dónde ver lo tuyo.
+            El trabajo NACE en varios sitios, pero **entra por uno solo**: `Mi trabajo` (`/mi-pool`). Este artículo explica de dónde sale cada cosa y qué hacer con ella.
 
-            # Las puertas de entrada
+            # Fuentes, no listas que repasar
 
-            - **Requerimientos** (`/requerimientos`). Lo que pide un área de la empresa: una funcionalidad nueva, un cambio, un reporte. Llegan por correo o los captura el líder, se estiman y se asignan.
-            - **Azure DevOps** (`/devops`, y `Mis tickets DevOps` para lo tuyo). Los work items del repositorio: bugs, tareas, historias. La plataforma los sincroniza y los enseña junto al resto para no tener que vivir en dos pestañas.
+            Antes, cada uno de estos sitios era una pantalla del menú y había que recorrerlas todas para saber qué hacer — y el mismo requerimiento salía en cuatro, con dos estimaciones distintas. Ahora son **fuentes**: sitios de donde SALE trabajo. Cuando de una de ellas salga algo que hacer, se convierte en una **actividad del pool**, que es donde vive su valor y su plazo. Las pantallas siguen existiendo y sus enlaces siguen abriendo; lo que ya no son es un sitio al que ir por costumbre.
+
+            - **Requerimientos** (`/requerimientos`, lo tuyo en `Mis Asignaciones`). Lo que pide un área de la empresa: una funcionalidad nueva, un cambio, un reporte. Llegan por correo o los captura el líder, se estiman y se asignan.
+            - **Azure DevOps** (`/devops`, lo tuyo en `Mis tickets DevOps`). Los work items del repositorio: bugs, tareas, historias. Los del líder y los que no tienen dueño **entran solos al pool** para que él los clasifique.
             - **Freshdesk** (`/freshdesk`). Los tickets que levanta el soporte a clientes.
-            - **El pool de actividades**. Trabajo publicado sin dueño que cualquiera puede tomar. Tiene su propio artículo en este manual.
-            - **Actividades libres** (`Mis Actividades`). Lo que haces y no cabe en ninguna de las anteriores, y que igualmente hay que registrar para que el tiempo cuadre.
+            - **SLA** (lo tuyo en `Mis SLA`). Lo que corre contra un reloj acordado.
+            - **Actividades libres** (`Mis Actividades`). El trabajo que abres por tu cuenta para medirle el tiempo y adjuntarle evidencia. **No dan puntos** — nunca los dieron por sí solas, y desde el corte tampoco se califican: si algo de ahí merece contar, se propone al pool.
 
             # Dónde veo lo mío
 
-            `Mi Panel` (`/mi-panel`) reúne lo que tienes asignado, lo que vence pronto y lo que te está esperando. Si solo vas a abrir una pantalla al día, que sea ésa.
+            En `Mi trabajo` (`/mi-pool`), y ahí está todo: lo que tienes tomado con su plazo y su checklist, lo que hay libre para tomar, y el botón para **proponer** lo que haya que hacer y nadie haya publicado. Al final de esa pantalla, plegada, hay una sección «De dónde viene el trabajo» con el enlace a cada fuente.
 
-            Después, cada puerta tiene su lista: `Mis Asignaciones`, `Mis tickets DevOps`, `Mis Actividades`, `Mi Pool` y `Mis SLA`.
+            `Mi Panel` (`/mi-panel`) sigue siendo el resumen del día: lo que vence pronto y lo que te está esperando.
 
             # El sprint
 
@@ -333,7 +335,13 @@ internal static class CatalogoDelManual
             "El pool de actividades: cómo se toma una y qué significa cada estado",
             "manual, pool, actividades, puntos",
             """
-            El pool es una lista de trabajo **sin dueño** que el líder publica y que cualquier desarrollador puede tomar. Lo tuyo está en `Mi Pool` (`/mi-pool`); el líder lo administra desde `/pool`.
+            El pool es una lista de trabajo **sin dueño** que el líder publica y que cualquier desarrollador puede tomar. Lo tuyo está en `Mi trabajo` (`/mi-pool`); el líder lo administra desde `/pool`.
+
+            # Proponer trabajo
+
+            Si lo que tienes que hacer no está publicado, se propone desde `Mi trabajo` con **Proponer trabajo**. Se manda el título, el detalle y un enlace — y **nada más**: ni tipo, ni horas, ni puntos. Eso lo pone el líder, y por eso vas a saber cuánto vale antes de hacerlo.
+
+            Mientras espera, la propuesta aparece en tu lista como «Por clasificar» y **ocupa un sitio de tu tope**, igual que una tomada: es trabajo que ya tienes entre manos. Cuando el líder la clasifique te la encuentras **tomada**, con su plazo corriendo y su checklist. Si la descarta, te lo dice con un motivo.
 
             # Para qué existe
 
@@ -360,6 +368,14 @@ internal static class CatalogoDelManual
             No es un castigo por corregir errores. Un bug corriente es trabajo que había que hacer y se paga como tal; volver a abrir algo que ya se dio por entregado es trabajo que **no debería haber hecho falta**, y si se pagara igual, entregar de más y corregir después saldría a cuenta. Resta exactamente lo que habría sumado el bug equivalente, así que el balance de esa jugada queda en cero.
 
             En todo lo demás va como un bug: el plazo lo pone el líder al publicarla y el esfuerzo lo estima quien la toma. Y **lo clasifica el líder**: es una decisión sobre de dónde viene el ticket, no algo que se pueda deducir de lo que cuesta arreglarlo.
+
+            # Criterios extra: el que exige citar un artículo
+
+            Al publicar una actividad, el líder puede pedir cosas que suman **de más si se cumplen**: pruebas automatizadas, documentación, un PR pequeño. Se anuncian antes de tomarla —para que enterarse después no sea una trampa— y se evalúan al verificar la entrega.
+
+            Uno de ellos funciona distinto: **«Aplicaste una práctica documentada en la base de conocimiento»**. Los demás se verifican mirando la entrega; éste no se puede adivinar, así que antes de entregar tienes que decir **qué artículo** aplicaste —de una lista de los publicados— y **cómo**. Sin eso, la plataforma no deja entregar.
+
+            Vale un artículo **tuyo**, y no es cobrar dos veces: escribirlo se pagó una vez y para siempre; aplicarlo se paga cada vez, que es justo lo que se quiere premiar. El líder ve que lo escribiste tú al verificar, para decidirlo sabiéndolo.
 
             En los reportes hay dos que lo cuentan: «Pool de actividades por tipo» —cuántas entraron de cada clase en un período— y «Pool de actividades por desarrollador» —lo que cada quien ganó y perdió—. En `Desempeño`, la columna «Retrabajos» dice cuántos lleva cada persona en el mes.
 
@@ -428,14 +444,23 @@ internal static class CatalogoDelManual
 
             # De dónde salen
 
-            Hay tres caminos, y conviene distinguirlos.
+            **Hay un camino, y una excepción declarada.**
 
-            - **Del pool.** Tomas una actividad, la entregas, el líder la verifica y los puntos se abonan solos con el valor que traía congelado. Es el camino más objetivo, porque el valor estaba fijado antes de empezar.
-            - **De una actividad libre que el líder califica.** Las actividades libres —las que abres para cronometrar algo que no viene del pool ni de un ticket— ya no se quedan solo en tiempo: cuando cierras una, el líder puede calificarla eligiendo un criterio del catálogo y los puntos se abonan. Lo que mira para decidir es lo que tú dejaste: el **tiempo medido** por el cronómetro y las **evidencias** que adjuntaste. Las que arrastra el pool no se califican por aquí, porque ese trabajo ya cobra al aceptarse la entrega.
-            - **De la autocalificación.** Registras algo que hiciste eligiendo un criterio del catálogo, y queda **pendiente de aprobación**. El líder lo aprueba, lo ajusta o lo rechaza. Registrarlo no es ganarlo.
-            - **Del líder, directamente.** Puede otorgar puntos por algo que vio, y también anotar puntos negativos cuando corresponde. Todo lleva su criterio y su comentario.
+            - **Del pool.** Tomas una actividad, la entregas, el líder la verifica y los puntos se abonan solos con el valor que traía congelado. Es todo. El valor estaba fijado **antes** de empezar, que es lo que hace comparables los puntos de dos personas distintas.
+            - **De un artículo de conocimiento**, que es la excepción y está escrita como tal. Publicar un artículo puede otorgar puntos: lo decide el líder al aprobarlo, y no todos puntúan. No pasa por el pool a propósito — un artículo no se encarga («escribe sobre X, vale 8»), lo que vale es el artículo; no tiene plazo, ni checklist, ni cronómetro.
 
-            Además, publicar un artículo en esta base de conocimiento puede otorgar puntos: lo decide el líder al aprobarlo, y no todos los artículos puntúan.
+            # Lo que se retiró, y qué hacer en su lugar
+
+            Antes había cuatro caminos y la pregunta que había que hacerse era «esto que acabé de hacer, ¿dónde lo registro?». Se retiraron dos:
+
+            - **La autocalificación** —registrar tú un criterio del catálogo y esperar aprobación—. En su lugar: **propón el trabajo al pool** desde `Mi trabajo`. Nace a tu nombre y sin valor, el líder le pone tipo y complejidad, y de ahí salen los puntos. Lo que ya tengas **pendiente o rechazado** se sigue pudiendo corregir y replicar hasta que se cierre.
+            - **Calificar una actividad libre.** En su lugar: si el trabajo merece reconocimiento, se publica como actividad del pool y se verifica.
+
+            El cambio es incómodo en un caso concreto y conviene decirlo: el trabajo que no cabe en el pool y no viene de un ticket —una investigación, un apagafuegos, ayudar a otro equipo— ahora pasa por proponerlo, que es un viaje más largo para algo ya hecho. Se aceptó a cambio de que **el precio se fije siempre antes de trabajar**.
+
+            # Y el líder
+
+            Puede otorgar puntos directamente por algo que vio, y aplicar un **descuento** cuando corresponde: una actividad del pool que nace en negativo, con su criterio y su motivo obligatorio. Se te avisa con ese motivo, y se puede anular — y entonces quedan las dos anotaciones a la vista.
 
             # El catálogo de criterios
 

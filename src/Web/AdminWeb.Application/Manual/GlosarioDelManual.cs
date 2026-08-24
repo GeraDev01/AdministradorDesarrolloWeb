@@ -122,9 +122,27 @@ internal static class GlosarioDelManual
 
         Termino("autocalificacion", "autocalificación", "desempeno, puntos",
             """
-            Registrar tú mismo algo que hiciste, eligiendo un criterio del catálogo, para que cuente en tu desempeño. Queda **pendiente de aprobación** del líder.
+            **Retirada.** Era registrar tú mismo algo que hiciste, eligiendo un criterio del catálogo, para que contara en tu desempeño; quedaba pendiente de la aprobación del líder.
 
-            Registrarlo no es ganarlo: el líder lo aprueba, lo ajusta o lo rechaza.
+            Se retiró porque era ponerle valor a algo **ya hecho**, y el pool hace lo contrario: se sabe cuánto vale antes de empezar. En su lugar se **propone** el trabajo al pool.
+
+            El término se conserva aquí porque sigue habiendo entradas de antes: las que estén pendientes o rechazadas se pueden corregir y replicar hasta que se cierren.
+            """),
+
+        Termino("proponer", "proponer trabajo", "pool, desempeno, puntos",
+            """
+            Mandar al pool algo que hay que hacer y nadie ha publicado, desde `Mi trabajo`. Se manda el título, el detalle y un enlace — **ni tipo, ni horas, ni puntos**: eso lo pone el líder.
+
+            Ésa es toda la idea: quien hace el trabajo dice QUÉ hay que hacer y el líder dice CUÁNTO vale, antes de que empiece. Mientras espera aparece como «Por clasificar» y ocupa un sitio de tu tope; al clasificarla te la encuentras tomada, con plazo y checklist.
+            """),
+
+        Termino("descuento", "descuento", "pool, desempeno, puntos",
+            """
+            Puntos que el líder **resta** por un hecho concreto: una actividad del pool que nace pagada, cerrada y en negativo, con su criterio del catálogo y un motivo obligatorio.
+
+            No es lo mismo que un **retrabajo**, y la regla cabe en una línea: si hay algo que hacer, es un retrabajo —se toma, se cronometra y se entrega—; si no hay nada que hacer, es un descuento.
+
+            Se te avisa con el motivo, y se puede anular: entonces quedan las dos anotaciones a la vista y el neto es cero. Aquí nada que haya pagado se borra.
             """),
 
         Termino("ficha-de-desarrollador", "ficha de desarrollador", "ficha, cuentas",

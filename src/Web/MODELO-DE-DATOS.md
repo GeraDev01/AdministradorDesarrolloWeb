@@ -68,6 +68,13 @@ cuánto vale cada cosa y el líder la configura una vez; al publicar una activid
 copian y quedan **congelados**. Quien la toma sabe exactamente cuánto vale, y verificarla no es
 negociar el precio: es comprobar que el checklist está hecho.
 
+**Y desde la puerta única, es el ÚNICO camino que reparte trabajo encargado.** Una `PoolActivity`
+cubre hoy cuatro cosas que antes vivían en sitios distintos, y las cuatro son la misma fila con
+estados distintos: lo que el líder publica, lo que el alta automática trae de un work item, lo que
+un desarrollador **propone** —`PorClasificar` con `ClaimedByDeveloperId` puesto— y el **descuento**
+que el líder aplica, que nace pagado y en negativo. No hay tablas nuevas para ninguna: un estado
+más y un campo que ya existía.
+
 **No es lo mismo que un `Requirement`** y mezclarlos costaría caro: un filtro olvidado metería
 actividades del pool en el backlog, en las métricas o en la importación de DevOps. El razonamiento
 está en la cabecera de [PoolActivity.cs](AdminWeb.Domain/Entities/PoolActivity.cs).
@@ -205,6 +212,28 @@ ya caen en cascada desde `Developers`, así que una segunda ruta hasta la misma 
 y varios `NoAction` y `Restrict` que parecen arbitrarios en el `AppDbContext`: **están ahí para que el
 esquema se pueda crear**, no por gusto. Cambiarlos rompe la creación de la base.
 
+Hay más enlaces con la misma forma y **no todos por el mismo motivo**, y conviene no confundirlos:
+
+```
+DevActivity ──PoolActivityId──▶ PoolActivity   (la marca de percha, nunca se limpia)
+PoolActivity ──AnulacionPointEntryId──▶ PointEntry   (la compensatoria de un descuento anulado)
+PoolActivityExtraCriterion ──KnowledgeArticleId──▶ KnowledgeArticle
+```
+
+Los dos primeros son el caso de arriba: segunda ruta de cascada. **El tercero no.**
+`KnowledgeArticle` no tiene ninguna ruta hasta `Developers`, así que SQL Server aceptaría la
+restricción sin rechistar — va sin ella **por coherencia con la columna de al lado**:
+`ScoringCriterionId` es traza a propósito, para que la fila siga explicando de dónde salieron unos
+puntos ya cobrados aunque el catálogo se depure. Dos campos contiguos con doctrinas opuestas —uno
+que sobrevive al borrado y otro que lo impide— sería indefendible al leerlo. Por eso el título del
+artículo va **congelado** al lado, igual que el nombre del criterio.
+
+La **marca de percha** merece una línea aparte porque es la única que se escribe para no volver a
+tocarse: se pone al crear el cronómetro de una actividad tomada y **no se limpia nunca**, ni al
+devolver ni al liberar. Es lo que la hace reconocible cuando `LinkedDevActivityId` ya se borró — sin
+ella, la percha de un trabajo devuelto volvía a parecer una actividad libre cualquiera, cerrada, con
+tiempo medido y sin pagar, y calificarla abonaba puntos por trabajo que después iba a cobrar otro.
+
 ### Lo que nunca lleva clave foránea al autor
 
 `AuditLog` · `WorkPresence` · `AttendanceRecord` · `WorkInterval` · `ForumPost` ·
@@ -249,7 +278,15 @@ los servicios, y romperlas no da error de integridad.
 | **Lo pendiente de mandar a DevOps se DERIVA**, comparando lo que la actividad dice hoy con las cuatro marcas de agua de lo último que DevOps confirmó (`DevOpsEsfuerzoEnviado`, `DevOpsPrioridadEnviada`, `DevOpsAsignadoADeveloperId`, `DevOpsEstadoEnviado`) | `PoolActivity`, [PoolDevOpsService](AdminWeb.Application/Services/PoolDevOpsService.cs) | Una columna «pendiente» es un tercer dato que mantener de acuerdo con los otros dos, y el día que un camino olvide bajarla el sistema miente en la dirección peor: diciendo que ya se envió |
 | **Una actividad del pool puede nacer SIN CLASIFICAR** (`PoolActivityStatus.PorClasificar`), con 0 puntos y sin tipo útil, cuando la trae sola el alta desde DevOps. No se puede tomar, no vale nada y nada sale hacia DevOps hasta que el líder la publica | `PoolActivity.YaPublicada`, [PoolDesdeDevOpsService](AdminWeb.Application/Services/PoolDesdeDevOpsService.cs) | Sin `YaPublicada`, el empuje intentaría resolver credenciales sin sesión —y reventaría dentro de esa guarda— y le mandaría la prioridad «Media» (un 3) a un ticket recién creado que tiene el 2 por omisión: se la BAJARÍA |
 | **El alta automática deduplica contra el POOL, no contra el ticket**: se descarta todo work item que ya tenga actividad, en cualquier estado | [PoolDesdeDevOpsService](AdminWeb.Application/Services/PoolDesdeDevOpsService.cs) | Una marca en `DevOpsTickets` la borraría `DataCleanupService` al purgar esa tabla, y la siguiente pasada recrearía una actividad por cada ticket ya tratado. Consecuencia asumida: un work item descartado no vuelve a entrar solo |
-| **Una actividad libre se paga UNA vez** (`DevActivity.PointEntryId`), y la que arrastra el pool no se paga por ahí | [DevActivityService.CalificarAsync](AdminWeb.Application/Services/DevActivityService.cs) | Sin la traza se pagaría dos veces al calificar dos veces; sin la exclusión del pool, el mismo trabajo cobraría por dos caminos |
+| **Solo DOS archivos convierten trabajo en puntos**, y la lista está cerrada por una prueba que lee el código fuente | [ProductoresDePuntosTests](tests/AdminWeb.Application.Tests/ProductoresDePuntosTests.cs) | Reducir cuatro caminos a uno se hace una vez; mantenerlos reducidos no. Sin la prueba, dentro de dos años vuelve a haber cuatro por el mismo camino por el que llegaron los de hoy: alguien necesita abonar puntos desde una pantalla nueva, escribe `PointEntries.Add`, y nada falla |
+| **Todo lo que paga desde el pool pasa por `AbonarAsync`**: una sola transacción con el `ExecuteUpdate` condicional sobre `PointEntryId == null`. Lo usan aceptar una entrega y publicar un descuento | [PoolActivityService](AdminWeb.Application/Services/PoolActivityService.cs) | Dos sitios que insertan una `PointEntry` y escriben su traza acaban con uno de los dos olvidándose de la condición, y entonces el mismo trabajo se paga dos veces sin que salte nada |
+| **El precio se fija ANTES de trabajar.** Es la invariante fundacional, y de ella cuelga que se retiraran la autocalificación y calificar una actividad libre: las dos ponían valor a algo ya hecho | `PoolActivityService`, y las guardas de `PerformanceScoringService.RegistrarAutocalificacionAsync` y `DevActivityService.CalificarAsync` | Sin ella los puntos de dos personas dejan de ser comparables, que es lo único que los hace servir para algo |
+| **El artículo de conocimiento es la ÚNICA excepción declarada** a la regla de arriba, y se declara por modelo y no por política: un artículo no se encarga —«escribe sobre X, vale 8»—, lo que vale es el artículo. No tiene reclamo, ni plazo, ni checklist, ni cronómetro | [ConocimientoService.AprobarAsync](AdminWeb.Application/Services/ConocimientoService.cs) | Meterlo en el pool costaría cuatro columnas anulables cuya única función sería decir «esta fila no es realmente del pool». Sin dejarlo escrito, quien lea el código en seis meses lo tomará por un camino que se olvidaron de apagar |
+| **Una propuesta es un `PorClasificar` CON reclamo**, y ese único campo decide a dónde va al clasificarla: sin dueño sale `Disponible` al pool, con dueño sale `Tomada` a las manos de quien la propuso | `PoolActivityService.EditarAsync` | Mandar una propuesta al pool común dejaría que se la llevara otro después de saber lo que paga; asignar lo venido de DevOps se lo pondría a nombre de quien no lo pidió y el pool se quedaría vacío |
+| **Las propuestas cuentan dentro del tope de tomadas** | `PoolActivityService.CuantasVivasAsync`, que miran proponer y tomar | Sin ellas se llega al doble de trabajo vivo proponiendo en vez de tomando, y se descubre el día que el líder clasifique y aparezcan todas tomadas de golpe |
+| **Un descuento se anula con una compensatoria, no borrando la entrada** (`PoolActivity.AnulacionPointEntryId` la protege de anularse dos veces) | `PoolActivityService.AnularDescuentoAsync` | Aquí nada que haya pagado se borra: el histórico tiene que poder explicar por qué el marcador de alguien bajó y volvió a subir |
+| **Una actividad libre se paga UNA vez** (`DevActivity.PointEntryId`), y la que arrastra el pool no se paga por ahí. **Calificarlas se retiró**; la traza y la guarda se quedan porque las entradas de antes del corte siguen ahí | [DevActivityService.CalificarAsync](AdminWeb.Application/Services/DevActivityService.cs) | Sin la traza se pagaría dos veces al calificar dos veces; sin la exclusión del pool, el mismo trabajo cobraría por dos caminos |
+| **`PoolActivityExtraCriteria` la crea el MIGRADOR a mano, con SQL crudo, en las dos ramas.** Una columna nueva suya va en **tres** sitios por rama: la entidad, el cuerpo del `CREATE TABLE` y un `ALTER` idempotente | [DatabaseMigrator](AdminWeb.Infrastructure/Data/DatabaseMigrator.cs) | Olvidar el cuerpo del `CREATE` no rompe la pantalla nueva: rompe **todo lo que lea la tabla**, y solo en las instalaciones nuevas, que es el peor sitio para enterarse |
 | **Devolver una actividad al pool NO desasigna su work item**, pero sí limpia `DevOpsEstadoEnviado` para que el siguiente que la tome vuelva a ponerlo en curso | `PoolActivityService.SoltarReclamo` | Desasignar vaciaría en DevOps un campo que quizá puso otra persona; no limpiar el estado dejaría el ticket parado en la columna donde lo dejó el anterior |
 | **Una `WorkSession` tiene exactamente un objetivo** | `WorkSession.EsValida` | El esquema aceptaría dos o ninguno |
 | **Un solo registro de asistencia por día y persona** | `AttendanceService` | — |

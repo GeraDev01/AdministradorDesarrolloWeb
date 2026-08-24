@@ -597,6 +597,226 @@ sistema, y «3 sistemas» no responde esa pregunta.
 
 ---
 
+## Un solo camino convierte trabajo en puntos, y una sola pantalla lo reparte
+
+El desarrollador tenía **nueve pantallas de trabajo** y **cuatro caminos de puntos**. Ninguno de los
+cuatro se añadió con mala intención: cada uno era razonable por su cuenta, y juntos produjeron la
+pregunta que había que eliminar — «esto que acabo de hacer, ¿dónde lo registro?». El propio manual lo
+admitía sin querer: el artículo de dónde llega el trabajo enumeraba **cinco puertas**, y el de
+desempeño abría diciendo «hay tres caminos» y a continuación listaba **cuatro**.
+
+Después del corte hay **uno**, y una excepción declarada:
+
+| Camino | Quién | Cuándo se fija el precio |
+|---|---|---|
+| **El pool** | el líder publica, o el desarrollador propone y el líder tasa | **antes** de trabajar, desde la matriz |
+| El artículo de conocimiento | el líder al aprobarlo | después — y por eso es la excepción, ver abajo |
+
+### La invariante, dicha en una línea
+
+**El precio se fija antes de trabajar.** Es lo único que hace comparables los puntos de dos personas
+distintas, y de ella cuelga todo lo demás: que la matriz sea del líder, que los puntos se congelen al
+publicar, que verificar sea comprobar un checklist y no negociar un número, y que se retiraran los dos
+caminos que hacían lo contrario.
+
+**El artículo de conocimiento es la única excepción, y se declara por modelo y no por política.** Un
+artículo no se encarga —«escribe sobre X, vale 8»—: lo que vale es el artículo. No tiene reclamo, ni
+plazo, ni checklist, ni cronómetro, y meterlo en el pool costaría cuatro columnas anulables cuya única
+función sería decir «esta fila no es realmente del pool». Queda escrito en el resumen de
+`AprobarAsync`, en la tabla de reglas del modelo de datos y en el manual: sin eso, quien lea el código
+en seis meses lo tomará por un camino que se olvidaron de apagar.
+
+### Lo que se apagó, y por qué se conserva el código
+
+`PerformanceScoringService.RegistrarAutocalificacionAsync` y `DevActivityService.CalificarAsync`
+rechazan en su **primera línea**, con un texto que dice a dónde ir. Tres decisiones de forma:
+
+- **La guarda va en el SERVICIO, no en el endpoint.** Es la regla de la casa: dos sitios donde decidir
+  lo mismo acaban con uno de los dos olvidándose de una regla.
+- **Las rutas siguen publicadas.** Contestan 400 con el motivo en vez de 404, que es lo que recibiría
+  un cliente viejo, una pestaña abierta desde ayer o el escritorio mientras siga siendo la marcha
+  atrás. Quitarlas no habría hecho el sistema más simple: habría hecho el fallo más difícil de
+  entender.
+- **El código de abajo se queda**, tras un `#pragma warning disable CS0162`. **Corregir y replicar
+  siguen vivos** —hay entradas pendientes y rechazadas ahí fuera, y cerrarlas dejaría conversaciones a
+  medias y gente con puntos en el limbo— y comparten con lo apagado la lectura y la validación del
+  criterio. La cola se drena sola.
+
+Los criterios **dejan de ofrecerse pero no se retiran**: las dos consultas devuelven vacío y las dos
+pantallas ya sabían esconder su botón cuando no había con qué. **`IsActive` no se toca en ninguna
+fila**: apagar la oferta es una decisión de consulta y se revierte borrando unas líneas; desactivar el
+catálogo sería un cambio de datos que dejaría el histórico ilegible —cada entrada aprobada seguiría
+apuntando a un criterio retirado— y no se desharía sin volver a tocar la base.
+
+### Esto revierte una decisión escrita seis días antes, y se declara
+
+El commit `15316a3` («Las actividades libres ya se pueden calificar, y sus puntos cuentan», 18 de
+agosto de 2026) hizo calificables las actividades libres **a propósito y con un buen argumento**: ese
+trabajo acumulaba tiempo medido y evidencia adjunta y no daba puntos por ninguna ruta, así que todo lo
+que no cabía en el pool ni venía de un ticket quedaba fuera del desempeño por no tener dónde contarlo.
+Y lo que se calificaba no era una declaración: el tiempo lo medía el cronómetro y la evidencia estaba
+adjunta desde antes de que nadie mirara.
+
+Lo que pesó más al revertirlo es que ese argumento no cambia que siguen siendo **dos juicios
+subjetivos sobre trabajo ya hecho**. Con el pool como unidad de trabajo, era el segundo camino de
+puntos del líder y sobraba.
+
+**El precio, sin adornos:** el trabajo que no cabe en el pool y no viene de un ticket —una
+investigación, un apagafuegos, ayudar a otro equipo— pierde su camino propio y pasa por **proponerlo**,
+que es un viaje más largo para algo ya hecho. Se aceptó a cambio de que el precio se fije siempre
+antes.
+
+### Proponer: el desarrollador dice QUÉ y el líder dice CUÁNTO
+
+Una propuesta **no es un estado nuevo**: es un `PorClasificar` —el que ya usaban las actividades que
+llegan solas de un work item— **con `ClaimedByDeveloperId` puesto**. Ese único campo trae cinco
+comportamientos que no hubo que escribir: aparece en «lo mío», no aparece en lo disponible, nadie más
+se la puede llevar, no sale nada hacia DevOps mientras no tenga qué afirmar, y el líder ya la ve con
+«Clasificar» y «Descartar» al lado.
+
+La petición **no lleva tipo, ni complejidad, ni horas, ni puntos, ni persona**. No es comodidad: es la
+invariante. Aceptar el tipo dejaría que quien propone eligiera su propia casilla de la matriz, que es
+poner el precio con dos pasos de por medio.
+
+**Clasificar quedó bimodal**, y es la línea de todo el cambio que más merece una segunda lectura: sin
+reclamo la actividad sale `Disponible`, al pool común; con reclamo sale `Tomada`, a las manos de quien
+la propuso — con su plazo calculado desde ese momento, su checklist copiado y su percha de cronómetro
+creada, que es exactamente lo que hace tomar y por eso está extraído en un privado que usan los dos.
+La regresión de que **lo venido de DevOps sigue yendo al pool** es prueba obligatoria.
+
+Dos reglas sin las cuales la función se muere sola: las **propuestas cuentan dentro del tope de
+tomadas** —en los dos sentidos, o se llega al doble de trabajo vivo proponiendo en vez de tomando— y
+**descartar una propuesta exige un motivo**, que se le manda tal cual. Una propuesta rechazada en
+silencio mata esto en una semana: nadie vuelve a proponer si la vez anterior su trabajo desapareció
+sin una palabra.
+
+Lo que este camino **no puede dar**, dicho para que no parezca un olvido: una propuesta clasificada
+como **bug** se queda sin esfuerzo estimado. En un bug lo escribe quien lo toma en el momento de
+tomarlo, y aquí ese momento no existe — cuando el líder clasifica, la actividad ya es suya, y
+preguntárselo después sería preguntarle cuando ya sabe lo que le costó. Esos bugs se comparan contra
+el cronómetro con la mitad de los datos, y el mensaje al líder lo dice.
+
+### El descuento, y la pieza que hace verdad «un solo camino»
+
+Retirar la calificación de actividades libres dejaba al líder **sin ninguna puerta de puntos
+negativos**, con cuarenta y un criterios de castigo escritos y sin uso posible. Por eso el descuento se
+construyó **antes** que el apagado, y no después.
+
+Un descuento es una actividad del pool que **nace pagada, cerrada y en negativo**, con su criterio del
+catálogo —tiene que restar— y un **motivo obligatorio**: el pool nunca lo exigió para pagar porque el
+checklist era la justificación, y aquí no hay entrega que mirar. Se avisa a la persona, y se puede
+anular escribiendo una **compensatoria** con el signo contrario, nunca borrando la entrada: aquí nada
+que haya pagado se borra.
+
+**Descuento y retrabajo no son lo mismo, y la regla cabe en una línea:** si hay algo que hacer, es un
+`Retrabajo` —se toma, se cronometra, se entrega y su número sale de la matriz—; si no hay nada que
+hacer, es un descuento, que no lo toma nadie y cuyo número sale de un criterio que nombra el hecho.
+
+`Descuento` es un **valor nuevo del enumerado** y no `Aceptada` con un discriminador. Reutilizar
+`Aceptada` habría obligado a **todas** las consultas que hoy filtran por ella a aprender a distinguir,
+y una lista de estados olvidada es el modo de fallo que este modelo más teme. Un valor nuevo lo hace
+visible al compilador y a las pruebas.
+
+**Y el corazón del encargo:** de aceptar una entrega se extrajo `AbonarAsync` —la transacción, el
+`SaveChanges` y el `ExecuteUpdate` condicional sobre `PointEntryId == null`— y lo llaman los dos.
+**Después de eso hay una sola pieza de código que convierte trabajo en puntos.**
+
+### La prueba más barata y la más importante de todo el lote
+
+`ProductoresDePuntosTests` **lee el código fuente** de la capa de aplicación y de la API y falla
+cuando aparece un archivo que inserta una `PointEntry` fuera de la lista declarada, con su motivo
+escrito al lado.
+
+Sin ella, «un solo camino» es una frase de un documento y dentro de dos años vuelve a haber cuatro por
+el mismo camino por el que llegaron los de hoy: alguien necesita abonar puntos desde una pantalla
+nueva, escribe la línea, y **nada falla**. Con ella es una invariante. Busca la **inserción** y no el
+`new`, y esa diferencia costó un falso verde al escribirla: el endpoint de la autocalificación armaba
+su borrador con `new()` de tipo inferido, que ningún rastreo de `new PointEntry` encuentra — y da
+igual, porque un objeto en memoria no es una fila.
+
+Los dos apagados **siguen en su lista**, marcados `APAGADO:`. Quitarlos la pondría roja por el otro
+extremo —una lista que sobra miente igual que una que falta— porque el código conservado los hace
+visibles al rastreo. El día que ese código se borre, se borra también su entrada.
+
+### El criterio que obliga a citar un artículo
+
+La base de conocimiento pagaba por **escribir** y nada más, y un artículo que nadie aplica no vale
+nada: la única señal de utilidad era la opinión de su autor. El criterio extra **«Aplicaste una
+práctica documentada en la base de conocimiento»** paga por **aplicar**, y de paso —agrupando las filas
+dadas por cumplidas— contesta por primera vez qué prácticas se usan de verdad y cuáles llevan un año
+publicadas sin que nadie las abra.
+
+Los demás extras se verifican mirando la entrega —«agregaste pruebas» está en el pull request—; éste no
+se puede adivinar, así que quien hace el trabajo dice **qué artículo** y **cómo** antes de entregar, y
+el servidor no deja entregar sin eso. Se pide antes y no al verificar porque pedírselo después sería
+pedírselo a alguien que ya está esperando respuesta, y obligaría al líder a devolver la entrega solo
+para reclamar una frase.
+
+La **justificación** es de quien hizo el trabajo y el **comentario** es del líder: dos columnas, porque
+dos voces en una es lo que esta base evita en todas partes. Y el artículo va **sin clave foránea** por
+coherencia con `ScoringCriterionId`, su vecina, que es traza a propósito — no por el motor, que aquí sí
+la aceptaría.
+
+**¿Cobrar dos veces con un artículo propio?** No lo es: escribirlo se pagó una vez y para siempre;
+aplicarlo se paga cada vez, que es lo que se quiere premiar. Y el desarrollador no puede añadirse este
+criterio —los extras los elige el líder al publicar—, así que si él no lo pidió no hay nada que cobrar.
+Lo que sí hace el panel de verificación es **decir** que el artículo lo escribió la misma persona: una
+derivación de una línea, y la diferencia entre una política que funciona y una que nadie aplica.
+
+### Una sola pantalla
+
+`/mi-pool` se queda con su ruta y pasa a llamarse **«Mi trabajo»**. Una ruta nueva habría costado un
+recorrido guiado nuevo, reescribir las rutas del manual y dejar con 404 los avisos que guardaron
+`"pool"` como destino, todo a cambio de nada.
+
+«Lo mío» pasa de **nueve entradas a cuatro**: *Mi Panel* · **Mi trabajo** · *Mi jornada* · *Mis
+Evaluaciones*. `/sprint` baja a «Herramientas» porque es del equipo y en solo consulta.
+
+`/mis-asignaciones`, `/mis-tickets`, `/mis-actividades` y `/mis-sla` **salen del menú y siguen vivas**:
+`[Authorize]` intacto, recorrido intacto, enlaces profundos intactos. Son **fuentes** de trabajo, no
+listas que repasar, y una sección plegada al final de «Mi trabajo» lo dice y lleva a cada una — para
+que «salir del menú» no se lea como «desaparecer».
+
+**Consecuencia aceptada a sabiendas:** `/mis-asignaciones` era el único sitio donde el cronómetro
+corría sobre un `Requirement`. Fuera del menú, ese cronometraje muere para el desarrollador. Es
+coherente con «el pool es la unidad de trabajo», y hay evidencia de apoyo —en los datos de
+demostración el 100 % de las `WorkSession` cuelgan de una actividad y ninguna de un requerimiento—,
+pero es evidencia, no prueba.
+
+### Lo que NO se hizo, y por qué
+
+- **No se fundió `PoolActivity` con `Requirement`.** Un requerimiento reparte entre N personas por
+  `Assignment` y el pool tiene reclamo único; `CommittedDeliveryDate` es una fecha prometida al
+  cliente y `HorasLimite` un presupuesto que empieza a correr al tomar. Y `db.Requirements` lo
+  consultan **veinte** servicios contra once del pool: absorber el backlog multiplicaría por dos la
+  superficie del pool y dejaría veinte servicios pidiendo un filtro que alguien olvidará. La petición
+  no lo exigía — exigía que el desarrollador no eligiera entre listas.
+- **No se quitó la percha del cronómetro.** El motivo bueno no es el motor: `WorkSession → PoolActivity`
+  es una arista *entrante* y con `OnDelete(NoAction)` SQL Server la aceptaría. Se aplaza porque sería
+  lo único que escribiría en `WorkSessions` el mismo día del corte, porque el relleno de las perchas ya
+  devueltas es hoy imposible —`SoltarReclamo` ya borró el vínculo—, y porque todos los lectores de
+  `ActivityId` tendrían que aprender un tercer objetivo a la vez: olvidar uno **no lanza excepción, el
+  tiempo deja de contarse en silencio** hasta que cierra el mes. `DevActivity.PoolActivityId` es el
+  prerrequisito no desechable de ese trabajo, y por eso se escribió ya.
+- **No se puso un interruptor.** Se consideró `pool.puerta-unica` en `AppSettings` como marcha atrás
+  sin desplegar, y con el efecto secundario de dejar en verde las pruebas que ejercitaban lo apagado.
+  Se descartó: el precio de tenerlo es que el código vive con las dos verdades a la vez y la lectura de
+  cada camino empieza por «depende». Se apagó en firme, y las pruebas afectadas se invirtieron o
+  cambiaron de sujeto una por una.
+
+### El histórico, y qué hacer si hay que volver atrás
+
+**Ningún tramo borró, actualizó ni reasignó una sola fila de `PointEntry`.** Solo columnas nulables
+nuevas. Lo que se registró antes del corte sigue contando igual, y las pantallas que lo enseñan siguen
+sabiendo leerlo.
+
+La marcha atrás es `git revert`, y es segura por lo mismo: **no se borró ninguna columna, no se
+renumeró ningún enumerado, no se renombró nada y no se migró un solo dato.** Lo único que hay que
+revisar a mano son las filas en estado `Descuento`: el código viejo no revienta —todas las
+traducciones tienen rama por omisión— pero las lee como «Retirada» con puntos negativos al lado. Sus
+`PointEntry` siguen contando bien.
+
+---
 ## Otras cosas pequeñas que parecen errores
 
 | Lo que se ve | Lo que es |
