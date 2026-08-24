@@ -18,7 +18,14 @@ public class DevActivityService(AppDbContext db, ICurrentUser currentUser, Audit
         CancellationToken ct = default)
     {
         AuthorizationGuard.RequireOwnershipOrAdmin(currentUser, developerId);
-        var q = db.DevActivities.Where(a => a.DeveloperId == developerId);
+
+        // SIN LAS PERCHAS DEL POOL. No son actividades libres de nadie: son la fila que el pool
+        // fabrica para poder cronometrar, y se llaman «Pool #17: …». Enseñarlas aquí ponía a la
+        // vista los botones de renombrar, cerrar, reabrir y eliminar sobre el cronómetro de una
+        // actividad del pool — y el trabajo del pool ya se ve, con su checklist y sus puntos, en su
+        // propia pantalla. El servidor lo rechaza igual (ver ObtenerPropiaAsync), así que el botón
+        // que no está y la operación que no se permite dicen lo mismo.
+        var q = db.DevActivities.Where(a => a.DeveloperId == developerId && a.PoolActivityId == null);
         if (!incluirCerradas) q = q.Where(a => a.Status == DevActivityStatus.Abierta);
         return await q.OrderByDescending(a => a.Status == DevActivityStatus.Abierta)
                       .ThenByDescending(a => a.CreatedAt)
@@ -146,9 +153,13 @@ public class DevActivityService(AppDbContext db, ICurrentUser currentUser, Audit
 
         // La percha del cronómetro de una actividad del pool NO se califica aquí: ese trabajo cobra
         // por el pool, con los puntos que la matriz congeló antes de que nadie lo tomara.
-        bool esDelPool = await db.PoolActivities.AsNoTracking()
-            .AnyAsync(p => p.LinkedDevActivityId == activityId, ct);
-        if (esDelPool)
+        //
+        // Se pregunta por LA MARCA de la propia fila y no por el vínculo de vuelta, que es lo que
+        // se hacía antes y era una fuga: `SoltarReclamo` borra `LinkedDevActivityId` al devolver o
+        // liberar la actividad, así que la percha de un trabajo devuelto dejaba de ser reconocible
+        // —cerrada, con tiempo medido y sin pagar— y esta guarda la dejaba pasar. Calificarla
+        // abonaba puntos por un trabajo que después iba a cobrar otra persona por el pool.
+        if (actividad.EsPerchaDelPool)
             return (false, "Esa actividad es el cronómetro de una actividad del pool: sus puntos se " +
                            "abonan al aceptar la entrega, no por aquí.");
 
@@ -259,10 +270,13 @@ public class DevActivityService(AppDbContext db, ICurrentUser currentUser, Audit
                   (a, p) => new { a.Id, p.Points })
             .ToListAsync(ct);
 
-        var delPool = (await db.PoolActivities.AsNoTracking()
-                .Where(p => p.LinkedDevActivityId != null
-                            && activityIds.Contains(p.LinkedDevActivityId!.Value))
-                .Select(p => p.LinkedDevActivityId!.Value)
+        // Por la marca de la propia fila, no por el vínculo de vuelta: aquél se borra al devolver la
+        // actividad y entonces la percha volvía a parecer una actividad libre cualquiera. Es la
+        // misma corrección que en CalificarAsync, y las dos tienen que mirar lo mismo o la pantalla
+        // acabaría ofreciendo un botón que el servidor rechaza.
+        var delPool = (await db.DevActivities.AsNoTracking()
+                .Where(a => activityIds.Contains(a.Id) && a.PoolActivityId != null)
+                .Select(a => a.Id)
                 .ToListAsync(ct))
             .ToHashSet();
 
@@ -429,6 +443,22 @@ public class DevActivityService(AppDbContext db, ICurrentUser currentUser, Audit
         var a = await db.DevActivities.FirstOrDefaultAsync(x => x.Id == activityId, ct);
         if (a == null) return (null, "La actividad ya no existe. Actualiza la lista.");
         AuthorizationGuard.RequireOwnershipOrAdmin(currentUser, a.DeveloperId);
+
+        // LA PERCHA DEL POOL NO SE TOCA DESDE AQUÍ, y la guarda va en el embudo y no en cada
+        // método por eso mismo: son CINCO —renombrar, cerrar, reabrir, eliminar y adjuntar
+        // evidencia— y la que se olvidara sería la que rompiera el cronómetro de otra pantalla.
+        // Hasta ahora la comprobación solo estaba en CalificarAsync, así que un desarrollador podía
+        // cerrar el cronómetro de su propia actividad del pool a media entrega, renombrarlo, o
+        // borrarlo mientras no hubiera medido nada todavía — y entonces LinkedDevActivityId se
+        // quedaba apuntando a una fila que ya no existe y el botón de arrancar el cronómetro medía
+        // contra el vacío.
+        //
+        // CerrarActividadEnlazadaAsync, que es quien la cierra de verdad al aceptar la actividad,
+        // escribe la entidad directamente y NO pasa por aquí: no se autobloquea.
+        if (a.EsPerchaDelPool)
+            return (null, "Esa actividad es el cronómetro de una actividad del pool: se cierra sola " +
+                          "al aceptar la entrega y no se toca desde aquí.");
+
         return (a, null);
     }
 

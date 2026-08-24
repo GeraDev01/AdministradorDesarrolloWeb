@@ -1560,7 +1560,14 @@ public class PoolActivityService(
             Description = "Creada automáticamente al tomar la actividad del pool, para poder " +
                           "cronometrar el trabajo. Se cierra cuando la actividad se acepta.",
             Status = DevActivityStatus.Abierta,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = DateTime.UtcNow,
+
+            // LA MARCA DE PERCHA, y es lo único de aquí que sobrevive a soltar el reclamo. El
+            // vínculo de vuelta (LinkedDevActivityId) lo borra SoltarReclamo, y sin esta marca la
+            // percha de una actividad devuelta quedaba indistinguible de una actividad libre
+            // cualquiera: cerrada, con tiempo medido y sin pagar. El líder podía calificarla por
+            // puntos y el pool volvía a pagar cuando otro terminaba el trabajo.
+            PoolActivityId = actividad.Id
         };
         db.DevActivities.Add(libre);
         return libre;

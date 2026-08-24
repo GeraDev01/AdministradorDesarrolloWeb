@@ -46,5 +46,31 @@ public class DevActivity
     /// </summary>
     public int? PointEntryId { get; set; }
 
+    /// <summary>
+    /// LA ACTIVIDAD DEL POOL PARA LA QUE ESTA FILA ES EL CRONÓMETRO. Nulo = es una actividad libre
+    /// de verdad, de las que alguien abre para medir trabajo que no cuelga de ningún requerimiento.
+    ///
+    /// <para><b>Es una MARCA, no un vínculo, y por eso no se limpia nunca.</b> El vínculo vivo es
+    /// <c>PoolActivity.LinkedDevActivityId</c>, que apunta al revés y que <c>SoltarReclamo</c> borra
+    /// al devolver o liberar la actividad. Eso dejaba una percha cerrada, con tiempo medido y sin
+    /// pagar, a la que ya no apuntaba ninguna actividad del pool — y la guarda que impedía
+    /// calificarla preguntaba justo por ese vínculo, así que dejaba de reconocerla. El líder podía
+    /// cobrarla por puntos y, cuando otro terminara el trabajo, el pool pagaba otra vez.</para>
+    ///
+    /// <para>Con la marca escrita al crear la percha y nunca borrada, «esto fue el cronómetro de una
+    /// actividad del pool» sigue siendo cierto para siempre, que es lo que la pregunta necesita.
+    /// El valor <b>-1</b> significa «fue percha, no sé de cuál»: es lo que puede recuperar el
+    /// migrador de las perchas que ya habían perdido su vínculo antes de que esta columna existiera,
+    /// y basta para lo único que la marca tiene que hacer.</para>
+    ///
+    /// <para><b>Sin clave ajena</b>, por lo mismo que <see cref="PointEntryId"/>: sería una segunda
+    /// ruta de borrado en cascada desde <c>Developers</c> —por <c>PoolActivities</c> y por
+    /// <c>DevActivities</c>— y SQL Server rechaza crear esas restricciones.</para>
+    /// </summary>
+    public int? PoolActivityId { get; set; }
+
+    /// <summary>Si esta fila es la percha del cronómetro de una actividad del pool.</summary>
+    public bool EsPerchaDelPool => PoolActivityId != null;
+
     public Developer Developer { get; set; } = null!;
 }

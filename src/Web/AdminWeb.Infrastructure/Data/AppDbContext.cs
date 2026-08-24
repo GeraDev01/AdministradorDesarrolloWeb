@@ -383,6 +383,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(a => a.Title).IsRequired().HasMaxLength(200);
             e.HasOne(a => a.Developer).WithMany().HasForeignKey(a => a.DeveloperId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(a => new { a.DeveloperId, a.Status });
+            // La marca de percha se consulta en CADA carga de «mis actividades» y en cada guarda de
+            // las cinco operaciones que la tocan. Y va Ignore la derivada, que no es columna.
+            e.HasIndex(a => a.PoolActivityId);
+            e.Ignore(a => a.EsPerchaDelPool);
         });
 
         // Evidencia de las actividades libres. Cascada desde la actividad: si la actividad se

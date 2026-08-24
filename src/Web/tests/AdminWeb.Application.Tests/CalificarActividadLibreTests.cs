@@ -64,12 +64,18 @@ public class CalificarActividadLibreTests : IDisposable
         return (db, dev.Id, criterio.Id);
     }
 
-    private static async Task<int> ActividadCerradaAsync(AppDbContext db, int devId, string titulo = "Investigar la caída")
+    /// <param name="poolActivityId">La marca de percha. Es lo que el servicio mira desde que
+    /// preguntar por <c>PoolActivity.LinkedDevActivityId</c> resultó ser una fuga: ese vínculo lo
+    /// borra <c>SoltarReclamo</c> al devolver la actividad, y entonces la percha dejaba de
+    /// reconocerse. Sembrar solo el vínculo de vuelta ya no basta para armar una percha.</param>
+    private static async Task<int> ActividadCerradaAsync(AppDbContext db, int devId, string titulo = "Investigar la caída",
+        int? poolActivityId = null)
     {
         var actividad = new DevActivity
         {
             DeveloperId = devId, Title = titulo,
-            Status = DevActivityStatus.Cerrada, ClosedAt = DateTime.UtcNow
+            Status = DevActivityStatus.Cerrada, ClosedAt = DateTime.UtcNow,
+            PoolActivityId = poolActivityId
         };
         db.DevActivities.Add(actividad);
         await db.SaveChangesAsync();
@@ -195,14 +201,17 @@ public class CalificarActividadLibreTests : IDisposable
         var (db, devId, criterioId) = await BaseListaAsync();
         using var _ = db;
 
-        int actividadId = await ActividadCerradaAsync(db, devId, "Pool #7: Corregir el cálculo");
-
-        db.PoolActivities.Add(new PoolActivity
+        var delPool = new PoolActivity
         {
             Title = "Corregir el cálculo", WorkType = PoolWorkType.Bug, Complexity = PoolComplexity.Media,
-            Points = 8, Status = PoolActivityStatus.Tomada,
-            ClaimedByDeveloperId = devId, LinkedDevActivityId = actividadId
-        });
+            Points = 8, Status = PoolActivityStatus.Tomada, ClaimedByDeveloperId = devId
+        };
+        db.PoolActivities.Add(delPool);
+        await db.SaveChangesAsync();
+
+        int actividadId = await ActividadCerradaAsync(db, devId, "Pool #7: Corregir el cálculo",
+            poolActivityId: delPool.Id);
+        delPool.LinkedDevActivityId = actividadId;
         await db.SaveChangesAsync();
 
         var (ok, mensaje) = await Servicio(db, Admin()).CalificarAsync(actividadId, criterioId, 10, null);
@@ -274,14 +283,7 @@ public class CalificarActividadLibreTests : IDisposable
 
         int calificada = await ActividadCerradaAsync(db, devId, "Ya valorada");
         int sinCalificar = await ActividadCerradaAsync(db, devId, "Todavía no");
-        int delPool = await ActividadCerradaAsync(db, devId, "Pool #7: algo");
-
-        db.PoolActivities.Add(new PoolActivity
-        {
-            Title = "algo", WorkType = PoolWorkType.Tarea, Complexity = PoolComplexity.Baja,
-            Points = 3, LinkedDevActivityId = delPool
-        });
-        await db.SaveChangesAsync();
+        int delPool = await ActividadCerradaAsync(db, devId, "Pool #7: algo", poolActivityId: 77);
 
         await Servicio(db, Admin()).CalificarAsync(calificada, criterioId, 7, null);
 

@@ -40,6 +40,7 @@ public static class DatabaseMigrator
             SembrarVentanaDeCaducidadDeVacaciones(db);
             // Después de los parches: necesita las columnas de horas ya creadas para poder rellenarlas.
             ConvertirPlazosDeDiasAHorasUnaVez(db);
+            MarcarPerchasDelPoolUnaVez(db);
             return fallidas;
         }
 
@@ -1110,6 +1111,13 @@ public static class DatabaseMigrator
         // existe, que es lo correcto: nada de lo anterior se ha calificado nunca.
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DevActivities"" ADD COLUMN ""PointEntryId"" INTEGER"); } catch { }
 
+        // La marca de percha del pool. Nace en nulo en todo lo que ya existe —que es lo correcto:
+        // nulo significa «actividad libre de verdad»— y a las perchas anteriores las alcanza
+        // MarcarPerchasDelPoolUnaVez, más abajo. El índice porque esta columna se filtra en cada
+        // carga de «mis actividades» y en cada guarda de las cinco operaciones que la tocan.
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DevActivities"" ADD COLUMN ""PoolActivityId"" INTEGER"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_DevActivities_PoolActivityId"" ON ""DevActivities""(""PoolActivityId"")"); } catch { }
+
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivities"" ADD COLUMN ""DevOpsAsignadoADeveloperId"" INTEGER"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivities"" ADD COLUMN ""DevOpsEstadoEnviado"" TEXT"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Pool_DevOps"" ON ""PoolActivities""(""DevOpsWorkItemId"")"); } catch { }
@@ -1489,6 +1497,9 @@ public static class DatabaseMigrator
         // escribir la conversión.
         ConvertirPlazosDeDiasAHorasUnaVez(db);
 
+        // Y con la columna de la marca ya creada, por lo mismo.
+        MarcarPerchasDelPoolUnaVez(db);
+
         // La rama de SQLite no acumula fallos: aquí cada parche va en su propio try/catch porque
         // SQLite no sabe decir «añade la columna solo si no está», así que el fallo por columna
         // repetida es lo NORMAL y contarlo sería contar ruido. En SQL Server es al revés: las
@@ -1642,6 +1653,104 @@ VALUES (N'PoolHorasConvertidas', N'1', 0,
             // La base sigue usable con los plazos viejos y sin marca, así que el intento se repite en
             // el arranque siguiente. El arranque no debe caerse por esto: sin la web no hay a dónde
             // volver, y el escritorio —que lee los días— sigue funcionando igual.
+        }
+    }
+
+    /// <summary>
+    /// MARCA LAS PERCHAS DEL POOL QUE YA EXISTÍAN, una sola vez.
+    ///
+    /// <para>La percha es la actividad libre que el pool fabrica al tomar una actividad, para poder
+    /// cronometrar el trabajo con el cronómetro de siempre. Desde ahora nace con
+    /// <c>DevActivity.PoolActivityId</c> escrito; lo de antes no lo tiene, y sin marca esas filas
+    /// siguen siendo indistinguibles de una actividad libre cualquiera. Eso es justo el fallo que la
+    /// columna viene a cerrar: el líder podía calificarlas por puntos y el pool volvía a pagar
+    /// cuando otra persona terminaba el mismo trabajo.</para>
+    ///
+    /// <para><b>Dos pasadas, y la segunda es una heurística declarada.</b> La primera recupera el
+    /// vínculo exacto de las que todavía lo tienen. La segunda alcanza a las HUÉRFANAS —las de una
+    /// actividad devuelta o liberada, donde <c>SoltarReclamo</c> ya borró
+    /// <c>LinkedDevActivityId</c>— y solo puede reconocerlas por el título, cuyo formato lo escribe
+    /// únicamente <c>CrearActividadEnlazada</c>. Se marcan con <b>-1</b>: «fue percha, no sé de
+    /// cuál». No inventa un vínculo que no se puede recuperar, y basta para lo único que la marca
+    /// tiene que hacer — bloquear las cinco operaciones y esconderla de la lista. Quien titulara a
+    /// mano una actividad «Pool #3: …» se autoexcluye de una calificación que de todas formas no
+    /// debería tener.</para>
+    ///
+    /// <para>Mismo patrón que <see cref="ConvertirPlazosDeDiasAHorasUnaVez"/> y por los mismos
+    /// motivos: transacción, SQL crudo y nunca el <c>ChangeTracker</c> —el contexto del arranque es
+    /// el que después siembra los catálogos—, la marca de «ya se hizo» en <c>AppSettings</c> y no
+    /// como condición sobre los datos, y la excepción se traga para no tumbar el arranque.</para>
+    ///
+    /// <para>La marca NO puede ser <c>WHERE PoolActivityId IS NULL</c>: nulo es un valor legítimo
+    /// —significa «actividad libre de verdad»— y con esa condición la segunda pasada volvería a
+    /// correr en cada arranque sobre cada actividad nueva que alguien titulara empezando por «Pool
+    /// #». Es el mismo error que la conversión de los plazos razona en su propio resumen.</para>
+    /// </summary>
+    private static void MarcarPerchasDelPoolUnaVez(AppDbContext db)
+    {
+        bool esSqlite = db.Database.IsSqlite();
+
+        try
+        {
+            using var tx = db.Database.BeginTransaction();
+
+            int yaEsta = db.Database.SqlQueryRaw<int>(
+                esSqlite
+                    ? @"SELECT COUNT(*) AS ""Value"" FROM ""AppSettings"" WHERE ""Key"" = 'PoolPerchasMarcadas'"
+                    : "SELECT COUNT(*) AS [Value] FROM [AppSettings] WHERE [Key] = 'PoolPerchasMarcadas';")
+                .AsEnumerable().First();
+
+            if (yaEsta > 0) return;   // al salir del «using», la transacción se deshace sola
+
+            if (esSqlite)
+            {
+                // 1) Las que conservan el vínculo: exacto.
+                db.Database.ExecuteSqlRaw(@"
+                    UPDATE ""DevActivities"" SET ""PoolActivityId"" =
+                        (SELECT p.""Id"" FROM ""PoolActivities"" p
+                          WHERE p.""LinkedDevActivityId"" = ""DevActivities"".""Id""
+                          ORDER BY p.""Id"" DESC LIMIT 1)
+                    WHERE ""PoolActivityId"" IS NULL
+                      AND EXISTS (SELECT 1 FROM ""PoolActivities"" p2
+                                   WHERE p2.""LinkedDevActivityId"" = ""DevActivities"".""Id"")");
+
+                // 2) Las huérfanas, por el título que solo escribe CrearActividadEnlazada.
+                db.Database.ExecuteSqlRaw(@"
+                    UPDATE ""DevActivities"" SET ""PoolActivityId"" = -1
+                    WHERE ""PoolActivityId"" IS NULL AND ""Title"" LIKE 'Pool #%'");
+            }
+            else
+            {
+                db.Database.ExecuteSqlRaw(@"
+UPDATE d SET d.[PoolActivityId] =
+    (SELECT TOP 1 p.[Id] FROM [PoolActivities] p
+      WHERE p.[LinkedDevActivityId] = d.[Id] ORDER BY p.[Id] DESC)
+FROM [DevActivities] d
+WHERE d.[PoolActivityId] IS NULL
+  AND EXISTS (SELECT 1 FROM [PoolActivities] p2 WHERE p2.[LinkedDevActivityId] = d.[Id]);");
+
+                db.Database.ExecuteSqlRaw(@"
+UPDATE [DevActivities] SET [PoolActivityId] = -1
+WHERE [PoolActivityId] IS NULL AND [Title] LIKE N'Pool #%';");
+            }
+
+            if (esSqlite)
+                db.Database.ExecuteSqlRaw(@"
+                    INSERT INTO ""AppSettings"" (""Key"", ""Value"", ""IsSecret"", ""Description"")
+                    VALUES ('PoolPerchasMarcadas', '1', 0,
+                            'Las actividades libres que eran el cronómetro de una actividad del pool ya quedaron marcadas. NO BORRAR esta fila: sin ella, el próximo arranque volvería a marcar por título y alcanzaría a cualquier actividad nueva que alguien llame «Pool #…».')");
+            else
+                db.Database.ExecuteSqlRaw(@"
+INSERT INTO [AppSettings] ([Key], [Value], [IsSecret], [Description])
+VALUES (N'PoolPerchasMarcadas', N'1', 0,
+        N'Las actividades libres que eran el cronómetro de una actividad del pool ya quedaron marcadas. NO BORRAR esta fila: sin ella, el próximo arranque volvería a marcar por título y alcanzaría a cualquier actividad nueva que alguien llame «Pool #…».');");
+
+            tx.Commit();
+        }
+        catch
+        {
+            // Sin marca, el intento se repite en el arranque siguiente. Mientras tanto la guarda
+            // sigue protegiendo a las perchas NUEVAS, que son las que nacen con la columna escrita.
         }
     }
 
@@ -2555,6 +2664,9 @@ CREATE TABLE [PoolActivities] (
         // qué estado se movió. nvarchar(100) es el mismo tope que declara AppDbContext.
         // La gemela de la de SQLite: con qué entrada de puntos se calificó una actividad libre.
         Exec("IF COL_LENGTH('DevActivities','PointEntryId') IS NULL ALTER TABLE [DevActivities] ADD [PointEntryId] int NULL;");
+        // La gemela de la de SQLite: de qué actividad del pool es esta fila el cronómetro.
+        Exec("IF COL_LENGTH('DevActivities','PoolActivityId') IS NULL ALTER TABLE [DevActivities] ADD [PoolActivityId] int NULL;");
+        ExecIndex("DevActivities", "IX_DevActivities_PoolActivityId", "PoolActivityId", "[PoolActivityId]");
 
         Exec("IF COL_LENGTH('PoolActivities','DevOpsAsignadoADeveloperId') IS NULL ALTER TABLE [PoolActivities] ADD [DevOpsAsignadoADeveloperId] int NULL;");
         Exec("IF COL_LENGTH('PoolActivities','DevOpsEstadoEnviado') IS NULL ALTER TABLE [PoolActivities] ADD [DevOpsEstadoEnviado] nvarchar(100) NULL;");
