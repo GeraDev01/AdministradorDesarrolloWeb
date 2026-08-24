@@ -315,10 +315,14 @@ public sealed class RecorridosDelTrabajoYElDesempeno : IFuenteDeRecorridos
                 "abre y se cierra con este mismo botón, y en una actividad ya cerrada la evidencia " +
                 "se puede consultar pero no cambiar.")),
 
-        // ── Mi pool ──────────────────────────────────────────────────────────
-        new Recorrido("/mi-pool", "El pool: tomar y entregar",
+        // ── Mi trabajo ───────────────────────────────────────────────────────
+        //
+        // La ruta sigue diciendo «mi-pool» y el recorrido dice «Mi trabajo»: el rótulo cambió cuando
+        // ésta pasó a ser la única pantalla de trabajo del desarrollador, y la ruta se quedó porque
+        // cambiarla habría dejado con 404 los avisos que guardaron «pool» como destino.
+        new Recorrido("/mi-pool", "Mi trabajo: proponer, tomar y entregar",
 
-            Paso.Portada("El pool",
+            Paso.Portada("Mi trabajo",
                 "El pool es trabajo publicado con su valor en puntos ya fijado, así que se sabe " +
                 "cuánto vale antes de tomarlo. En «Disponibles» está lo que todavía no ha tomado " +
                 "nadie; en esta primera pestaña, lo que ya está a tu nombre, con el checklist que " +
@@ -376,7 +380,15 @@ public sealed class RecorridosDelTrabajoYElDesempeno : IFuenteDeRecorridos
                 "deja seguir sin ese número; se pregunta en ese momento porque es el único en que " +
                 "la estimación es honesta. Si alguien más la toma mientras decides, el panel se " +
                 "cierra solo. Y si la actividad viene de un ticket de Azure DevOps, tomarla lo " +
-                "pone a tu nombre y en «en progreso» allá, sin que tengas que abrir DevOps.")),
+                "pone a tu nombre y en «en progreso» allá, sin que tengas que abrir DevOps."),
+
+            new Paso("mi-pool-fuentes", "Dónde se fueron las otras pantallas",
+                "Requerimientos, tickets de DevOps, SLA y actividades libres SIGUEN AHÍ: dejaron de " +
+                "estar en el menú, no de existir, y esta sección lleva a cada una. Salieron porque " +
+                "no son sitios a los que ir a trabajar sino FUENTES de trabajo: cuando de alguna " +
+                "sale algo que hacer, se convierte en una actividad del pool, que es donde vive su " +
+                "valor y su plazo. Antes había nueve pantallas y el mismo requerimiento salía en " +
+                "cuatro; ahora lo que tienes que hacer está en una.")),
 
         // ── El pool, del lado del líder ──────────────────────────────────────
         new Recorrido("/pool", "El pool del líder",

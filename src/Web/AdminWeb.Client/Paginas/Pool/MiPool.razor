@@ -49,11 +49,20 @@
     enlace para capturarlo, no un error.
 *@
 
-<PageTitle>Mi pool</PageTitle>
+@* SE LLAMA «MI TRABAJO» Y LA RUTA SIGUE SIENDO /mi-pool, y las dos mitades son a propósito.
+
+   El rótulo cambia porque «pool» es CÓMO funciona esto por dentro —una estantería de trabajo
+   valorado— y lo que el desarrollador viene a hacer aquí es su trabajo, todo él: ver qué tiene,
+   proponer lo que falta, cronometrarlo y entregarlo. Desde que ésta es la única pantalla, llamarla
+   por su mecanismo sería pedirle que aprenda el mecanismo para encontrarla.
+
+   La ruta NO cambia porque una nueva costaría un recorrido guiado nuevo, reescribir las rutas del
+   manual y dejar con 404 los avisos que guardaron «pool» como destino — todo a cambio de nada. *@
+<PageTitle>Mi trabajo</PageTitle>
 
 <RadzenStack Gap="1rem">
     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
-        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Mi pool de actividades</RadzenText>
+        <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Mi trabajo</RadzenText>
 
         @* PROPONER, junto a Recargar y no dentro de una pestaña: es la puerta por la que entra el
            trabajo que no está publicado, y esconderla detrás de «Disponibles» —donde justamente NO
@@ -702,6 +711,56 @@
                 </RadzenTabsItem>
             </Tabs>
         </RadzenTabs>
+
+        @* ── DE DÓNDE VIENE EL TRABAJO ────────────────────────────────────────
+
+           Requerimientos, tickets de DevOps y SLA salieron del menú, y sus pantallas siguen vivas.
+           Esta sección es lo que impide que «salir del menú» se lea como «desaparecer»: dice dónde
+           está cada cosa y, sobre todo, QUÉ HACER CON ELLA — que es convertirla en trabajo del pool,
+           no repasarla por su cuenta.
+
+           Va PLEGADA y al final, debajo de las pestañas: quien viene a trabajar no la abre nunca, y
+           quien busca «dónde se fueron mis tickets» la encuentra sin preguntar. Abierta, competiría
+           a diario con lo que sí hay que hacer.
+
+           Y es de SOLO LECTURA a propósito: si desde aquí se pudiera tomar o cronometrar algo,
+           volvería a haber dos sitios donde empieza el trabajo, que es exactamente lo que se acaba
+           de cerrar. *@
+        <RadzenFieldset data-recorrido="mi-pool-fuentes"
+                        Text="De dónde viene el trabajo" AllowCollapse="true" Collapsed="true">
+            <RadzenStack Gap="0.6rem">
+                <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                    Lo que tienes que hacer entra por <b>una sola puerta</b>: esta pantalla. Lo demás
+                    son <b>fuentes</b> —sitios de donde SALE trabajo— y no listas que haya que
+                    repasar. Cuando de una de ellas salga algo que hacer, se convierte en una
+                    actividad del pool: el líder la publica, o la propones tú y él le pone valor.
+                </RadzenText>
+
+                <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                    <b>Requerimientos</b> — lo que el área comprometió con el cliente, con su fecha.
+                    Se sigue en <a href="mis-asignaciones">Mis asignaciones</a>.
+                </RadzenText>
+                <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                    <b>Tickets de Azure DevOps</b> — los work items a tu nombre. Están en
+                    <a href="mis-tickets">Mis tickets</a>, y los del líder o sin dueño entran solos al
+                    pool para que él los clasifique.
+                </RadzenText>
+                <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                    <b>SLA</b> — lo que corre contra un reloj acordado. Se consulta en
+                    <a href="mis-sla">Mis SLA</a>.
+                </RadzenText>
+                <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                    <b>Actividades libres</b> — el trabajo que abriste por tu cuenta para medirle el
+                    tiempo. Siguen en <a href="mis-actividades">Mis actividades</a> y <b>no dan
+                    puntos</b>: si algo de ahí merece contar, propónlo aquí arriba.
+                </RadzenText>
+
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                    Ninguna de esas pantallas se cerró ni perdió permisos: dejaron de estar en el menú
+                    porque no son a donde se va a trabajar, y los enlaces guardados siguen abriendo.
+                </RadzenText>
+            </RadzenStack>
+        </RadzenFieldset>
     }
 </RadzenStack>
 

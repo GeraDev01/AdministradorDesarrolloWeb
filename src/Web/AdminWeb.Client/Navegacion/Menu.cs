@@ -261,25 +261,47 @@ public static class Menu
 
     private static readonly IReadOnlyList<GrupoDeMenu> Desarrollador =
     [
+        // ── DE NUEVE ENTRADAS A CUATRO ───────────────────────────────────────────
+        //
+        // Esto es la mitad visible de la puerta única, y la más barata de las dos. El desarrollador
+        // tenía NUEVE pantallas de trabajo y ninguna era «la suya»: para saber qué hacer había que
+        // recorrerlas, y el mismo requerimiento aparecía en cuatro de ellas con dos estimaciones
+        // distintas y ningún puente. La pregunta que había que eliminar no era «¿dónde registro
+        // esto?» sino la de antes: «¿dónde miro qué tengo que hacer?».
+        //
+        // LAS QUE SALEN NO SE BORRAN, y es una decisión, no una transición a medias:
+        // /mis-asignaciones, /mis-tickets, /mis-actividades y /mis-sla siguen VIVAS —con su
+        // [Authorize] intacto, su recorrido guiado intacto y sus enlaces profundos intactos—, solo
+        // que ya no son un sitio al que ir por costumbre sino uno al que se llega desde un enlace
+        // concreto. Requerimientos, tickets y SLA son FUENTES de trabajo, no listas que repasar: lo
+        // que hay que hacer con ellos se convierte en una actividad del pool, que es donde vive el
+        // valor y el plazo.
+        //
+        // El precio, dicho sin adornos: /mis-asignaciones era el ÚNICO sitio donde el cronómetro
+        // corría sobre un requerimiento, y fuera del menú ese cronometraje muere para el
+        // desarrollador. Se acepta porque es coherente con «el pool es la unidad de trabajo», y
+        // porque en los datos de demostración el 100 % de las sesiones cuelgan de una actividad y
+        // ninguna de un requerimiento. Es evidencia, no prueba.
         new("Lo mío",
         [
             // «space_dashboard» era indistinguible del «dashboard» del líder a 20 px, y las dos
             // pantallas conviven en la misma aplicación con roles distintos. Ésta es la pantalla de
             // aterrizaje del desarrollador: «home» lo dice sin leer y no compite con ninguna gráfica.
             new("home", "Mi Panel", "mi-panel"),
-            new("inventory_2", "Pool de actividades", "mi-pool"),
-            new("assignment_ind", "Mis Asignaciones", "mis-asignaciones"),
-            new("account_tree", "Mis tickets DevOps", "mis-tickets"),
-            new("extension", "Mis Actividades", "mis-actividades"),
-            new("fact_check", "Mis Evaluaciones", "mis-evaluaciones"),
-            new("timer", "Mis SLA", "mis-sla"),
+            // LA PANTALLA. Se llama «Mi trabajo» y no «Pool de actividades» porque el pool es cómo
+            // funciona por dentro y esto es lo que el desarrollador viene a hacer. La RUTA no cambia:
+            // una nueva obligaría a un recorrido nuevo, a reescribir el manual y dejaría con 404 los
+            // avisos que guardaron «pool» como destino, todo a cambio de nada.
+            new("inventory_2", "Mi trabajo", "mi-pool"),
             new("schedule", "Mi jornada", "mi-jornada"),
-            // El sprint del equipo, en solo consulta: la misma pantalla del líder sin sus botones de
-            // escritura. Va con lo demás «suyo» porque es su trabajo comprometido.
-            new("date_range", "Sprint", "sprint"),
+            new("fact_check", "Mis Evaluaciones", "mis-evaluaciones"),
         ]),
         new("Herramientas",
         [
+            // El sprint baja aquí desde «Lo mío»: es del EQUIPO y en solo consulta, así que no es
+            // trabajo suyo que repasar sino contexto que a veces se mira. Puesto arriba competía por
+            // la atención con lo que sí hay que hacer.
+            new("date_range", "Sprint", "sprint"),
             new("library_books", "Plantillas", "plantillas"),
             new("beach_access", "Mis Vacaciones", "mis-vacaciones"),
             new("event_available", "Mis Permisos", "mis-permisos"),
