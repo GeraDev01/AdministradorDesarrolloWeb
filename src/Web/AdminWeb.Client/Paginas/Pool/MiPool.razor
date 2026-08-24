@@ -340,6 +340,13 @@
                                         ticket ajeno se escribe. La tarjeta lo dice en vez de esconder los
                                         botones sin explicación.
                                     *@
+                                    @* Y las dos SOLO si hay algo que entregar. Una propuesta sin
+                                       clasificar y un descuento llegan hasta aquí —son suyos— y no
+                                       tienen checklist ni ticket: sin esta guarda se les pintaba la
+                                       rejilla vacía diciéndoles «devuélvela al pool y vuelve a
+                                       tomarla», que sobre una penalización no se puede ni intentar. *@
+                                    @if (TieneEntrega(a))
+                                    {
                                     <VinculoConDevOps ActividadId="@a.Id" Cancelacion="@_cancelacion.Token" />
 
                                     <RadzenDataGrid data-recorrido="mi-pool-checklist"
@@ -396,6 +403,7 @@
                                             </RadzenDataGridColumn>
                                         </Columns>
                                     </RadzenDataGrid>
+                                    }
 
                                     @* LOS CRITERIOS EXTRA, aquí y no solo en «Disponibles».
 
@@ -1142,8 +1150,27 @@
 
         int enCurso = d.Mias.Count(a => a.EnCurso);
         int ganados = d.Mias.Where(a => a.Estado == PoolActivityStatus.Aceptada).Sum(a => a.Puntos);
-        int enJuego = d.Mias.Where(a => a.Estado != PoolActivityStatus.Aceptada).Sum(a => a.Puntos);
-        return $"{enCurso} en curso  ·  {enJuego} punto(s) por ganar  ·  {ganados} ya aceptados.";
+
+        // «POR GANAR» ES LO QUE TODAVÍA SE PUEDE GANAR, así que se cuenta con una lista blanca de
+        // estados vivos y no con «todo lo que no está aceptada».
+        //
+        // Con la resta de antes, un DESCUENTO —que nace cerrado, pagado y en negativo, y que llega
+        // hasta aquí porque está a nombre de esa persona— se presentaba como puntos por ganar y
+        // encima rebajaba en silencio lo que de verdad quedaba por delante: quien tuviera una
+        // actividad de 12 y un descuento de −20 leía «−8 punto(s) por ganar». La lista blanca aguanta
+        // además el siguiente estado terminal que alguien añada, que es lo que la de antes no hacía.
+        int enJuego = d.Mias.Where(a => a.Estado is PoolActivityStatus.Tomada
+                                                 or PoolActivityStatus.Devuelta
+                                                 or PoolActivityStatus.EnRevision
+                                                 or PoolActivityStatus.PorClasificar)
+                            .Sum(a => a.Puntos);
+
+        // El descuento se dice APARTE y con su palabra. Esconderlo sería peor que contarlo mal: ésta
+        // es la primera pantalla que abre quien acaba de recibir el aviso de que le restaron puntos.
+        int descontado = d.Mias.Where(a => a.Estado == PoolActivityStatus.Descuento).Sum(a => a.Puntos);
+
+        var resumen = $"{enCurso} en curso  ·  {enJuego} punto(s) por ganar  ·  {ganados} ya aceptados";
+        return descontado == 0 ? resumen + "." : resumen + $"  ·  {-descontado} descontados.";
     }
 
     private static string ResumenDeLibres(MiPoolDto d) =>
@@ -1152,12 +1179,42 @@
             : $"{d.Disponibles.Count} actividad(es) libres por {d.Disponibles.Sum(a => a.Puntos)} puntos en total. " +
               "Al tomar una, el valor queda fijado: es lo que se te abona al aceptarla.";
 
+    /// <summary>
+    /// Qué está pasando con la actividad abierta, en una línea.
+    ///
+    /// <para>Las ramas van EXPLÍCITAS y la de por omisión quedó solo para lo que de verdad hay que
+    /// entregar. Antes nombraba dos estados y todo lo demás caía en «Completa todos los puntos para
+    /// poder entregarla»; con los estados que trajo la puerta única eso dejó de ser cierto dos veces:
+    /// a quien miraba su propia PROPUESTA se le pedía completar un checklist que todavía no existe
+    /// —se copia al clasificarla—, y a quien acababa de recibir un DESCUENTO se le pedía entregar
+    /// una penalización.</para>
+    /// </summary>
     private static string EstadoExplicado(MiActividadDelPoolDto a) => a.Estado switch
     {
-        PoolActivityStatus.EnRevision => "Entregada, esperando la verificación del líder.",
-        PoolActivityStatus.Aceptada   => "Aceptada: los puntos ya están en tu ranking.",
-        _                             => "Completa todos los puntos para poder entregarla."
+        PoolActivityStatus.PorClasificar => "Propuesta enviada: espera a que el líder le ponga tipo y " +
+                                            "complejidad, que es de donde salen sus puntos. Mientras " +
+                                            "tanto ocupa un sitio de tu tope.",
+        PoolActivityStatus.Descuento     => "Descuento aplicado: los puntos ya se restaron. Está " +
+                                            "cerrado, no hay nada que entregar; el motivo está en el " +
+                                            "detalle.",
+        PoolActivityStatus.EnRevision    => "Entregada, esperando la verificación del líder.",
+        PoolActivityStatus.Aceptada      => "Aceptada: los puntos ya están en tu ranking.",
+        _                                => "Completa todos los puntos para poder entregarla."
     };
+
+    /// <summary>
+    /// Si esta actividad tiene un CICLO DE ENTREGA: un checklist que cumplir y un ticket al que
+    /// hablarle.
+    ///
+    /// <para>Lo decide el ESTADO y no el tipo. Una propuesta sin clasificar todavía no tiene
+    /// checklist —se le copia al clasificarla— y un descuento no lo tendrá nunca. Sin esta guarda las
+    /// dos pintaban la rejilla vacía con su texto «devuélvela al pool y vuelve a tomarla», que sobre
+    /// una penalización se lee como una instrucción imposible, y encima la tarjeta de un work item
+    /// que no existe.</para>
+    /// </summary>
+    private static bool TieneEntrega(MiActividadDelPoolDto a) =>
+        a.Estado is PoolActivityStatus.Tomada or PoolActivityStatus.Devuelta
+                 or PoolActivityStatus.EnRevision or PoolActivityStatus.Aceptada;
 
     /// <summary>
     /// El detalle apretado en una línea, para que quepa en su columna. Los saltos se cambian por

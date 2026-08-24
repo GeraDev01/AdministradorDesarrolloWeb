@@ -124,10 +124,8 @@ public static class ManualDeUso
     ///
     /// <para><b>Las dos comprobaciones, y por qué hacen falta las dos.</b></para>
     /// <list type="number">
-    /// <item><b>El registro</b> (<see cref="ClaveDelRegistro"/>) es la autoridad: si la clave está
-    /// anotada, ese artículo no se vuelve a tocar pase lo que pase. Da igual que lo hayan reescrito
-    /// entero, retitulado, retirado de publicación o incluso borrado — todas ésas son decisiones de
-    /// alguien, y deshacerlas cada madrugada sería peor que no haber sembrado nada.</item>
+    /// <item><b>El registro</b> (<see cref="ClaveDelRegistro"/>) decide si el artículo se INSERTA:
+    /// si la clave está anotada, no se vuelve a insertar nunca, pase lo que pase.</item>
     /// <item><b>El título</b> es la red por debajo. La fila del registro vive en una tabla que se
     /// enseña en la pantalla de Configuración y que, por lo tanto, se puede vaciar; sin esta segunda
     /// comprobación, vaciarla insertaría el manual entero por segunda vez. Con ella, lo que ya está
@@ -138,6 +136,32 @@ public static class ManualDeUso
     /// catálogo. No es cosmético: la base de conocimiento ordena por fecha descendente, así que sin
     /// escalonar, el orden de lectura dependería de en qué orden le asignara la base los
     /// identificadores. Con esto, «Primeros pasos» queda arriba y el glosario al final.</para>
+    ///
+    /// <para><b>Y CORRIGE el artículo que nadie ha tocado</b>, que es lo que antes no hacía y costó
+    /// caro. Este manual describe cómo funciona la plataforma, y la plataforma cambia: cuando se
+    /// retiró la autocalificación, el texto de aquí se reescribió y <b>no llegó a producción</b>,
+    /// porque el registro decía que esas claves ya estaban sembradas. El manual siguió explicando
+    /// durante semanas un camino que la aplicación ya rechazaba — que es peor que no tener manual.</para>
+    ///
+    /// <para><b>Las cuatro condiciones para corregir</b>, y las tres primeras son la misma promesa de
+    /// siempre dicha con precisión: no se deshace la decisión de nadie.</para>
+    /// <list type="number">
+    /// <item><b>Es NUESTRO</b>: lo firma el manual (<see cref="SinCuenta"/> y <see cref="Firma"/>).
+    /// Un artículo de otra persona que se llame igual no se toca — eso ya lo probaba una prueba.</item>
+    /// <item><b>Nadie lo editó</b>: <c>UpdatedAtUtc</c> sigue nulo. En cuanto alguien lo corrige, el
+    /// artículo pasa a ser suyo y este método no vuelve a escribirlo jamás.</item>
+    /// <item><b>Sigue publicado</b>: si el líder lo retiró, retirado se queda.</item>
+    /// <item><b>Y de verdad cambió</b>: se compara el cuerpo ya saneado, así que un arranque normal
+    /// no escribe nada.</item>
+    /// </list>
+    ///
+    /// <para>No se toca el TÍTULO ni las etiquetas ni el estado, solo el CUERPO. Y no se escribe
+    /// <c>UpdatedAtUtc</c>: no lo editó una persona, y marcarlo cerraría la puerta a la siguiente
+    /// corrección.</para>
+    ///
+    /// <para>Se prefirió esto a una versión por artículo escrita a mano —«bumpea el número cuando
+    /// cambies el texto»— justamente porque ese número se olvida, y olvidarlo devuelve el problema
+    /// entero sin que nadie se entere. El catálogo es la fuente; comparar es gratis.</para>
     /// </summary>
     public static async Task<int> SembrarAsync(AppDbContext db, CancellationToken ct = default)
     {
@@ -150,14 +174,15 @@ public static class ManualDeUso
             .Where(x => !sembradas.Contains(x.articulo.Clave))
             .ToList();
 
-        if (pendientes.Count == 0) return 0;
-
-        var titulos = pendientes.Select(x => x.articulo.Titulo).ToList();
-        var yaEstan = (await db.KnowledgeArticles.AsNoTracking()
+        // Se traen TODAS las filas del manual, no solo las de lo pendiente: hacen falta las que ya
+        // están para poder corregirlas. Son unas decenas y esto corre una vez por arranque, dentro
+        // del candado. Y SIN AsNoTracking, porque algunas se van a modificar.
+        var titulos = Articulos.Select(a => a.Titulo).ToList();
+        var filas = await db.KnowledgeArticles
             .Where(a => titulos.Contains(a.Title))
-            .Select(a => a.Title)
-            .ToListAsync(ct))
-            .ToHashSet(StringComparer.CurrentCultureIgnoreCase);
+            .ToListAsync(ct);
+
+        var yaEstan = filas.Select(a => a.Title).ToHashSet(StringComparer.CurrentCultureIgnoreCase);
 
         var ahora = DateTime.UtcNow;
         int agregados = 0;
@@ -194,12 +219,61 @@ public static class ManualDeUso
             agregados++;
         }
 
+        int corregidos = Corregir(filas, sembradas);
+
         Anotar(db, registro, sembradas);
 
         // Un solo guardado para los artículos y para el registro: si algo falla, no queda un manual a
         // medias con la lista diciendo que está completo.
         await db.SaveChangesAsync(ct);
-        return agregados;
+        return agregados + corregidos;
+    }
+
+    /// <summary>
+    /// Pone al día el cuerpo de los artículos del manual QUE NADIE HA TOCADO. Devuelve cuántos
+    /// cambió; en un arranque normal, cero.
+    ///
+    /// <para>Las condiciones y el porqué de cada una están en <see cref="SembrarAsync"/>. Aquí solo
+    /// se insiste en la que más fácil se rompe al tocar esto: <b>se compara contra el cuerpo ya
+    /// SANEADO</b>, que es el que se guardó al sembrar. Comparando contra el texto crudo del archivo
+    /// fuente, la normalización de saltos de línea haría que todos los artículos parecieran distintos
+    /// en cada arranque y esto reescribiría el manual entero cada madrugada.</para>
+    /// </summary>
+    private static int Corregir(List<KnowledgeArticle> filas, HashSet<string> sembradas)
+    {
+        int corregidos = 0;
+
+        foreach (var articulo in Articulos)
+        {
+            // Solo lo que YA se había sembrado: lo que se acaba de insertar en este mismo arranque
+            // nace con el texto de hoy y no hay nada que corregir.
+            if (!sembradas.Contains(articulo.Clave)) continue;
+
+            var fila = filas.FirstOrDefault(
+                a => string.Equals(a.Title, articulo.Titulo, StringComparison.CurrentCultureIgnoreCase));
+
+            // Lo borraron, o le cambiaron el título —que es una forma de hacerlo suyo—.
+            if (fila is null) continue;
+
+            // No es nuestro: alguien escribió un artículo con el mismo título.
+            if (fila.AuthorUserId != SinCuenta || fila.AuthorName != Firma) continue;
+
+            // Alguien lo corrigió: a partir de ahí es suyo.
+            if (fila.UpdatedAtUtc is not null) continue;
+
+            // El líder lo retiró de publicación.
+            if (fila.Status != KnowledgeStatus.Publicado) continue;
+
+            var cuerpo = ConocimientoTexto.Sanear(articulo.Cuerpo);
+            if (string.Equals(fila.Body, cuerpo, StringComparison.Ordinal)) continue;
+
+            // El CUERPO y nada más. Y sin tocar UpdatedAtUtc: no lo editó una persona, y marcarlo
+            // cerraría la puerta a la corrección siguiente.
+            fila.Body = cuerpo;
+            corregidos++;
+        }
+
+        return corregidos;
     }
 
     /// <summary>

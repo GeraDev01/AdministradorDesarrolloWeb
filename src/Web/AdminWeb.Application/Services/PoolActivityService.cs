@@ -893,6 +893,26 @@ public class PoolActivityService(
         await db.PoolActivityChecklistItems.Where(c => c.PoolActivityId == id).ExecuteDeleteAsync(ct);
         await db.PoolActivityExtraCriteria.Where(c => c.PoolActivityId == id).ExecuteDeleteAsync(ct);
 
+        // Y LA PERCHA SE DESMARCA, o se queda apuntando a una fila que ya no existe.
+        //
+        // Parece imposible —una actividad tomada no se borra, lo impide la guarda de arriba— pero el
+        // camino existe y es de todos los días: alguien la toma, y con eso se le crea la percha con
+        // su PoolActivityId escrito; la devuelve al pool, y SoltarReclamo limpia LinkedDevActivityId
+        // pero la marca de la percha NO se limpia nunca, a propósito; la actividad vuelve a
+        // Disponible… y desde ahí sí se borra.
+        //
+        // Sin esta línea esa DevActivity se queda marcada para siempre: EsPerchaDelPool sigue
+        // diciendo que sí, así que su dueño no puede cerrarla, reabrirla, renombrarla ni eliminarla,
+        // y tampoco la ve porque la lista la esconde. Un cronómetro con horas medidas dentro,
+        // bloqueado y escondido, por una actividad del pool que ya no existe.
+        //
+        // Va DENTRO de la misma transacción y ANTES de borrar el padre: si el ExecuteDelete de abajo
+        // no afecta ninguna fila —alguien cambió la actividad mientras se miraba la lista— esto se
+        // deshace con el rollback y la marca se queda como estaba.
+        await db.DevActivities
+            .Where(a => a.PoolActivityId == id)
+            .ExecuteUpdateAsync(s => s.SetProperty(a => a.PoolActivityId, (int?)null), ct);
+
         int borradas = await db.PoolActivities
             .Where(a => a.Id == id
                      && a.PointEntryId == null

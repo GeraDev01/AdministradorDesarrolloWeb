@@ -282,11 +282,15 @@ public static class PreparacionDeLaBase
     /// <para>Va después de los catálogos y dentro del candado, por lo mismo que ellos: dos instancias
     /// arrancando a la vez insertarían el manual por duplicado.</para>
     ///
-    /// <para><b>Nunca pisa lo que haya.</b> Solo inserta lo que jamás se ha sembrado, y eso lo decide
-    /// <see cref="ManualDeUso.SembrarAsync"/> con la lista de claves ya sembradas; una corrección que
-    /// alguien haya hecho sobre un artículo del manual sobrevive a todos los arranques siguientes.
-    /// Por eso el registro se escribe en <c>info</c> y no en <c>warning</c>: lo normal, arranque tras
-    /// arranque, es que este método no agregue absolutamente nada.</para>
+    /// <para><b>Nunca pisa lo que alguien haya tocado.</b> Inserta lo que jamás se ha sembrado y pone
+    /// al día el cuerpo de lo que sigue tal como se sembró — un artículo corregido, retitulado,
+    /// retirado o borrado por una persona no se toca nunca más. Las condiciones exactas están en
+    /// <see cref="ManualDeUso.SembrarAsync"/>. Por eso el registro se escribe en <c>info</c> y no en
+    /// <c>warning</c>: lo normal, arranque tras arranque, es que este método no cambie nada.</para>
+    ///
+    /// <para>Que ponga al día el cuerpo NO es un lujo: este manual describe cómo funciona la
+    /// plataforma y la plataforma cambia. Sin eso, el texto reescrito en el repositorio no llega
+    /// nunca a producción y el manual acaba explicando un camino que la aplicación ya rechaza.</para>
     ///
     /// <para>Un fallo NO tumba el arranque, igual que en los catálogos: sin manual la aplicación
     /// funciona, y negarse a arrancar por unos artículos de documentación dejaría a todo el equipo
@@ -296,11 +300,11 @@ public static class PreparacionDeLaBase
     {
         try
         {
-            int agregados = await ManualDeUso.SembrarAsync(db, ct);
-            if (agregados > 0)
+            int tocados = await ManualDeUso.SembrarAsync(db, ct);
+            if (tocados > 0)
                 log.LogInformation(
-                    "{n} artículo(s) del manual de uso sembrados en la base de conocimiento, " +
-                    "etiquetados «{Etiqueta}».", agregados, ManualDeUso.Etiqueta);
+                    "{n} artículo(s) del manual de uso sembrados o puestos al día en la base de " +
+                    "conocimiento, etiquetados «{Etiqueta}».", tocados, ManualDeUso.Etiqueta);
         }
         catch (Exception ex)
         {

@@ -79,6 +79,69 @@ public class PerchaDelPoolTests : IDisposable
         return (db, dev.Id);
     }
 
+    /// <summary>
+    /// BORRAR LA ACTIVIDAD DEL POOL DESMARCA SU PERCHA, o queda apuntando a una fila que ya no existe.
+    ///
+    /// <para>El camino parece imposible —una actividad tomada no se puede borrar— pero es de todos
+    /// los días: se toma (nace la percha con su marca), se devuelve al pool (el vínculo de vuelta se
+    /// suelta, la marca NO: es permanente a propósito), la actividad queda Disponible… y desde ahí sí
+    /// se borra.</para>
+    ///
+    /// <para>Sin desmarcar, esa actividad libre se queda con la marca puesta para siempre: su dueño
+    /// no puede cerrarla, reabrirla, renombrarla ni eliminarla, y tampoco la ve porque la lista la
+    /// esconde. Un cronómetro con horas medidas dentro, bloqueado y escondido, por una actividad del
+    /// pool que ya no existe. Es el precio de que la marca sea permanente, y hay que pagarlo aquí.</para>
+    /// </summary>
+    [Fact]
+    public async Task Eliminar_LaActividadDelPool_DesmarcaSuPercha()
+    {
+        var (db, devId) = await BaseConPoolAsync();
+        using var _ = db;
+
+        var (poolId, perchaId) = await TomadaAsync(db, devId);
+        Assert.Equal(poolId, LeerPercha(db, perchaId).PoolActivityId);
+
+        // Se devuelve al pool: el vínculo de vuelta se suelta y la actividad queda Disponible, que es
+        // el único estado desde el que se puede borrar.
+        var (devuelta, porQue) = await Pool(db, Dev(devId)).DevolverAsync(poolId, devId, "No avanzo.");
+        Assert.True(devuelta, porQue);
+        Assert.Equal(PoolActivityStatus.Disponible,
+            db.PoolActivities.AsNoTracking().Single(a => a.Id == poolId).Status);
+
+        // La marca SIGUE puesta tras devolver: es lo que la hace reconocible cuando el vínculo de
+        // vuelta ya no existe, y es justo lo que deja el problema servido.
+        Assert.Equal(poolId, LeerPercha(db, perchaId).PoolActivityId);
+
+        var (borrada, mensaje) = await Pool(db, Admin()).EliminarAsync(poolId);
+        Assert.True(borrada, mensaje);
+
+        // La percha sobrevive —tiene horas medidas dentro— pero ya no es percha de nada.
+        var percha = LeerPercha(db, perchaId);
+        Assert.Null(percha.PoolActivityId);
+        Assert.False(percha.EsPerchaDelPool);
+    }
+
+    /// <summary>
+    /// Y desmarcar la suya NO alcanza a las demás. Con una sola consulta por identificador es difícil
+    /// equivocarse, pero es exactamente el error que dejaría a media plantilla sin poder tocar sus
+    /// cronómetros, y no lo diría nadie: la lista simplemente los escondería.
+    /// </summary>
+    [Fact]
+    public async Task Eliminar_NoDesmarcaLasPerchasDeOtrasActividades()
+    {
+        var (db, devId) = await BaseConPoolAsync();
+        using var _ = db;
+
+        var (unaId, unaPercha) = await TomadaAsync(db, devId);
+        var (otraId, otraPercha) = await TomadaAsync(db, devId);
+
+        Assert.True((await Pool(db, Dev(devId)).DevolverAsync(unaId, devId, "No avanzo.")).ok);
+        Assert.True((await Pool(db, Admin()).EliminarAsync(unaId)).ok);
+
+        Assert.Null(LeerPercha(db, unaPercha).PoolActivityId);
+        Assert.Equal(otraId, LeerPercha(db, otraPercha).PoolActivityId);
+    }
+
     /// <summary>Publica un bug y lo toma: es lo que fabrica la percha por el camino de verdad.</summary>
     private async Task<(int poolId, int perchaId)> TomadaAsync(AppDbContext db, int devId)
     {

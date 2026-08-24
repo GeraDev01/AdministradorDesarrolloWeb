@@ -385,6 +385,139 @@ public class ManualDeUsoTests : IDisposable
         Assert.Equal(ManualDeUso.Articulos[0].Titulo, primero.Title);
     }
 
+    // ── Poner al día lo que nadie tocó ───────────────────────────────────────────
+    //
+    // El catálogo describe cómo funciona la plataforma, y la plataforma cambia. Antes, un artículo
+    // reescrito en el repositorio NO llegaba nunca a una base donde ya se hubiera sembrado, porque el
+    // registro decía que esa clave estaba resuelta. Pasó de verdad: al retirar la autocalificación, el
+    // manual siguió explicando un camino que la aplicación ya rechazaba.
+    //
+    // Estas pruebas van al revés que la realidad, y es la única forma de escribirlas: el catálogo es
+    // estático y no se puede cambiar a media prueba, así que lo que se cambia es la FILA —dejándola
+    // distinta del catálogo— y se comprueba qué hace el arranque siguiente. El mecanismo que se
+    // ejercita es exactamente el mismo.
+
+    /// <summary>
+    /// El caso que justifica todo esto: el texto del catálogo cambió y el artículo, que nadie ha
+    /// tocado, se pone al día solo en el arranque siguiente.
+    /// </summary>
+    [Fact]
+    public async Task Siembra_PoneAlDiaElCuerpoDeLoQueNadieHaTocado()
+    {
+        var db = Nueva();
+        await ManualDeUso.SembrarAsync(db);
+
+        var deFabrica = ManualDeUso.Articulos[0];
+
+        // La fila se queda con un cuerpo viejo, como si el catálogo se hubiera reescrito después de
+        // sembrarla. SIN tocar UpdatedAtUtc: eso es lo que significa «nadie la ha tocado».
+        var ctx = Otro(db);
+        var articulo = await ctx.KnowledgeArticles.FirstAsync(a => a.Title == deFabrica.Titulo);
+        articulo.Body = "Lo que decía el manual antes de que la plataforma cambiara.";
+        await ctx.SaveChangesAsync();
+
+        Assert.Equal(1, await ManualDeUso.SembrarAsync(Otro(db)));
+
+        var despues = await Otro(db).KnowledgeArticles.AsNoTracking()
+            .FirstAsync(a => a.Title == deFabrica.Titulo);
+
+        Assert.Equal(ConocimientoTexto.Sanear(deFabrica.Cuerpo), despues.Body);
+
+        // Y NO se marca como editado: marcarlo cerraría la puerta a la corrección siguiente.
+        Assert.Null(despues.UpdatedAtUtc);
+
+        // Ni se duplica, ni cambia de estado, ni cambia de dueño.
+        Assert.Equal(Total, await Otro(db).KnowledgeArticles.CountAsync());
+        Assert.Equal(KnowledgeStatus.Publicado, despues.Status);
+    }
+
+    /// <summary>Un arranque normal no escribe nada: se compara el cuerpo ya saneado.</summary>
+    [Fact]
+    public async Task Siembra_NoEscribeNadaCuandoElManualYaEstaAlDia()
+    {
+        var db = Nueva();
+        await ManualDeUso.SembrarAsync(db);
+
+        Assert.Equal(0, await ManualDeUso.SembrarAsync(Otro(db)));
+        Assert.Equal(0, await ManualDeUso.SembrarAsync(Otro(db)));
+    }
+
+    /// <summary>
+    /// Y LA PROMESA DE SIEMPRE SIGUE EN PIE: en cuanto alguien lo corrige, el artículo es suyo y el
+    /// arranque no vuelve a escribirlo. Es la diferencia entre poner al día y pisar.
+    /// </summary>
+    [Fact]
+    public async Task Siembra_NoPoneAlDiaLoQueAlguienCorrigio()
+    {
+        var db = Nueva();
+        await ManualDeUso.SembrarAsync(db);
+
+        var ctx = Otro(db);
+        var articulo = await ctx.KnowledgeArticles.FirstAsync(a => a.Title == ManualDeUso.Articulos[0].Titulo);
+        articulo.Body         = "Esto lo reescribió el líder para este equipo.";
+        articulo.UpdatedAtUtc = DateTime.UtcNow;
+        await ctx.SaveChangesAsync();
+
+        Assert.Equal(0, await ManualDeUso.SembrarAsync(Otro(db)));
+
+        var despues = await Otro(db).KnowledgeArticles.AsNoTracking()
+            .FirstAsync(a => a.Title == ManualDeUso.Articulos[0].Titulo);
+        Assert.Equal("Esto lo reescribió el líder para este equipo.", despues.Body);
+    }
+
+    /// <summary>Lo que el líder RETIRÓ no se pone al día: retirado sigue siendo una decisión suya.</summary>
+    [Fact]
+    public async Task Siembra_NoPoneAlDiaLoQueElLiderRetiro()
+    {
+        var db = Nueva();
+        await ManualDeUso.SembrarAsync(db);
+
+        var ctx = Otro(db);
+        var articulo = await ctx.KnowledgeArticles.FirstAsync(a => a.Title == ManualDeUso.Articulos[0].Titulo);
+        articulo.Body   = "Aquí esto no aplica.";
+        articulo.Status = KnowledgeStatus.Borrador;
+        await ctx.SaveChangesAsync();
+
+        Assert.Equal(0, await ManualDeUso.SembrarAsync(Otro(db)));
+
+        var despues = await Otro(db).KnowledgeArticles.AsNoTracking()
+            .FirstAsync(a => a.Title == ManualDeUso.Articulos[0].Titulo);
+        Assert.Equal("Aquí esto no aplica.", despues.Body);
+        Assert.Equal(KnowledgeStatus.Borrador, despues.Status);
+    }
+
+    /// <summary>
+    /// Y NO TOCA EL ARTÍCULO DE OTRA PERSONA aunque se llame igual que uno del manual. Es la guarda
+    /// que más falta hacía al empezar a escribir sobre filas que ya existen: sin ella, poner al día
+    /// el manual reescribiría el artículo que alguien tituló igual sin querer.
+    /// </summary>
+    [Fact]
+    public async Task Siembra_NoPoneAlDiaUnArticuloAjenoConElMismoTitulo()
+    {
+        var db = Nueva();
+        var ctx = Otro(db);
+
+        // El artículo de una persona, escrito ANTES de que el manual se siembre y con el mismo título.
+        ctx.KnowledgeArticles.Add(new KnowledgeArticle
+        {
+            Title        = ManualDeUso.Articulos[0].Titulo,
+            Body         = "Esto lo escribí yo y da la casualidad de que se llama igual.",
+            Tags         = "apuntes",
+            Status       = KnowledgeStatus.Publicado,
+            AuthorUserId = 10,
+            AuthorName   = "Ana",
+            CreatedAtUtc = DateTime.UtcNow
+        });
+        await ctx.SaveChangesAsync();
+
+        await ManualDeUso.SembrarAsync(Otro(db));
+        await ManualDeUso.SembrarAsync(Otro(db));
+
+        var suyo = await Otro(db).KnowledgeArticles.AsNoTracking()
+            .FirstAsync(a => a.AuthorUserId == 10);
+        Assert.Equal("Esto lo escribí yo y da la casualidad de que se llama igual.", suyo.Body);
+    }
+
     // ── Cómo se ve desde la aplicación ───────────────────────────────────────────
 
     /// <summary>
