@@ -1344,6 +1344,30 @@ public partial class DevOpsService(
     private Task<(CredencialesDevOps? credenciales, string problema)> CredencialesDeLaInstalacionAsync(
         CancellationToken ct) => CredencialesDeLaInstalacion.ObtenerAsync(configuracion, ct);
 
+    /// <summary>
+    /// Las credenciales de QUIEN PREGUNTA: su token personal si lo tiene guardado, y el de la
+    /// instalación si no. Nulo cuando no hay ninguno de los dos o falta la organización.
+    ///
+    /// <para><b>Existe para que el aviso de inicio del cronómetro firme con la misma cuenta que el
+    /// reporte de tiempo al detenerlo.</b> Antes no lo hacía: al arrancar comentaba
+    /// <c>AvisoDeInicioEnDevOpsService</c>, que resuelve las credenciales de la INSTALACIÓN porque a
+    /// él lo llama también un barrido de fondo sin sesión, y al detener comentaba
+    /// <c>ReportarTiempoAsync</c>, que va por el token personal. El resultado, visto en el ticket:
+    /// «empezó a trabajar» firmado por la cuenta compartida y «tiempo registrado» firmado por la
+    /// persona. Dos cuentas para las dos puntas del mismo cronómetro.</para>
+    ///
+    /// <para>La solución no es quitarle el barrido al aviso —sin él se perderían los cronómetros que
+    /// arrancan en el escritorio— sino <b>invertir la dependencia</b>: el aviso RECIBE las
+    /// credenciales, el endpoint le pasa éstas y el barrido le pasa nulo y cae a las de la
+    /// instalación, que es el único caso en que no hay alternativa.</para>
+    ///
+    /// <para>No lleva guarda de rol: no la lleva ninguna de las lecturas de credenciales de esta
+    /// clase, y la que sí importa la aplica <c>ObtenerMioEnClaroAsync</c>, que exige sesión para
+    /// leer un secreto — así que sin sesión esto no puede devolver el token de nadie.</para>
+    /// </summary>
+    public async Task<CredencialesDevOps?> CredencialesDeQuienPreguntaAsync(CancellationToken ct = default) =>
+        (await CredencialesAsync(exigirPropio: false, ct: ct)).credenciales;
+
     private async Task<(CredencialesDevOps? credenciales, string problema)> CredencialesAsync(
         bool exigirPropio, string? patCandidato = null, CancellationToken ct = default)
     {

@@ -36,6 +36,11 @@ public class AvisoDeInicioEnDevOpsTests : IDisposable
     private sealed class DevOpsDeMentira : IClienteAzureDevOps
     {
         public List<(int numero, string html)> Publicados { get; } = [];
+
+        /// <summary>Con qué credenciales se firmó cada comentario. Es lo único que distingue la
+        /// cuenta compartida del token de quien arrancó, y por eso se registra.</summary>
+        public List<CredencialesDevOps> Firmas { get; } = [];
+
         public Exception? Fallo { get; set; }
 
         /// <summary>Se ejecuta DENTRO de la publicación. Es lo que permite mirar en qué estado está
@@ -47,6 +52,7 @@ public class AvisoDeInicioEnDevOpsTests : IDisposable
         {
             if (AlPublicar != null) await AlPublicar();
             if (Fallo != null) throw Fallo;
+            Firmas.Add(c);
             Publicados.Add((numero, textoHtml));
         }
 
@@ -176,8 +182,9 @@ public class AvisoDeInicioEnDevOpsTests : IDisposable
         var (numero, html) = Assert.Single(cliente.Publicados);
         Assert.Equal(4321, numero);
 
-        // El nombre va DENTRO porque el comentario lo firma la cuenta compartida y el autor que se
-        // ve en DevOps no dice nada. Escapado —el acento sale como entidad— porque el nombre lo
+        // El nombre va DENTRO y se queda ahí aunque el comentario ya pueda firmarse con el token de
+        // quien arrancó: por el barrido sigue firmándolo la cuenta compartida, y en el ticket lo lee un
+        // cliente que no tiene por qué saber de tokens. Escapado —el acento sale como entidad— porque el nombre lo
         // escribió una persona y esto acaba dentro de un documento HTML ajeno; DevOps lo pinta bien.
         Assert.Contains("Ana P&#233;rez", html);
 
@@ -719,5 +726,47 @@ public class AvisoDeInicioEnDevOpsTests : IDisposable
         await avisos.AvisarIniciosPendientesAsync();       // el barrido, justo después
 
         Assert.Single(cliente.Publicados);
+    }
+
+    // ── Con qué cuenta se firma ──────────────────────────────────────────────────
+    //
+    // Es lo que se veía mal en el ticket: al arrancar el cronómetro el comentario salía firmado por
+    // la cuenta de la instalación —la compartida— y al detenerlo por el token personal de quien
+    // trabaja, porque el reporte de tiempo sí va por ahí. Dos cuentas para las dos puntas del mismo
+    // cronómetro. La solución no fue quitarle el barrido al aviso, sino que reciba las credenciales.
+
+    [Fact]
+    public async Task ConElTokenDeQuienArranca_firmaConEseToken()
+    {
+        using var db = Base();
+        var (sesion, _) = Escenario(db);
+
+        var cliente = new DevOpsDeMentira();
+        var suyas = new CredencialesDevOps("https://dev.azure.com/zorroDesierto", "Webpro", "pat-de-ana");
+
+        await Avisos(db, cliente).AvisarInicioAsync(sesion, suyas);
+
+        Assert.Single(cliente.Publicados);
+        Assert.Equal("pat-de-ana", Assert.Single(cliente.Firmas).Pat);
+    }
+
+    /// <summary>
+    /// Sin credenciales —como lo llama el barrido, que recoge los cronómetros arrancados en el
+    /// escritorio— sigue firmando la cuenta de la instalación. Es el único caso en que no hay
+    /// alternativa: allí no hay sesión de la que sacar un token personal. Por eso el respaldo no se
+    /// quita.
+    /// </summary>
+    [Fact]
+    public async Task SinCredenciales_firmaConLasDeLaInstalacion()
+    {
+        using var db = Base();
+        var (sesion, _) = Escenario(db);
+
+        var cliente = new DevOpsDeMentira();
+
+        await Avisos(db, cliente).AvisarInicioAsync(sesion);
+
+        Assert.Single(cliente.Publicados);
+        Assert.Equal("pat-de-la-instalacion", Assert.Single(cliente.Firmas).Pat);
     }
 }

@@ -96,7 +96,8 @@ public static class JornadaEndpoints
 
         grupo.MapPost("/cronometro/iniciar", async (
             CronometroRequest cuerpo, WorkSessionService cronometros, ICurrentUser quien,
-            JornadaQueryService jornada, AvisoDeInicioEnDevOpsService avisos, CancellationToken ct) =>
+            JornadaQueryService jornada, AvisoDeInicioEnDevOpsService avisos, DevOpsService devops,
+            CancellationToken ct) =>
         {
             if (quien.DeveloperId is not int devId)
                 return Results.BadRequest(new ResultadoDto(false,
@@ -115,7 +116,7 @@ public static class JornadaEndpoints
             // El aviso a DevOps va DESPUÉS de que la sesión esté guardada, igual que el reporte de
             // tiempo al detener y por lo mismo: el cronómetro ya arrancó, y nada de lo que pase
             // hablando con un servidor ajeno puede deshacer eso ni retrasarlo más de la cuenta.
-            var aviso = await AvisarADevOpsAsync(avisos, sesion.Id, ct);
+            var aviso = await AvisarADevOpsAsync(avisos, devops, sesion.Id, ct);
 
             var cronometro = await jornada.CronometroAsync(ct);
             return Results.Ok(cronometro is null ? null : cronometro with { AvisoDeDevOps = aviso });
@@ -164,11 +165,21 @@ public static class JornadaEndpoints
     /// llave que este código no mira sería mentir a quien lee el mensaje.</para>
     /// </summary>
     private static async Task<string?> AvisarADevOpsAsync(
-        AvisoDeInicioEnDevOpsService avisos, int workSessionId, CancellationToken ct)
+        AvisoDeInicioEnDevOpsService avisos, DevOpsService devops, int workSessionId, CancellationToken ct)
     {
         try
         {
-            var texto = await avisos.AvisarInicioAsync(workSessionId, ct);
+            // CON EL TOKEN DE QUIEN ARRANCA, para que las dos puntas del cronómetro firmen igual.
+            // Al detener, el reporte de tiempo va por el token personal («queda firmado con su
+            // token», ver ReportarADevOpsAsync más abajo); al arrancar iba por la cuenta de la
+            // instalación, y en el ticket se veía el «empezó a trabajar» de una cuenta y el «tiempo
+            // registrado» de otra. Aquí sí hay sesión, así que el token se puede resolver.
+            //
+            // Si esta persona no tiene token propio, CredencialesDeQuienPreguntaAsync devuelve el de
+            // la instalación y todo sigue como antes para ella: avisar firmado por la cuenta
+            // compartida es mejor que no avisar.
+            var credenciales = await devops.CredencialesDeQuienPreguntaAsync(ct);
+            var texto = await avisos.AvisarInicioAsync(workSessionId, credenciales, ct);
             return string.IsNullOrWhiteSpace(texto) ? null : texto.Trim();
         }
         catch (Exception)

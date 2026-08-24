@@ -23,9 +23,19 @@ namespace AdminWeb.Application.Services;
 /// encuentra el trabajo hecho.</para>
 ///
 /// <para><b>Sin <c>ICurrentUser</c>, y es deliberado</b>: la mitad de sus llamadas vienen de un
-/// ámbito de fondo donde no hay sesión, y cualquier consulta con guarda lanzaría allí. Por eso las
-/// credenciales son las de la instalación. El precio: en DevOps el comentario aparece firmado por la
-/// cuenta compartida, así que el nombre de quien empezó va DENTRO del texto.</para>
+/// ámbito de fondo donde no hay sesión, y cualquier consulta con guarda lanzaría allí.</para>
+///
+/// <para><b>Pero las credenciales las RECIBE, no las resuelve</b>, y esa inversión es la que
+/// arregla algo que se veía en el ticket: al arrancar el cronómetro el comentario salía firmado por
+/// la cuenta de la instalación —la compartida— y al detenerlo, por el token personal de quien
+/// trabaja, porque el reporte de tiempo sí va por ahí. Dos cuentas para las dos puntas del mismo
+/// cronómetro. Ahora el endpoint, que sí tiene sesión, le pasa las de quien pulsó «Iniciar»; el
+/// barrido le pasa nulo y entonces —y solo entonces— caen las de la instalación, que es el único
+/// caso en que no hay alternativa: un cronómetro arrancado en el escritorio no tiene sesión web de
+/// la que sacar un token.</para>
+///
+/// <para>El nombre de quien empezó va DENTRO del texto de todas formas: el aviso lo lee el cliente
+/// en su ticket, y ahí «Ana empezó a trabajar» se entiende sin tener que mirar quién firma.</para>
 /// </summary>
 public class AvisoDeInicioEnDevOpsService(
     AppDbContext db,
@@ -67,15 +77,20 @@ public class AvisoDeInicioEnDevOpsService(
     /// enseñar a la persona, o cadena vacía cuando no había nada que contar —que es el caso normal y
     /// no merece ruido.</para>
     /// </summary>
-    public async Task<string> AvisarInicioAsync(int workSessionId, CancellationToken ct = default) =>
-        (await PublicarAsync(workSessionId, ct)).texto;
+    /// <param name="credenciales">Con qué cuenta se firma el comentario. Nulo = las de la
+    /// instalación, que es lo que pasa el barrido de fondo porque allí no hay sesión de la que sacar
+    /// un token personal.</param>
+    public async Task<string> AvisarInicioAsync(int workSessionId,
+        CredencialesDevOps? credenciales = null, CancellationToken ct = default) =>
+        (await PublicarAsync(workSessionId, credenciales, ct)).texto;
 
     /// <summary>
     /// Lo mismo, diciendo además SI se publicó. Lo usa el barrido, que tiene que contar aciertos y
     /// no intentos: el texto de vuelta no sirve para contar porque un fallo también devuelve texto.
     /// </summary>
     private async Task<(bool publicado, string texto)> PublicarAsync(
-        int workSessionId, CancellationToken ct = default)
+        int workSessionId, CredencialesDevOps? credencialesDeQuienArranco = null,
+        CancellationToken ct = default)
     {
         if (!await EstaEncendidoAsync(ct)) return (false, "");
         if (!await configuracion.ObtenerBooleanoAsync(SettingsService.Claves.AzureDevOpsEnabled, ct))
@@ -120,7 +135,11 @@ public class AvisoDeInicioEnDevOpsService(
         // salía del método con la reserva puesta y el aviso perdido.
         try
         {
-            var (credenciales, _) = await CredencialesDeLaInstalacion.ObtenerAsync(configuracion, ct);
+            // Las de quien arrancó si las hay; las de la instalación si no. El respaldo NO se quita:
+            // es el único camino del barrido, y también el de quien no ha capturado su token todavía
+            // — a ése es mejor avisarle firmado por la cuenta compartida que no avisarle.
+            var credenciales = credencialesDeQuienArranco
+                ?? (await CredencialesDeLaInstalacion.ObtenerAsync(configuracion, ct)).credenciales;
             if (credenciales is null)
             {
                 await SoltarLaReservaAsync(workSessionId);
@@ -252,7 +271,10 @@ public class AvisoDeInicioEnDevOpsService(
             // contenido cuando el aviso falló, y contarlo haría que el registro dijera «10
             // arranques publicados» la mañana en que el token caducó y no salió ninguno —que es la
             // única señal por la que alguien podría enterarse—.
-            var (publicado, _) = await PublicarAsync(id, ct);
+            // Sin credenciales: aquí NO hay sesión de la que sacar un token personal, así que
+            // firma la cuenta de la instalación. Es el único caso en que no hay alternativa, y
+            // es justo el que justifica que el respaldo siga existiendo.
+            var (publicado, _) = await PublicarAsync(id, credencialesDeQuienArranco: null, ct);
             if (publicado) publicados++;
         }
 
