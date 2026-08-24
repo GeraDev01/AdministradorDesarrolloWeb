@@ -379,6 +379,17 @@ public sealed class RecorridosDelTrabajoYElDesempeno : IFuenteDeRecorridos
                 "una Tarea o un Requerimiento es el ESFUERZO, porque ahí el plazo lo pone la " +
                 "matriz."),
 
+            new Paso("pool-descuento", "Quitar puntos",
+                "Es la única puerta por la que se aplica algo negativo, y por eso vive aquí: un " +
+                "descuento ES una actividad del pool que nace pagada, y así hay un solo sitio en " +
+                "toda la aplicación donde se escriben puntos. Se elige a la persona y un criterio " +
+                "del catálogo de los que restan, y el MOTIVO es obligatorio: aquí no hay entrega ni " +
+                "checklist que expliquen nada, así que esa frase es lo único que va a poder leer " +
+                "quien lo reciba. Se puede anular después, y entonces quedan las dos anotaciones a " +
+                "la vista. Y si lo que hay es trabajo que HACER —aunque no debiera haber hecho " +
+                "falta—, eso no es un descuento: es un Retrabajo, y se publica con el botón de " +
+                "arriba."),
+
             new Paso("pool-pendiente-devops", "Lo que DevOps no tiene",
                 "Estas actividades están ligadas a un work item al que no le llegó algo que el " +
                 "pool sí dice: el esfuerzo, la prioridad, a nombre de quién tiene que estar o que " +

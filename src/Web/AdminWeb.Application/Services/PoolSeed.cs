@@ -71,6 +71,9 @@ public static class PoolSeed
         // trabajo ya está resuelto y quién lo resolvió; que no diera puntos es la consecuencia, y se
         // lee en la columna de puntos, que enseña un cero.
         PoolActivityStatus.Propia        => "La hizo el líder",
+        // «Descuento» y no «Penalización»: es la palabra con la que el líder lo va a buscar en la
+        // rejilla, y la que dice qué le pasó a los puntos sin juzgar por qué.
+        PoolActivityStatus.Descuento     => "Descuento",
         _                             => "Retirada"
     };
 
@@ -94,7 +97,8 @@ public static class PoolSeed
         PoolActivityStatus.Disponible    => 4,   // esperando a que alguien la tome
         PoolActivityStatus.Aceptada      => 5,
         PoolActivityStatus.Propia        => 6,   // ya está hecha; no reclama nada
-        _                                => 7    // Retirada
+        PoolActivityStatus.Descuento     => 7,   // nació cerrada: tampoco reclama nada
+        _                                => 8    // Retirada
     };
 
     /// <summary>

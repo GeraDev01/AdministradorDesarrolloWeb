@@ -293,6 +293,32 @@ public class PoolQueryService(AppDbContext db, ICurrentUser currentUser, PoolAct
     }
 
     /// <summary>
+    /// LOS CRITERIOS CON LOS QUE SE PUEDE APLICAR UN DESCUENTO: los individuales activos que RESTAN.
+    ///
+    /// <para>Es el cuarto filtro de criterios de la aplicación, pero no es uno nuevo: es el que
+    /// tenía «calificar una actividad libre» —el único sitio por el que el líder podía aplicar algo
+    /// negativo— cambiando de dueño al apagarse aquel camino. Sin esto, los cuarenta y un criterios
+    /// de castigo del catálogo quedan escritos y sin ninguna puerta.</para>
+    ///
+    /// <para>Aquí NO se aplica la lista corta de <c>CriteriosExtraOfrecidos</c>: aquélla recorta lo
+    /// que se puede PEDIR de más al publicar una actividad, y son cosas que se miran al verificar
+    /// una entrega. Un descuento no tiene entrega que mirar y puede nombrar cualquier cosa que
+    /// pasara, así que el catálogo entero de negativos está disponible.</para>
+    /// </summary>
+    public async Task<IReadOnlyList<CriterioDisponibleDto>> CriteriosDeDescuentoAsync(
+        CancellationToken ct = default)
+    {
+        AuthorizationGuard.RequireAdmin(currentUser);
+
+        // El más severo primero: es el orden en que se buscan, y el inverso del de los extras.
+        return await db.ScoringCriteria.AsNoTracking()
+            .Where(c => c.IsActive && c.Scope == CriterionScope.Individual && c.DefaultPoints < 0)
+            .OrderBy(c => c.DefaultPoints).ThenBy(c => c.Name)
+            .Select(c => new CriterioDisponibleDto(c.Id, c.Name, c.Description, c.DefaultPoints))
+            .ToListAsync(ct);
+    }
+
+    /// <summary>
     /// Si un criterio del catálogo tiene sentido como extra de una actividad del pool.
     ///
     /// <para>Lo sembrado pasa solo si está en la lista corta; lo que no vino sembrado pasa siempre,

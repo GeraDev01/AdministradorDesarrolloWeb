@@ -216,6 +216,42 @@ public static class PoolEndpoints
         .RequireAuthorization(PoliticaDelLider)
         .WithSummary("Borra del pool una actividad que nunca debió estar; nunca una que ya dio puntos");
 
+        // ── El descuento ─────────────────────────────────────────────────────────
+        //
+        // Va en el grupo del pool y no en el de desempeño, y no es un detalle de dónde poner el
+        // archivo: un descuento ES una actividad del pool que nace pagada. Que viva aquí es lo que
+        // hace que haya un solo sitio en la aplicación donde se escriben puntos.
+
+        grupo.MapGet("/criterios-de-descuento", async (
+            PoolQueryService consultas, CancellationToken ct) =>
+            Results.Ok(await consultas.CriteriosDeDescuentoAsync(ct)))
+        .RequireAuthorization(PoliticaDelLider)
+        .WithSummary("Los criterios del catálogo que restan, para aplicar un descuento");
+
+        grupo.MapPost("/descuentos", async (
+            PublicarDescuentoRequest cuerpo, PoolActivityService pool, CancellationToken ct) =>
+        {
+            var (ok, mensaje) = await pool.PublicarDescuentoAsync(
+                cuerpo.DesarrolladorId, cuerpo.CriterioId, cuerpo.Puntos, cuerpo.Titulo, cuerpo.Motivo, ct);
+            return Resultado(ok, mensaje);
+        })
+        .RequireAuthorization(PoliticaDelLider)
+        .WithSummary("Aplica un descuento de puntos a una persona, con su criterio y su motivo");
+
+        // POST y no DELETE, al revés que eliminar una actividad: anular NO quita nada. Escribe una
+        // entrada compensatoria y deja las dos a la vista, porque la conversación que produjo el
+        // descuento existió y el histórico se lee para explicarla.
+        grupo.MapPost("/descuentos/{id:int}/anulacion", async (
+            int id, MotivoRequest? cuerpo, PoolActivityService pool, CancellationToken ct) =>
+        {
+            // El motivo vacío llega hasta el servicio a propósito: es él quien explica por qué hace
+            // falta, y ese texto es el que se lee.
+            var (ok, mensaje) = await pool.AnularDescuentoAsync(id, cuerpo?.Motivo ?? "", ct);
+            return Resultado(ok, mensaje);
+        })
+        .RequireAuthorization(PoliticaDelLider)
+        .WithSummary("Anula un descuento devolviendo los puntos con una entrada compensatoria");
+
         grupo.MapPost("/{id:int}/liberar", async (
             int id, MotivoRequest? cuerpo, PoolActivityService pool, CancellationToken ct) =>
         {

@@ -333,6 +333,27 @@ public record PublicarActividadRequest(
 /// </summary>
 public record TomarActividadRequest(decimal? HorasEstimadas);
 
+/// <summary>
+/// EL DESCUENTO que el líder aplica a una persona. Nace pagado, cerrado y en negativo.
+///
+/// <para><b>Aquí SÍ viajan los puntos</b>, al revés que en <see cref="PublicarActividadRequest"/>, y
+/// la asimetría es la decisión. En una actividad los puntos salen de la matriz porque lo que se paga
+/// es trabajo comparable: dos personas que hacen un bug de complejidad alta cobran lo mismo, y
+/// aceptarlos en la petición permitiría regalar veinticinco donde la matriz dice cinco. Un descuento
+/// no es trabajo comparable: es un hecho concreto, y cuánto pesa lo decide quien lo aplica dentro de
+/// lo que el criterio propone. Lo que el servidor sí impone es el signo y el suelo.</para>
+/// </summary>
+/// <param name="CriterioId">Del catálogo, y tiene que RESTAR: es lo que conserva vivos los criterios
+/// negativos, que desde que se apagó la calificación de actividades libres no tenían ninguna puerta.</param>
+/// <param name="Motivo">Obligatorio. Es lo único que esa persona va a poder leer para entender qué
+/// le pasó a sus puntos: un descuento no tiene entrega que mirar ni checklist que explique nada.</param>
+public record PublicarDescuentoRequest(
+    int DesarrolladorId,
+    int CriterioId,
+    int Puntos,
+    string Titulo,
+    string Motivo);
+
 /// <summary>El líder dice si un criterio extra se cumplió. Solo los cumplidos suman al aceptar.</summary>
 public record EvaluarCriterioRequest(bool Cumplido, string? Comentario);
 

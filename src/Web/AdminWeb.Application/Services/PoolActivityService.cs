@@ -3,6 +3,7 @@ using AdminWeb.Domain.Entities;
 using AdminWeb.Domain.Equipos;
 using AdminWeb.Domain.Security;
 using AdminWeb.Infrastructure.Data;
+using AdminWeb.Shared;
 using AdminWeb.Shared.Enums;
 using Microsoft.EntityFrameworkCore;
 
@@ -1120,37 +1121,14 @@ public class PoolActivityService(
         };
 
         var historial = HistorialCon(actividad, $"Aceptada por {NombreDelUsuario()}: {puntosTotal:+#;-#;0} pts{desglose}.");
-        int revisor = currentUser.UserId ?? 0;
 
-        using var tx = await db.Database.BeginTransactionAsync(ct);
-
-        // El UPDATE condicional ES la guarda: si otra sesión ya la aceptó, esto afecta 0 filas.
-        int ganadas = await db.PoolActivities
-            .Where(a => a.Id == id
-                     && a.Status == PoolActivityStatus.EnRevision
-                     && a.PointEntryId == null)
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(a => a.Status, PoolActivityStatus.Aceptada)
-                .SetProperty(a => a.ReviewedByUserId, revisor)
-                .SetProperty(a => a.ReviewedAt, revisadoUtc)
-                .SetProperty(a => a.ReviewComment, (string?)null)
-                .SetProperty(a => a.ReviewHistory, historial), ct);
-        if (ganadas == 0)
-        {
-            await tx.RollbackAsync(ct);
+        // EL ABONO LO HACE AbonarAsync, que es el único sitio de la aplicación que convierte trabajo
+        // en puntos: la transacción, la reserva condicional contra el doble pago y la traza de vuelta
+        // viven ahí, y las comparte con el descuento del líder. Aquí se queda lo que es de aceptar una
+        // entrega —el desglose de los criterios extra, el aviso, cerrar el cronómetro— y nada más.
+        if (!await AbonarAsync(actividad, entrada, PoolActivityStatus.EnRevision,
+                               PoolActivityStatus.Aceptada, historial, revisadoUtc, ct))
             return (false, "Esa actividad ya estaba aceptada; sus puntos ya se abonaron.");
-        }
-
-        db.PointEntries.Add(entrada);
-        await db.SaveChangesAsync(ct);
-
-        // La traza a la entrada va en la misma transacción: si algo falla, no queda una actividad
-        // aceptada sin sus puntos ni unos puntos sin actividad que los justifique. Si algo revienta
-        // antes del commit, el «using» deshace la transacción al salir.
-        await db.PoolActivities.Where(a => a.Id == id)
-            .ExecuteUpdateAsync(s => s.SetProperty(a => a.PointEntryId, entrada.Id), ct);
-
-        await tx.CommitAsync(ct);
 
         await audit.RecordAsync(AuditAction.Update, "PoolActivity", id.ToString(),
             $"Aceptada: {puntosTotal:+#;-#;0} pts{desglose} a {await NombreDeDesarrolladorAsync(developerId, ct)}", ct);
@@ -1177,6 +1155,327 @@ public class PoolActivityService(
         return (true, puntosTotal < 0
             ? $"Aceptada. Se le DESCONTARON {-puntosTotal} puntos a {quien} en {ahora:MM/yyyy}."
             : $"Aceptada. Se abonaron {puntosTotal} puntos a {quien} en {ahora:MM/yyyy}.");
+    }
+
+    /// <summary>
+    /// EL ÚNICO SITIO DE ESTA APLICACIÓN QUE CONVIERTE TRABAJO EN PUNTOS.
+    ///
+    /// <para>No es una abstracción por elegancia: es el encargo. Antes había cuatro caminos por los
+    /// que entraban puntos y cada uno traía sus propias reglas sobre quién decide, qué criterios valen
+    /// y en qué estado nace la entrada. Con el pool como unidad de trabajo quedan dos —aceptar una
+    /// entrega y aplicar un descuento— y los dos pasan por aquí, así que «un solo camino» es algo que
+    /// se puede comprobar leyendo una función en vez de una frase de un documento. La lista cerrada de
+    /// quién puede insertar una entrada la vigila <c>ProductoresDePuntosTests</c>.</para>
+    ///
+    /// <para><b>Qué garantiza.</b> Que el abono sea atómico —o queda la actividad pagada y su entrada,
+    /// o no queda ninguna de las dos— y que <b>no se pueda pagar dos veces</b>. Lo segundo lo sostiene
+    /// el <c>ExecuteUpdate</c> condicional sobre <c>PointEntryId == null</c>, que es lo que hace que
+    /// dos líderes revisando la misma cola no abonen el doble: quien pierda la carrera no afecta
+    /// ninguna fila y se va con un mensaje. Comprobar y luego escribir no bastaba — entre las dos
+    /// cosas caben varios viajes a la base.</para>
+    ///
+    /// <para><b>Los dos modos, y por qué es una sola función y no dos.</b> Una actividad que ya existe
+    /// se RESERVA con el update condicional; una que nace pagada —el descuento— se inserta, y ahí no
+    /// hay carrera posible porque nadie más conoce todavía esa fila. Lo que comparten es todo lo
+    /// demás: la transacción, la entrada, la traza de vuelta y el commit. Partirlo en dos dejaría dos
+    /// sitios donde escribir puntos, que es exactamente lo que se vino a cerrar.</para>
+    /// </summary>
+    /// <param name="actividad">La actividad. Con <c>Id == 0</c> se inserta; con Id se reserva.</param>
+    /// <param name="estadoEsperado">En qué estado tiene que estar para poder pagarla, cuando ya
+    /// existe. Es la mitad de la guarda: sin él, un identificador mandado a mano podría cobrar algo
+    /// que no está esperando verificación.</param>
+    private async Task<bool> AbonarAsync(
+        PoolActivity actividad, PointEntry entrada,
+        PoolActivityStatus? estadoEsperado, PoolActivityStatus estadoFinal,
+        string historial, DateTime revisadoUtc, CancellationToken ct)
+    {
+        int revisor = currentUser.UserId ?? 0;
+
+        using var tx = await db.Database.BeginTransactionAsync(ct);
+
+        if (actividad.Id == 0)
+        {
+            // Nace pagada. El estado y la traza se escriben en la entidad y no por UPDATE, porque
+            // todavía no hay fila que actualizar.
+            actividad.Status           = estadoFinal;
+            actividad.ReviewedByUserId = revisor;
+            actividad.ReviewedAt       = revisadoUtc;
+            actividad.ReviewHistory    = historial;
+            db.PoolActivities.Add(actividad);
+            await db.SaveChangesAsync(ct);
+        }
+        else
+        {
+            int ganadas = await db.PoolActivities
+                .Where(a => a.Id == actividad.Id
+                         && a.PointEntryId == null
+                         && (estadoEsperado == null || a.Status == estadoEsperado))
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(a => a.Status, estadoFinal)
+                    .SetProperty(a => a.ReviewedByUserId, revisor)
+                    .SetProperty(a => a.ReviewedAt, revisadoUtc)
+                    .SetProperty(a => a.ReviewComment, (string?)null)
+                    .SetProperty(a => a.ReviewHistory, historial), ct);
+
+            if (ganadas == 0)
+            {
+                await tx.RollbackAsync(ct);
+                return false;
+            }
+        }
+
+        db.PointEntries.Add(entrada);
+        await db.SaveChangesAsync(ct);
+
+        // La traza a la entrada va en la MISMA transacción: si algo falla, no queda una actividad
+        // pagada sin sus puntos ni unos puntos sin actividad que los justifique. Si algo revienta
+        // antes del commit, el «using» deshace la transacción al salir.
+        await db.PoolActivities.Where(a => a.Id == actividad.Id)
+            .ExecuteUpdateAsync(s => s.SetProperty(a => a.PointEntryId, entrada.Id), ct);
+
+        await tx.CommitAsync(ct);
+        return true;
+    }
+
+    // ── El descuento ─────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Suelo de un descuento. El número no se escribe aquí: vive en
+    /// <see cref="LimitesDeLosPuntos.MinDescuento"/>, en Shared, porque la casilla del navegador
+    /// tiene que poder acotarse con el MISMO tope que impone el servidor. Este alias se queda para
+    /// que dentro de este archivo se lea como lo que es.
+    /// </summary>
+    public const int MinPuntosDeDescuento = LimitesDeLosPuntos.MinDescuento;
+
+    /// <summary>
+    /// El líder aplica un DESCUENTO a una persona: una actividad del pool que nace ya pagada, cerrada
+    /// y con puntos negativos.
+    ///
+    /// <para><b>Para qué existe.</b> El catálogo tiene cuarenta y un criterios negativos y, desde que
+    /// el pool es la unidad de trabajo, ninguna puerta por la que aplicarlos: calificar una actividad
+    /// libre era la única y se apagó. Sin esto, el líder se queda sin forma de anotar nada que salió
+    /// mal, y cuarenta y un criterios quedan escritos sin poder usarse.</para>
+    ///
+    /// <para><b>No es un <c>Retrabajo</c>.</b> El retrabajo se publica, alguien lo toma, lo cronometra
+    /// y lo entrega: hay trabajo real, aunque no debería haber hecho falta, y su precio sale de la
+    /// MATRIZ. Un descuento no lo toma nadie y su precio sale de un CRITERIO que nombra el hecho. La
+    /// regla, en una línea: <b>si hay algo que hacer, es retrabajo; si no hay nada que hacer, es un
+    /// descuento.</b></para>
+    ///
+    /// <para><b>El motivo es obligatorio, y es la única escritura del pool que lo exige para PAGAR.</b>
+    /// En todo lo demás la justificación es el checklist y los criterios extra: hay algo que mirar.
+    /// Aquí no hay entrega, así que lo único que la persona puede leer para entender qué le pasó a sus
+    /// puntos es la frase que escribió el líder. Es el mismo argumento del motivo obligatorio de
+    /// <see cref="RechazarAsync"/>.</para>
+    ///
+    /// <para>No comparte NADA con <see cref="CrearAsync"/> a propósito: no consulta la matriz, no copia
+    /// checklist, no crea percha y no empuja a DevOps. Así esas cuatro exclusiones dejan de ser
+    /// condiciones que alguien puede olvidar y pasan a ser código que no existe.</para>
+    /// </summary>
+    public async Task<(bool ok, string mensaje)> PublicarDescuentoAsync(
+        int developerId, int criterionId, int puntos, string titulo, string motivo,
+        CancellationToken ct = default)
+    {
+        AuthorizationGuard.RequireAdmin(currentUser);
+
+        titulo = (titulo ?? "").Trim();
+        motivo = (motivo ?? "").Trim();
+
+        if (titulo.Length == 0) return (false, "Escribe de qué es el descuento.");
+        if (titulo.Length > 200) return (false, "El título no puede pasar de 200 caracteres.");
+        if (motivo.Length == 0)
+            return (false, "Escribe el motivo: es lo único que esa persona va a poder leer para " +
+                           "entender por qué le bajaron los puntos.");
+        if (motivo.Length > MaxMotivo) return (false, $"El motivo no puede pasar de {MaxMotivo} caracteres.");
+
+        var quien = await db.Developers.AsNoTracking()
+            .Where(d => d.Id == developerId)
+            .Select(d => new { d.Id, d.FullName, d.IsActive })
+            .FirstOrDefaultAsync(ct);
+        if (quien == null) return (false, "Esa persona ya no existe. Actualiza la lista.");
+        if (!quien.IsActive) return (false, $"{quien.FullName} está dada de baja: no tiene ranking al que descontarle.");
+
+        var criterio = await db.ScoringCriteria.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Id == criterionId, ct);
+        if (criterio == null) return (false, "Ese criterio ya no existe. Actualiza la lista.");
+        if (!criterio.IsActive) return (false, $"«{criterio.Name}» está retirado del catálogo.");
+        if (criterio.Scope == CriterionScope.Equipo)
+            return (false, $"«{criterio.Name}» es un criterio de equipo y esto lo paga una sola " +
+                           "persona. Elige uno individual.");
+        if (criterio.Name.StartsWith(PoolSeed.PrefijoCriterio, StringComparison.Ordinal))
+            return (false, $"«{criterio.Name}» es el criterio con el que el pool abona sus actividades. " +
+                           "Un descuento lleva un criterio que nombre lo que pasó.");
+        // Que el criterio sea NEGATIVO en el catálogo es lo que conserva vivos los cuarenta y un
+        // criterios de castigo: son exactamente los que se pueden elegir aquí y en ningún otro sitio.
+        if (criterio.DefaultPoints >= 0)
+            return (false, $"«{criterio.Name}» no es un criterio de descuento: en el catálogo vale " +
+                           $"{criterio.DefaultPoints:+#;-#;0}. Elige uno que reste.");
+
+        if (puntos >= 0)
+            return (false, "Un descuento resta: los puntos tienen que ser negativos. Si no quieres " +
+                           "quitarle nada, no publiques el descuento.");
+        if (puntos < MinPuntosDeDescuento)
+            return (false, $"El descuento no puede pasar de {-MinPuntosDeDescuento} puntos. Si de verdad " +
+                           "hace falta más, hazlo en dos y que cada uno diga su motivo.");
+
+        var ahora = DateTime.Now;          // local: el período se imputa al mes del calendario de la gente
+        var revisadoUtc = DateTime.UtcNow;
+
+        var entrada = new PointEntry
+        {
+            DeveloperId      = developerId,
+            CriterionId      = criterio.Id,
+            Points           = puntos,
+            Year             = ahora.Year,
+            Month            = ahora.Month,
+            Comment          = $"Descuento: {titulo} — {motivo}",
+            AssignedByUserId = currentUser.UserId,
+            ReviewedByUserId = currentUser.UserId,
+            ReviewedAt       = revisadoUtc,
+            ApprovalStatus   = PointApprovalStatus.Aprobado,
+            Date             = revisadoUtc
+        };
+
+        // El TIPO es Retrabajo y la COMPLEJIDAD la más baja, y ninguno de los dos significa nada aquí:
+        // el precio de un descuento sale del criterio y no de la matriz. Se ponen porque las columnas
+        // no son nulables, y queda escrito para que nadie los lea como si dijeran algo — la regla vive
+        // en la tabla de «lo que el esquema no expresa» de MODELO-DE-DATOS.md.
+        var actividad = new PoolActivity
+        {
+            Title                = Recortar(titulo, 200),
+            Description          = motivo,
+            WorkType             = PoolWorkType.Retrabajo,
+            Complexity           = PoolComplexity.Baja,
+            Points               = puntos,
+            Priority             = PoolPriority.Baja,
+            ClaimedByDeveloperId = developerId,
+            ClaimedAt            = revisadoUtc,
+            DeliveredAt          = revisadoUtc,
+            CreatedByUserId      = currentUser.UserId,
+            CreatedAt            = revisadoUtc
+        };
+
+        var historial = $"[{ahora:dd/MM/yyyy HH:mm}] Descuento aplicado por {NombreDelUsuario()} " +
+                        $"bajo «{criterio.Name}»: {puntos} pts. Motivo: {motivo}";
+
+        if (!await AbonarAsync(actividad, entrada, estadoEsperado: null,
+                               PoolActivityStatus.Descuento, historial, revisadoUtc, ct))
+            return (false, "No se pudo aplicar el descuento. Vuelve a intentarlo.");
+
+        await audit.RecordAsync(AuditAction.Update, "PoolActivity", actividad.Id.ToString(),
+            $"Descuento de {puntos} pts a {quien.FullName} bajo «{criterio.Name}»: {motivo}", ct);
+
+        try
+        {
+            // Un descuento silencioso es la peor versión posible de esto: alguien vería su ranking
+            // bajar a fin de mes sin nada que leer. El motivo viaja DENTRO del aviso.
+            await notifications.NotifyDeveloperAsync(developerId, NotificationKind.General,
+                "Se te aplicó un descuento de puntos",
+                $"«{titulo}»: {puntos} puntos bajo «{criterio.Name}». Motivo: {motivo}",
+                dedupeKey: $"pool-descuento-{actividad.Id}", ct: ct);
+        }
+        catch { /* el descuento ya está aplicado: un aviso fallido no puede tumbar la operación */ }
+
+        return (true, $"Descuento aplicado: {puntos} puntos a {quien.FullName} en {ahora:MM/yyyy}.");
+    }
+
+    /// <summary>
+    /// Deshace un descuento. Es la única escritura del pool que puede pagar sin que nadie la revise,
+    /// así que tiene que poder deshacerse.
+    ///
+    /// <para><b>No borra la entrada original.</b> Aquí nada que haya pagado se borra, ni siquiera para
+    /// deshacerlo: se escribe una entrada COMPENSATORIA con el mismo criterio y el signo contrario, y
+    /// el neto queda en cero con las dos visibles. Un descuento anulado tiene que poder contarse igual
+    /// que uno vigente, porque la conversación que lo produjo existió y el histórico se lee para
+    /// explicarla.</para>
+    ///
+    /// <para>La compensatoria se imputa al mes de HOY y no al del descuento, a propósito: los meses
+    /// cerrados no se reescriben. Si el descuento fue en marzo y se anula en mayo, marzo siguió siendo
+    /// como fue y mayo lo devuelve.</para>
+    /// </summary>
+    public async Task<(bool ok, string mensaje)> AnularDescuentoAsync(
+        int id, string motivo, CancellationToken ct = default)
+    {
+        AuthorizationGuard.RequireAdmin(currentUser);
+
+        motivo = (motivo ?? "").Trim();
+        if (motivo.Length == 0) return (false, "Escribe por qué se anula: va al historial y al aviso.");
+        if (motivo.Length > MaxMotivo) return (false, $"El motivo no puede pasar de {MaxMotivo} caracteres.");
+
+        var actividad = await db.PoolActivities.FirstOrDefaultAsync(a => a.Id == id, ct);
+        if (actividad == null) return (false, "Ese descuento ya no existe. Actualiza la lista.");
+        if (actividad.Status != PoolActivityStatus.Descuento)
+            return (false, "Solo se anulan descuentos.");
+        if (actividad.AnulacionPointEntryId != null)
+            return (false, "Ese descuento ya estaba anulado.");
+        if (actividad.PointEntryId is not int entradaOriginalId)
+            return (false, "Ese descuento no llegó a abonarse, así que no hay nada que anular.");
+        if (actividad.ClaimedByDeveloperId is not int developerId)
+            return (false, "Ese descuento no tiene a quién devolverle los puntos.");
+
+        var original = await db.PointEntries.AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == entradaOriginalId, ct);
+        if (original == null)
+            return (false, "La entrada de puntos del descuento ya no existe, así que no se puede " +
+                           "compensar. Ajusta el puntaje a mano si hace falta.");
+
+        var ahora = DateTime.Now;
+        var revisadoUtc = DateTime.UtcNow;
+
+        var compensatoria = new PointEntry
+        {
+            DeveloperId      = developerId,
+            CriterionId      = original.CriterionId,
+            Points           = -original.Points,
+            Year             = ahora.Year,
+            Month            = ahora.Month,
+            Comment          = $"Anulación del descuento #{actividad.Id}: {motivo}",
+            AssignedByUserId = currentUser.UserId,
+            ReviewedByUserId = currentUser.UserId,
+            ReviewedAt       = revisadoUtc,
+            ApprovalStatus   = PointApprovalStatus.Aprobado,
+            Date             = revisadoUtc
+        };
+
+        var historial = HistorialCon(actividad,
+            $"Anulado por {NombreDelUsuario()}: se devolvieron {-original.Points} pts. Motivo: {motivo}");
+
+        using var tx = await db.Database.BeginTransactionAsync(ct);
+
+        // El UPDATE condicional sobre la anulación es la guarda contra devolver los puntos dos veces,
+        // igual que PointEntryId lo es contra cobrarlos dos veces. Se reserva ANTES de escribir la
+        // entrada, por el mismo motivo.
+        int ganadas = await db.PoolActivities
+            .Where(a => a.Id == id && a.AnulacionPointEntryId == null
+                     && a.Status == PoolActivityStatus.Descuento)
+            .ExecuteUpdateAsync(s => s.SetProperty(a => a.ReviewHistory, historial), ct);
+        if (ganadas == 0)
+        {
+            await tx.RollbackAsync(ct);
+            return (false, "Ese descuento ya estaba anulado.");
+        }
+
+        db.PointEntries.Add(compensatoria);
+        await db.SaveChangesAsync(ct);
+
+        await db.PoolActivities.Where(a => a.Id == id)
+            .ExecuteUpdateAsync(s => s.SetProperty(a => a.AnulacionPointEntryId, compensatoria.Id), ct);
+
+        await tx.CommitAsync(ct);
+
+        await audit.RecordAsync(AuditAction.Update, "PoolActivity", id.ToString(),
+            $"Descuento anulado: se devolvieron {-original.Points} pts. {motivo}", ct);
+
+        try
+        {
+            await notifications.NotifyDeveloperAsync(developerId, NotificationKind.General,
+                "Se anuló el descuento de puntos",
+                $"«{actividad.Title}»: se te devolvieron {-original.Points} puntos. Motivo: {motivo}",
+                dedupeKey: $"pool-descuento-anulado-{id}", ct: ct);
+        }
+        catch { /* la anulación ya está hecha */ }
+
+        return (true, $"Descuento anulado: se devolvieron {-original.Points} puntos en {ahora:MM/yyyy}.");
     }
 
     /// <summary>

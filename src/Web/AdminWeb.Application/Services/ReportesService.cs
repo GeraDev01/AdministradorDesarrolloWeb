@@ -606,8 +606,14 @@ public class ReportesService(
         var filas = Enum.GetValues<PoolWorkType>()
             .Select(tipo =>
             {
+                // Fuera lo que no es trabajo publicado: lo que todavía no se ha clasificado —que sale
+                // en su propia fila— y los DESCUENTOS, que comparten tabla con las actividades pero
+                // no son ninguna. Contarlos aquí inflaría «altas de retrabajo» con penalizaciones que
+                // nadie trabajó.
                 var grupo = actividades
-                    .Where(a => a.WorkType == tipo && a.Status != PoolActivityStatus.PorClasificar)
+                    .Where(a => a.WorkType == tipo
+                             && a.Status != PoolActivityStatus.PorClasificar
+                             && a.Status != PoolActivityStatus.Descuento)
                     .ToList();
                 var aceptadas = grupo.Where(a => a.Status == PoolActivityStatus.Aceptada).ToList();
 

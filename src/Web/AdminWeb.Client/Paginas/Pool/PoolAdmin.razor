@@ -2,6 +2,8 @@
 @attribute [Authorize(Policy = "SoloAdmin")]
 @using AdminWeb.Shared.Dtos.Pool
 @using AdminWeb.Shared.Dtos.Personas
+@using AdminWeb.Shared.Dtos.Catalogos
+@using AdminWeb.Shared
 @implements IDisposable
 @inject ClienteApi Api
 @inject AvisosDeInterfaz Avisos
@@ -105,7 +107,95 @@
                             <RadzenButton Text="Traer de DevOps" Icon="download" ButtonStyle="ButtonStyle.Light"
                                           Disabled="@_ocupado" Click="@TraerDeDevOps"
                                           title="Da de alta en el pool, sin clasificar, los work items nuevos que todavía no están" />
+
+                            @* EL DESCUENTO vive aquí y no en la pantalla de desempeño, y no es una
+                               decisión de dónde poner el botón: un descuento ES una actividad del
+                               pool que nace pagada. Que se aplique desde aquí es lo que hace que
+                               haya un solo sitio en la aplicación donde se escriben puntos.
+
+                               Va en «Light» y no en «Danger» a propósito, al revés que «Rechazar»:
+                               esto no es una acción peligrosa que haya que frenar, es una que hay
+                               que poder hacer sin drama cuando toca. Lo que avisa de su peso es el
+                               panel, que exige motivo, y el rojo del estado en la rejilla. *@
+                            <RadzenButton data-recorrido="pool-descuento"
+                                          Text="Descuento" Icon="remove" ButtonStyle="ButtonStyle.Light"
+                                          Disabled="@_ocupado" Click="@AbrirDescuento"
+                                          title="Quita puntos a una persona bajo un criterio del catálogo. Exige motivo" />
                         </RadzenStack>
+
+                        @if (_descontando)
+                        {
+                            <RadzenCard>
+                                <RadzenStack Gap="0.75rem">
+                                    <RadzenText TextStyle="TextStyle.Subtitle1" class="rz-mb-0">
+                                        Aplicar un descuento de puntos
+                                    </RadzenText>
+
+                                    @* LO QUE HAY QUE ENTENDER ANTES DE PULSAR, y por eso va arriba y
+                                       no en un globo: esto no publica trabajo. Nadie lo va a tomar,
+                                       no hay nada que entregar y los puntos se quitan en cuanto se
+                                       guarda. Si lo que hay es trabajo que hacer —aunque no debiera
+                                       haber hecho falta—, eso es un RETRABAJO y se publica arriba. *@
+                                    <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter"
+                                                 AllowClose="false" class="rz-mb-0">
+                                        <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                                            Un descuento <b>no es trabajo</b>: nadie lo toma y no hay nada
+                                            que verificar. Se aplica al guardar y se le avisa a la persona
+                                            con el motivo que escribas. Si lo que hay es algo que <b>hay que
+                                            hacer</b>, publícalo como <b>Retrabajo</b>, que resta por matriz
+                                            y sí se trabaja.
+                                        </RadzenText>
+                                    </RadzenAlert>
+
+                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem"
+                                                 Wrap="FlexWrap.Wrap" AlignItems="AlignItems.Center">
+                                        <RadzenLabel Text="A quién:" Component="devDescuento" />
+                                        <RadzenDropDown TValue="int?" @bind-Value="_devDescuento" Name="devDescuento"
+                                                        Data="@_desarrolladores" TextProperty="Nombre" ValueProperty="Id"
+                                                        AllowFiltering="true" Placeholder="Elige a la persona"
+                                                        Style="min-width:16rem" />
+
+                                        @* Solo los que RESTAN. Es el catálogo entero de negativos, sin
+                                           la lista corta que recorta los extras: un extra es algo que
+                                           se mira al verificar una entrega, y aquí no hay entrega. *@
+                                        <RadzenLabel Text="Criterio:" Component="critDescuento" />
+                                        <RadzenDropDown TValue="int?" @bind-Value="_criterioDescuento" Name="critDescuento"
+                                                        Data="@_criteriosDeDescuento" TextProperty="Nombre" ValueProperty="Id"
+                                                        AllowFiltering="true" Placeholder="Elige el criterio"
+                                                        Change="@(_ => PrecargarPuntosDelDescuento())"
+                                                        Style="min-width:22rem" />
+
+                                        @* Precargado con el del criterio y editable: un mismo hecho no
+                                           siempre pesa lo mismo. El signo y el suelo los impone el
+                                           servidor, no esta casilla. *@
+                                        <RadzenLabel Text="Puntos:" Component="puntosDescuento" />
+                                        <RadzenNumeric TValue="int" @bind-Value="_puntosDescuento" Name="puntosDescuento"
+                                                       Min="@LimitesDeLosPuntos.MinDescuento" Max="-1"
+                                                       Style="width:8rem" />
+                                    </RadzenStack>
+
+                                    <RadzenTextBox @bind-Value="_tituloDescuento" MaxLength="200" Style="width:100%"
+                                                   Placeholder="¿De qué es el descuento? (aparece en la rejilla)" />
+
+                                    @* El motivo es OBLIGATORIO, y es lo único que la persona va a
+                                       poder leer para entender qué le pasó a sus puntos: aquí no hay
+                                       checklist ni entrega que explique nada. Es el mismo argumento
+                                       del motivo obligatorio al devolver una entrega. *@
+                                    <RadzenTextArea @bind-Value="_motivoDescuento" Rows="3" MaxLength="1000"
+                                                    Style="width:100%"
+                                                    Placeholder="Motivo (obligatorio): es lo que va a leer esa persona" />
+
+                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+                                        <RadzenButton Text="Aplicar el descuento" Icon="remove"
+                                                      ButtonStyle="ButtonStyle.Danger"
+                                                      Disabled="@(_ocupado || !PuedeDescontar)"
+                                                      Click="@AplicarDescuento" />
+                                        <RadzenButton Text="Cancelar" Icon="close" ButtonStyle="ButtonStyle.Light"
+                                                      Disabled="@_ocupado" Click="@(() => _descontando = false)" />
+                                    </RadzenStack>
+                                </RadzenStack>
+                            </RadzenCard>
+                        }
 
                         @if (_capturando)
                         {
@@ -689,6 +779,19 @@
                                                           title="Ciérrala como hecha por ti: sale del pool, nadie la toma y no da puntos" />
                                         }
 
+                                        @* ANULAR un descuento no borra nada: escribe una entrada
+                                           compensatoria y deja las dos a la vista. Es la única
+                                           escritura del pool que paga sin que nadie la revise, así
+                                           que tiene que poder deshacerse — y lo que se deshace queda
+                                           contado, porque la conversación que lo produjo existió. *@
+                                        @if (a.Estado == PoolActivityStatus.Descuento)
+                                        {
+                                            <RadzenButton Text="Anular" Icon="undo" ButtonStyle="ButtonStyle.Light"
+                                                          Size="ButtonSize.ExtraSmall" Disabled="@_ocupado"
+                                                          Click="@(() => AnularDescuento(a))"
+                                                          title="Devuelve los puntos con una entrada compensatoria" />
+                                        }
+
                                         @* ELIMINAR es lo único irreversible de esta rejilla y por eso
                                            aparece en menos sitios que ninguna otra acción: solo donde
                                            no hay nada que perder —libre, sin clasificar, retirada o
@@ -1231,6 +1334,40 @@
     /// <summary>El catálogo de criterios que se pueden pedir como extra. Se carga una vez.</summary>
     private List<CriterioDisponibleDto> _criteriosDisponibles = [];
 
+    // ── El descuento ─────────────────────────────────────────────────────────
+    //
+    // Vive en esta pantalla y no en la de desempeño porque un descuento ES una actividad del pool
+    // que nace pagada. Que se aplique desde aquí es lo que hace que haya un solo sitio en la
+    // aplicación donde se escriben puntos.
+
+    private bool _descontando;
+    private int? _devDescuento;
+    private int? _criterioDescuento;
+    private int _puntosDescuento = -5;
+    private string _tituloDescuento = "";
+    private string _motivoDescuento = "";
+
+    /// <summary>
+    /// Solo los criterios que RESTAN. Es el catálogo entero de negativos: la lista corta que recorta
+    /// los extras no se aplica aquí, porque un extra es algo que se mira al verificar una entrega y
+    /// un descuento no tiene entrega.
+    /// </summary>
+    private List<CriterioDisponibleDto> _criteriosDeDescuento = [];
+
+    /// <summary>A quién se le puede descontar: los activos, que son los que tienen ranking.</summary>
+    private List<DesarrolladorDto> _desarrolladores = [];
+
+    /// <summary>
+    /// Si con lo escrito se puede aplicar. Se comprueba aquí ADEMÁS de en el servidor para no
+    /// ofrecer un botón que va a rebotar: el motivo es lo que más se olvida, y descubrirlo después
+    /// de pulsar convierte una regla en un regaño.
+    /// </summary>
+    private bool PuedeDescontar =>
+        _devDescuento is not null && _criterioDescuento is not null
+        && _puntosDescuento < 0 && _puntosDescuento >= LimitesDeLosPuntos.MinDescuento
+        && !string.IsNullOrWhiteSpace(_tituloDescuento)
+        && !string.IsNullOrWhiteSpace(_motivoDescuento);
+
     /// <summary>
     /// Criterios que ESTA actividad ya lleva y que el catálogo del pool ya no ofrece.
     ///
@@ -1317,6 +1454,17 @@
         // que se abre el formulario.
         _criteriosDisponibles = await Api.LeerAsync<List<CriterioDisponibleDto>>(
             "api/pool/criterios-disponibles", _cancelacion.Token) ?? [];
+
+        // Los del DESCUENTO son otra lista y otra consulta: aquélla son los positivos que se pueden
+        // pedir de más, ésta los negativos con los que se puede restar. Mezclarlas dejaría el
+        // desplegable de publicar ofreciendo castigos como si fueran extras.
+        _criteriosDeDescuento = await Api.LeerAsync<List<CriterioDisponibleDto>>(
+            "api/pool/criterios-de-descuento", _cancelacion.Token) ?? [];
+
+        // Solo los ACTIVOS: a quien está de baja no se le puede descontar nada porque ya no tiene
+        // ranking, y el servidor lo rechaza. Ofrecerlo sería ofrecer un botón que rebota.
+        _desarrolladores = await Api.LeerAsync<List<DesarrolladorDto>>(
+            "api/catalogos/desarrolladores?soloActivos=true", _cancelacion.Token) ?? [];
 
         // Los equipos, para poder publicar a uno. Se leen del organigrama —la misma consulta que
         // dibuja el diagrama— y no de un catálogo aparte: así la jerarquía que se ve al elegir es la
@@ -1670,6 +1818,66 @@
             return;
 
         await Enviar<object?>($"api/pool/{actividad.Id}/retirar", null);
+    }
+
+    /// <summary>Abre el panel del descuento en blanco: nada se arrastra de la vez anterior.</summary>
+    private void AbrirDescuento()
+    {
+        _descontando = true;
+        _devDescuento = null;
+        _criterioDescuento = null;
+        _puntosDescuento = -5;
+        _tituloDescuento = "";
+        _motivoDescuento = "";
+    }
+
+    /// <summary>
+    /// Precarga los puntos con los del criterio elegido. Es una PROPUESTA, no un candado: un mismo
+    /// hecho no siempre pesa lo mismo y el líder puede ajustarlo. El signo y el suelo los impone el
+    /// servidor.
+    /// </summary>
+    private void PrecargarPuntosDelDescuento()
+    {
+        var criterio = _criteriosDeDescuento.FirstOrDefault(c => c.Id == _criterioDescuento);
+        if (criterio is not null) _puntosDescuento = criterio.Puntos;
+    }
+
+    /// <summary>
+    /// Aplica el descuento. Pregunta antes con el número y el nombre dentro, porque los puntos se
+    /// quitan al guardar y no hay ninguna revisión en medio: es la única escritura del pool que paga
+    /// sin que nadie más la mire.
+    /// </summary>
+    private async Task AplicarDescuento()
+    {
+        if (_devDescuento is not int devId || _criterioDescuento is not int criterioId) return;
+
+        var quien = _desarrolladores.FirstOrDefault(d => d.Id == devId)?.Nombre ?? "esa persona";
+        if (!await Avisos.ConfirmarAsync(
+                $"¿Quitarle {-_puntosDescuento} puntos a {quien}?\n\n" +
+                "Se aplican ahora mismo y se le avisa con tu motivo. Se puede anular después, y " +
+                "entonces quedan las dos anotaciones a la vista.",
+                "Aplicar el descuento", "Sí, aplicarlo"))
+            return;
+
+        if (await Enviar("api/pool/descuentos", new PublicarDescuentoRequest(
+                devId, criterioId, _puntosDescuento, _tituloDescuento, _motivoDescuento)))
+            _descontando = false;
+    }
+
+    /// <summary>
+    /// Anula un descuento. El motivo es obligatorio y va al aviso: quien recupera unos puntos tiene
+    /// derecho a saber por qué, igual que lo tuvo cuando se los quitaron.
+    /// </summary>
+    private async Task AnularDescuento(ActividadDelPoolDto actividad)
+    {
+        var aQuien = actividad.QuienLaTiene ?? "quien lo recibió";
+        var motivo = await Avisos.PedirTextoAsync(
+            $"Se le devuelven los puntos de «{actividad.Titulo}» a {aQuien}. ¿Por qué? (se le avisa)",
+            "Anular el descuento");
+
+        if (string.IsNullOrWhiteSpace(motivo)) return;   // null es cancelar; vacío no vale aquí
+
+        await Enviar($"api/pool/descuentos/{actividad.Id}/anulacion", new MotivoRequest(motivo));
     }
 
     /// <summary>

@@ -1125,6 +1125,10 @@ public static class DatabaseMigrator
         // A qué subequipo se publica una actividad, o NULO para toda la casa. Nace en nulo en todo lo
         // que ya existe, que es lo que hace que el pool siga viéndose entero el día del despliegue.
         try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivities"" ADD COLUMN ""EquipoId"" INTEGER"); } catch { }
+
+        // La entrada compensatoria con la que se anuló un descuento. Nace en nulo en todo lo que ya
+        // existe, que es lo correcto: antes de esto no había descuentos que anular.
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivities"" ADD COLUMN ""AnulacionPointEntryId"" INTEGER"); } catch { }
         // El estado va de primera columna porque toda consulta del pool empieza filtrando por él.
         try { db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Pool_Equipo"" ON ""PoolActivities""(""Status"",""EquipoId"")"); } catch { }
 
@@ -2670,6 +2674,8 @@ CREATE TABLE [PoolActivities] (
 
         Exec("IF COL_LENGTH('PoolActivities','DevOpsAsignadoADeveloperId') IS NULL ALTER TABLE [PoolActivities] ADD [DevOpsAsignadoADeveloperId] int NULL;");
         Exec("IF COL_LENGTH('PoolActivities','DevOpsEstadoEnviado') IS NULL ALTER TABLE [PoolActivities] ADD [DevOpsEstadoEnviado] nvarchar(100) NULL;");
+        // La gemela de la de SQLite: con qué entrada compensatoria se anuló un descuento.
+        Exec("IF COL_LENGTH('PoolActivities','AnulacionPointEntryId') IS NULL ALTER TABLE [PoolActivities] ADD [AnulacionPointEntryId] int NULL;");
         ExecIndex("PoolActivities", "IX_Pool_DevOps", "DevOpsWorkItemId", "[DevOpsWorkItemId]");
 
         // La gemela de la de SQLite: a qué subequipo se publica, nulo para toda la casa.

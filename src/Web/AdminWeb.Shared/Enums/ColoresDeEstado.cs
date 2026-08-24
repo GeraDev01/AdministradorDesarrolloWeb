@@ -80,6 +80,10 @@ public static class ColoresDeEstado
         // y no le reclama nada a nadie. No va al verde de «Aceptada» a propósito — ese verde
         // significa «se verificó y se abonaron puntos», y aquí no hubo ni lo uno ni lo otro.
         PoolActivityStatus.Propia        => "var(--rz-text-secondary-color)",
+        // El ÚNICO estado del pool en rojo sin que haya nada que rehacer. «Devuelta» va en rojo
+        // porque hay que volver a trabajarla; esto va en rojo porque le quitó puntos a alguien, y
+        // eso es exactamente lo que hay que poder ver de un vistazo al barrer la columna.
+        PoolActivityStatus.Descuento     => "var(--rz-danger)",
         _                             => "var(--rz-text-secondary-color)"   // Retirada
     };
 

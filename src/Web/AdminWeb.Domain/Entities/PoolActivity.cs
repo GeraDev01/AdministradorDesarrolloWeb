@@ -307,6 +307,18 @@ public class PoolActivity
     /// concurrencia en vez de pisar en silencio lo que acaba de escribir el primero.
     /// Solo se mapea contra SQL Server; en SQLite se ignora.
     /// </summary>
+    /// <summary>
+    /// La entrada COMPENSATORIA con la que se anuló un descuento. Nulo = no se ha anulado.
+    ///
+    /// <para>Es la guarda contra anular dos veces, además de la traza. Anular no borra la entrada
+    /// original —aquí nada que haya pagado se borra, ni siquiera para deshacerlo—: escribe otra con
+    /// el signo contrario, y el neto queda en cero con las dos visibles. Un descuento anulado tiene
+    /// que poder contarse igual que uno vigente, porque la conversación que lo produjo existió.</para>
+    ///
+    /// <para><b>Sin clave ajena</b>, la misma forma y el mismo motivo que <see cref="PointEntryId"/>.</para>
+    /// </summary>
+    public int? AnulacionPointEntryId { get; set; }
+
     public byte[]? RowVersion { get; set; }
 
     public Developer? ClaimedBy { get; set; }
@@ -429,7 +441,8 @@ public class PoolActivity
     /// vea. Aquí no se entregó nada.</para>
     /// </summary>
     public static bool EstadoCerradoSinEntrega(PoolActivityStatus estado) =>
-        estado is PoolActivityStatus.Retirada or PoolActivityStatus.Propia;
+        estado is PoolActivityStatus.Retirada or PoolActivityStatus.Propia
+               or PoolActivityStatus.Descuento;
 
     /// <summary>
     /// Hay algo que el pool dice y DevOps todavía no.
