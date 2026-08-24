@@ -58,6 +58,16 @@ public class PoolActivityService(
     public const int MaxMotivo = 1000;
 
     /// <summary>
+    /// Tope del DETALLE de una propuesta: lo que admite la columna.
+    ///
+    /// <para>Aquí se RECHAZA en vez de recortar, al revés que en el alta automática desde un work
+    /// item. Allá el texto viene de fuera y recortarlo es lo único que se puede hacer con él; aquí
+    /// lo escribe una persona que está mirando la pantalla, y guardarle a medias lo que acaba de
+    /// redactar sería perderle trabajo sin decírselo.</para>
+    /// </summary>
+    public const int MaxDetalle = 4000;
+
+    /// <summary>
     /// Tope del PLAZO, en horas: 2 920 = los 365 días de antes por una jornada de ocho. Es el mismo
     /// techo que ya había, dicho en la unidad nueva, para no ampliar de tapadillo lo que se podía
     /// prometer.
@@ -341,6 +351,16 @@ public class PoolActivityService(
     /// Edita una actividad que sigue en el pool. Solo mientras nadie la haya tomado: cambiarle el
     /// alcance o el valor a alguien que ya la está trabajando sería cambiar el trato a medio camino.
     /// Si cambia el tipo o la complejidad, los puntos se recongelan desde la matriz.
+    ///
+    /// <para><b>Y es donde se CLASIFICA, con dos desenlaces según de dónde venga la actividad.</b>
+    /// Una que entró sola desde un work item no tiene dueño y sale <c>Disponible</c>, al pool, para
+    /// que la tome quien quiera. Una PROPUESTA sí lo tiene —nació con el reclamo de quien la
+    /// propuso— y sale <c>Tomada</c>, directamente a sus manos.</para>
+    ///
+    /// <para>La diferencia no es una comodidad: mandar una propuesta al pool común dejaría que se la
+    /// llevara otro, que es exactamente lo contrario de lo que pidió quien la propuso —y encima
+    /// después de que el líder decidiera cuánto vale, o sea, sabiendo ya lo que paga—. El reclamo es
+    /// el único dato que distingue los dos casos, y por eso una propuesta nace con él puesto.</para>
     /// </summary>
     public async Task<(bool ok, string mensaje)> EditarAsync(
         int id, PoolActivity cambios, IReadOnlyList<int>? criteriosExtra = null,
@@ -462,21 +482,74 @@ public class PoolActivityService(
         actividad.ExtraCriteria.Clear();
         foreach (var extra in extras) actividad.ExtraCriteria.Add(extra);
 
-        // CLASIFICAR ES PUBLICAR. Una actividad que entró sola desde un work item no vale puntos ni
-        // se puede tomar mientras no tenga tipo, complejidad y horas; en cuanto los tiene —y la
-        // validación de arriba es la que garantiza que los tiene— ya es una actividad del pool como
-        // cualquier otra. No hace falta un segundo gesto ni una ruta aparte: pasar por aquí ES la
-        // decisión, y separarlos solo daría ocasión de dejarla clasificada pero sin publicar.
-        if (clasificando) actividad.Status = PoolActivityStatus.Disponible;
+        // ── CLASIFICAR ES PUBLICAR… O ENTREGARLA A QUIEN LA PROPUSO ──────────────
+        //
+        // Una actividad que no vale puntos ni se puede tomar mientras no tenga tipo, complejidad y
+        // horas; en cuanto los tiene —y la validación de arriba es la que garantiza que los tiene—
+        // ya es una actividad del pool como cualquiera. No hace falta un segundo gesto ni una ruta
+        // aparte: pasar por aquí ES la decisión, y separarlos solo daría ocasión de dejarla
+        // clasificada pero sin publicar.
+        //
+        // A DÓNDE VA LO DECIDE EL RECLAMO, que es el único dato que separa las dos procedencias:
+        //  · sin dueño → entró sola desde un work item → al pool, Disponible, para quien la quiera;
+        //  · con dueño → es una propuesta → Tomada, a las manos de quien la propuso.
+        //
+        // Y «Tomada» tiene que significar lo mismo por los dos caminos, o el segundo entregaría algo
+        // a medio armar: se le calcula el PLAZO desde ahora, se le copia el CHECKLIST vigente y se le
+        // crea la PERCHA del cronómetro, que es lo mismo que hace tomar y por eso está extraído.
+        //
+        // EL PLAZO CUENTA DESDE AQUÍ y no desde que se propuso, por lo mismo que al tomar: hasta que
+        // el líder no dice de qué clase es, no hay plazo que consumir — no se sabía ni de cuántas
+        // horas era.
+        //
+        // LO QUE ESTE CAMINO NO PUEDE DAR, dicho aquí para que no parezca un olvido: si la propuesta
+        // se clasifica como BUG o RETRABAJO, se queda SIN ESFUERZO ESTIMADO. En un bug lo escribe
+        // quien lo toma en el momento de tomarlo, y aquí ese momento no existe: cuando el líder
+        // clasifica, la actividad ya es suya. Preguntárselo después sería preguntarle cuando ya sabe
+        // lo que le costó, que es justo lo que ese número no puede ser. Se acepta a sabiendas: esos
+        // bugs se comparan contra el cronómetro con la mitad de los datos, y el mensaje lo dice.
+        bool aSuDuenno = clasificando && actividad.ClaimedByDeveloperId is not null;
+
+        if (clasificando)
+        {
+            if (aSuDuenno)
+            {
+                var ahora = DateTime.UtcNow;
+                var (_, limite) = PlazoDesdeAhora(actividad, celda, ahora);
+
+                actividad.Status          = PoolActivityStatus.Tomada;
+                actividad.ClaimedAt       = ahora;
+                actividad.ClaimDeadlineAt = limite;
+
+                AnotarEnHistorial(actividad,
+                    $"Clasificada por {NombreDelUsuario()} como {PoolSeed.Etiqueta(actividad.WorkType)} / " +
+                    $"{PoolSeed.Etiqueta(actividad.Complexity)}: {actividad.Points} pts. Queda tomada por " +
+                    "quien la propuso.");
+            }
+            else actividad.Status = PoolActivityStatus.Disponible;
+        }
 
         await db.SaveChangesAsync(ct);
+
+        // El checklist y la percha van DESPUÉS del guardado que fijó el estado, no antes: los dos
+        // cuelgan del identificador de la actividad y el segundo escribe una fila en otra tabla.
+        // Puestos antes, una validación que fallara más arriba dejaría un cronómetro huérfano.
+        if (aSuDuenno && actividad.ClaimedByDeveloperId is int duenno)
+            await ArrancarElTrabajoAsync(actividad, duenno, ct);
         await audit.RecordAsync(AuditAction.Update, "PoolActivity", actividad.Id.ToString(),
             clasificando
-                ? $"Clasificada y publicada en el pool: {PoolSeed.Etiqueta(actividad.WorkType)} / " +
-                  $"{PoolSeed.Etiqueta(actividad.Complexity)}, {actividad.Points} pts"
+                ? $"Clasificada como {PoolSeed.Etiqueta(actividad.WorkType)} / " +
+                  $"{PoolSeed.Etiqueta(actividad.Complexity)}, {actividad.Points} pts; " +
+                  (aSuDuenno ? "queda tomada por quien la propuso" : "publicada en el pool")
                 : $"Actividad del pool actualizada: {actividad.Points} pts, prioridad " +
                   $"{EtiquetasDeCatalogo.PrioridadDelPool(actividad.Priority)}, " +
                   $"{extras.Count} criterio(s) extra", ct);
+
+        // A quien la propuso se le avisa: para él, esto es que su propuesta fue aceptada Y que ya
+        // tiene trabajo asignado con plazo corriendo. Enterarse al entrar a la pantalla, cuando el
+        // plazo lleva dos días consumiéndose, sería la peor forma de descubrirlo.
+        if (aSuDuenno && actividad.ClaimedByDeveloperId is int avisado)
+            await AvisarDeLaClasificacionAsync(actividad, avisado, ct);
 
         // El empuje va aquí y no solo al ligar porque la prioridad y el esfuerzo se editan: mandar
         // solo la primera vez dejaría DevOps con el número del día que se publicó, que es peor que
@@ -487,6 +560,19 @@ public class PoolActivityService(
         var mensaje = clasificando
             ? MensajeDeAlta(actividad.Points, extras)
             : MensajeDeAlta(actividad.Points, extras).Replace("publicada", "actualizada");
+
+        if (aSuDuenno)
+        {
+            mensaje = mensaje.Replace("publicada en el pool", "clasificada")
+                    + $" Queda tomada por {await NombreDeDesarrolladorAsync(actividad.ClaimedByDeveloperId, ct)}, " +
+                      "que fue quien la propuso, con su plazo corriendo desde ahora.";
+
+            // El aviso del esfuerzo que falta va SOLO cuando falta: en una tarea o un requerimiento
+            // el líder acaba de escribirlo y decirle que no hay estimación sería mentirle.
+            if (actividad.WorkType.ComoBug())
+                mensaje += " Ojo: al clasificarla ya era suya, así que no hay estimación de esfuerzo " +
+                           "con la que contrastar su cronómetro.";
+        }
 
         return (true, ConEmpuje(mensaje, await EmpujarADevOpsAsync(actividad.Id, ct)));
     }
@@ -528,8 +614,22 @@ public class PoolActivityService(
             : $"«{criterio.Name}» marcado como NO cumplido: no suma.");
     }
 
-    /// <summary>Quita del pool una actividad que ya no aplica. Solo si nadie la tomó.</summary>
-    public async Task<(bool ok, string mensaje)> RetirarAsync(int id, CancellationToken ct = default)
+    /// <summary>
+    /// Quita del pool una actividad que ya no aplica. Solo si nadie la tomó.
+    ///
+    /// <para><b>Y es también cómo se rechaza una PROPUESTA</b>, que es la razón de que el motivo
+    /// aparezca aquí. Retirar algo que nadie propuso no le quita nada a nadie: la actividad entró
+    /// sola desde un work item y se descarta sin más. Retirar una propuesta es decirle que no a una
+    /// persona, y una propuesta rechazada EN SILENCIO mata la función en una semana — nadie vuelve a
+    /// proponer si la vez anterior su trabajo desapareció sin una palabra.</para>
+    ///
+    /// <para>Por eso el motivo es OBLIGATORIO cuando hay dueño y opcional cuando no: la regla no es
+    /// «escribe siempre» —que se acabaría contestando con un punto— sino «escribe cuando alguien lo
+    /// va a leer».</para>
+    /// </summary>
+    /// <param name="motivo">Por qué se retira. Se le manda a quien la propuso, tal cual.</param>
+    public async Task<(bool ok, string mensaje)> RetirarAsync(
+        int id, string? motivo = null, CancellationToken ct = default)
     {
         AuthorizationGuard.RequireAdmin(currentUser);
 
@@ -543,15 +643,45 @@ public class PoolActivityService(
             return (false, "Solo se retira lo que sigue libre en el pool. Si alguien la tomó, usa «Liberar».");
 
         bool sinClasificar = actividad.Status == PoolActivityStatus.PorClasificar;
+        int? quienLaPropuso = actividad.ClaimedByDeveloperId;
+
+        motivo = Limpiar(motivo);
+        if (quienLaPropuso is not null && motivo is null)
+            return (false, "Esta actividad la propuso alguien: escribe por qué la descartas. Se le " +
+                           "manda tal cual, y es lo único que va a poder leer para entenderlo.");
+        if (motivo is { Length: > MaxMotivo })
+            return (false, $"El motivo no puede pasar de {MaxMotivo} caracteres.");
 
         actividad.Status = PoolActivityStatus.Retirada;
+        if (motivo != null)
+            AnotarEnHistorial(actividad, $"Descartada por {NombreDelUsuario()}: {motivo}");
+
+        // EL RECLAMO NO SE SUELTA, aunque la propuesta se rechace. Es lo que deja escrito de quién
+        // era: sin él, una propuesta descartada sería indistinguible de un work item que nadie quiso,
+        // y quien la propuso no la volvería a encontrar ni en su propia lista. Y no estorba: el tope
+        // cuenta solo lo vivo, y «Retirada» no lo está.
         await db.SaveChangesAsync(ct);
         await audit.RecordAsync(AuditAction.Update, "PoolActivity", actividad.Id.ToString(),
-            sinClasificar ? "Descartada sin clasificar" : "Retirada del pool", ct);
+            (sinClasificar ? "Descartada sin clasificar" : "Retirada del pool") +
+            (motivo != null ? $": {motivo}" : ""), ct);
 
-        return (true, sinClasificar
-            ? "Actividad descartada. No volverá a entrar sola desde su work item."
-            : "Actividad retirada del pool.");
+        if (quienLaPropuso is int dev)
+        {
+            try
+            {
+                await notifications.NotifyDeveloperAsync(dev, NotificationKind.General,
+                    "Tu propuesta no siguió adelante",
+                    $"«{actividad.Title}» quedó descartada. Motivo: {motivo}",
+                    dedupeKey: $"pool-descartada-{actividad.Id}", ct: ct);
+            }
+            catch { /* el descarte ya está hecho; el aviso es cortesía */ }
+        }
+
+        return (true, quienLaPropuso is not null
+            ? "Propuesta descartada. Se le avisó con tu motivo."
+            : sinClasificar
+                ? "Actividad descartada. No volverá a entrar sola desde su work item."
+                : "Actividad retirada del pool.");
     }
 
     /// <summary>
@@ -737,6 +867,181 @@ public class PoolActivityService(
     // ── Ciclo del desarrollador ──────────────────────────────────────────────────
 
     /// <summary>
+    /// EL DESARROLLADOR PROPONE TRABAJO AL POOL. Es la puerta que sustituyó a la autocalificación.
+    ///
+    /// <para><b>Qué se pide y qué no.</b> Título, detalle, un enlace y —si lo hay— el work item. Ni
+    /// tipo, ni complejidad, ni horas, ni puntos, ni a nombre de quién. No es una omisión por
+    /// comodidad: es LA regla del pool. Quien hace el trabajo no pone su precio; el precio sale de
+    /// la matriz una vez que el líder dice de qué clase es y cuánto pesa. Aceptar aquí cualquiera de
+    /// esos cuatro campos reabriría por la puerta de atrás exactamente lo que se acaba de cerrar.</para>
+    ///
+    /// <para><b>Nace CON DUEÑO</b>, y eso es lo que la hace barata. Una propuesta es una actividad
+    /// «Por clasificar» con <c>ClaimedByDeveloperId</c> puesto, y con eso sola:
+    /// <list type="bullet">
+    /// <item>aparece en «lo mío» sin tocar esa consulta, que ya filtra por el reclamo;</item>
+    /// <item>NO aparece en lo disponible, que filtra por <c>Disponible</c>;</item>
+    /// <item>no se la puede llevar otro, porque tomar exige <c>Disponible</c>;</item>
+    /// <item>no sale hacia DevOps, porque <c>YaPublicada</c> la deja callada mientras no tenga
+    ///       tipo ni puntos que afirmar;</item>
+    /// <item>y ya se ve en la pantalla del líder, con «Clasificar» y «Descartar» al lado.</item>
+    /// </list>
+    /// Cinco comportamientos que no hubo que escribir. Un estado nuevo los habría pedido todos.</para>
+    ///
+    /// <para><b>Cuenta dentro del tope de tomadas.</b> Una propuesta es trabajo que esa persona ya
+    /// tiene entre manos —de hecho, en cuanto el líder la clasifique se la encuentra tomada— así que
+    /// dejarla fuera del tope permitiría llegar al doble de trabajo vivo proponiendo en vez de
+    /// tomando, y el tope diría tres mientras la persona lleva seis.</para>
+    ///
+    /// <para>No se propone a nombre de otro: la ruta no lleva identificador y aquí se exige la
+    /// propiedad. Proponer por alguien sería ponerle trabajo a su nombre sin que se entere.</para>
+    /// </summary>
+    public async Task<(bool ok, string mensaje, PoolActivity? actividad)> ProponerAsync(
+        int developerId, string? titulo, string? detalle, string? enlace, int? workItem,
+        CancellationToken ct = default)
+    {
+        AuthorizationGuard.RequireLoggedIn(currentUser);
+        AuthorizationGuard.RequireOwnershipOrAdmin(currentUser, developerId);
+
+        var limpio = (titulo ?? "").Trim();
+        if (limpio.Length == 0)
+            return (false, "Escribe de qué trabajo se trata: es lo único que el líder va a leer para " +
+                           "decidir cuánto vale.", null);
+        if (limpio.Length > 200)
+            return (false, "El título no puede pasar de 200 caracteres. Lo largo va en el detalle.", null);
+
+        var cuerpo = Limpiar(detalle);
+        if (cuerpo is { Length: > MaxDetalle })
+            return (false, $"El detalle no puede pasar de {MaxDetalle} caracteres.", null);
+
+        // El mismo validador de enlaces que en todo lo demás: solo http y https, porque el líder lo
+        // abre con el navegador al clasificar.
+        var (enlaceOk, enlaceError, url) = PerformanceScoringService.NormalizarEnlace(enlace);
+        if (!enlaceOk) return (false, enlaceError, null);
+
+        var (vinculoOk, vinculoError, numero) = PoolDevOpsService.ResolverWorkItem(workItem, url);
+        if (!vinculoOk) return (false, vinculoError, null);
+
+        // Y que no haya ya otra actividad viva sobre ese mismo work item. Se comprueba con id 0
+        // —«todavía no existe»— igual que al publicar: ninguna fila puede ser ella misma.
+        if (numero is int wi)
+        {
+            var (libre, ocupado) = await PoolDevOpsService.NadieMasLoTieneAsync(db, wi, 0, ct);
+            if (!libre) return (false, ocupado, null);
+        }
+
+        int tope = await TopeDeTomadasAsync(ct);
+        int vivas = await CuantasVivasAsync(developerId, ct);
+        if (vivas >= tope)
+            return (false, $"Ya tienes {vivas} actividad(es) del pool sin entregar —contando las que " +
+                           $"están esperando que el líder las clasifique— y el tope es {tope}. " +
+                           "Termina o devuelve alguna antes de proponer otra.", null);
+
+        // ClaimedAt se queda VACÍO a propósito, aunque haya dueño. Esa columna no dice «de quién es»
+        // sino «cuándo empezó a correr el reloj», y el reloj de una propuesta no ha empezado: lo
+        // arranca el líder al clasificarla, que es cuando se sabe de cuántas horas es el plazo.
+        // Escribirlo aquí dejaría actividades vencidas antes de que nadie supiera lo que valían.
+        var actividad = new PoolActivity
+        {
+            Title                 = limpio,
+            Description           = cuerpo,
+            Status                = PoolActivityStatus.PorClasificar,
+            Points                = 0,
+            ClaimedByDeveloperId  = developerId,
+            Priority              = PoolPriority.Media,
+            ExternalUrl           = url,
+            DevOpsWorkItemId      = numero,
+            CreatedByUserId       = currentUser.UserId,
+            CreatedAt             = DateTime.UtcNow
+        };
+        AnotarEnHistorial(actividad,
+            $"Propuesta por {await NombreDeDesarrolladorAsync(developerId, ct)}, a la espera de que " +
+            "el líder le ponga valor.");
+
+        db.PoolActivities.Add(actividad);
+        await db.SaveChangesAsync(ct);
+
+        await audit.RecordAsync(AuditAction.Create, "PoolActivity", actividad.Id.ToString(),
+            $"Propuesta al pool: «{actividad.Title}»" +
+            (numero is int n ? $", ligada al work item #{n}" : ""), ct);
+
+        await AvisarDeLaPropuestaAsync(actividad, ct);
+
+        // NO se empuja a DevOps, y no hace falta guarda: sin tipo ni puntos, YaPublicada la deja
+        // callada. Se dice aquí porque la ausencia de la llamada, en un método que se parece tanto a
+        // CrearAsync, se lee como un olvido.
+        return (true, "Propuesta enviada. El líder le pondrá tipo y complejidad, y de ahí saldrán sus " +
+                      "puntos; cuando lo haga te la encontrarás tomada, con su plazo y su checklist.",
+                actividad);
+    }
+
+    /// <summary>
+    /// Cuántas actividades del pool tiene alguien VIVAS: tomadas, devueltas y propuestas suyas que
+    /// todavía esperan clasificación.
+    ///
+    /// <para>Escrita una sola vez porque la miran proponer y tomar, y las dos tienen que contar lo
+    /// mismo: si tomar no contara las propuestas, alguien con el tope lleno de propuestas podría
+    /// además tomar tres más.</para>
+    /// </summary>
+    private Task<int> CuantasVivasAsync(int developerId, CancellationToken ct) =>
+        db.PoolActivities.AsNoTracking()
+            .CountAsync(a => a.ClaimedByDeveloperId == developerId
+                          && (a.Status == PoolActivityStatus.Tomada
+                           || a.Status == PoolActivityStatus.Devuelta
+                           || a.Status == PoolActivityStatus.PorClasificar), ct);
+
+    /// <summary>
+    /// Avisa a quien propuso una actividad de que ya está clasificada y a su nombre.
+    ///
+    /// <para>Lleva los PUNTOS dentro, que es lo que estaba esperando saber: la propuesta se mandó
+    /// sin valor a propósito, y este aviso es el momento en que se entera de cuánto vale. Y lleva el
+    /// plazo, porque a partir de ahora corre.</para>
+    /// </summary>
+    private async Task AvisarDeLaClasificacionAsync(PoolActivity actividad, int developerId, CancellationToken ct)
+    {
+        try
+        {
+            var plazo = actividad.ClaimDeadlineAt is DateTime f
+                ? $" Entrega esperada: {f.ToLocalTime():dd/MM/yyyy HH:mm}."
+                : "";
+
+            await notifications.NotifyDeveloperAsync(developerId, NotificationKind.General,
+                "Tu propuesta ya tiene valor, y es tuya",
+                $"«{actividad.Title}» quedó como {PoolSeed.Etiqueta(actividad.WorkType)} / " +
+                $"{PoolSeed.Etiqueta(actividad.Complexity)}: {actividad.Points} puntos al aceptarse." +
+                $"{plazo} Ya está a tu nombre, con su checklist.",
+                dedupeKey: $"pool-clasificada-{actividad.Id}", ct: ct);
+        }
+        catch { /* la clasificación ya está hecha; el aviso es cortesía */ }
+    }
+
+    /// <summary>
+    /// Avisa a los líderes de que hay una propuesta esperando. Es cortesía y va en try/catch, como
+    /// todos los avisos: la propuesta ya está guardada cuando esto corre.
+    ///
+    /// <para>Importa más de lo que parece. Una propuesta que nadie mira es peor que no poder
+    /// proponer: la persona se queda con una actividad ocupándole sitio en el tope y sin saber si
+    /// alguien la vio. La cuenta de «Por clasificar» es además la medida de si el cuello de botella
+    /// se trasladó al líder, que es el riesgo declarado de todo este cambio.</para>
+    /// </summary>
+    private async Task AvisarDeLaPropuestaAsync(PoolActivity actividad, CancellationToken ct)
+    {
+        try
+        {
+            var lideres = await db.Users.AsNoTracking()
+                .Where(u => u.IsActive && u.Role == UserRole.Admin)
+                .Select(u => u.Id).ToListAsync(ct);
+
+            var deQuien = await NombreDeDesarrolladorAsync(actividad.ClaimedByDeveloperId, ct);
+            foreach (var userId in lideres)
+                await notifications.NotifyAsync(userId, NotificationKind.General,
+                    "Hay trabajo propuesto por clasificar",
+                    $"«{actividad.Title}» — la propuso {deQuien} y espera que le pongas valor.",
+                    dedupeKey: $"pool-propuesta-{actividad.Id}", ct: ct);
+        }
+        catch { /* el aviso es cortesía; la propuesta ya quedó registrada */ }
+    }
+
+    /// <summary>
     /// El desarrollador toma una actividad del pool. Aquí pasan tres cosas que importan:
     /// el reclamo se gana de forma ATÓMICA, se COPIA el checklist vigente (congelado: se le exigirá
     /// lo que se le pidió al tomarla, no lo que se agregue después) y se crea una actividad libre
@@ -778,12 +1083,15 @@ public class PoolActivityService(
             && actividad.EquipoId is int suEquipo && !equiposQueVeo.Contains(suEquipo))
             return (false, "Esa actividad está publicada para otro equipo.");
 
+        // El tope cuenta también LAS PROPUESTAS sin clasificar. Sin eso, quien tenga el tope lleno de
+        // propuestas podría además tomar tres actividades más y acabar con el doble de trabajo vivo
+        // que el que el tope dice permitir — y encima descubriéndolo el día que el líder clasifique
+        // las propuestas y se las encuentre todas tomadas de golpe.
         int tope = await TopeDeTomadasAsync(ct);
-        int tomadas = await db.PoolActivities.AsNoTracking()
-            .CountAsync(a => a.ClaimedByDeveloperId == developerId
-                          && (a.Status == PoolActivityStatus.Tomada || a.Status == PoolActivityStatus.Devuelta), ct);
+        int tomadas = await CuantasVivasAsync(developerId, ct);
         if (tomadas >= tope)
-            return (false, $"Ya tienes {tomadas} actividad(es) del pool sin entregar y el tope es {tope}. " +
+            return (false, $"Ya tienes {tomadas} actividad(es) del pool sin entregar —contando las que " +
+                           $"propusiste y siguen sin clasificar— y el tope es {tope}. " +
                            "Termina o devuelve alguna antes de tomar otra.");
 
         var celda = await CeldaDeMatrizAsync(actividad.WorkType, actividad.Complexity, ct);
@@ -815,14 +1123,7 @@ public class PoolActivityService(
                            "publicarla; al tomarla no se cambia.");
         }
 
-        // El plazo de ESTA actividad manda sobre el de la matriz; si no se fijó, la matriz. Sigue
-        // contando desde AHORA y no desde que se publicó, para que una actividad que esperó dos
-        // semanas en el pool no llegue con el plazo ya consumido. Lo que cambia es la UNIDAD: se
-        // suman HORAS, para que lo que se promete y lo que mide el cronómetro sean el mismo número.
-        // Son horas de reloj —incluyen noches y fines de semana—, que es lo coherente con medir
-        // contra un cronómetro; contar solo jornadas hábiles exigiría un calendario laboral entero.
-        decimal horas = actividad.HorasLimite ?? celda?.HorasLimite ?? 0m;
-        DateTime? limite = horas > 0 ? ahora.AddHours((double)horas) : null;
+        var (horas, limite) = PlazoDesdeAhora(actividad, celda, ahora);
 
         // El sello viaja junto al número y con la misma forma nula, para que el UPDATE de abajo pueda
         // dejar los dos como estaban con un COALESCE y no con un condicional que EF tendría que
@@ -870,17 +1171,7 @@ public class PoolActivityService(
         // la base y no de la copia AsNoTracking de arriba porque el UPDATE condicional se ejecutó
         // directamente contra la base y esa copia todavía diría «Disponible».
         var reclamada = await db.PoolActivities.FirstOrDefaultAsync(a => a.Id == id, ct);
-        if (reclamada != null)
-        {
-            await CopiarChecklistAsync(reclamada, ct);
-            var cronometro = CrearActividadEnlazada(reclamada, developerId);
-            await db.SaveChangesAsync(ct);
-
-            // El identificador del cronómetro solo existe después de insertarlo, así que el enlace
-            // se guarda en un segundo paso.
-            reclamada.LinkedDevActivityId = cronometro.Id;
-            await db.SaveChangesAsync(ct);
-        }
+        if (reclamada != null) await ArrancarElTrabajoAsync(reclamada, developerId, ct);
 
         await audit.RecordAsync(AuditAction.Update, "PoolActivity", id.ToString(),
             $"Tomada del pool ({actividad.Points} pts)", ct);
@@ -1819,6 +2110,49 @@ public class PoolActivityService(
     {
         int n = await configuracion.ObtenerEnteroAsync(ClaveMaxTomadas, MaxTomadasPorOmision, ct);
         return n > 0 ? n : MaxTomadasPorOmision;
+    }
+
+    /// <summary>
+    /// El PLAZO de una actividad que empieza AHORA: el suyo propio manda sobre el de la matriz.
+    ///
+    /// <para>Cuenta desde ahora y no desde que se publicó, para que una actividad que esperó dos
+    /// semanas en el pool no llegue con el plazo ya consumido. Y se suman HORAS, para que lo que se
+    /// promete y lo que mide el cronómetro sean el mismo número. Son horas de reloj —incluyen noches
+    /// y fines de semana—, que es lo coherente con medir contra un cronómetro; contar solo jornadas
+    /// hábiles exigiría un calendario laboral entero.</para>
+    ///
+    /// <para>Está extraído porque hay DOS momentos en que una actividad empieza a correr: cuando
+    /// alguien la toma del pool, y cuando el líder clasifica una propuesta que ya tenía dueño. Los
+    /// dos tienen que calcular el mismo plazo o el segundo entregaría actividades sin fecha.</para>
+    /// </summary>
+    private static (decimal horas, DateTime? limite) PlazoDesdeAhora(
+        PoolActivity actividad, PoolPointsMatrixEntry? celda, DateTime ahora)
+    {
+        decimal horas = actividad.HorasLimite ?? celda?.HorasLimite ?? 0m;
+        return (horas, horas > 0 ? ahora.AddHours((double)horas) : null);
+    }
+
+    /// <summary>
+    /// LO QUE HACE QUE UNA ACTIVIDAD ESTÉ DE VERDAD EN MARCHA: el checklist congelado y la percha
+    /// del cronómetro.
+    ///
+    /// <para>Extraído por lo mismo que el plazo: tomar del pool y clasificar una propuesta con dueño
+    /// desembocan los dos en «Tomada», y las dos cosas de aquí son las que la palabra promete. Una
+    /// actividad tomada sin checklist no se puede entregar —entregar exige cumplirlo— y una sin
+    /// percha no se puede cronometrar, así que olvidar cualquiera de las dos en el camino nuevo
+    /// dejaría trabajo asignado que no se puede ni medir ni terminar.</para>
+    ///
+    /// <para>El enlace de vuelta se guarda en un SEGUNDO <c>SaveChanges</c> porque el identificador
+    /// del cronómetro solo existe después de insertarlo.</para>
+    /// </summary>
+    private async Task ArrancarElTrabajoAsync(PoolActivity actividad, int developerId, CancellationToken ct)
+    {
+        await CopiarChecklistAsync(actividad, ct);
+        var cronometro = CrearActividadEnlazada(actividad, developerId);
+        await db.SaveChangesAsync(ct);
+
+        actividad.LinkedDevActivityId = cronometro.Id;
+        await db.SaveChangesAsync(ct);
     }
 
     /// <summary>Copia el checklist vigente del tipo a la actividad (ver el porqué en el modelo).</summary>

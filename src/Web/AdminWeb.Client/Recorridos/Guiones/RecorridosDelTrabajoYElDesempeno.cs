@@ -322,7 +322,17 @@ public sealed class RecorridosDelTrabajoYElDesempeno : IFuenteDeRecorridos
                 "El pool es trabajo publicado con su valor en puntos ya fijado, así que se sabe " +
                 "cuánto vale antes de tomarlo. En «Disponibles» está lo que todavía no ha tomado " +
                 "nadie; en esta primera pestaña, lo que ya está a tu nombre, con el checklist que " +
-                "hay que cumplir para poder entregarlo."),
+                "hay que cumplir para poder entregarlo. Y si lo que tienes que hacer no está " +
+                "publicado, se propone desde aquí: ésta es la única puerta por la que entra tu " +
+                "trabajo al desempeño."),
+
+            new Paso("mi-pool-proponer", "Proponer trabajo",
+                "Para lo que hay que hacer y nadie ha publicado: una investigación, un " +
+                "apagafuegos, ayudar a otro equipo. Se manda el título, el detalle y un enlace, y " +
+                "NADA MÁS: ni tipo, ni horas, ni puntos. Eso lo pone el líder, y por eso vas a " +
+                "saber cuánto vale antes de hacerlo, que es justo lo que la vieja autocalificación " +
+                "no podía dar. Cuando la clasifique te la encuentras tomada, con su plazo y su " +
+                "checklist; mientras tanto ocupa un sitio de tu tope, igual que una tomada."),
 
             new Paso("mi-pool-mias", "Lo que tienes tomado",
                 "«Entregar antes de» es el PLAZO, y lleva la hora porque son horas de reloj: " +

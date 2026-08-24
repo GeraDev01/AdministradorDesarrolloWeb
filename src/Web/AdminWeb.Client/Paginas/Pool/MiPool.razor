@@ -52,9 +52,69 @@
 <RadzenStack Gap="1rem">
     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="1rem" Wrap="FlexWrap.Wrap">
         <RadzenText TextStyle="TextStyle.H5" class="rz-mb-0">Mi pool de actividades</RadzenText>
+
+        @* PROPONER, junto a Recargar y no dentro de una pestaña: es la puerta por la que entra el
+           trabajo que no está publicado, y esconderla detrás de «Disponibles» —donde justamente NO
+           está lo que se quiere proponer— la haría invisible el día que hace falta. Requiere ficha
+           por lo mismo que tomar: la propuesta nace a nombre de una ficha. *@
+        <RadzenButton data-recorrido="mi-pool-proponer"
+                      Text="Proponer trabajo" Icon="add" ButtonStyle="ButtonStyle.Primary"
+                      Size="ButtonSize.Small" Click="@AbrirPropuesta"
+                      Disabled="@(_ocupado || _datos is not { TieneFicha: true })" />
+
         <RadzenButton Text="Recargar" Icon="refresh" ButtonStyle="ButtonStyle.Light"
                       Size="ButtonSize.Small" Click="@Cargar" Disabled="@_ocupado" />
     </RadzenStack>
+
+    @if (_proponiendo)
+    {
+        <RadzenCard Variant="Variant.Outlined">
+            <RadzenStack Gap="0.7rem">
+                <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0">Proponer trabajo al pool</RadzenText>
+
+                @* EL TEXTO DE ARRIBA NO ES DECORACIÓN. Lo que más se pregunta al ver este panel es
+                   «¿y dónde pongo cuánto vale?», y la respuesta —que no se pone— es la regla entera
+                   del sistema. Escrita aquí, en el sitio donde surge la duda, ahorra la conversación. *@
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                    Aquí no se ponen puntos, ni tipo, ni horas: eso lo decide el líder, y por eso se
+                    sabe cuánto vale <b>antes</b> de hacerlo. Cuando lo clasifique te la encontrarás
+                    tomada, con su plazo y su checklist, y contando dentro de tu tope.
+                </RadzenText>
+
+                <RadzenTextBox @bind-Value="_tituloPropuesta" MaxLength="200" Style="width:100%"
+                               Disabled="@_ocupado" Placeholder="De qué se trata (obligatorio)" />
+
+                <RadzenTextArea @bind-Value="_detallePropuesta" Rows="4" MaxLength="4000" Style="width:100%"
+                                Disabled="@_ocupado"
+                                Placeholder="Qué hay que hacer, por qué, y qué ya intentaste (opcional)" />
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.75rem" Wrap="FlexWrap.Wrap"
+                             AlignItems="AlignItems.Center">
+                    <RadzenLabel Text="Enlace:" Component="enlace-propuesta" />
+                    <RadzenTextBox @bind-Value="_enlacePropuesta" Name="enlace-propuesta" MaxLength="500"
+                                   Disabled="@_ocupado" Style="min-width:22rem"
+                                   Placeholder="https://… (el PR, el correo, el ticket)" />
+
+                    <RadzenLabel Text="Work item:" Component="wi-propuesta" />
+                    <RadzenNumeric TValue="int?" @bind-Value="_workItemPropuesta" Name="wi-propuesta"
+                                   Disabled="@_ocupado" Style="width:8rem" Placeholder="nº" />
+                </RadzenStack>
+
+                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                    El número del work item se puede omitir si pegas su dirección en el enlace: el
+                    servidor lo saca de ahí.
+                </RadzenText>
+
+                <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem" Wrap="FlexWrap.Wrap">
+                    <RadzenButton Text="Proponerla" Icon="send"
+                                  Disabled="@(_ocupado || string.IsNullOrWhiteSpace(_tituloPropuesta))"
+                                  Click="@Proponer" />
+                    <RadzenButton Text="Cancelar" ButtonStyle="ButtonStyle.Light"
+                                  Disabled="@_ocupado" Click="@(() => _proponiendo = false)" />
+                </RadzenStack>
+            </RadzenStack>
+        </RadzenCard>
+    }
 
     @if (_datos is { } d)
     {
@@ -574,6 +634,14 @@
     private PoolWorkType? _tipo;
     private bool _ocupado;
 
+    // ── Proponer ─────────────────────────────────────────────────────────────
+
+    private bool _proponiendo;
+    private string _tituloPropuesta = "";
+    private string _detallePropuesta = "";
+    private string _enlacePropuesta = "";
+    private int? _workItemPropuesta;
+
     /// <summary>
     /// La actividad abierta. Se guarda su identificador y no la instancia porque cada recarga trae
     /// objetos nuevos: sin esto, entregar o marcar un punto cerraría el detalle que se estaba mirando.
@@ -603,6 +671,34 @@
     /// <summary>La actividad que se está a punto de tomar, resuelta contra la última carga.</summary>
     private ActividadLibreDto? Tomando =>
         _tomandoId is int id ? _datos?.Disponibles.FirstOrDefault(a => a.Id == id) : null;
+
+    /// <summary>Abre el panel en blanco: nada se arrastra de la propuesta anterior.</summary>
+    private void AbrirPropuesta()
+    {
+        _proponiendo = true;
+        _tituloPropuesta = "";
+        _detallePropuesta = "";
+        _enlacePropuesta = "";
+        _workItemPropuesta = null;
+    }
+
+    /// <summary>
+    /// Manda la propuesta. Los campos vacíos van como NULOS y no como cadenas vacías: el servidor
+    /// distingue «no me mandaron enlace» de «me mandaron un enlace que no vale», y una cadena vacía
+    /// haría que la validación del enlace se aplicara a algo que nadie escribió.
+    /// </summary>
+    private async Task Proponer()
+    {
+        if (string.IsNullOrWhiteSpace(_tituloPropuesta)) return;
+
+        var cuerpo = new ProponerActividadRequest(
+            _tituloPropuesta.Trim(),
+            string.IsNullOrWhiteSpace(_detallePropuesta) ? null : _detallePropuesta.Trim(),
+            string.IsNullOrWhiteSpace(_enlacePropuesta) ? null : _enlacePropuesta.Trim(),
+            _workItemPropuesta);
+
+        if (await Enviar("api/pool/proponer", cuerpo)) _proponiendo = false;
+    }
 
     protected override Task OnInitializedAsync() => Cargar();
 

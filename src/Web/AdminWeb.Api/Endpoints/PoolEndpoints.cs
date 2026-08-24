@@ -53,6 +53,25 @@ public static class PoolEndpoints
         .RequireAuthorization(PoliticaDelPool)
         .WithSummary("El checklist de una actividad, con su evidencia");
 
+        // PROPONER. Va la primera del ciclo del desarrollador porque es por donde entra el trabajo
+        // desde que la autocalificación se retiró: lo que antes se registraba se propone aquí.
+        //
+        // SIN IDENTIFICADOR DE DESARROLLADOR en la ruta ni en el cuerpo, igual que la jornada y por
+        // el mismo motivo: la propuesta es de quien tiene la sesión. Que el servicio exija además la
+        // propiedad no es redundante — es lo que la protege el día que alguien le añada un parámetro.
+        grupo.MapPost("/proponer", async (
+            ProponerActividadRequest cuerpo, PoolActivityService pool, ICurrentUser quien,
+            CancellationToken ct) =>
+        {
+            if (quien.DeveloperId is not int developerId) return SinFicha();
+
+            var (ok, mensaje, _) = await pool.ProponerAsync(
+                developerId, cuerpo.Titulo, cuerpo.Detalle, cuerpo.Enlace, cuerpo.WorkItem, ct);
+            return Resultado(ok, mensaje);
+        })
+        .RequireAuthorization(PoliticaDelPool)
+        .WithSummary("Propone trabajo al pool; nace a tu nombre y sin valor, y el líder se lo pone");
+
         // El cuerpo va OPCIONAL, igual que el motivo de devolver y liberar: quien toma una tarea o un
         // requerimiento no manda nada. En un bug sí hace falta —lleva la estimación de quien lo
         // toma—, y un cuerpo ausente llega hasta el servicio a propósito: es él quien explica por qué
@@ -183,14 +202,18 @@ public static class PoolEndpoints
         .RequireAuthorization(PoliticaDelLider)
         .WithSummary("Marca si un criterio extra se cumplió; solo los cumplidos suman al aceptar");
 
+        // El cuerpo va OPCIONAL y el motivo dentro puede ser nulo, pero el servicio lo EXIGE cuando la
+        // actividad la propuso alguien: retirar un work item que nadie quiso no le quita nada a
+        // nadie; descartar una propuesta es decirle que no a una persona. La regla vive allá y no
+        // aquí porque es allá donde se sabe si la actividad tiene dueño.
         grupo.MapPost("/{id:int}/retirar", async (
-            int id, PoolActivityService pool, CancellationToken ct) =>
+            int id, MotivoRequest? cuerpo, PoolActivityService pool, CancellationToken ct) =>
         {
-            var (ok, mensaje) = await pool.RetirarAsync(id, ct);
+            var (ok, mensaje) = await pool.RetirarAsync(id, cuerpo?.Motivo, ct);
             return Resultado(ok, mensaje);
         })
         .RequireAuthorization(PoliticaDelLider)
-        .WithSummary("Quita del pool una actividad que ya no aplica");
+        .WithSummary("Quita del pool una actividad que ya no aplica, o descarta una propuesta");
 
         // «Propia» va junto a «retirar» porque son las dos salidas de una actividad que nadie tomó,
         // y conviene leerlas seguidas: una dice «esto ya no aplica» y la otra «esto ya lo hice yo».

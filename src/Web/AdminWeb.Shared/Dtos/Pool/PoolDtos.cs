@@ -319,6 +319,33 @@ public record PublicarActividadRequest(
     int? EquipoId = null);
 
 /// <summary>
+/// EL DESARROLLADOR PROPONE TRABAJO AL POOL.
+///
+/// <para><b>Lo que NO lleva es lo que hay que mirar</b>: ni tipo, ni complejidad, ni horas, ni
+/// puntos, ni a nombre de quién. Es el mismo argumento que sostiene
+/// <see cref="PublicarActividadRequest"/> sin puntos, llevado un paso más allá: allí el líder ya
+/// decide de qué clase es y la matriz pone el precio; aquí ni siquiera eso se ha decidido, y ése es
+/// justamente el trabajo del líder. Aceptar el tipo dejaría que quien propone eligiera su propia
+/// casilla de la matriz, que es la misma cosa que poner el precio con dos pasos de por medio.</para>
+///
+/// <para>Tampoco lleva desarrollador: la propuesta es de quien tiene la sesión, y punto. Con un
+/// identificador en el cuerpo se podría proponer a nombre de otro, que es ponerle trabajo encima sin
+/// que se entere y contando además contra su tope.</para>
+/// </summary>
+/// <param name="Titulo">De qué trabajo se trata. Es lo único que el líder va a leer para decidir
+/// cuánto vale, así que es obligatorio.</param>
+/// <param name="Detalle">Lo largo: qué hay que hacer, por qué, qué ya se intentó.</param>
+/// <param name="Enlace">Dirección de lo que lo respalda —un PR, un correo, un ticket—. Solo http
+/// y https, por lo mismo que en todo lo demás: el líder la abre con el navegador.</param>
+/// <param name="WorkItem">El número del work item de Azure DevOps, si sale de uno. Se puede omitir
+/// y pegar su dirección en <paramref name="Enlace"/>: el servidor saca el número de ella.</param>
+public record ProponerActividadRequest(
+    string Titulo,
+    string? Detalle = null,
+    string? Enlace = null,
+    int? WorkItem = null);
+
+/// <summary>
 /// Tomar una actividad del pool. Lleva un solo dato y solo hace falta para los BUGS.
 ///
 /// <para><b>Por qué la estimación se pide justo aquí y no antes ni después.</b> En un bug, el

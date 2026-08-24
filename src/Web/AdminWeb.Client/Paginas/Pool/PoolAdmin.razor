@@ -494,10 +494,15 @@
                         {
                             <RadzenAlert AlertStyle="AlertStyle.Warning" Shade="Shade.Lighter" AllowClose="false">
                                 <RadzenStack Gap="0.35rem">
+                                    @* DOS PROCEDENCIAS, y hay que distinguirlas porque el desenlace es
+                                       distinto: lo que llegó de un work item sale al pool para quien lo
+                                       quiera; lo que alguien PROPUSO sale tomado por quien lo propuso.
+                                       Clasificar es el mismo gesto, pero no acaba en el mismo sitio, y
+                                       el líder tiene que saberlo antes de pulsar y no después. *@
                                     <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
                                         @(_porClasificar.Count == 1
-                                            ? "Una actividad llegó desde Azure DevOps y espera que le pongas tipo, tiempo y equipo. Hasta entonces no vale puntos y nadie puede tomarla:"
-                                            : $"{_porClasificar.Count} actividades llegaron desde Azure DevOps y esperan que les pongas tipo, tiempo y equipo. Hasta entonces no valen puntos y nadie puede tomarlas:")
+                                            ? "Una actividad espera que le pongas tipo, tiempo y equipo. Hasta entonces no vale puntos y nadie puede tomarla:"
+                                            : $"{_porClasificar.Count} actividades esperan que les pongas tipo, tiempo y equipo. Hasta entonces no valen puntos y nadie puede tomarlas:")
                                     </RadzenText>
                                     @foreach (var p in _porClasificar)
                                     {
@@ -508,6 +513,15 @@
                                                           Click="@(() => AbrirFormularioDe(p))" />
                                             <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
                                                 @p.Titulo
+                                                @if (p.QuienLaTiene is string quien)
+                                                {
+                                                    <b> — la propuso @quien</b>
+                                                    <text>, y al clasificarla queda tomada por @(quien).</text>
+                                                }
+                                                else
+                                                {
+                                                    <text> — llegó desde Azure DevOps; al clasificarla sale al pool.</text>
+                                                }
                                             </RadzenText>
                                         </RadzenStack>
                                     }
@@ -1804,6 +1818,23 @@
     private async Task Retirar(ActividadDelPoolDto actividad)
     {
         bool sinClasificar = actividad.Estado == PoolActivityStatus.PorClasificar;
+
+        // UNA PROPUESTA NO SE DESCARTA EN SILENCIO. Se pide el motivo en vez de confirmar, y no es
+        // un adorno: el servidor lo exige cuando la actividad tiene dueño, así que sin esto el botón
+        // rebotaría siempre. Y aunque no lo exigiera: quien propuso algo y lo ve desaparecer sin una
+        // palabra no vuelve a proponer, que es la forma más barata de matar esta función.
+        if (sinClasificar && actividad.QuienLaTiene is string quienLaPropuso)
+        {
+            var porQue = await Avisos.PedirTextoAsync(
+                $"Vas a descartar «{actividad.Titulo}», que propuso {quienLaPropuso}. " +
+                "¿Por qué? (se le manda tal cual)",
+                "Descartar la propuesta");
+
+            if (string.IsNullOrWhiteSpace(porQue)) return;   // null es cancelar; vacío no vale aquí
+
+            await Enviar($"api/pool/{actividad.Id}/retirar", new MotivoRequest(porQue));
+            return;
+        }
 
         // Descartar lo que entró solo es DEFINITIVO para ese work item: la deduplicación mira si el
         // ticket ya tiene actividad en cualquier estado, así que una descartada no vuelve a entrar
