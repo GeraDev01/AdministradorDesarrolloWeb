@@ -15,6 +15,11 @@ namespace AdminWeb.Application.Tests;
 /// constancia. Lo que se protege aquí es que la discusión quede COMPLETA en la propia entrada: al
 /// replicar, el motivo del rechazo tiene que pasar al historial antes de limpiarse, o la vuelta
 /// siguiente se leería sin la mitad que la explica.
+///
+/// <para>REPLICAR SIGUIÓ VIVO cuando la autocalificación se apagó, y no por inercia: apagar el
+/// registro no borra la cola: hay entradas rechazadas ahí fuera cuyo dueño todavía no ha podido
+/// contestar, y cerrarles la puerta sería dejar la última palabra en manos de quien rechazó. Lo
+/// único que hubo que cambiar aquí es de dónde sale la entrada de partida.</para>
 /// </summary>
 public class ReplicaAutocalificacionTests
 {
@@ -37,22 +42,36 @@ public class ReplicaAutocalificacionTests
             UsuarioDePrueba.Como(UserRole.Desarrollador, developerId: dev.Id, userId: 10));
     }
 
-    /// <summary>Registra una autocalificación y la deja rechazada, como la habría dejado el jefe.</summary>
+    /// <summary>
+    /// Una autocalificación rechazada, como la habría dejado el jefe.
+    ///
+    /// <para>La entrada se SIEMBRA A MANO. Hasta el corte de la puerta única la registraba
+    /// <c>RegistrarAutocalificacionAsync</c>, que ya no paga; lo que hay aquí abajo son los mismos
+    /// campos que ponía —puntos releídos del criterio, <c>SubmittedByDeveloperId</c> puesto y
+    /// <c>AssignedByUserId</c> nulo—, que son justo los que replicar mira para decidir si la entrada
+    /// es del desarrollador. Y describe además lo que de verdad hay en la base de cualquier
+    /// instalación el día del corte: filas nacidas del camino viejo, esperando respuesta.</para>
+    /// </summary>
     private static async Task<PointEntry> RechazadaAsync(AppDbContext db, Developer dev, ScoringCriterion crit,
                                                          UsuarioDePrueba yo, string motivo = "Eso ya estaba pedido.")
     {
-        var (_, _, entrada) = await Svc(db, yo).RegistrarAutocalificacionAsync(new PointEntry
+        _ = yo;   // se conserva en la firma: quien lee la llamada tiene que ver de quién es la entrada
+
+        var fila = new PointEntry
         {
             DeveloperId = dev.Id, CriterionId = crit.Id, Year = 2026, Month = 8,
-            Comment = "Automaticé el reporte mensual"
-        });
-
-        var fila = db.PointEntries.Single(p => p.Id == entrada!.Id);
-        fila.ApprovalStatus = PointApprovalStatus.Rechazado;
-        fila.ReviewComment = motivo;
-        fila.ReviewedByUserId = 900;
-        fila.ReviewedAt = DateTime.UtcNow;
-        db.SaveChanges();
+            Comment = "Automaticé el reporte mensual",
+            Points = crit.DefaultPoints,
+            Date = DateTime.UtcNow,
+            SubmittedByDeveloperId = dev.Id,
+            AssignedByUserId = null,
+            ApprovalStatus = PointApprovalStatus.Rechazado,
+            ReviewComment = motivo,
+            ReviewedByUserId = 900,
+            ReviewedAt = DateTime.UtcNow
+        };
+        db.PointEntries.Add(fila);
+        await db.SaveChangesAsync();
         return fila;
     }
 

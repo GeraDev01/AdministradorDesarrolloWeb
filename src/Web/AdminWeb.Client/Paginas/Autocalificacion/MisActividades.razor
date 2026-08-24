@@ -144,10 +144,23 @@
                 </RadzenText>
             </RadzenStack>
 
+            @* El aviso de que esto se apagó ENTRA POR LA MISMA PUERTA por la que entraba «todavía no
+               hay actividades configuradas»: el servidor dejó de mandar criterios elegibles, y esta
+               condición ya sabía leer eso. Sin tocarla, el botón se queda deshabilitado y el
+               formulario no se abre.
+
+               El botón NO SE ESCONDE, y es a propósito: el recorrido guiado tiene un paso que apunta
+               a él, y un paso que señala algo que no está en la página deja el recorrido a medias.
+               Deshabilitado con el motivo escrito al lado dice más que ausente. *@
             @if (!HayCriterios(d))
             {
                 <RadzenAlert AlertStyle="AlertStyle.Info" Shade="Shade.Lighter" AllowClose="false">
-                    Todavía no hay actividades configuradas que puedas registrar. Pídeselas al líder.
+                    <b>Registrar actividades se retiró.</b> Ahora el trabajo se propone al pool y es el
+                    líder quien le pone valor: así se sabe cuánto vale <i>antes</i> de hacerlo.
+                    Ve a <b>Mi trabajo</b> y usa «Proponer trabajo».
+                    <br />
+                    Lo de aquí abajo sigue vivo: lo que tengas <b>pendiente</b> o <b>rechazado</b> se
+                    puede corregir y replicar como siempre, hasta que el líder lo cierre.
                 </RadzenAlert>
             }
 

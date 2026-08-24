@@ -35,6 +35,17 @@ public static class AutocalificacionEndpoints
         .WithSummary("Entradas de puntos, actividades libres y catálogos de los formularios, de una vez");
 
         // ── Autocalificación ─────────────────────────────────────────────────────
+        //
+        // REGISTRAR SE APAGÓ, y la ruta se queda publicada a propósito. Quien la llame recibe un 400
+        // con el texto que explica a dónde ir —«proponer al pool»— en vez de un 404 mudo, que es lo
+        // que recibiría un cliente viejo, una pestaña abierta desde ayer o el escritorio mientras
+        // siga siendo la marcha atrás. Quitarla no habría hecho el sistema más simple: habría hecho
+        // el fallo más difícil de entender.
+        //
+        // Y el apagado NO ESTÁ AQUÍ sino en PerformanceScoringService.RegistrarAutocalificacionAsync,
+        // por la regla de la casa: las decisiones de negocio viven donde está el dato, no en la
+        // capa que solo traduce HTTP. Lo demás del grupo —corregir, replicar, la captura, las
+        // actividades libres— sigue vivo y sin tocar.
 
         grupo.MapPost("/entradas", async (
             AutocalificacionRequest cuerpo, PerformanceScoringService puntuacion,
@@ -60,7 +71,7 @@ public static class AutocalificacionEndpoints
 
             return Resultado(ok, mensaje);
         })
-        .WithSummary("Registra una actividad propia; nace pendiente de aprobación");
+        .WithSummary("RETIRADA: registrar puntos por cuenta propia se sustituyó por proponer al pool");
 
         grupo.MapPost("/entradas/{id:int}/correccion", async (
             int id, AutocalificacionRequest cuerpo, PerformanceScoringService puntuacion,

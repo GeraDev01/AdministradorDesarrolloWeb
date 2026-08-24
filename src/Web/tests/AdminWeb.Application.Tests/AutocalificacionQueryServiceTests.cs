@@ -159,10 +159,22 @@ public class AutocalificacionQueryServiceTests
 
     // ── Catálogos de los formularios ─────────────────────────────────────────────
 
+    /// <summary>
+    /// YA NO SE OFRECE NINGUNO. Antes esta prueba fijaba el filtro —individuales, activos y con
+    /// puntos positivos— porque el desarrollador elegía de esa lista para registrarse una actividad.
+    /// Registrar se retiró: el trabajo se propone al pool y el líder le pone valor.
+    ///
+    /// <para>Que la lista llegue vacía es lo que apaga el formulario sin tocar el marcado: la
+    /// pantalla ya sabía esconder el botón cuando no había criterios elegibles, y esa condición
+    /// —escrita para «todavía no hay actividades configuradas»— sirvió tal cual.</para>
+    ///
+    /// <para>El catálogo se siembra LLENO a propósito, con uno de cada clase, para que la lista
+    /// vacía no pueda confundirse con una base sin sembrar. Y ninguna fila se desactiva: apagar la
+    /// oferta es una decisión de consulta; tocar <c>IsActive</c> dejaría el histórico ilegible.</para>
+    /// </summary>
     [Fact]
-    public async Task SoloSeOfrecenCriteriosIndividualesYPositivos()
+    public async Task YaNoSeOfreceNingunCriterioParaRegistrar()
     {
-        // Los descuentos los aplica el líder, y un criterio de equipo no se autocalifica.
         var (db, dev, _, yo) = Entorno();
         db.ScoringCriteria.AddRange(
             new ScoringCriterion { Name = "De equipo", DefaultPoints = 3, IsActive = true, Scope = CriterionScope.Equipo },
@@ -172,8 +184,11 @@ public class AutocalificacionQueryServiceTests
 
         var criterios = (await Svc(db, yo).MisActividadesAsync()).Criterios;
 
-        Assert.Equal(["Iniciativa"], criterios.Select(c => c.Nombre));
-        Assert.True(criterios.Single().Disponible);
+        Assert.Empty(criterios);
+
+        // Y el catálogo sigue intacto: lo que se apagó es la oferta, no las filas.
+        Assert.Equal(4, db.ScoringCriteria.Count());
+        Assert.Equal(3, db.ScoringCriteria.Count(c => c.IsActive));
     }
 
     [Fact]

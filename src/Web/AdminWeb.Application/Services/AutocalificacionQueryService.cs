@@ -202,10 +202,22 @@ public class AutocalificacionQueryService(
     /// </summary>
     private async Task<List<CriterioDto>> CriteriosAsync(List<AutocalificacionDto> entradas, CancellationToken ct)
     {
-        var elegibles = await db.ScoringCriteria.AsNoTracking()
-            .Where(c => c.IsActive && c.Scope != CriterionScope.Equipo && c.DefaultPoints > 0)
-            .Select(c => new CriterioDto(c.Id, c.Name, c.Description, c.DefaultPoints, true))
-            .ToListAsync(ct);
+        // NO HAY NINGUNO ELEGIBLE, y la lista vacía es la respuesta correcta y no un fallo de la
+        // consulta: la autocalificación se retiró y no hay nada nuevo que registrar. La pantalla ya
+        // sabe leer esto —esconde el botón cuando no hay elegibles— así que apagar la oferta aquí
+        // apaga el formulario entero sin tocar una línea de marcado.
+        //
+        // Lo que SÍ sigue viajando son los CONSERVADOS: los criterios que ya usa alguna entrada suya.
+        // Corregir y replicar siguen vivos mientras la cola pendiente se drena, y sin su criterio esas
+        // dos pantallas no sabrían ni cómo se llama lo que están corrigiendo. Antes se conservaban
+        // los que se habían caído del catálogo; ahora son todos, que es el mismo mecanismo llevado al
+        // extremo — y por eso no hubo que cambiarlo.
+        //
+        // EL CATÁLOGO NO SE DESACTIVA. Apagar la oferta es una decisión de consulta y se revierte
+        // borrando estas líneas; poner IsActive = false sería un cambio de datos que dejaría el
+        // histórico ilegible —cada entrada aprobada seguiría apuntando a un criterio retirado— y no
+        // se desharía sin volver a tocar la base.
+        List<CriterioDto> elegibles = [];
 
         var yaElegibles = elegibles.Select(c => c.Id).ToHashSet();
         var usados = entradas.Select(e => e.CriterioId).Where(id => !yaElegibles.Contains(id)).Distinct().ToList();

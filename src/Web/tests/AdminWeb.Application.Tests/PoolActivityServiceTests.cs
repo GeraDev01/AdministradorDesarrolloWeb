@@ -733,6 +733,19 @@ public class PoolActivityServiceTests : IDisposable
 
     // ── Frontera con la autocalificación libre ───────────────────────────────────
 
+    /// <summary>
+    /// Nadie se registra a mano trabajo del pool que no hizo.
+    ///
+    /// <para>La frontera existía por CONSTRUCCIÓN: los criterios del pool valen 0 puntos, y la
+    /// autocalificación exigía puntos positivos, así que un intento de cobrarse una actividad del
+    /// pool por la puerta de al lado rebotaba solo. Hoy la frontera es más ancha —registrar se
+    /// retiró entero— y el motivo que llega es el del apagado.</para>
+    ///
+    /// <para>La prueba se conserva en vez de borrarse porque lo que fija no es el mensaje sino el
+    /// RESULTADO: por esta vía no entran puntos del pool. Cuando la puerta estaba abierta lo
+    /// garantizaban los 0 puntos del criterio; ahora lo garantiza que la puerta no está. Si algún
+    /// día se reabriera, este archivo volvería a rojo y es exactamente cuando hay que mirarlo.</para>
+    /// </summary>
     [Fact]
     public async Task Autocalificacion_ConUnCriterioDelPool_SeRechaza()
     {
@@ -740,13 +753,12 @@ public class PoolActivityServiceTests : IDisposable
         int dev = NuevoDesarrollador(db, "Ana");
         var criterio = db.ScoringCriteria.AsNoTracking().Single(c => c.Name == PoolSeed.NombreCriterio(PoolWorkType.Bug));
 
-        // Los criterios del pool valen 0 puntos justamente para que nadie pueda registrarse a mano
-        // trabajo del pool que no hizo.
         var (ok, mensaje, _) = await Puntos(db, Dev(dev)).RegistrarAutocalificacionAsync(
             new PointEntry { DeveloperId = dev, CriterionId = criterio.Id, Year = DateTime.Now.Year, Month = DateTime.Now.Month });
 
         Assert.False(ok);
-        Assert.Contains("no otorga puntos positivos", mensaje);
+        Assert.Contains("pool", mensaje, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(db.PointEntries);
     }
 
     // ── Matriz y plantillas ──────────────────────────────────────────────────────

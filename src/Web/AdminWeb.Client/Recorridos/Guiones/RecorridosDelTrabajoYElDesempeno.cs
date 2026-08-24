@@ -267,20 +267,25 @@ public sealed class RecorridosDelTrabajoYElDesempeno : IFuenteDeRecorridos
         new Recorrido("/mis-actividades", "Mis actividades y mis puntos",
 
             Paso.Portada("Lo que hiciste",
-                "Aquí se registra el trabajo propio de dos formas: los puntos que te autoasignas " +
-                "por una actividad del catálogo, y las actividades libres, que son el trabajo que " +
-                "no cae en ninguno de tus requerimientos. Cada una tiene su pestaña."),
+                "Esta pantalla quedó de CONSULTA: registrar puntos por tu cuenta se retiró, y ahora " +
+                "el trabajo se propone al pool para que el líder le ponga valor antes de hacerlo. " +
+                "Lo que sigue vivo aquí es lo que ya mandaste —corregirlo y replicar un rechazo— y " +
+                "las actividades libres, que nunca dieron puntos y siguen guardando tiempo y " +
+                "evidencia."),
 
             new Paso("actividades-vistas", "Las dos pestañas",
-                "«Actividades y puntos» es lo que da puntos y pasa por la aprobación del líder. " +
-                "«Actividades libres» es para el trabajo que no corresponde a ningún requerimiento " +
-                "asignado —soporte, juntas, investigación, apoyo a otro equipo—: ésas no dan " +
-                "puntos, sirven para que su tiempo y su evidencia queden en algún lado."),
+                "«Actividades y puntos» es el historial de lo que registraste cuando esto daba " +
+                "puntos, con lo que todavía esté pendiente o rechazado. «Actividades libres» es " +
+                "para el trabajo que no corresponde a ningún requerimiento asignado —soporte, " +
+                "juntas, investigación, apoyo a otro equipo—: ésas nunca dieron puntos, sirven " +
+                "para que su tiempo y su evidencia queden en algún lado."),
 
-            new Paso("actividades-registrar", "Registrar una actividad",
-                "Abre el formulario. El puntaje no se teclea: lo fija la actividad que elijas y " +
-                "solo el líder puede ajustarlo al revisar. Lo que registres queda PENDIENTE —no " +
-                "suma en el ranking— hasta que él lo apruebe."),
+            new Paso("actividades-registrar", "Registrar una actividad: se retiró",
+                "Está deshabilitado y no va a volver a encenderse. Registrar puntos por tu cuenta " +
+                "era ponerle valor a algo ya hecho, y el pool hace lo contrario: se sabe cuánto " +
+                "vale antes de empezar. Lo que hacías aquí se hace ahora en «Mi trabajo» con " +
+                "«Proponer trabajo»: la propuesta nace a tu nombre y el líder le pone tipo y " +
+                "complejidad, de donde salen los puntos."),
 
             new Paso("actividades-lista", "Cómo va cada una",
                 "El punto de color dice si está aprobada, pendiente o rechazada, y la insignia con " +

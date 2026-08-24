@@ -10,7 +10,8 @@ namespace AdminWeb.Application.Tests;
 /// <summary>
 /// Reglas del autoservicio del desarrollador:
 ///  · puede cancelar o eliminar SUS solicitudes de vacaciones, con límites por estado;
-///  · el puntaje de una autocalificación lo fija el criterio, nunca el desarrollador.
+///  · el puntaje de una entrada lo fija el criterio, nunca el desarrollador;
+///  · y ya no puede darse puntos a sí mismo, que es lo que retiró la puerta única.
 /// </summary>
 public class DeveloperSelfServiceTests
 {
@@ -190,10 +191,19 @@ public class DeveloperSelfServiceTests
         Assert.True(ok);
     }
 
-    // ── Puntaje fijado por el criterio ──────────────────────────────────────────
+    // ── Autocalificarse: retirado ───────────────────────────────────────────────
+    //
+    // Estas pruebas fueron las que fijaron, en su día, que el desarrollador eligiera QUÉ registra y
+    // nunca CUÁNTO vale. La regla no se cayó con el camino: es la misma que hace que el pool tase
+    // desde una matriz y no desde quien trabaja, y sigue vigilada donde queda un llamador —corregir
+    // una entrada de la cola—. Lo que se retiró es la puerta, y eso es lo que se prueba ahora.
 
+    // El montaje perdió sus dos parámetros de forma —«criterio desactivado» y «criterio de equipo»—
+    // porque las pruebas que los usaban desaparecieron con la puerta: los dos motivos de rechazo que
+    // fijaban están hoy detrás del apagado, y probarlos aquí sería probar que el código muerto sigue
+    // ahí. La validación que los aplica sigue vigilada en ActividadEvidenciaTests, contra corregir.
     private static (AppDbContext db, PerformanceScoringService svc, int criterioId)
-        NuevoEntornoPuntos(int puntosDelCriterio = 5, bool activo = true, CriterionScope alcance = CriterionScope.Individual)
+        NuevoEntornoPuntos(int puntosDelCriterio = 5)
     {
         var db = TestDb.New();
         db.Developers.Add(new Developer { Id = MiDevId, FullName = "Yo", IsActive = true });
@@ -201,8 +211,8 @@ public class DeveloperSelfServiceTests
         {
             Name = "Documentó el módulo",
             DefaultPoints = puntosDelCriterio,
-            IsActive = activo,
-            Scope = alcance,
+            IsActive = true,
+            Scope = CriterionScope.Individual,
             CreatedAt = DateTime.UtcNow
         };
         db.ScoringCriteria.Add(c);
@@ -220,69 +230,64 @@ public class DeveloperSelfServiceTests
         Comment = "hecho"
     };
 
+    /// <summary>
+    /// Ni con un criterio impecable: el desarrollador ya no se puede dar puntos.
+    ///
+    /// <para>La comprobación de que no queda fila es la mitad importante. Un apagado que rechaza
+    /// pero deja algo escrito —una entrada a medias, un pendiente que nadie va a revisar— sería peor
+    /// que no haberlo apagado, porque el residuo aparecería en la cola del líder sin que nadie sepa
+    /// de dónde salió.</para>
+    /// </summary>
     [Fact]
-    public async Task ElPuntajeSeTomaDelCriterio_NoDeLoQueMandeElDesarrollador()
+    public async Task Autocalificarse_SeRetiro_YNoDejaFila()
     {
         var (db, svc, criterioId) = NuevoEntornoPuntos(puntosDelCriterio: 5);
 
-        // El desarrollador intenta colarse 999 puntos.
-        var (ok, _, entrada) = await svc.RegistrarAutocalificacionAsync(Borrador(criterioId, 999));
-
-        Assert.True(ok);
-        Assert.Equal(5, entrada!.Points);
-        Assert.Equal(5, db.PointEntries.Find(entrada.Id)!.Points);
-    }
-
-    [Fact]
-    public async Task UnPuntajeNegativoInyectadoTampocoSeRespeta()
-    {
-        var (_, svc, criterioId) = NuevoEntornoPuntos(puntosDelCriterio: 3);
-
-        var (ok, _, entrada) = await svc.RegistrarAutocalificacionAsync(Borrador(criterioId, -50));
-
-        Assert.True(ok);
-        Assert.Equal(3, entrada!.Points);
-    }
-
-    [Fact]
-    public async Task LaEntradaNacePendienteYAtribuidaAlDesarrollador()
-    {
-        var (_, svc, criterioId) = NuevoEntornoPuntos();
-
-        var borrador = Borrador(criterioId, 1);
-        borrador.ApprovalStatus = PointApprovalStatus.Aprobado;   // intento de auto-aprobarse
-        borrador.AssignedByUserId = 1;
-
-        var (ok, _, entrada) = await svc.RegistrarAutocalificacionAsync(borrador);
-
-        Assert.True(ok);
-        Assert.Equal(PointApprovalStatus.Pendiente, entrada!.ApprovalStatus);
-        Assert.Equal(MiDevId, entrada.SubmittedByDeveloperId);
-        Assert.Null(entrada.AssignedByUserId);
-    }
-
-    [Fact]
-    public async Task NoSePuedeAutocalificarConUnCriterioDesactivado()
-    {
-        var (db, svc, criterioId) = NuevoEntornoPuntos(activo: false);
-
-        var (ok, _, _) = await svc.RegistrarAutocalificacionAsync(Borrador(criterioId, 1));
+        var (ok, mensaje, entrada) = await svc.RegistrarAutocalificacionAsync(Borrador(criterioId, 999));
 
         Assert.False(ok);
+        Assert.Null(entrada);
+        Assert.Contains("pool", mensaje, StringComparison.OrdinalIgnoreCase);
         Assert.Empty(db.PointEntries);
     }
 
+    /// <summary>
+    /// El puntaje lo sigue fijando el criterio, y esto es lo que queda de aquella regla: se prueba
+    /// sobre CORREGIR, que es el llamador que sobrevivió.
+    ///
+    /// <para>Importa porque la cola no se vació al apagar la puerta: mientras haya entradas
+    /// pendientes o rechazadas, corregir una es una escritura del desarrollador sobre sus propios
+    /// puntos, y un 999 colado por ahí valdría exactamente lo mismo que colado por el registro.</para>
+    /// </summary>
     [Fact]
-    public async Task NoSePuedeAutocalificarConUnCriterioDeEquipo()
+    public async Task AlCorregir_ElPuntajeSeTomaDelCriterio_NoDeLoQueMandeElDesarrollador()
     {
-        var (db, svc, criterioId) = NuevoEntornoPuntos(alcance: CriterionScope.Equipo);
+        var (db, svc, criterioId) = NuevoEntornoPuntos(puntosDelCriterio: 5);
 
-        var (ok, _, _) = await svc.RegistrarAutocalificacionAsync(Borrador(criterioId, 1));
+        var pendiente = new PointEntry
+        {
+            DeveloperId = MiDevId, CriterionId = criterioId, Points = 5, Year = 2026, Month = 7,
+            Comment = "hecho", Date = DateTime.UtcNow,
+            ApprovalStatus = PointApprovalStatus.Pendiente, SubmittedByDeveloperId = MiDevId
+        };
+        db.PointEntries.Add(pendiente); db.SaveChanges();
 
-        Assert.False(ok);
-        Assert.Empty(db.PointEntries);
+        // El desarrollador intenta colarse 999 puntos al corregir.
+        var (ok, _) = await svc.EditarAutocalificacionAsync(pendiente.Id, Borrador(criterioId, 999));
+
+        Assert.True(ok);
+        Assert.Equal(5, db.PointEntries.Find(pendiente.Id)!.Points);
     }
 
+    /// <summary>
+    /// Y LA SESIÓN SE COMPRUEBA ANTES QUE EL APAGADO: registrar a nombre de otro sigue lanzando, no
+    /// contestando «se retiró».
+    ///
+    /// <para>No es una sutileza: si el apagado se hubiera puesto por delante de la autorización, un
+    /// intento de escribir sobre la ficha de otra persona dejaría de distinguirse de una llamada
+    /// legítima a una puerta cerrada, y el día que la puerta se reabriera —o que alguien copiara
+    /// este método para otra cosa— la comprobación de dueño ya no estaría donde se creía.</para>
+    /// </summary>
     [Fact]
     public async Task NoSePuedeRegistrarAActividadDeOtroDesarrollador()
     {

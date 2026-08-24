@@ -31,6 +31,14 @@ namespace AdminWeb.Application.Tests;
 /// además el rastreo del <c>new</c>, para que un archivo que construya la entidad y la inserte por
 /// otro camino tampoco pase inadvertido.</para>
 ///
+/// <para><b>Un «APAGADO» en la lista no es una puerta abierta.</b> Dos de los cuatro caminos se
+/// retiraron con una guarda en la primera línea del método y el código de abajo se conservó —lo
+/// comparten operaciones que siguen vivas, y borrarlo obligaría a reescribirlo si algún día se
+/// reabre—, así que el rastreo los sigue encontrando. Se quedan en la lista porque quitarlos la
+/// pondría roja por el otro extremo, y llevan el motivo escrito para que la lista no se lea como
+/// «aquí hay cuatro maneras de pagar». Si algún día se borra ese código, se borra también su
+/// entrada, y la prueba avisará sola si se olvida.</para>
+///
 /// <para>Se recorren los DOS proyectos donde podría aparecer —la capa de aplicación y la API— y no
 /// solo los servicios: si algún día un endpoint insertara la fila él mismo, ése es exactamente el
 /// caso que hay que cazar.</para>
@@ -61,14 +69,19 @@ public class ProductoresDePuntosTests
             "reclamo, ni plazo, ni checklist, ni cronómetro, y no debe crecerlos.",
 
         ["Services/PerformanceScoringService.cs"] =
-            "LA AUTOCALIFICACIÓN. El desarrollador registra algo que hizo y la entrada nace PENDIENTE: " +
-            "registrarla no es ganarla, la aprueba el líder. Es el camino que el rediseño de la puerta " +
-            "única viene a sustituir por «proponer al pool», y hasta entonces sigue vivo.",
+            "APAGADO: la autocalificación. El desarrollador registraba algo ya hecho y el líder lo " +
+            "aprobaba; hoy RegistrarAutocalificacionAsync rechaza en su primera línea y manda a " +
+            "proponer al pool. El código de abajo se conserva sin usar —corregir y replicar siguen " +
+            "vivos y comparten su validación— así que el rastreo lo sigue encontrando. Está en la " +
+            "lista para que la prueba no se ponga roja por algo que ya no puede pagar, y con el " +
+            "«APAGADO» delante para que nadie lo lea como una puerta abierta.",
 
         ["Services/DevActivityService.cs"] =
-            "LA ACTIVIDAD LIBRE CALIFICADA. El líder pone puntos a un trabajo que no venía de ningún " +
-            "encargo, mirando el tiempo MEDIDO por el cronómetro y las evidencias. El otro camino que " +
-            "el rediseño sustituye, y que hoy sigue vivo.",
+            "APAGADO: la actividad libre calificada. El líder ponía puntos a un trabajo que no venía " +
+            "de ningún encargo, mirando el tiempo medido y las evidencias; hoy CalificarAsync rechaza " +
+            "en su primera línea. Lo que había que reconocer se publica al pool; lo que había que " +
+            "penalizar se aplica como descuento. Mismo caso que el de arriba: el código se conserva y " +
+            "por eso el archivo sigue declarado.",
 
         ["Demo/DatosDeDemostracion.cs"] =
             "NO ES UN CAMINO: es la siembra de la demostración, que replica a mano lo que harían los " +

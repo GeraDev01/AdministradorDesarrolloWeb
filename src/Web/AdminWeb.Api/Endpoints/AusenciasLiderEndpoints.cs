@@ -421,10 +421,14 @@ public static class AusenciasLiderEndpoints
         })
         .WithSummary("Las actividades libres del equipo con su tiempo y sus indicadores");
 
-        // CALIFICAR. Es lo que convierte esta pantalla de solo lectura en algo que decide: hasta
-        // ahora una actividad libre acumulaba tiempo y evidencia y no daba puntos por ninguna ruta,
-        // así que todo el trabajo que no cabe en el pool ni viene de un ticket quedaba fuera del
-        // desempeño por no tener dónde contarlo.
+        // CALIFICAR, APAGADO. Esto llegó a existir con un argumento razonable —una actividad libre
+        // acumulaba tiempo medido y evidencia y no daba puntos por ninguna ruta, así que el trabajo
+        // que no cabe en el pool ni viene de un ticket quedaba fuera del desempeño— y se retira
+        // porque seguía siendo ponerle valor a algo ya hecho, que es justo lo que el pool evita.
+        //
+        // La ruta se queda publicada por lo mismo que la de la autocalificación: contesta un 400 con
+        // el motivo y a dónde ir, que es más útil que un 404. La decisión vive en
+        // DevActivityService.CalificarAsync, donde está el dato.
         grupo.MapPost("/actividades/{id:int}/calificar", async (
             int id, CalificarActividadRequest cuerpo, DevActivityService actividades,
             CancellationToken ct) =>
@@ -435,7 +439,7 @@ public static class AusenciasLiderEndpoints
             return ok ? Results.Ok(new ResultadoDto(true, mensaje))
                       : Results.BadRequest(new ResultadoDto(false, mensaje));
         })
-        .WithSummary("Califica una actividad libre cerrada y abona sus puntos");
+        .WithSummary("RETIRADA: los puntos se reparten por el pool; lo negativo, por «Descuento»");
 
         // Mismos dos filtros que el listado: se baja LO QUE EL FILTRO ESTÁ ENSEÑANDO.
         grupo.MapGet("/actividades/excel", async (

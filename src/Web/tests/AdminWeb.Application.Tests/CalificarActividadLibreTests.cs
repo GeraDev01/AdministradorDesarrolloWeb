@@ -9,14 +9,29 @@ using Xunit;
 namespace AdminWeb.Application.Tests;
 
 /// <summary>
-/// CALIFICAR UNA ACTIVIDAD LIBRE: que el trabajo que un desarrollador registra por su cuenta —lo que
-/// no cabe en el pool ni viene de un ticket— pueda contar en su desempeño.
+/// CALIFICAR UNA ACTIVIDAD LIBRE: RETIRADO, y esto es lo que lo sujeta.
 ///
-/// <para><b>Lo que estas pruebas cuidan.</b> Que se pague UNA vez y solo una; que no se pague dos
-/// veces el mismo trabajo por dos caminos —una actividad del pool arrastra una actividad libre como
-/// percha del cronómetro, y ésa ya cobra por el pool—; y que los minutos que quedan escritos sean los
-/// MEDIDOS por el cronómetro y no un número que alguien declaró, que es lo que separa esto de la
-/// vieja autocalificación libre.</para>
+/// <para><b>Qué era.</b> El líder podía poner puntos a una actividad que el desarrollador había
+/// abierto por su cuenta —el trabajo que no cabe en el pool ni viene de un ticket—, mirando el tiempo
+/// MEDIDO por el cronómetro y la evidencia adjunta. Se hizo a propósito y con un argumento decente:
+/// ese trabajo acumulaba horas y evidencia y no daba puntos por ninguna ruta.</para>
+///
+/// <para><b>Por qué se fue.</b> Seguía siendo ponerle valor a algo ya hecho, que es exactamente lo
+/// que el pool existe para evitar: allí el precio se fija ANTES de trabajar, y por eso es comparable
+/// entre personas. Con el pool como unidad de trabajo, esto era el segundo camino de puntos del líder
+/// y sobraba. Lo que había que reconocer se publica al pool y se verifica; lo que había que penalizar
+/// se aplica como DESCUENTO, que es lo que heredó los criterios negativos del catálogo.</para>
+///
+/// <para><b>Qué queda vivo aquí, y por qué importa.</b> Tres cosas. Que la AUTORIZACIÓN se compruebe
+/// antes que el apagado —un desarrollador que intente calificar sigue recibiendo una excepción, no un
+/// «se retiró»—. Que la CONSULTA de la rejilla del líder siga contestando bien: la pantalla se quedó
+/// de solo lectura, pero sigue teniendo que decir qué está calificado y qué cobra por el pool, porque
+/// las entradas de antes del corte no se borraron. Y que la lista de criterios llegue VACÍA, que es
+/// lo que apaga el botón sin tocar el marcado.</para>
+///
+/// <para>Lo que NO se prueba ya aquí es la guarda de la percha del pool: dejó de ser distinguible
+/// —hoy se rechaza todo— y su prueba de verdad está en <c>PerchaDelPoolTests</c>, donde cubre los
+/// cinco métodos y no solo éste.</para>
 /// </summary>
 public class CalificarActividadLibreTests : IDisposable
 {
@@ -82,13 +97,42 @@ public class CalificarActividadLibreTests : IDisposable
         return actividad.Id;
     }
 
-    private static Task<DevActivity> LeerAsync(AppDbContext db, int id) =>
-        db.DevActivities.AsNoTracking().FirstAsync(a => a.Id == id);
+    /// <summary>
+    /// Una actividad YA CALIFICADA, de las de antes del corte.
+    ///
+    /// <para>Se arma a mano porque el método que la armaba es justo el que se apagó, y describe con
+    /// más fidelidad lo que hay en la base el día del corte: una <c>DevActivity</c> apuntando con
+    /// <c>PointEntryId</c> a una entrada aprobada. Nada de esto se migró ni se borró —la regla del
+    /// corte es que ningún tramo toca una fila de <c>PointEntry</c>—, así que la rejilla del líder
+    /// tiene que seguir sabiendo leerlo.</para>
+    /// </summary>
+    private static async Task CalificadaAntesDelCorteAsync(
+        AppDbContext db, int actividadId, int devId, int criterioId, int puntos)
+    {
+        var entrada = new PointEntry
+        {
+            DeveloperId = devId, CriterionId = criterioId, Points = puntos,
+            Year = 2026, Month = 8, Date = DateTime.UtcNow,
+            ApprovalStatus = PointApprovalStatus.Aprobado,
+            AssignedByUserId = 9, ReviewedByUserId = 9, ReviewedAt = DateTime.UtcNow
+        };
+        db.PointEntries.Add(entrada);
+        await db.SaveChangesAsync();
 
-    // ── 1. El camino bueno ───────────────────────────────────────────────────────
+        var actividad = await db.DevActivities.FirstAsync(a => a.Id == actividadId);
+        actividad.PointEntryId = entrada.Id;
+        await db.SaveChangesAsync();
+    }
 
+    // ── 1. Apagado ───────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Con todo a favor —actividad cerrada, criterio individual y activo, puntos positivos— sigue
+    /// rechazando. Que no quede fila es la mitad importante: un apagado que rechaza pero deja una
+    /// <c>PointEntry</c> suelta sería peor que no haberlo apagado.
+    /// </summary>
     [Fact]
-    public async Task Calificar_abonaLosPuntosYDejaLaTraza()
+    public async Task Calificar_seRetiro_YNoDejaFila()
     {
         var (db, devId, criterioId) = await BaseListaAsync();
         using var _ = db;
@@ -98,66 +142,22 @@ public class CalificarActividadLibreTests : IDisposable
         var (ok, mensaje) = await Servicio(db, Admin())
             .CalificarAsync(actividadId, criterioId, 10, "Lo sacó en dos horas un domingo.");
 
-        Assert.True(ok, mensaje);
-
-        var entrada = Assert.Single(await db.PointEntries.AsNoTracking().ToListAsync());
-        Assert.Equal(devId, entrada.DeveloperId);
-        Assert.Equal(criterioId, entrada.CriterionId);
-        Assert.Equal(10, entrada.Points);
-        Assert.Contains("Investigar la caída", entrada.Comment);
-        Assert.Contains("domingo", entrada.Comment);
-
-        // Nace APROBADA: el juicio lo hizo quien podía hacerlo. Mandarla a la cola de aprobación
-        // sería pedirle al líder que se apruebe a sí mismo.
-        Assert.Equal(PointApprovalStatus.Aprobado, entrada.ApprovalStatus);
-
-        // Y la traza en la actividad, que es la guarda contra pagar dos veces.
-        Assert.Equal(entrada.Id, (await LeerAsync(db, actividadId)).PointEntryId);
+        Assert.False(ok);
+        Assert.Contains("pool", mensaje, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(await db.PointEntries.AsNoTracking().ToListAsync());
+        Assert.Null((await db.DevActivities.AsNoTracking().FirstAsync(a => a.Id == actividadId)).PointEntryId);
     }
 
     /// <summary>
-    /// Los puntos los escribe el LÍDER y pueden no ser los del criterio: el criterio dice de qué se
-    /// premia, no cuánto vale este caso. Es el mismo reparto que al publicar un artículo.
+    /// Y rechaza ANTES de mirar nada. Con una actividad abierta —que la validación de abajo habría
+    /// rechazado por su cuenta, con «solo se califican actividades cerradas»— el motivo que llega
+    /// sigue siendo el del apagado.
+    ///
+    /// <para>Sin esta prueba, la de arriba pasaría igual con la guarda puesta al final del método,
+    /// que es donde no sirve de nada.</para>
     /// </summary>
     [Fact]
-    public async Task Calificar_admiteUnValorDistintoAlDelCriterio()
-    {
-        var (db, devId, criterioId) = await BaseListaAsync();
-        using var _ = db;
-
-        int actividadId = await ActividadCerradaAsync(db, devId);
-        await Servicio(db, Admin()).CalificarAsync(actividadId, criterioId, 4, null);
-
-        Assert.Equal(4, (await db.PointEntries.AsNoTracking().SingleAsync()).Points);
-    }
-
-    /// <summary>Y admite valores NEGATIVOS: una actividad libre puede ser el sitio donde consta algo
-    /// que salió mal, igual que en el catálogo hay criterios que restan.</summary>
-    [Fact]
-    public async Task Calificar_admitePuntosNegativos()
-    {
-        var (db, devId, _) = await BaseListaAsync();
-        using var _d = db;
-
-        var malo = new ScoringCriterion
-        {
-            Name = "Se te fue un bug a producción", DefaultPoints = -15,
-            IsActive = true, Scope = CriterionScope.Individual
-        };
-        db.ScoringCriteria.Add(malo);
-        await db.SaveChangesAsync();
-
-        int actividadId = await ActividadCerradaAsync(db, devId);
-        var (ok, mensaje) = await Servicio(db, Admin()).CalificarAsync(actividadId, malo.Id, -15, null);
-
-        Assert.True(ok, mensaje);
-        Assert.Equal(-15, (await db.PointEntries.AsNoTracking().SingleAsync()).Points);
-    }
-
-    // ── 2. Lo que no se califica ─────────────────────────────────────────────────
-
-    [Fact]
-    public async Task Abierta_noSeCalifica()
+    public async Task Calificar_seRetiro_AntesDeValidarNada()
     {
         var (db, devId, criterioId) = await BaseListaAsync();
         using var _ = db;
@@ -169,93 +169,19 @@ public class CalificarActividadLibreTests : IDisposable
         var (ok, mensaje) = await Servicio(db, Admin()).CalificarAsync(abierta.Id, criterioId, 5, null);
 
         Assert.False(ok);
-        Assert.Contains("cerradas", mensaje);
+        Assert.Contains("pool", mensaje, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("cerradas", mensaje);
         Assert.Empty(await db.PointEntries.AsNoTracking().ToListAsync());
-    }
-
-    /// <summary><b>No se paga dos veces.</b> Es la guarda que sostiene todo lo demás.</summary>
-    [Fact]
-    public async Task DosVeces_seNiega()
-    {
-        var (db, devId, criterioId) = await BaseListaAsync();
-        using var _ = db;
-
-        int actividadId = await ActividadCerradaAsync(db, devId);
-        await Servicio(db, Admin()).CalificarAsync(actividadId, criterioId, 10, null);
-
-        var (ok, mensaje) = await Servicio(db, Admin()).CalificarAsync(actividadId, criterioId, 10, null);
-
-        Assert.False(ok);
-        Assert.Contains("ya se calificó", mensaje, StringComparison.OrdinalIgnoreCase);
-        Assert.Single(await db.PointEntries.AsNoTracking().ToListAsync());
     }
 
     /// <summary>
-    /// <b>La percha del cronómetro de una actividad del pool NO se califica aquí.</b> Ese trabajo
-    /// cobra por el pool, con los puntos que la matriz congeló antes de que nadie lo tomara;
-    /// calificarla además sería pagar el mismo trabajo dos veces por dos caminos distintos.
+    /// La autorización se comprueba ANTES que el apagado: un desarrollador sigue recibiendo una
+    /// excepción, no un «se retiró».
+    ///
+    /// <para>No es una sutileza. Si el apagado se hubiera puesto por delante, la comprobación de rol
+    /// dejaría de ejercitarse y nadie se enteraría de que se cayó; el día que este método se reabra
+    /// —o que alguien lo copie para otra cosa— la puerta ya no estaría donde se cree que está.</para>
     /// </summary>
-    [Fact]
-    public async Task LaDelPool_noSeCalifica()
-    {
-        var (db, devId, criterioId) = await BaseListaAsync();
-        using var _ = db;
-
-        var delPool = new PoolActivity
-        {
-            Title = "Corregir el cálculo", WorkType = PoolWorkType.Bug, Complexity = PoolComplexity.Media,
-            Points = 8, Status = PoolActivityStatus.Tomada, ClaimedByDeveloperId = devId
-        };
-        db.PoolActivities.Add(delPool);
-        await db.SaveChangesAsync();
-
-        int actividadId = await ActividadCerradaAsync(db, devId, "Pool #7: Corregir el cálculo",
-            poolActivityId: delPool.Id);
-        delPool.LinkedDevActivityId = actividadId;
-        await db.SaveChangesAsync();
-
-        var (ok, mensaje) = await Servicio(db, Admin()).CalificarAsync(actividadId, criterioId, 10, null);
-
-        Assert.False(ok);
-        Assert.Contains("pool", mensaje, StringComparison.OrdinalIgnoreCase);
-        Assert.Empty(await db.PointEntries.AsNoTracking().ToListAsync());
-    }
-
-    [Fact]
-    public async Task ConCriterioDeEquipo_seNiega()
-    {
-        var (db, devId, _) = await BaseListaAsync();
-        using var _d = db;
-
-        var deEquipo = new ScoringCriterion
-        {
-            Name = "Objetivo de sprint cumplido (equipo)", DefaultPoints = 15,
-            IsActive = true, Scope = CriterionScope.Equipo
-        };
-        db.ScoringCriteria.Add(deEquipo);
-        await db.SaveChangesAsync();
-
-        int actividadId = await ActividadCerradaAsync(db, devId);
-        var (ok, mensaje) = await Servicio(db, Admin()).CalificarAsync(actividadId, deEquipo.Id, 15, null);
-
-        Assert.False(ok);
-        Assert.Contains("equipo", mensaje);
-    }
-
-    [Fact]
-    public async Task ConCeroPuntos_seNiega()
-    {
-        var (db, devId, criterioId) = await BaseListaAsync();
-        using var _ = db;
-
-        int actividadId = await ActividadCerradaAsync(db, devId);
-        var (ok, mensaje) = await Servicio(db, Admin()).CalificarAsync(actividadId, criterioId, 0, null);
-
-        Assert.False(ok);
-        Assert.Contains("0 puntos", mensaje);
-    }
-
-    /// <summary>Calificar es del líder: repartir mérito no es algo que cada quien haga sobre sí mismo.</summary>
     [Fact]
     public async Task UnDesarrollador_noPuedeCalificar()
     {
@@ -269,11 +195,15 @@ public class CalificarActividadLibreTests : IDisposable
             () => Servicio(db, suyo).CalificarAsync(actividadId, criterioId, 10, null));
     }
 
-    // ── 3. Lo que el líder ve antes de decidir ───────────────────────────────────
+    // ── 2. Lo que el líder sigue viendo ──────────────────────────────────────────
 
     /// <summary>
-    /// La pantalla sabe, sin preguntar fila por fila, qué está calificado y qué cobra por el pool.
-    /// Viaja resuelto para no ofrecer un botón que el servidor va a rechazar.
+    /// La rejilla sabe, sin preguntar fila por fila, qué está calificado y qué cobra por el pool.
+    ///
+    /// <para>Sigue viva porque las entradas de antes del corte no se borraron: la pantalla quedó de
+    /// consulta, pero una actividad calificada en julio tiene que seguir enseñando sus puntos. Si
+    /// esta consulta se cayera, el histórico se vería vacío y parecería que el corte borró datos —que
+    /// es justo lo que el corte prometió no hacer.</para>
     /// </summary>
     [Fact]
     public async Task CalificacionDe_diceLoCalificadoYLoQueEsDelPool()
@@ -285,7 +215,7 @@ public class CalificarActividadLibreTests : IDisposable
         int sinCalificar = await ActividadCerradaAsync(db, devId, "Todavía no");
         int delPool = await ActividadCerradaAsync(db, devId, "Pool #7: algo", poolActivityId: 77);
 
-        await Servicio(db, Admin()).CalificarAsync(calificada, criterioId, 7, null);
+        await CalificadaAntesDelCorteAsync(db, calificada, devId, criterioId, 7);
 
         var mapa = await Servicio(db, Admin())
             .CalificacionDeAsync([calificada, sinCalificar, delPool]);
@@ -300,18 +230,25 @@ public class CalificarActividadLibreTests : IDisposable
         Assert.True(mapa[delPool].EsDelPool);
     }
 
-    /// <summary>La lista de criterios para calificar deja fuera los del propio pool, que valen 0 y
-    /// existen solo para que las actividades del pool cuelguen de algo.</summary>
+    /// <summary>
+    /// Y la lista de criterios llega VACÍA. Es lo que apaga el formulario del líder sin tocar una
+    /// línea de marcado: la rejilla esconde el botón cuando no hay con qué calificar.
+    ///
+    /// <para>Se siembra el catálogo del pool ENTERO a propósito, para que la lista vacía no pueda
+    /// confundirse con «no había criterios»: hay decenas, activos e individuales, y aun así no se
+    /// ofrece ninguno. Es la diferencia entre un apagado y una base sin sembrar.</para>
+    /// </summary>
     [Fact]
-    public async Task LosCriteriosParaCalificar_dejanFueraLosDelPool()
+    public async Task LosCriteriosParaCalificar_yaNoOfrecenNada()
     {
         var (db, _, _c) = await BaseListaAsync();
         using var _d = db;
         await PoolSeed.SembrarAsync(db);
 
-        var criterios = await Servicio(db, Admin()).CriteriosParaCalificarAsync();
+        // El catálogo está lleno: si la lista de abajo sale vacía, es porque se apagó la oferta.
+        Assert.NotEmpty(await db.ScoringCriteria
+            .Where(c => c.IsActive && c.Scope == CriterionScope.Individual).ToListAsync());
 
-        Assert.Contains(criterios, c => c.Nombre == "Resolviste un incidente crítico");
-        Assert.DoesNotContain(criterios, c => c.Nombre.StartsWith(PoolSeed.PrefijoCriterio));
+        Assert.Empty(await Servicio(db, Admin()).CriteriosParaCalificarAsync());
     }
 }

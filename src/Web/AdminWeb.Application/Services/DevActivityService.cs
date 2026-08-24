@@ -138,6 +138,34 @@ public class DevActivityService(AppDbContext db, ICurrentUser currentUser, Audit
     {
         AuthorizationGuard.RequireAdmin(currentUser);
 
+        // ── APAGADO ─────────────────────────────────────────────────────────────
+        //
+        // Calificar una actividad libre era el otro camino de puntos del líder, y se retira junto con
+        // la autocalificación por el mismo motivo: el pool es la unidad de trabajo y su precio se fija
+        // antes de trabajar. Lo que había que reconocer aquí se publica al pool y se verifica; lo que
+        // había que penalizar se aplica como DESCUENTO —PoolActivityService.PublicarDescuentoAsync—,
+        // que es la puerta que heredó los criterios negativos del catálogo y la razón de que retirar
+        // ésta no los deje sin ningún uso posible.
+        //
+        // ESTO REVIERTE UNA DECISIÓN RECIENTE, y conviene decirlo aquí en vez de dejar el hueco: las
+        // actividades libres se hicieron calificables a propósito y con un buen argumento —el tiempo
+        // lo mide el cronómetro y no lo declara quien cobra, y la evidencia está adjunta desde antes
+        // de que nadie calificara—. Lo que pesó más fue que ese argumento no cambia que siguen siendo
+        // dos juicios sobre trabajo ya hecho. El precio de volver atrás va escrito sin adornos: el
+        // trabajo que no cabe en el pool y no viene de un ticket —investigación, apagafuegos, ayudar a
+        // otro equipo— pasa por proponerlo, que es un viaje más largo para algo ya terminado.
+        //
+        // El MÉTODO se queda entero a propósito, con su validación y su documentación. Corregir y
+        // replicar siguen vivos —hay entradas pendientes y rechazadas ahí fuera, y cerrarlas dejaría
+        // conversaciones a medias y gente con puntos en el limbo—, y comparten con esto la lectura y
+        // la validación del criterio. Borrarlo obligaría a volver a escribirlo si algún día se
+        // reabre, y dejaría el hueco sin explicación.
+        return (false,
+            "Calificar una actividad libre se retiró: los puntos se reparten por el pool. Si el " +
+            "trabajo merece reconocimiento, publícalo como actividad del pool y verifícala; si hay " +
+            "que descontar, usa «Descuento» en el pool.");
+
+#pragma warning disable CS0162 // La calificación se conserva sin usar: ver el bloque de arriba.
         var actividad = await db.DevActivities.AsNoTracking()
             .FirstOrDefaultAsync(a => a.Id == activityId, ct);
         if (actividad == null) return (false, "Esa actividad ya no existe. Actualiza la lista.");
@@ -226,6 +254,7 @@ public class DevActivityService(AppDbContext db, ICurrentUser currentUser, Audit
 
         return (true, $"Calificada: +{puntos} punto(s) bajo «{criterio.Name}». " +
                       "Ya cuentan en el desempeño del mes.");
+#pragma warning restore CS0162
     }
 
     /// <summary>
@@ -243,12 +272,24 @@ public class DevActivityService(AppDbContext db, ICurrentUser currentUser, Audit
     {
         AuthorizationGuard.RequireAdmin(currentUser);
 
+        // VACÍA desde que calificar se retiró, y es lo que apaga el formulario sin tocar el marcado:
+        // la rejilla del líder esconde el botón cuando no hay con qué calificar, así que no ofrece
+        // una decisión que el servidor va a rechazar.
+        //
+        // Los NEGATIVOS que vivían aquí no se pierden: son los que ofrece ahora el descuento del pool
+        // —PoolQueryService.CriteriosDeDescuentoAsync—, que es la misma lista cambiando de dueño. Sin
+        // esa puerta, retirar ésta habría dejado los criterios negativos del catálogo sin ningún uso
+        // posible, y por eso el descuento se construyó antes que este apagado.
+        return [];
+
+#pragma warning disable CS0162 // La consulta se conserva sin usar: ver el bloque de arriba.
         return await db.ScoringCriteria.AsNoTracking()
             .Where(c => c.IsActive && c.Scope == CriterionScope.Individual && c.DefaultPoints != 0
                         && !c.Name.StartsWith(PoolSeed.PrefijoCriterio))
             .OrderByDescending(c => c.DefaultPoints).ThenBy(c => c.Name)
             .Select(c => new CriterioDto(c.Id, c.Name, c.Description, c.DefaultPoints, true))
             .ToListAsync(ct);
+#pragma warning restore CS0162
     }
 
     /// <summary>

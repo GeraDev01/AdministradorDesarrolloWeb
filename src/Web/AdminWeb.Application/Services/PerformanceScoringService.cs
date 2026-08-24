@@ -216,6 +216,30 @@ public class PerformanceScoringService(AppDbContext db, ICurrentUser currentUser
         AuthorizationGuard.RequireLoggedIn(currentUser);
         AuthorizationGuard.RequireOwnershipOrAdmin(currentUser, borrador.DeveloperId);
 
+        // ── APAGADO ─────────────────────────────────────────────────────────────
+        //
+        // El desarrollador ya no registra puntos por su cuenta. El pool es la unidad de trabajo y su
+        // invariante es que el precio se fija ANTES de trabajar; esto hacía lo contrario —ponerle
+        // valor a algo ya hecho— y era la mitad de la pregunta que había que eliminar: «esto que
+        // acabo de hacer, ¿dónde lo registro?». Lo sustituye proponer la actividad al pool: nace
+        // suya y sin valor, y el líder le pone tipo y complejidad, de donde salen los puntos.
+        //
+        // LA GUARDA VA EN EL SERVICIO Y NO EN EL ENDPOINT, que es la regla de la casa. La ruta sigue
+        // publicada a propósito —así quien la llame recibe este texto y no un 404 mudo— pero no es
+        // ella quien decide: dos sitios donde decidir lo mismo acaban con uno de los dos olvidándose
+        // de una regla.
+        //
+        // El MÉTODO se queda entero a propósito, con su validación y su documentación. Corregir y
+        // replicar siguen vivos —hay entradas pendientes y rechazadas ahí fuera, y cerrarlas dejaría
+        // conversaciones a medias y gente con puntos en el limbo—, y comparten con esto la lectura y
+        // la validación del criterio. Borrarlo obligaría a volver a escribirlo si algún día se
+        // reabre, y dejaría el hueco sin explicación.
+        return (false,
+            "La autocalificación se retiró: ahora el trabajo se propone al pool y es el líder quien " +
+            "le pone valor. Lo que ya tengas pendiente o rechazado se sigue pudiendo corregir y " +
+            "replicar desde esta misma pantalla.", null);
+
+#pragma warning disable CS0162 // El registro se conserva sin usar: ver el bloque de arriba.
         var (valido, error, criterio, enlace) = await ValidarBorradorAsync(borrador, ct);
         if (!valido) return (false, error, null);
 
@@ -233,6 +257,7 @@ public class PerformanceScoringService(AppDbContext db, ICurrentUser currentUser
         db.PointEntries.Add(borrador);
         await db.SaveChangesAsync(ct);
         return (true, $"Actividad registrada (+{borrador.Points} pts). Queda pendiente de aprobación.", borrador);
+#pragma warning restore CS0162
     }
 
     /// <summary>

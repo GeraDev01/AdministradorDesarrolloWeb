@@ -243,8 +243,14 @@
 
                         @* Solo lo CERRADO, solo una vez, y nunca lo que ya cobra por el pool. Las tres
                            condiciones las vuelve a comprobar el servidor: esto es comodidad, no
-                           seguridad. Que el botón no aparezca es lo que evita el intento inútil. *@
-                        @if (a.Estado == DevActivityStatus.Cerrada && !a.Calificada && !a.EsDelPool)
+                           seguridad. Que el botón no aparezca es lo que evita el intento inútil.
+
+                           Y LA CUARTA, que es la que apaga esto: que haya con qué calificar. Calificar
+                           actividades libres se retiró —los puntos se reparten por el pool— y el
+                           servidor lo dice devolviendo la lista de criterios vacía. Leerlo aquí es lo
+                           que hace desaparecer el botón sin una bandera nueva que mantener. *@
+                        @if (a.Estado == DevActivityStatus.Cerrada && !a.Calificada && !a.EsDelPool
+                            && HayConQueCalificar(d))
                         {
                             <RadzenButton Text="Calificar" Size="ButtonSize.ExtraSmall"
                                           Disabled="@_ocupado" Click="@(() => AbrirCalificacion(a))" />
@@ -384,6 +390,13 @@
     /// un artículo de conocimiento. Si no se propusiera nada, el campo se quedaría en cero y habría
     /// que teclear el número que el catálogo ya sabe.
     /// </summary>
+    /// <summary>
+    /// Si el servidor ofrece criterios con los que calificar. Desde que calificar actividades libres
+    /// se retiró la lista llega vacía siempre, y ésa es la señal: la pantalla se queda de consulta
+    /// —tiempo, evidencia y detalle— sin que haya que apagarla desde aquí.
+    /// </summary>
+    private static bool HayConQueCalificar(ActividadesDelEquipoDto d) => d.Criterios is { Count: > 0 };
+
     private void ProponerPuntos(ActividadesDelEquipoDto d)
     {
         var criterio = (d.Criterios ?? []).FirstOrDefault(c => c.Id == _criterioId);
