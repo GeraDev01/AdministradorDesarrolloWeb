@@ -2,6 +2,8 @@
 @attribute [Authorize(Policy = "AdminUDesarrollador")]
 @using AdminWeb.Shared.Dtos.Pool
 @using AdminWeb.Shared.Dtos.Jornada
+@using AdminWeb.Shared.Dtos.Conocimiento
+@using AdminWeb.Shared.Dtos
 @implements IDisposable
 @inject ClienteApi Api
 @inject AvisosDeInterfaz Avisos
@@ -385,6 +387,84 @@
                                             </RadzenDataGridColumn>
                                         </Columns>
                                     </RadzenDataGrid>
+
+                                    @* LOS CRITERIOS EXTRA, aquí y no solo en «Disponibles».
+
+                                       Allá se anuncian para poder decidir si vale la pena tomarla; aquí
+                                       hacen falta para otra cosa: uno de ellos —«aplicaste una práctica
+                                       documentada»— HAY QUE EXPLICARLO ANTES DE ENTREGAR, y el servidor
+                                       no deja entregar sin eso. Sin este panel, el rechazo llegaría al
+                                       pulsar «Entregar» y quien lo lea no tendría dónde arreglarlo.
+
+                                       Van DEBAJO del checklist a propósito: el checklist es lo que hay
+                                       que cumplir para poder entregar y esto es lo que suma de más.
+                                       Arriba competirían por la atención con lo obligatorio. *@
+                                    @if (_extras.Count > 0)
+                                    {
+                                        <RadzenText TextStyle="TextStyle.Subtitle2" class="rz-mb-0 rz-mt-2">
+                                            Además se evalúa
+                                        </RadzenText>
+
+                                        @foreach (var extra in _extras)
+                                        {
+                                            <RadzenCard Variant="Variant.Outlined">
+                                                <RadzenStack Gap="0.5rem">
+                                                    <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">
+                                                        <b>+@extra.Puntos</b> @extra.Nombre
+                                                        @if (extra.Cumplido is bool veredicto)
+                                                        {
+                                                            <text> — </text>
+                                                            <b>@(veredicto ? "lo dio por cumplido" : "NO lo dio por cumplido")</b>
+                                                        }
+                                                    </RadzenText>
+
+                                                    @if (extra.Comentario is string delLider)
+                                                    {
+                                                        @* La voz del líder, marcada como suya. Es la mitad
+                                                           que hace falta para corregir una devolución. *@
+                                                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                                            El líder dijo: @delLider
+                                                        </RadzenText>
+                                                    }
+
+                                                    @if (extra.ExigeArticulo)
+                                                    {
+                                                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                                            Este exige decir <b>qué artículo</b> de la base de conocimiento
+                                                            aplicaste y <b>cómo</b>. Sin eso no se puede entregar: el líder
+                                                            no tendría nada que verificar. Vale también uno tuyo — escribirlo
+                                                            se pagó una vez, aplicarlo se paga cada vez.
+                                                        </RadzenText>
+
+                                                        <RadzenDropDown TValue="int?" Value="@extra.ArticuloId"
+                                                                        ValueChanged="@((int? id) => ElegirArticulo(extra, id))"
+                                                                        Data="@_articulos" TextProperty="Titulo" ValueProperty="Id"
+                                                                        AllowFiltering="true" AllowClear="true"
+                                                                        Placeholder="Elige el artículo publicado que aplicaste"
+                                                                        Disabled="@(_ocupado || !SePuedeJustificar)"
+                                                                        Style="width:100%" />
+
+                                                        <RadzenTextArea Value="@extra.Justificacion"
+                                                                        ValueChanged="@((string t) => EscribirJustificacion(extra, t))"
+                                                                        Rows="3" MaxLength="2000" Style="width:100%"
+                                                                        Disabled="@(_ocupado || !SePuedeJustificar)"
+                                                                        Placeholder="Qué aplicaste de ese artículo y dónde" />
+
+                                                        <RadzenButton Text="Guardar la justificación" Icon="save"
+                                                                      Size="ButtonSize.ExtraSmall"
+                                                                      Disabled="@(_ocupado || !SePuedeJustificar)"
+                                                                      Click="@(() => GuardarJustificacion(extra))" />
+                                                    }
+                                                    else if (extra.Justificacion is string mia)
+                                                    {
+                                                        <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                                            Dijiste: @mia
+                                                        </RadzenText>
+                                                    }
+                                                </RadzenStack>
+                                            </RadzenCard>
+                                        }
+                                    }
                                 </RadzenStack>
                             }
                         </RadzenCard>
@@ -631,6 +711,24 @@
     private MiPoolDto? _datos;
     private IList<MiActividadDelPoolDto>? _seleccion;
     private List<PuntoDeChecklistDto> _checklist = [];
+
+    /// <summary>Los criterios extra de la actividad abierta, con lo que ya se dijo de cada uno.</summary>
+    private List<CriterioExtraDto> _extras = [];
+
+    /// <summary>
+    /// Los artículos PUBLICADOS, para el desplegable del criterio que los exige. Se piden a la ruta
+    /// que ya existe —no hizo falta una nueva— y una sola vez: el catálogo cambia despacio y esta
+    /// pantalla se recarga con cada marca del checklist.
+    /// </summary>
+    private List<ConocimientoTarjetaDto> _articulos = [];
+
+    /// <summary>
+    /// Si la actividad abierta admite todavía que se escriba la justificación. Se cierra al entregar
+    /// —el líder ya la está mirando— y el servidor lo vuelve a comprobar: esto solo evita ofrecer
+    /// una casilla que va a rebotar.
+    /// </summary>
+    private bool SePuedeJustificar =>
+        Abierta is { Estado: PoolActivityStatus.Tomada or PoolActivityStatus.Devuelta };
     private PoolWorkType? _tipo;
     private bool _ocupado;
 
@@ -728,9 +826,60 @@
 
     private async Task CargarChecklist()
     {
-        if (_abiertaId is not int id) { _checklist = []; return; }
+        if (_abiertaId is not int id) { _checklist = []; _extras = []; return; }
+
         _checklist = await Api.LeerAsync<List<PuntoDeChecklistDto>>(
             $"api/pool/{id}/checklist", _cancelacion.Token) ?? [];
+
+        // Los extras viajan CON el checklist y no con la lista: son de la actividad abierta, igual
+        // que él, y pedirlos en la carga general los traería para todas las filas sin que nadie los
+        // mire. La ruta ya existía —la usa el líder para verificar— y contesta lo mismo a los dos.
+        _extras = await Api.LeerAsync<List<CriterioExtraDto>>(
+            $"api/pool/{id}/criterios", _cancelacion.Token) ?? [];
+
+        // El catálogo de artículos, solo si hace falta y solo una vez: si ningún extra pide citar
+        // uno, el desplegable no se pinta y bajar la lista sería un viaje para nada.
+        if (_articulos.Count == 0 && _extras.Any(e => e.ExigeArticulo))
+            await CargarArticulos();
+    }
+
+    /// <summary>
+    /// Los artículos publicados. Sale de la ruta de búsqueda que ya existe, con el estado fijado a
+    /// PUBLICADO: un borrador o algo rechazado no es una práctica documentada, y el servidor lo
+    /// rechaza igual — esto solo evita ofrecerlo.
+    /// </summary>
+    private async Task CargarArticulos()
+    {
+        var pagina = await Api.LeerAsync<PaginaDto<ConocimientoTarjetaDto>>(
+            $"api/conocimiento/?estado={(int)KnowledgeStatus.Publicado}&tamano=200", _cancelacion.Token);
+        _articulos = [.. pagina?.Filas ?? []];
+    }
+
+    /// <summary>
+    /// Elegir el artículo GUARDA en el acto, porque un desplegable no tiene «aceptar» y quien lo usa
+    /// da por hecho que ya quedó. La justificación no: ésa se escribe a ratos y guardarla en cada
+    /// tecla sería un viaje por letra.
+    /// </summary>
+    private async Task ElegirArticulo(CriterioExtraDto extra, int? articuloId)
+    {
+        await Enviar($"api/pool/criterios/{extra.Id}/justificar",
+                     new JustificarCriterioRequest(extra.Justificacion, articuloId));
+        await CargarChecklist();
+    }
+
+    /// <summary>
+    /// El texto se guarda EN MEMORIA mientras se escribe y viaja al pulsar el botón. La lista se
+    /// reemplaza en vez de mutar la fila porque el DTO es un record: sin esto, lo tecleado se
+    /// perdería en la siguiente recarga y nadie sabría por qué.
+    /// </summary>
+    private void EscribirJustificacion(CriterioExtraDto extra, string texto) =>
+        _extras = [.. _extras.Select(e => e.Id == extra.Id ? e with { Justificacion = texto } : e)];
+
+    private async Task GuardarJustificacion(CriterioExtraDto extra)
+    {
+        if (await Enviar($"api/pool/criterios/{extra.Id}/justificar",
+                         new JustificarCriterioRequest(extra.Justificacion, extra.ArticuloId)))
+            await CargarChecklist();
     }
 
     // ── Acciones ─────────────────────────────────────────────────────────────

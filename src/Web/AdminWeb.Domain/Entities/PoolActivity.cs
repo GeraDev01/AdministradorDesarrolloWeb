@@ -565,7 +565,44 @@ public class PoolActivityExtraCriterion
     public DateTime? EvaluatedAtUtc { get; set; }
 
     /// <summary>Por qué se dio por cumplido o no. Opcional, pero es lo que evita discutirlo dos veces.</summary>
+    ///
+    /// <remarks><b>Es la voz del LÍDER</b>, y esa propiedad no se comparte. Lo que dice quien hizo el
+    /// trabajo va en <see cref="Justificacion"/>: dos voces en una misma columna es lo que esta base
+    /// evita en todas partes, porque a los seis meses nadie sabe quién escribió qué.</remarks>
     public string? Comment { get; set; }
+
+    // ── Lo que aporta quien hace el trabajo ──────────────────────────────────
+    //
+    // Los tres campos de aquí abajo los escribe el DESARROLLADOR antes de entregar, y existen por un
+    // criterio concreto: «Aplicaste una práctica documentada en la base de conocimiento». Un extra
+    // como «agregaste pruebas» se verifica mirando la entrega; éste no —el líder no puede adivinar
+    // QUÉ práctica se aplicó ni DÓNDE— así que sin decirlo la evaluación sería un acto de fe.
+
+    /// <summary>
+    /// Qué se hizo, en palabras de quien lo hizo. Se captura ANTES de entregar y no después: pedirla
+    /// al verificar sería pedírsela a alguien que ya está esperando su respuesta.
+    /// </summary>
+    public string? Justificacion { get; set; }
+
+    /// <summary>
+    /// El artículo de la base de conocimiento que se aplicó.
+    ///
+    /// <para><b>SIN CLAVE FORÁNEA</b>, y aquí el motivo no es el motor —<c>KnowledgeArticle</c> no
+    /// tiene ninguna ruta a <c>Developers</c>, así que SQL Server aceptaría la restricción sin
+    /// rechistar— sino la COHERENCIA CON LA COLUMNA DE AL LADO: <see cref="ScoringCriterionId"/> va
+    /// sin clave y «solo como traza» a propósito, para que la fila siga explicando de dónde salieron
+    /// unos puntos ya cobrados aunque el catálogo se depure. Dos campos contiguos con doctrinas
+    /// opuestas —uno que sobrevive al borrado y otro que lo impide— sería indefendible al leerlo.</para>
+    /// </summary>
+    public int? KnowledgeArticleId { get; set; }
+
+    /// <summary>
+    /// El título del artículo, CONGELADO al elegirlo. Por lo mismo que <see cref="Name"/> y
+    /// <see cref="Points"/>: si el autor le cambia el nombre —o el artículo se retira— la fila tiene
+    /// que seguir diciendo qué se aplicó. Sin esta copia, un extra cobrado hace seis meses aparecería
+    /// como «(artículo 47)» y nadie sabría de qué se pagó.
+    /// </summary>
+    public string? KnowledgeArticleTitle { get; set; }
 
     public PoolActivity Activity { get; set; } = null!;
 }

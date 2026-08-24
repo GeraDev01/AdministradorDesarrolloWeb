@@ -225,7 +225,28 @@ public static class PoolSeed
         // Cómo se deja lo entregado para quien viene detrás
         "Abriste un PR pequeño y claro",
         "Le facilitaste el trabajo a QA",
+
+        // Y el que obliga a mirar la base de conocimiento antes de inventar.
+        CriterioDePracticaDocumentada,
     };
+
+    /// <summary>
+    /// EL CRITERIO QUE EXIGE CITAR UN ARTÍCULO, por su nombre exacto.
+    ///
+    /// <para>Es una constante y no una cadena suelta porque el nombre se usa en CUATRO sitios que
+    /// tienen que decir lo mismo: la siembra del catálogo, esta lista corta, la guarda de entregar
+    /// —que exige la justificación y el artículo antes de dejar entregar— y la pantalla, que por él
+    /// decide si pinta el desplegable de artículos. Escrito a mano en los cuatro, el día que alguien
+    /// le corrija una tilde al catálogo, la guarda dejaría de reconocerlo y el extra se podría
+    /// entregar sin justificar, en silencio.</para>
+    ///
+    /// <para><b>Se reconoce POR NOMBRE y no por identificador</b>, que parecería más sólido. El
+    /// identificador del catálogo no es estable entre instalaciones —cada base sembró el suyo— y la
+    /// copia congelada de la fila guarda el NOMBRE, que es lo que sobrevive a que el catálogo se
+    /// depure. Es el mismo criterio con el que <c>CriteriosExtraOfrecidos</c> filtra.</para>
+    /// </summary>
+    public const string CriterioDePracticaDocumentada =
+        "Aplicaste una práctica documentada en la base de conocimiento";
 
     // «Reprodujiste y documentaste un bug» NO está, y es el caso que mejor explica el criterio de
     // esta lista: el checklist de todo Bug ya EXIGE «Reproduje el error y anoté cómo» para poder

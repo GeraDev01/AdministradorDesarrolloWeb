@@ -385,17 +385,47 @@ public record PublicarDescuentoRequest(
 public record EvaluarCriterioRequest(bool Cumplido, string? Comentario);
 
 /// <summary>
+/// QUIEN HACE EL TRABAJO explica un criterio extra, antes de entregar.
+///
+/// <para>Es la contraparte de <see cref="EvaluarCriterioRequest"/> y viaja aparte porque son dos
+/// personas distintas escribiendo dos cosas distintas: aquélla es el veredicto del líder, ésta es lo
+/// que le da algo que verificar. Un solo contrato con los cuatro campos dejaría a cada extremo
+/// pudiendo escribir lo del otro.</para>
+/// </summary>
+/// <param name="ArticuloId">El artículo de la base de conocimiento que se aplicó. Obligatorio antes
+/// de entregar en el criterio que lo pide; el servidor comprueba que exista y esté PUBLICADO.</param>
+public record JustificarCriterioRequest(string? Justificacion, int? ArticuloId = null);
+
+/// <summary>
 /// Un criterio extra tal como se ve en una actividad: lo que se prometió mirar y en qué quedó.
 /// </summary>
 /// <param name="Cumplido">Nulo mientras nadie lo ha evaluado. Se distingue de «false» a propósito:
 /// al devolver una entrega, «se miró y no se cumplió» es información que quien corrige necesita.</param>
+/// <param name="Comentario">La voz del LÍDER: por qué lo dio por bueno o no.</param>
+/// <param name="Justificacion">La voz de QUIEN HIZO EL TRABAJO: qué hizo. Se captura antes de
+/// entregar. Dos voces, dos campos — mezclarlas dejaría el histórico sin saber quién dijo qué.</param>
+/// <param name="ExigeArticulo">Si este criterio obliga a citar un artículo de la base de
+/// conocimiento. Viaja RESUELTO desde el servidor en vez de que la pantalla compare nombres: es la
+/// misma decisión que toma la guarda de entregar, y dos sitios comparándola por su cuenta se
+/// separarían el día que el criterio cambie de nombre.</param>
+/// <param name="ArticuloEsDeQuienLoAplica">Si el artículo citado lo escribió la misma persona que
+/// lo está aplicando. <b>No es un impedimento</b> —escribir se paga una vez y aplicar se paga cada
+/// vez, así que no hay doble pago— pero el líder tiene que verlo para decidir sabiéndolo. Es la
+/// diferencia entre una política que funciona y una que nadie aplica.</param>
 public record CriterioExtraDto(
     int Id,
     int? CriterioId,
     string Nombre,
     int Puntos,
     bool? Cumplido,
-    string? Comentario);
+    string? Comentario,
+    // Los cinco van AL FINAL y con valor por omisión: esto es un record posicional y metidos en
+    // medio correrían de sitio los argumentos de cualquier llamador que no se recompile.
+    string? Justificacion = null,
+    int? ArticuloId = null,
+    string? ArticuloTitulo = null,
+    bool ExigeArticulo = false,
+    bool ArticuloEsDeQuienLoAplica = false);
 
 /// <summary>Una opción del catálogo para elegir criterios extra al publicar.</summary>
 public record CriterioDisponibleDto(int Id, string Nombre, string? Descripcion, int Puntos);

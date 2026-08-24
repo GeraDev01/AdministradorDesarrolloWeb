@@ -99,6 +99,18 @@ public static class ScoringCriteriaSeed
         new("Dejaste la documentación al día",
             "Actualizaste la documentación técnica para que el siguiente no tenga que adivinar.", +5,
             "Documentación actualizada", "Se actualizó la documentación técnica del sistema."),
+        // El que cierra el círculo con la base de conocimiento: aquél paga por ESCRIBIR una práctica,
+        // éste por APLICARLA. Escribir se paga una vez y para siempre; aplicar se paga cada vez, que
+        // es lo que se quiere premiar — un artículo que nadie usa no vale nada, y hasta ahora no había
+        // forma de saber cuáles se usan.
+        //
+        // Vale MÁS que dejar la documentación al día (+5) y menos que traer algo nuevo: buscar antes
+        // de inventar es la costumbre más cara de instalar y la que más ahorra cuando prende.
+        new(PoolSeed.CriterioDePracticaDocumentada,
+            "Resolviste algo aplicando una práctica que ya estaba escrita en la base de conocimiento, " +
+            "en vez de inventarla otra vez. Se justifica y se dice cuál.", +8,
+            "Aplicación de práctica documentada",
+            "Aplicó una práctica registrada en la base de conocimiento, citando el artículo."),
         new("Agregaste pruebas automatizadas",
             "Escribiste pruebas que de verdad cubren algo, no solo para subir el número.", +8,
             "Cobertura de pruebas", "Agregó pruebas automatizadas significativas."),

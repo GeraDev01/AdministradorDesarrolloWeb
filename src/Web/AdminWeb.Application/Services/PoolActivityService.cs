@@ -68,6 +68,12 @@ public class PoolActivityService(
     public const int MaxDetalle = 4000;
 
     /// <summary>
+    /// Tope de la JUSTIFICACIÓN de un criterio extra: lo que admite la columna. Más largo que un
+    /// motivo porque decir qué práctica se aplicó y dónde pide más espacio que decir si algo vale.
+    /// </summary>
+    public const int MaxJustificacion = 2000;
+
+    /// <summary>
     /// Tope del PLAZO, en horas: 2 920 = los 365 días de antes por una jornada de ocho. Es el mismo
     /// techo que ya había, dicho en la unidad nueva, para no ampliar de tapadillo lo que se podía
     /// prometer.
@@ -576,6 +582,101 @@ public class PoolActivityService(
 
         return (true, ConEmpuje(mensaje, await EmpujarADevOpsAsync(actividad.Id, ct)));
     }
+
+    /// <summary>
+    /// QUIEN HACE EL TRABAJO DICE QUÉ HIZO, antes de entregar: la justificación de un criterio extra
+    /// y, cuando el criterio lo pide, el artículo de la base de conocimiento que aplicó.
+    ///
+    /// <para><b>Por qué existe.</b> Un extra como «agregaste pruebas» se verifica mirando la entrega.
+    /// «Aplicaste una práctica documentada» no: el líder no puede adivinar QUÉ práctica ni DÓNDE, así
+    /// que sin que se lo digan, evaluarlo sería un acto de fe — y un criterio que se da por bueno sin
+    /// mirar es un aumento de puntos disfrazado, que es exactamente lo que la matriz existe para
+    /// evitar.</para>
+    ///
+    /// <para><b>Por qué ANTES de entregar y no al verificar.</b> Pedírsela al verificar sería
+    /// pedírsela a alguien que ya está esperando su respuesta, y el líder tendría que devolver la
+    /// entrega solo para reclamar una frase. Se captura mientras se marca el checklist, que es
+    /// cuando la persona todavía está trabajando y se acuerda.</para>
+    ///
+    /// <para><b>El título del artículo se CONGELA</b>, como todo lo demás de esta fila. Si el autor
+    /// le cambia el nombre o el artículo se retira, la fila tiene que seguir diciendo qué se aplicó:
+    /// sin la copia, un extra cobrado hace seis meses aparecería como «(artículo 47)».</para>
+    ///
+    /// <para>Se puede reescribir mientras la actividad siga EN CURSO, y también DEVUELTA: si el
+    /// líder la devolvió porque la justificación no explicaba nada, corregirla es justo lo que hay
+    /// que poder hacer. Se cierra al entregar y al aceptar, que es cuando ya la está mirando alguien
+    /// o cuando los puntos ya se pagaron.</para>
+    /// </summary>
+    /// <param name="articuloId">
+    /// El artículo aplicado. Solo se acepta <c>Publicado</c>: uno en borrador o rechazado no es una
+    /// práctica documentada, es un texto que alguien está escribiendo.
+    ///
+    /// <para>Se admite el artículo PROPIO a propósito, y no es doble pago: escribirlo se cobró una
+    /// vez y para siempre; aplicarlo se cobra cada vez, que es lo que se quiere premiar. Lo que sí
+    /// hace el panel del líder es DECIRLO, para que la decisión se tome sabiéndolo.</para>
+    /// </param>
+    public async Task<(bool ok, string mensaje)> JustificarCriterioExtraAsync(
+        int criterioId, int developerId, string? justificacion, int? articuloId,
+        CancellationToken ct = default)
+    {
+        AuthorizationGuard.RequireLoggedIn(currentUser);
+        AuthorizationGuard.RequireOwnershipOrAdmin(currentUser, developerId);
+
+        var criterio = await db.PoolActivityExtraCriteria
+            .Include(c => c.Activity)
+            .FirstOrDefaultAsync(c => c.Id == criterioId, ct);
+        if (criterio == null) return (false, "Ese criterio ya no existe. Actualiza la lista.");
+
+        if (criterio.Activity.ClaimedByDeveloperId != developerId)
+            return (false, "Esa actividad no es tuya.");
+
+        if (!criterio.Activity.EnCurso)
+            return (false, criterio.Activity.Status == PoolActivityStatus.EnRevision
+                ? "Ya la entregaste: el líder la está mirando y esto ya no se cambia."
+                : "Esa actividad ya no está en curso.");
+
+        var texto = Limpiar(justificacion);
+        if (texto is { Length: > MaxJustificacion })
+            return (false, $"La justificación no puede pasar de {MaxJustificacion} caracteres.");
+
+        // EL ARTÍCULO SE RESUELVE CONTRA LA BASE y no se cree lo que llegó: el identificador viene de
+        // un desplegable, y un desplegable es una lista que se cargó hace un rato. Y solo Publicado —
+        // un borrador propio no es una práctica documentada, es un texto que alguien está escribiendo.
+        string? tituloDelArticulo = null;
+        if (articuloId is int id)
+        {
+            var articulo = await db.KnowledgeArticles.AsNoTracking()
+                .Where(a => a.Id == id)
+                .Select(a => new { a.Title, a.Status })
+                .FirstOrDefaultAsync(ct);
+
+            if (articulo == null)
+                return (false, "Ese artículo ya no existe. Actualiza la lista.");
+            if (articulo.Status != KnowledgeStatus.Publicado)
+                return (false, "Solo se puede citar un artículo PUBLICADO: uno en borrador o " +
+                               "rechazado todavía no es una práctica documentada.");
+
+            tituloDelArticulo = Recortar(articulo.Title, 200);
+        }
+
+        criterio.Justificacion         = texto;
+        criterio.KnowledgeArticleId    = articuloId;
+        criterio.KnowledgeArticleTitle = tituloDelArticulo;
+        await db.SaveChangesAsync(ct);
+
+        return (true, tituloDelArticulo is null
+            ? "Justificación guardada."
+            : $"Justificación guardada, citando «{tituloDelArticulo}».");
+    }
+
+    /// <summary>
+    /// SI ESTE CRITERIO EXIGE CITAR UN ARTÍCULO. Se pregunta por el NOMBRE congelado en la fila y no
+    /// por el identificador del catálogo: aquél no es estable entre instalaciones y éste es lo que
+    /// sobrevive a que el catálogo se depure. Escrito una sola vez porque lo miran la guarda de
+    /// entregar y la pantalla, y tienen que decir lo mismo.
+    /// </summary>
+    public static bool ExigeArticulo(string nombreDelCriterio) =>
+        string.Equals(nombreDelCriterio, PoolSeed.CriterioDePracticaDocumentada, StringComparison.Ordinal);
 
     /// <summary>
     /// El líder marca si un criterio extra se cumplió. Solo los cumplidos suman al aceptar.
@@ -1313,6 +1414,35 @@ public class PoolActivityService(
         if (sinEvidencia.Count > 0)
             return (false, "Falta el enlace de evidencia en: " +
                            string.Join("; ", sinEvidencia.Select(c => c.Text)) + ".");
+
+        // ── EL EXTRA QUE HAY QUE EXPLICAR ────────────────────────────────────────
+        //
+        // Misma forma que la guarda de la evidencia que hay justo encima, y por el mismo motivo: se
+        // pide ANTES de entregar porque después ya hay alguien esperando. Un «aplicaste una práctica
+        // documentada» sin decir cuál obligaría al líder a devolver la entrega solo para reclamar una
+        // frase, y esa vuelta cuesta más que la frase.
+        //
+        // Se pide EL ARTÍCULO ADEMÁS DE LA JUSTIFICACIÓN, no en su lugar. El texto explica qué se
+        // hizo; el artículo es lo que hace la afirmación comprobable —y lo que, sumado sobre todas las
+        // entregas, contesta por primera vez qué artículos se aplican de verdad y cuáles llevan un año
+        // publicados sin que nadie los use.
+        //
+        // Solo se exige a los que lo piden: obligar a justificar TODOS los extras convertiría en
+        // trámite unos campos que existen para que uno concreto se pueda verificar.
+        var sinJustificar = await db.PoolActivityExtraCriteria.AsNoTracking()
+            .Where(c => c.PoolActivityId == actividad.Id)
+            .Select(c => new { c.Name, c.Justificacion, c.KnowledgeArticleId })
+            .ToListAsync(ct);
+
+        var faltaExplicar = sinJustificar
+            .Where(c => ExigeArticulo(c.Name)
+                     && (string.IsNullOrWhiteSpace(c.Justificacion) || c.KnowledgeArticleId is null))
+            .ToList();
+
+        if (faltaExplicar.Count > 0)
+            return (false, "Te comprometiste a «" + faltaExplicar[0].Name + "»: antes de entregar " +
+                           "tienes que decir QUÉ artículo de la base de conocimiento aplicaste y " +
+                           "CÓMO. Sin eso, el líder no tiene nada que verificar.");
 
         actividad.Status      = PoolActivityStatus.EnRevision;
         actividad.DeliveredAt = DateTime.UtcNow;

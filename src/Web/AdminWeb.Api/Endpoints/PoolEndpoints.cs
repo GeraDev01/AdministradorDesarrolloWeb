@@ -191,6 +191,22 @@ public static class PoolEndpoints
         // La ruta cuelga del criterio y no de la actividad porque el identificador del criterio ya
         // es único: pedir los dos permitiría mandar un par que no se corresponde, y habría que
         // comprobarlo para no evaluar el criterio de otra actividad.
+        // JUSTIFICAR es del DESARROLLADOR y evaluar es del LÍDER: dos rutas, dos políticas, dos
+        // contratos. Con una sola —«actualizar el criterio»— cada extremo podría escribir lo del
+        // otro, y quien hace el trabajo acabaría pudiendo darse por cumplido su propio extra.
+        grupo.MapPost("/criterios/{criterioId:int}/justificar", async (
+            int criterioId, JustificarCriterioRequest cuerpo, PoolActivityService pool,
+            ICurrentUser quien, CancellationToken ct) =>
+        {
+            if (quien.DeveloperId is not int developerId) return SinFicha();
+
+            var (ok, mensaje) = await pool.JustificarCriterioExtraAsync(
+                criterioId, developerId, cuerpo.Justificacion, cuerpo.ArticuloId, ct);
+            return Resultado(ok, mensaje);
+        })
+        .RequireAuthorization(PoliticaDelPool)
+        .WithSummary("Explica un criterio extra y cita el artículo aplicado, antes de entregar");
+
         grupo.MapPost("/criterios/{criterioId:int}/evaluar", async (
             int criterioId, EvaluarCriterioRequest cuerpo, PoolActivityService pool,
             CancellationToken ct) =>

@@ -1192,6 +1192,13 @@ public static class DatabaseMigrator
         // Criterios extra que se evalúan en una actividad concreta. Guardan su propia copia del
         // nombre y de los puntos: quien toma la actividad viendo «+5» tiene que cobrar 5 aunque el
         // catálogo cambie mientras la trabaja.
+        //
+        // ESTA TABLA LA CREA EL MIGRADOR A MANO, y por eso una columna nueva suya va en TRES sitios
+        // y no en dos: la entidad —para las bases que nacen de EnsureCreated—, el cuerpo de este
+        // CREATE y el de su gemelo de T-SQL, y un ALTER idempotente en cada rama para las bases que
+        // ya existían. Olvidar el cuerpo del CREATE no rompe la pantalla nueva: rompe TODO lo que
+        // lea la tabla, en las instalaciones nuevas y solo ahí, que es el peor sitio para
+        // enterarse.
         db.Database.ExecuteSqlRaw(@"
             CREATE TABLE IF NOT EXISTS ""PoolActivityExtraCriteria"" (
                 ""Id""                 INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -1202,8 +1209,27 @@ public static class DatabaseMigrator
                 ""IsMet""              INTEGER,
                 ""EvaluatedAtUtc""     TEXT,
                 ""Comment""            TEXT,
+                ""Justificacion""         TEXT,
+                ""KnowledgeArticleId""    INTEGER,
+                ""KnowledgeArticleTitle"" TEXT,
                 CONSTRAINT ""FK_PoolExtra_Pool"" FOREIGN KEY (""PoolActivityId"") REFERENCES ""PoolActivities""(""Id"") ON DELETE CASCADE
             );");
+
+        // Y LAS MISMAS TRES, para las bases donde la tabla ya existía sin ellas. La justificación y el
+        // artículo los escribe QUIEN HACE EL TRABAJO —el comentario de al lado es del líder— y sirven
+        // al criterio «Aplicaste una práctica documentada»: sin decir cuál y dónde, verificarlo sería
+        // un acto de fe.
+        //
+        // KnowledgeArticleId va SIN REFERENCES, y no por lo que suele: aquí una clave foránea sería
+        // legal. Va sin ella para no contradecir a ScoringCriterionId, su vecina, que es traza a
+        // propósito para sobrevivir a que se depure el catálogo.
+        //
+        // VERSIÓN DE SQLITE: comillas dobles y ADD COLUMN … TEXT/INTEGER, cada una en su try porque
+        // SQLite no sabe decir «si no existe». Las gemelas de T-SQL están en PatchSqlServer con sus
+        // IF COL_LENGTH: están TRADUCIDAS, no copiadas.
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivityExtraCriteria"" ADD COLUMN ""Justificacion"" TEXT"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivityExtraCriteria"" ADD COLUMN ""KnowledgeArticleId"" INTEGER"); } catch { }
+        try { db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PoolActivityExtraCriteria"" ADD COLUMN ""KnowledgeArticleTitle"" TEXT"); } catch { }
         try { db.Database.ExecuteSqlRaw(@"CREATE UNIQUE INDEX IF NOT EXISTS ""UX_PoolExtra"" ON ""PoolActivityExtraCriteria""(""PoolActivityId"",""ScoringCriterionId"")"); } catch { }
 
         // ── Tramos trabajados (reporte de tiempo por día) ──────────
@@ -2781,8 +2807,23 @@ CREATE TABLE [PoolActivityExtraCriteria] (
     [IsMet] bit NULL,
     [EvaluatedAtUtc] datetime2 NULL,
     [Comment] nvarchar(500) NULL,
+    [Justificacion] nvarchar(2000) NULL,
+    [KnowledgeArticleId] int NULL,
+    [KnowledgeArticleTitle] nvarchar(200) NULL,
     CONSTRAINT [FK_PoolExtra_Pool] FOREIGN KEY ([PoolActivityId]) REFERENCES [PoolActivities]([Id]) ON DELETE CASCADE
 );");
+
+        // Y LAS MISMAS TRES para las bases donde la tabla ya existía. ESTA ES LA VERSIÓN DE T-SQL:
+        // las gemelas de SQLite dicen ADD COLUMN "Justificacion" TEXT y viven junto a su CREATE en
+        // la otra rama. Están TRADUCIDAS, no copiadas: pegar aquellas aquí abortaría ésta y todas las
+        // que vienen detrás mientras el arranque anuncia «Esquema al día».
+        //
+        // Las longitudes son las que declara AppDbContext —2000 y 200—, y tienen que serlo: con otras,
+        // una base creada por EnsureCreated y una parcheada quedarían con columnas de tipos distintos
+        // y el desajuste solo se notaría el día que alguien escribiera un texto largo.
+        Exec("IF COL_LENGTH('PoolActivityExtraCriteria','Justificacion') IS NULL ALTER TABLE [PoolActivityExtraCriteria] ADD [Justificacion] nvarchar(2000) NULL;");
+        Exec("IF COL_LENGTH('PoolActivityExtraCriteria','KnowledgeArticleId') IS NULL ALTER TABLE [PoolActivityExtraCriteria] ADD [KnowledgeArticleId] int NULL;");
+        Exec("IF COL_LENGTH('PoolActivityExtraCriteria','KnowledgeArticleTitle') IS NULL ALTER TABLE [PoolActivityExtraCriteria] ADD [KnowledgeArticleTitle] nvarchar(200) NULL;");
         // Único de verdad y no solo un índice: el mismo criterio dos veces en una actividad sumaría
         // dos veces sin que nadie lo hubiera decidido.
         Exec(@"

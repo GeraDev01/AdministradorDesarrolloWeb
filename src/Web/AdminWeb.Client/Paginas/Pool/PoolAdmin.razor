@@ -1046,6 +1046,66 @@
                                                                         Style="opacity:.7">@c.Comentario</RadzenText>
                                                         }
                                                     </RadzenStack>
+
+                                                    @* LO QUE DIJO QUIEN LO HIZO, debajo de su criterio.
+
+                                                       Hay extras que se verifican mirando la entrega —«agregaste
+                                                       pruebas» está en el pull request— y hay uno que no: «aplicaste
+                                                       una práctica documentada» no se puede adivinar, hay que saber
+                                                       QUÉ artículo y CÓMO. Por eso el servidor no deja entregar sin
+                                                       eso escrito, y por eso se pinta aquí: sin verlo, contestar «Sí»
+                                                       sería un acto de fe y el criterio se convertiría en un aumento
+                                                       de puntos disfrazado. *@
+                                                    @if (!string.IsNullOrWhiteSpace(c.Justificacion)
+                                                         || c.ArticuloTitulo is not null)
+                                                    {
+                                                        <RadzenStack Gap="0.2rem" class="rz-ml-4 rz-mb-2">
+                                                            @if (c.ArticuloTitulo is string articulo)
+                                                            {
+                                                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0">
+                                                                    Artículo aplicado:
+                                                                    <a href="conocimiento/@c.ArticuloId" target="_blank">
+                                                                        <b>@articulo</b>
+                                                                    </a>
+                                                                </RadzenText>
+
+                                                                @* EL AVISO DEL ARTÍCULO PROPIO, y NO es un impedimento:
+                                                                   escribirlo se pagó una vez y para siempre; aplicarlo se
+                                                                   paga cada vez, que es justo lo que se quiere premiar. Se
+                                                                   dice para que la decisión se tome sabiéndolo — es una
+                                                                   derivación de una línea y la diferencia entre una
+                                                                   política que funciona y una que nadie aplica. *@
+                                                                @if (c.ArticuloEsDeQuienLoAplica)
+                                                                {
+                                                                    <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                                                                                Style="color:var(--rz-warning)">
+                                                                        Ese artículo lo escribió la misma persona. No lo
+                                                                        impide —escribirlo ya se pagó aparte, y aplicarlo
+                                                                        es otra cosa— pero conviene saberlo.
+                                                                    </RadzenText>
+                                                                }
+                                                            }
+
+                                                            @if (c.Justificacion is string dijo)
+                                                            {
+                                                                <RadzenText TextStyle="TextStyle.Caption" class="rz-mb-0"
+                                                                            Style="white-space:pre-wrap">
+                                                                    Dijo: @dijo
+                                                                </RadzenText>
+                                                            }
+                                                        </RadzenStack>
+                                                    }
+                                                    else if (c.ExigeArticulo)
+                                                    {
+                                                        @* No debería poder pasar —entregar lo exige— pero puede haber
+                                                           entregas de antes de que existiera la exigencia. Decirlo es
+                                                           mejor que dejar un hueco que se lee como «no hizo falta». *@
+                                                        <RadzenText TextStyle="TextStyle.Caption" class="rz-ml-4 rz-mb-2"
+                                                                    Style="color:var(--rz-warning)">
+                                                            Este criterio exige citar un artículo y no hay ninguno: sin eso
+                                                            no hay nada que verificar.
+                                                        </RadzenText>
+                                                    }
                                                 }
 
                                                 <RadzenText TextStyle="TextStyle.Body2" class="rz-mb-0">

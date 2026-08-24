@@ -340,11 +340,38 @@ public class PoolQueryService(AppDbContext db, ICurrentUser currentUser, PoolAct
     {
         AuthorizationGuard.RequireLoggedIn(currentUser);
 
-        return await db.PoolActivityExtraCriteria.AsNoTracking()
+        // De quién es la actividad, para poder contestar si el artículo citado es de la misma
+        // persona. Se pide aparte —una lectura de una fila— en vez de en un Join: la alternativa
+        // sería arrastrar la actividad y el artículo en la misma proyección para todas las filas,
+        // cuando el dato es uno solo y casi siempre no hace falta.
+        int? deQuienEs = await db.PoolActivities.AsNoTracking()
+            .Where(a => a.Id == actividadId)
+            .Select(a => a.ClaimedByDeveloperId)
+            .FirstOrDefaultAsync(ct);
+
+        var filas = await db.PoolActivityExtraCriteria.AsNoTracking()
             .Where(c => c.PoolActivityId == actividadId)
             .OrderByDescending(c => c.Points).ThenBy(c => c.Name)
-            .Select(c => new CriterioExtraDto(
-                c.Id, c.ScoringCriterionId, c.Name, c.Points, c.IsMet, c.Comment))
+            .Select(c => new
+            {
+                c.Id, c.ScoringCriterionId, c.Name, c.Points, c.IsMet, c.Comment,
+                c.Justificacion, c.KnowledgeArticleId, c.KnowledgeArticleTitle,
+                // El autor se lee EN VIVO del artículo y no se congela con el título, y la asimetría
+                // es a propósito: el título se congela porque describe QUÉ se aplicó y tiene que
+                // sobrevivir a que el artículo cambie; el autor solo sirve para avisar al líder
+                // MIENTRAS decide, así que vale el de ahora. Congelarlo sería guardar un dato de
+                // persona en una tabla de puntos sin ninguna necesidad.
+                AutorDelArticulo = c.KnowledgeArticleId == null
+                    ? null
+                    : db.KnowledgeArticles.Where(k => k.Id == c.KnowledgeArticleId)
+                        .Select(k => k.AuthorDeveloperId).FirstOrDefault()
+            })
             .ToListAsync(ct);
+
+        return [.. filas.Select(c => new CriterioExtraDto(
+            c.Id, c.ScoringCriterionId, c.Name, c.Points, c.IsMet, c.Comment,
+            c.Justificacion, c.KnowledgeArticleId, c.KnowledgeArticleTitle,
+            PoolActivityService.ExigeArticulo(c.Name),
+            c.AutorDelArticulo is int autor && deQuienEs is int suyo && autor == suyo))];
     }
 }

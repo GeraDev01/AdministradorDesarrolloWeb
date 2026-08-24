@@ -697,6 +697,14 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         {
             e.Property(x => x.Name).IsRequired().HasMaxLength(200);
             e.Property(x => x.Comment).HasMaxLength(500);
+            // La justificación es de quien hizo el trabajo y el comentario es del líder: dos voces,
+            // dos columnas. Más larga que el comentario porque explicar qué práctica se aplicó y
+            // dónde pide más espacio que decir si vale o no.
+            e.Property(x => x.Justificacion).HasMaxLength(2000);
+            // Copia congelada del título del artículo. Las longitudes DECLARADAS aquí tienen que
+            // coincidir con las que escribe DatabaseMigrator a mano, o una base creada por
+            // EnsureCreated y otra parcheada quedarían con columnas de tipos distintos.
+            e.Property(x => x.KnowledgeArticleTitle).HasMaxLength(200);
             // Cascade por lo mismo que el checklist: estos criterios describen UNA actividad y no
             // significan nada sin ella. Se navega desde la actividad, así que la colección va
             // declarada en los dos sentidos.
